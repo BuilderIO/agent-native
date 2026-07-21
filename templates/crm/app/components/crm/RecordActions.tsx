@@ -114,9 +114,9 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
         <DialogHeader>
           <DialogTitle>Edit CRM field</DialogTitle>
           <DialogDescription>
-            Human provider edits apply after a revision check. Agent edits still
-            become proposals. Local changes are limited to local-authoritative
-            fields.
+            Provider edits become reviewable proposals because HubSpot cannot
+            apply an expected revision atomically. Local changes are limited to
+            local-authoritative fields.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
@@ -189,7 +189,9 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
             }
             onClick={() => void submit()}
           >
-            {target === "provider" ? "Update connected CRM" : "Update locally"}
+            {target === "provider"
+              ? "Prepare HubSpot change"
+              : "Update locally"}
           </Button>
         </DialogFooter>
       </DialogContent>

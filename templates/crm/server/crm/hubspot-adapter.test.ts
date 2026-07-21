@@ -128,70 +128,6 @@ describe("HubSpotCrmAdapter", () => {
     vi.useRealTimers();
   });
 
-  it("retries a definitive PATCH rate limit response but not provider 5xx responses", async () => {
-    vi.useFakeTimers();
-    const rateLimitedTransport = transport(
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          status: 200,
-          body: { id: "deal-1", updatedAt: "revision-1", properties: {} },
-        })
-        .mockResolvedValueOnce({
-          status: 429,
-          headers: { "retry-after": "0.1" },
-        })
-        .mockResolvedValueOnce({
-          status: 200,
-          body: { id: "deal-1", updatedAt: "revision-2", properties: {} },
-        }),
-    );
-    const record = {
-      connectionId: "hubspot-connection",
-      provider: "hubspot" as const,
-      objectType: "deals",
-      kind: "opportunity" as const,
-      remoteId: "deal-1",
-    };
-    const rateLimitedResult = adapter(rateLimitedTransport).applyMutation({
-      operation: "update",
-      record,
-      fields: { dealname: "Changed" },
-      expectedRemoteRevision: "revision-1",
-      idempotencyKey: "mutation-rate-limit",
-    });
-    await vi.advanceTimersByTimeAsync(100);
-
-    await expect(rateLimitedResult).resolves.toMatchObject({
-      status: "applied",
-      remoteRevision: "revision-2",
-    });
-    expect(rateLimitedTransport.request).toHaveBeenCalledTimes(3);
-    vi.useRealTimers();
-
-    const mockTransport = transport(
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          status: 200,
-          body: { id: "deal-1", updatedAt: "revision-1", properties: {} },
-        })
-        .mockResolvedValueOnce({ status: 503 }),
-    );
-    const crm = adapter(mockTransport);
-
-    await expect(
-      crm.applyMutation({
-        operation: "update",
-        record,
-        fields: { dealname: "Changed" },
-        expectedRemoteRevision: "revision-1",
-        idempotencyKey: "mutation-no-retry",
-      }),
-    ).resolves.toMatchObject({ status: "rejected" });
-    expect(mockTransport.request).toHaveBeenCalledTimes(2);
-  });
-
   it("projects only the requested fields and preserves opaque ids, cursors, and tombstones", async () => {
     const mockTransport = transport((input) => {
       expect(input.path).toContain("/crm/v3/objects/deals?");
@@ -326,8 +262,10 @@ describe("HubSpotCrmAdapter", () => {
     ]);
   });
 
-  it("requires a revision, returns conflicts for stale revisions, and rejects destructive writes", async () => {
+  it("fails closed when HubSpot cannot apply the expected revision atomically", async () => {
+    const requestMethods: Array<string | undefined> = [];
     const mockTransport = transport((input) => {
+      requestMethods.push(input.method);
       expect(input.method).toBeUndefined();
       return {
         status: 200,
@@ -360,6 +298,18 @@ describe("HubSpotCrmAdapter", () => {
         operation: "update",
         record,
         fields: { dealname: "Changed" },
+        expectedRemoteRevision: "new-revision",
+        idempotencyKey: "mutation-matching-revision",
+      }),
+    ).resolves.toMatchObject({
+      status: "rejected",
+      message: expect.stringContaining("atomic conditional update"),
+    });
+    await expect(
+      crm.applyMutation({
+        operation: "update",
+        record,
+        fields: { dealname: "Changed" },
         idempotencyKey: "mutation-missing-revision",
       }),
     ).resolves.toMatchObject({
@@ -376,7 +326,8 @@ describe("HubSpotCrmAdapter", () => {
       status: "rejected",
       message: expect.stringContaining("deletion"),
     });
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
+    expect(mockTransport.request).toHaveBeenCalledTimes(2);
+    expect(requestMethods).toEqual([undefined, undefined]);
   });
 
   it("never includes provider response bodies in adapter errors", async () => {

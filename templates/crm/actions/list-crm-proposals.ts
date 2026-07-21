@@ -11,7 +11,6 @@ export default defineAction({
     status: z
       .enum([
         "pending",
-        "executing",
         "approved",
         "applied",
         "rejected",

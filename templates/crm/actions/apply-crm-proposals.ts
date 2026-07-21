@@ -3,32 +3,29 @@ import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
 import { getDb, schema } from "../server/db/index.js";
-import type { CrmValue } from "../shared/crm-contract.js";
 import {
   isSafeCrmMutationFields,
   parseJsonRecord,
   requireCrmScope,
 } from "./_crm-action-utils.js";
 
-function providerMutationMessage(status: "failed" | "conflict" | "rejected") {
-  if (status === "conflict") return "CRM provider revision conflict.";
-  if (status === "rejected") return "CRM provider rejected the mutation.";
-  return "CRM provider mutation could not be completed.";
-}
+const CONDITIONAL_MUTATION_MESSAGE =
+  "HubSpot did not apply this update because this connection cannot apply the expected revision atomically. Refresh the record and make this change in HubSpot.";
 
 function updateAffectedRows(result: unknown): number {
   if (!result || typeof result !== "object") return 0;
   const value = result as {
     rowsAffected?: unknown;
     rowCount?: unknown;
+    count?: unknown;
     changes?: unknown;
     meta?: { changes?: unknown };
   };
   for (const count of [
     value.rowsAffected,
     value.rowCount,
+    value.count,
     value.changes,
     value.meta?.changes,
   ]) {
@@ -39,7 +36,7 @@ function updateAffectedRows(result: unknown): number {
 
 export default defineAction({
   description:
-    "Apply one approved CRM provider mutation proposal. This deliberately accepts one proposal because the phase-one adapter exposes one logical mutation at a time; provider batch transport can be added without changing proposal semantics.",
+    "Review one pending HubSpot provider proposal. Phase 1 records approval and fails closed because HubSpot cannot apply the expected revision atomically; make the change upstream after review.",
   schema: z.object({
     proposalId: z.string().trim().min(1).max(128),
   }),
@@ -60,7 +57,7 @@ export default defineAction({
         visibility: response.visibility,
       };
     },
-    summary: (args) => `Applied CRM proposal ${args.proposalId}`,
+    summary: (args) => `Reviewed CRM proposal ${args.proposalId}`,
     recordInputs: false,
   },
   run: async (args, ctx?: ActionRunContext) => {
@@ -84,14 +81,12 @@ export default defineAction({
     if (!proposal) throw new Error("CRM proposal was not found.");
     if (proposal.target !== "provider" || proposal.operation !== "update") {
       throw new Error(
-        "Only pending provider update proposals can be applied in this phase.",
+        "Only pending provider update proposals can be reviewed in this phase.",
       );
     }
     if (proposal.status !== "pending") {
       throw new Error(
-        proposal.status === "executing"
-          ? "CRM proposal is already being applied."
-          : `CRM proposal is ${proposal.status} and cannot be applied.`,
+        `CRM proposal is ${proposal.status} and cannot be reviewed.`,
       );
     }
     if (!proposal.recordId || !proposal.connectionId) {
@@ -168,9 +163,10 @@ export default defineAction({
     const claim = await db
       .update(schema.crmMutations)
       .set({
-        status: "executing",
+        status: "rejected",
         approvedBy: scope.ownerEmail,
         approvedAt: now,
+        error: CONDITIONAL_MUTATION_MESSAGE,
         updatedAt: now,
       })
       .where(
@@ -190,101 +186,11 @@ export default defineAction({
         "CRM proposal was already claimed by another application attempt.",
       );
     }
-
-    let result: Awaited<
-      ReturnType<
-        Awaited<ReturnType<typeof createHubSpotCrmAdapter>>["applyMutation"]
-      >
-    >;
-    try {
-      const adapter = await createHubSpotCrmAdapter({
-        connectionId: connection.workspaceConnectionId,
-        userEmail: scope.ownerEmail,
-        orgId: scope.orgId,
-      });
-      result = await adapter.applyMutation({
-        operation: "update",
-        record: {
-          ...adapter.connection,
-          objectType: record.objectType,
-          kind: record.kind,
-          remoteId: record.remoteId,
-          localId: record.id,
-        },
-        fields: fieldPatch as Record<string, CrmValue>,
-        expectedRemoteRevision: proposal.expectedRemoteRevision ?? undefined,
-        idempotencyKey: proposal.idempotencyKey,
-      });
-    } catch (error) {
-      const message = providerMutationMessage("failed");
-      await db
-        .update(schema.crmMutations)
-        .set({
-          status: "failed",
-          error: message.slice(0, 1_000),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.crmMutations.id, proposal.id),
-            eq(schema.crmMutations.status, "executing"),
-            accessFilter(
-              schema.crmMutations,
-              schema.crmMutationShares,
-              undefined,
-              "editor",
-            ),
-          ),
-        );
-      return {
-        proposalId: proposal.id,
-        recordId: record.id,
-        status: "failed" as const,
-        message,
-        ownerEmail: record.ownerEmail,
-        orgId: record.orgId,
-        visibility: record.visibility,
-      };
-    }
-
-    const status =
-      result.status === "applied"
-        ? "applied"
-        : result.status === "conflict"
-          ? "conflict"
-          : "rejected";
-    const remoteRevision =
-      result.status === "rejected" ? undefined : result.remoteRevision;
-    const appliedAt = status === "applied" ? new Date().toISOString() : null;
-    const message =
-      status === "applied" ? undefined : providerMutationMessage(status);
-    await db
-      .update(schema.crmMutations)
-      .set({
-        status,
-        providerRemoteRevision: remoteRevision ?? null,
-        ...(status === "applied" ? { appliedAt } : {}),
-        ...(message ? { error: message } : {}),
-        updatedAt: new Date().toISOString(),
-      })
-      .where(
-        and(
-          eq(schema.crmMutations.id, proposal.id),
-          eq(schema.crmMutations.status, "executing"),
-          accessFilter(
-            schema.crmMutations,
-            schema.crmMutationShares,
-            undefined,
-            "editor",
-          ),
-        ),
-      );
     return {
       proposalId: proposal.id,
       recordId: record.id,
-      status,
-      remoteRevision,
-      message,
+      status: "rejected" as const,
+      message: CONDITIONAL_MUTATION_MESSAGE,
       ownerEmail: record.ownerEmail,
       orgId: record.orgId,
       visibility: record.visibility,

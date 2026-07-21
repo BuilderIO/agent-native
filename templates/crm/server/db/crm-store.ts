@@ -978,7 +978,6 @@ export async function listCrmProposals(input: {
   recordId?: string;
   status?:
     | "pending"
-    | "executing"
     | "approved"
     | "applied"
     | "rejected"

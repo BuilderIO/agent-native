@@ -4,8 +4,8 @@ const state = vi.hoisted(() => ({
   selectRows: [] as unknown[][],
   updates: [] as unknown[],
   updateResults: [] as unknown[],
-  applyMutation: vi.fn(),
 }));
+const hubspot = vi.hoisted(() => ({ createAdapter: vi.fn() }));
 
 function query(rows: unknown[]) {
   return Object.assign(rows, { limit: vi.fn().mockResolvedValue(rows) });
@@ -17,10 +17,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("../server/crm/hubspot-adapter.js", () => ({
-  createHubSpotCrmAdapter: vi.fn(async () => ({
-    connection: { connectionId: "workspace-1", provider: "hubspot" },
-    applyMutation: state.applyMutation,
-  })),
+  createHubSpotCrmAdapter: hubspot.createAdapter,
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -99,79 +96,67 @@ describe("apply-crm-proposals", () => {
     state.selectRows = [];
     state.updates = [];
     state.updateResults = [];
-    state.applyMutation.mockReset();
+    hubspot.createAdapter.mockReset();
   });
 
   it("requires an explicit approval before provider execution", () => {
     expect(action.needsApproval).toBe(true);
   });
 
-  it("marks an approved provider proposal applied", async () => {
+  it("records approval and rejects a proposal when HubSpot lacks conditional mutations", async () => {
     state.selectRows = [
       [proposal({ dealname: "Renewal" })],
       [record],
       [connection],
     ];
-    state.applyMutation.mockResolvedValue({
-      status: "applied",
-      remoteRevision: "r2",
-    });
+    state.updateResults = [{ count: 1 }];
 
     const result = await action.run(
       { proposalId: "proposal-1" },
       { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
     );
 
-    expect(result).toMatchObject({ status: "applied", remoteRevision: "r2" });
-    expect(state.updates).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ status: "executing" }),
-        expect.objectContaining({
-          status: "applied",
-          providerRemoteRevision: "r2",
-        }),
-      ]),
-    );
+    expect(result).toMatchObject({
+      status: "rejected",
+      message: expect.stringContaining("cannot apply the expected revision"),
+    });
+    expect(state.updates).toEqual([
+      expect.objectContaining({
+        status: "rejected",
+        approvedBy: record.ownerEmail,
+        approvedAt: expect.any(String),
+        error: expect.stringContaining("cannot apply the expected revision"),
+      }),
+    ]);
+    expect(hubspot.createAdapter).not.toHaveBeenCalled();
   });
 
-  it("persists provider conflicts and transient failures without leaking transport errors", async () => {
+  it("lets only one concurrent approval transition the pending proposal", async () => {
     state.selectRows = [
       [proposal({ dealname: "Renewal" })],
       [record],
       [connection],
+      [proposal({ dealname: "Renewal" })],
+      [record],
+      [connection],
     ];
-    state.applyMutation.mockResolvedValue({
-      status: "conflict",
-      remoteRevision: "r3",
-    });
+    state.updateResults = [{ rowsAffected: 1 }, { rowsAffected: 0 }];
 
     await expect(
       action.run(
         { proposalId: "proposal-1" },
         { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
       ),
-    ).resolves.toMatchObject({ status: "conflict", remoteRevision: "r3" });
-    expect(state.updates.at(-1)).toMatchObject({ status: "conflict" });
-
-    state.selectRows = [
-      [proposal({ dealname: "Renewal" })],
-      [record],
-      [connection],
-    ];
-    state.applyMutation.mockRejectedValue(new Error("provider response body"));
+    ).resolves.toMatchObject({ status: "rejected" });
     await expect(
       action.run(
         { proposalId: "proposal-1" },
         { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
       ),
-    ).resolves.toMatchObject({
-      status: "failed",
-      message: "CRM provider mutation could not be completed.",
-    });
-    expect(state.updates.at(-1)).toMatchObject({ status: "failed" });
+    ).rejects.toThrow("already claimed");
   });
 
-  it("rejects an unsafe proposal patch before calling the provider", async () => {
+  it("rejects an unsafe proposal patch before recording approval", async () => {
     state.selectRows = [
       [proposal({ transcript: "not permitted" })],
       [record],
@@ -184,24 +169,7 @@ describe("apply-crm-proposals", () => {
         { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
       ),
     ).rejects.toThrow("unsafe field patch");
-    expect(state.applyMutation).not.toHaveBeenCalled();
-  });
-
-  it("does not call HubSpot when another request already claimed the proposal", async () => {
-    state.selectRows = [
-      [proposal({ dealname: "Renewal" })],
-      [record],
-      [connection],
-    ];
-    state.updateResults = [{ rowsAffected: 0 }];
-
-    await expect(
-      action.run(
-        { proposalId: "proposal-1" },
-        { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
-      ),
-    ).rejects.toThrow("already claimed");
-    expect(state.applyMutation).not.toHaveBeenCalled();
+    expect(state.updates).toEqual([]);
   });
 
   it("fails closed when a legacy proposal has no expected remote revision", async () => {
@@ -217,6 +185,6 @@ describe("apply-crm-proposals", () => {
         { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
       ),
     ).rejects.toThrow("no remote revision");
-    expect(state.applyMutation).not.toHaveBeenCalled();
+    expect(state.updates).toEqual([]);
   });
 });

@@ -74,7 +74,7 @@ export default function ProposalsRoute() {
       <PageHeader
         eyebrow="Review"
         title="Proposals"
-        description="Provider writes wait here with their exact record and field scope before approval."
+        description="Review the exact record and field scope before completing HubSpot changes upstream."
       />
       {query.isLoading ? (
         <LoadingRows rows={6} />
@@ -128,8 +128,7 @@ export default function ProposalsRoute() {
                       </Link>
                     </Button>
                   ) : null}
-                  {proposal.status === "pending" ||
-                  proposal.status === "approved" ? (
+                  {proposal.status === "pending" ? (
                     <ApprovalButton
                       proposal={proposal}
                       pending={pendingProposalIds.has(proposal.id)}
@@ -166,24 +165,23 @@ function ApprovalButton({
     <AlertDialog>
       <AlertDialogTrigger asChild>
         <Button size="sm" className="gap-1.5" disabled={pending}>
-          <IconShieldCheck className="size-4" /> Review and apply
+          <IconShieldCheck className="size-4" /> Review upstream change
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Apply this provider write?</AlertDialogTitle>
+          <AlertDialogTitle>Review this provider change</AlertDialogTitle>
           <AlertDialogDescription>
-            This updates {proposal.recordName || "one CRM record"}
-            {fieldNames ? ` in ${fieldNames}` : ""}. The provider revision is
-            checked before applying.
+            HubSpot cannot apply this expected revision atomically. Review
+            {proposal.recordName ? ` ${proposal.recordName}` : " this record"}
+            {fieldNames ? ` in ${fieldNames}` : ""}, then make the change in
+            HubSpot.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ProposalFields fields={proposal.fields} />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onApprove}>
-            Apply proposal
-          </AlertDialogAction>
+          <AlertDialogAction onClick={onApprove}>Acknowledge</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

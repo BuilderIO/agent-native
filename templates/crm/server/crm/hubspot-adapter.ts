@@ -602,7 +602,6 @@ export class HubSpotCrmAdapter implements CrmAdapter {
       input.retrySafe === true ||
       input.method === undefined ||
       input.method === "GET";
-    const rateLimitRetrySafe = input.method === "PATCH";
     let elapsedDelayMs = 0;
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       const response = await this.transport.request(input);
@@ -611,8 +610,8 @@ export class HubSpotCrmAdapter implements CrmAdapter {
       }
       const mayRetry =
         attempt + 1 < MAX_RETRY_ATTEMPTS &&
-        ((readRetrySafe && canRetryHubSpotResponse(response.status)) ||
-          (rateLimitRetrySafe && response.status === 429)) &&
+        readRetrySafe &&
+        canRetryHubSpotResponse(response.status) &&
         elapsedDelayMs < MAX_RETRY_DELAY_MS;
       if (!mayRetry) {
         throw new HubSpotApiError(
@@ -1045,6 +1044,14 @@ export class HubSpotCrmAdapter implements CrmAdapter {
             : {}),
           message:
             "The HubSpot record changed before this mutation could be applied.",
+        };
+      }
+      if (!this.capabilities.conditionalMutations) {
+        return {
+          status: "rejected" as const,
+          remoteRevision: current.remoteRevision,
+          message:
+            "HubSpot does not support an atomic conditional update for this record.",
         };
       }
     }
