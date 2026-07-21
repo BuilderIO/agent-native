@@ -41,7 +41,7 @@ describe("ChartTooltip", () => {
     vi.unstubAllGlobals();
   });
 
-  it("keeps the visible tooltip inside the chart tree", async () => {
+  it("portals the visible tooltip to the document body so scrollable ancestors can't clip it", async () => {
     await act(async () => {
       root.render(
         <ChartTooltip
@@ -52,7 +52,7 @@ describe("ChartTooltip", () => {
       );
     });
 
-    expect(container.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[role="tooltip"]')).toHaveLength(0);
     expect(document.body.querySelectorAll('[role="tooltip"]')).toHaveLength(1);
   });
 

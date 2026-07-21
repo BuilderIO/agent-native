@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.8.2
+
+### Patch Changes
+
+- dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+
 ## 0.8.1
 
 ### Patch Changes

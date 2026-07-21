@@ -332,6 +332,19 @@ export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
 
+export function resolveInteractiveAgentRunOptions(
+  options?: Pick<
+    AgentChatPluginOptions,
+    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+  >,
+) {
+  return {
+    runSoftTimeoutMs: options?.runSoftTimeoutMs,
+    runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
+    durableBackgroundRuns: options?.durableBackgroundRuns,
+  };
+}
+
 export function createSerializedA2ATaskStatusWriter(
   taskId: string,
   writeStatus: (
@@ -2909,9 +2922,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         model: options?.model,
         appId: options?.appId,
         apiKey: options?.apiKey,
-        runSoftTimeoutMs: options?.runSoftTimeoutMs,
-        runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-        durableBackgroundRuns: options?.durableBackgroundRuns,
+        ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
           if (details.threadId && details.ownerEmail) {
@@ -3017,9 +3028,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               model: options?.model,
               appId: options?.appId,
               apiKey: options?.apiKey,
-              runSoftTimeoutMs: options?.runSoftTimeoutMs,
-              runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-              durableBackgroundRuns: options?.durableBackgroundRuns,
+              ...resolveInteractiveAgentRunOptions(options),
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
@@ -3176,9 +3185,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           model: options?.model,
           appId: options?.appId,
           apiKey: options?.apiKey,
-          runSoftTimeoutMs: options?.runSoftTimeoutMs,
-          runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-          durableBackgroundRuns: options?.durableBackgroundRuns,
+          ...resolveInteractiveAgentRunOptions(options),
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
             if (details.threadId && details.ownerEmail) {
