@@ -1843,14 +1843,14 @@ function PropertyOptionSettingsRow({
               >
                 <span
                   className={cn(
-                    "inline-flex flex-1 items-center rounded px-1.5 py-0.5 text-xs font-medium capitalize",
+                    "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium capitalize",
                     OPTION_COLOR_CLASSES[color],
                   )}
                 >
                   {t(`editor.propertyOptionColors.${color}`)}
                 </span>
                 {option.color === color ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
+                  <IconCheck className="ml-auto size-4 shrink-0 text-muted-foreground" />
                 ) : null}
               </DropdownMenuItem>
             ))}
