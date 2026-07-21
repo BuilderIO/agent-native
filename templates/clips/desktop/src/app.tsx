@@ -6451,7 +6451,7 @@ function Setup({
   }
 
   return (
-    <form className="setup">
+    <div className="setup">
       <div className="setup-header" onMouseDown={handlePopoverHeaderMouseDown}>
         {onCancel ? (
           <button
