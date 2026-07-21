@@ -5600,23 +5600,39 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .whisper-progress-bar {
-  height: 4px;
   width: 100%;
-  border-radius: 999px;
-  background: var(--surface-strong);
-  overflow: hidden;
+  height: 4px;
   margin-top: 4px;
+  border: none;
+  border-radius: 999px;
+  appearance: none;
+  overflow: hidden;
+  background: var(--surface-strong);
+  color: #16a34a;
 }
 
-.whisper-progress-fill {
-  height: 100%;
+.whisper-progress-bar::-webkit-progress-bar {
+  border-radius: inherit;
+  background: var(--surface-strong);
+}
+
+.whisper-progress-bar::-webkit-progress-value {
   border-radius: inherit;
   background: #16a34a;
-  transition: width 300ms ease;
+}
+
+.whisper-progress-bar::-moz-progress-bar {
+  border-radius: inherit;
+  background: #16a34a;
 }
 
 @media (prefers-color-scheme: dark) {
-  .whisper-progress-fill {
+  .whisper-progress-bar {
+    color: #4ade80;
+  }
+
+  .whisper-progress-bar::-webkit-progress-value,
+  .whisper-progress-bar::-moz-progress-bar {
     background: #4ade80;
   }
 }
@@ -5642,6 +5658,63 @@ body[data-clips-route="recording-pill"] #root {
 
 .whisper-download-btn:hover {
   background: var(--surface-hover);
+}
+
+.whisper-other-models {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.whisper-other-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.whisper-other-model-name {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.whisper-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    background 120ms,
+    color 120ms,
+    border-color 120ms;
+}
+
+.whisper-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #f87171;
+  }
 }
 
 /* ---- */

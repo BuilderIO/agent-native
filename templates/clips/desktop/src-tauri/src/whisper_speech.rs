@@ -134,6 +134,7 @@ pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
@@ -189,13 +190,20 @@ mod macos {
         // the first call takes effect.
         whisper_rs::install_logging_hooks();
 
-        static CTX: OnceLock<Mutex<Option<Arc<WhisperContext>>>> = OnceLock::new();
+        struct CachedContext {
+            model_path: PathBuf,
+            context: Arc<WhisperContext>,
+        }
+
+        static CTX: OnceLock<Mutex<Option<CachedContext>>> = OnceLock::new();
         let slot = CTX.get_or_init(|| Mutex::new(None));
         let mut guard = slot.lock().map_err(|e| e.to_string())?;
-        if let Some(ctx) = guard.as_ref() {
-            return Ok(ctx.clone());
-        }
         let path = model_file(app)?;
+        if let Some(cached) = guard.as_ref() {
+            if cached.model_path == path {
+                return Ok(cached.context.clone());
+            }
+        }
         let path_str = path
             .to_str()
             .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
@@ -208,9 +216,12 @@ mod macos {
         params.use_gpu(cfg!(target_arch = "aarch64"));
         let ctx = WhisperContext::new_with_params(path_str, params)
             .map_err(|e| format!("whisper model load failed: {e}"))?;
-        let ctx = Arc::new(ctx);
-        *guard = Some(ctx.clone());
-        Ok(ctx)
+        let context = Arc::new(ctx);
+        *guard = Some(CachedContext {
+            model_path: path,
+            context: context.clone(),
+        });
+        Ok(context)
     }
 
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {

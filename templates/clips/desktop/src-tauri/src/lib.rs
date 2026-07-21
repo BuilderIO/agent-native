@@ -231,8 +231,11 @@ pub fn run() {
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
             // whisper model management
+            whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            whisper_model::whisper_downloaded_models,
+            whisper_model::whisper_model_delete,
             // permission status (silent checks for all TCC permissions)
             permission_status::check_permission_statuses,
             // persistent log file (production debugging)
