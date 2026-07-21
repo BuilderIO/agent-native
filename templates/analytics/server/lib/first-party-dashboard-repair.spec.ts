@@ -103,14 +103,16 @@ function createDb(
   const deleteRow = vi.fn(() => ({ where: deleteWhere }));
   const transactionRollback = vi.fn();
   const tx = { select, update, insert, delete: deleteRow };
-  const transaction = vi.fn(async (callback: (transactionDb: typeof tx) => any) => {
-    try {
-      return await callback(tx);
-    } catch (err) {
-      transactionRollback(err);
-      throw err;
-    }
-  });
+  const transaction = vi.fn(
+    async (callback: (transactionDb: typeof tx) => any) => {
+      try {
+        return await callback(tx);
+      } catch (err) {
+        transactionRollback(err);
+        throw err;
+      }
+    },
+  );
 
   return {
     db: { select, transaction },

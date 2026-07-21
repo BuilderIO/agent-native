@@ -20,7 +20,6 @@ export default defineAction({
     recipients: z
       .array(z.string().email())
       .min(1)
-      .max(MAX_DASHBOARD_REPORT_RECIPIENTS)
       .describe(
         `Email recipients (maximum ${MAX_DASHBOARD_REPORT_RECIPIENTS}; use a mailing-list address for larger audiences)`,
       ),

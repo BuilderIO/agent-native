@@ -40,54 +40,75 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
   if (!repaired.changed) return false;
 
   const repairedAt = new Date().toISOString();
-  const updated = await db
-    .update(schema.dashboards)
-    .set({
-      config: JSON.stringify(repaired.config),
-      updatedAt: repairedAt,
-      updatedBy: null,
-    })
-    .where(
-      and(
-        eq(schema.dashboards.id, FIRST_PARTY_DASHBOARD_ID),
-        eq(schema.dashboards.config, row.config),
-        eq(schema.dashboards.updatedAt, row.updatedAt),
-      ),
-    )
-    .returning({ id: schema.dashboards.id });
-  if (updated.length !== 1) return false;
+  const revisionId = `dashrev-${Date.now()}-${randomUUID()}`;
+  const changed = await db.transaction(async (tx: any) => {
+    const updated = await tx
+      .update(schema.dashboards)
+      .set({
+        config: JSON.stringify(repaired.config),
+        updatedAt: repairedAt,
+        updatedBy: null,
+      })
+      .where(
+        and(
+          eq(schema.dashboards.id, FIRST_PARTY_DASHBOARD_ID),
+          eq(schema.dashboards.config, row.config),
+          eq(schema.dashboards.updatedAt, row.updatedAt),
+        ),
+      )
+      .returning({ id: schema.dashboards.id });
+    if (updated.length !== 1) return false;
 
-  await db.insert(schema.dashboardRevisions).values({
-    id: `dashrev-${Date.now()}-${randomUUID()}`,
-    dashboardId: row.id,
-    kind: row.kind,
-    title: row.title,
-    config: row.config,
-    createdAt: repairedAt,
-    createdBy: null,
-    ownerEmail: row.ownerEmail,
-    orgId: row.orgId,
+    await tx.insert(schema.dashboardRevisions).values({
+      id: revisionId,
+      dashboardId: row.id,
+      kind: row.kind,
+      title: row.title,
+      config: row.config,
+      createdAt: repairedAt,
+      createdBy: null,
+      ownerEmail: row.ownerEmail,
+      orgId: row.orgId,
+    });
+    const revisions = await tx
+      .select({ id: schema.dashboardRevisions.id })
+      .from(schema.dashboardRevisions)
+      .where(eq(schema.dashboardRevisions.dashboardId, row.id))
+      .orderBy(
+        desc(schema.dashboardRevisions.createdAt),
+        desc(schema.dashboardRevisions.id),
+      );
+    const retainedRevisionIds = new Set([revisionId]);
+    for (const revision of revisions) {
+      if (retainedRevisionIds.size >= 50) break;
+      retainedRevisionIds.add(revision.id);
+    }
+    for (const revision of revisions) {
+      if (retainedRevisionIds.has(revision.id)) continue;
+      await tx
+        .delete(schema.dashboardRevisions)
+        .where(eq(schema.dashboardRevisions.id, revision.id));
+    }
+    return true;
   });
-  const revisions = await db
-    .select({ id: schema.dashboardRevisions.id })
-    .from(schema.dashboardRevisions)
-    .where(eq(schema.dashboardRevisions.dashboardId, row.id))
-    .orderBy(desc(schema.dashboardRevisions.createdAt));
-  for (const revision of revisions.slice(50)) {
-    await db
-      .delete(schema.dashboardRevisions)
-      .where(eq(schema.dashboardRevisions.id, revision.id));
+  if (!changed) return false;
+
+  try {
+    recordChange({
+      source: "dashboards",
+      type: "change",
+      key: row.id,
+      ...(row.visibility === "public"
+        ? {}
+        : row.visibility === "org" && row.orgId
+          ? { orgId: row.orgId }
+          : { owner: row.ownerEmail }),
+    });
+  } catch (err) {
+    console.warn(
+      "[db] Canonical dashboard repair committed without a live change event:",
+      err instanceof Error ? err.message : err,
+    );
   }
-
-  recordChange({
-    source: "dashboards",
-    type: "change",
-    key: row.id,
-    ...(row.visibility === "public"
-      ? {}
-      : row.visibility === "org" && row.orgId
-        ? { orgId: row.orgId }
-        : { owner: row.ownerEmail }),
-  });
   return true;
 }
