@@ -32,6 +32,9 @@ pub(super) struct LiveUploadCtrl {
     pub(super) cancelled: AtomicBool,
     /// Recorded media duration in ms; set just before `finalize`.
     pub(super) duration_ms: AtomicU64,
+    /// Bytes acknowledged by the server. Stop snapshots this before final-tail
+    /// drainage so telemetry measures genuine progressive upload.
+    pub(super) uploaded_bytes: AtomicU64,
 }
 
 pub(super) struct LiveUpload {
@@ -57,6 +60,80 @@ struct LiveUploadParams {
     has_camera: bool,
 }
 
+/// Explicit opt-in credentials for a secondary Clip sink. `server_url: None`
+/// means local-only; a partial remote configuration is rejected rather than
+/// broadening authentication or quietly changing the retention path.
+#[derive(Clone)]
+pub(crate) struct ClipLiveUploadConfig {
+    pub(crate) server_url: Option<String>,
+    pub(crate) recording_id: Option<String>,
+    pub(crate) auth_token: Option<String>,
+    pub(crate) cookie: Option<String>,
+}
+
+impl ClipLiveUploadConfig {
+    pub(crate) fn validated(self) -> Result<Option<(String, String, String, String)>, String> {
+        let Some(server_url) = self.server_url.filter(|value| !value.trim().is_empty()) else {
+            return Ok(None);
+        };
+        let recording_id = self
+            .recording_id
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| "Clip live upload requires a recording ID".to_string())?;
+        let auth_token = self.auth_token.unwrap_or_default();
+        let cookie = self.cookie.unwrap_or_default();
+        if auth_token.trim().is_empty() && cookie.trim().is_empty() {
+            return Err("Clip live upload requires auth token or cookie".into());
+        }
+        Ok(Some((server_url, recording_id, auth_token, cookie)))
+    }
+}
+
+pub(super) fn start_clip_live_uploader(
+    app: &AppHandle,
+    path: PathBuf,
+    mime_type: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    has_audio: bool,
+    has_camera: bool,
+    upload: ClipLiveUploadConfig,
+) -> Result<Option<LiveUpload>, String> {
+    let Some((server_url, recording_id, auth_token, cookie)) = upload.validated()? else {
+        return Ok(None);
+    };
+    Ok(Some(spawn_live_uploader(
+        app.clone(),
+        LiveUploadParams {
+            path,
+            server_url,
+            recording_id,
+            auth_token,
+            cookie,
+            mime_type,
+            width,
+            height,
+            has_audio,
+            has_camera,
+        },
+    )))
+}
+
+pub(super) async fn finalize_clip_live_upload(
+    live: LiveUpload,
+    duration_ms: u64,
+) -> Result<LiveUploadResult, String> {
+    live.ctrl.duration_ms.store(duration_ms, Ordering::SeqCst);
+    live.ctrl.finalize.store(true, Ordering::SeqCst);
+    live.result_rx
+        .await
+        .map_err(|_| "Clip live uploader ended before returning a result".to_string())?
+}
+
+pub(super) fn cancel_clip_live_upload(live: &LiveUpload) {
+    live.ctrl.cancelled.store(true, Ordering::SeqCst);
+}
+
 /// Spawn the background uploader and return a handle the stop path uses to
 /// finalize (or cancel) it.
 fn spawn_live_uploader(app: AppHandle, params: LiveUploadParams) -> LiveUpload {
@@ -64,6 +141,7 @@ fn spawn_live_uploader(app: AppHandle, params: LiveUploadParams) -> LiveUpload {
         finalize: AtomicBool::new(false),
         cancelled: AtomicBool::new(false),
         duration_ms: AtomicU64::new(0),
+        uploaded_bytes: AtomicU64::new(0),
     });
     let (tx, rx) = tokio::sync::oneshot::channel();
     let ctrl_task = ctrl.clone();
@@ -272,6 +350,10 @@ async fn live_upload_loop(
                 return Err(e);
             }
             offset += chunk;
+            ctrl.uploaded_bytes.store(offset, Ordering::SeqCst);
+            crate::logfile::diagnostic(&format!(
+                "[live-upload] {rec}: acknowledged {offset} bytes before finalize={finalize}"
+            ));
             index += 1;
             emit_native_upload_progress(&app, "uploading", "Uploading clip", None, None);
         }
@@ -330,6 +412,7 @@ async fn live_upload_loop(
                     verification_pending = pending;
                 }
                 offset += take;
+                ctrl.uploaded_bytes.store(offset, Ordering::SeqCst);
                 index += 1;
                 final_sent = final_sent || is_last;
             }
@@ -364,6 +447,9 @@ async fn live_upload_loop(
             }
             emit_native_upload_progress(&app, "opening", "Uploading clip", None, Some(1.0));
             eprintln!("[live-upload] {rec}: done — {index} post(s), {final_len} bytes total");
+            crate::logfile::diagnostic(&format!(
+                "[live-upload] {rec}: complete with {final_len} acknowledged bytes"
+            ));
             return Ok(LiveUploadResult {
                 bytes: final_len,
                 verification_pending,
@@ -377,5 +463,43 @@ async fn live_upload_loop(
             wait_logged = true;
         }
         tokio::time::sleep(Duration::from_millis(LIVE_UPLOAD_POLL_MS)).await;
+    }
+}
+
+#[cfg(test)]
+mod clip_upload_config_tests {
+    use super::*;
+
+    #[test]
+    fn local_only_clip_upload_is_explicitly_allowed() {
+        assert!(ClipLiveUploadConfig {
+            server_url: None,
+            recording_id: None,
+            auth_token: None,
+            cookie: None,
+        }
+        .validated()
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn remote_clip_upload_rejects_partial_authority() {
+        assert!(ClipLiveUploadConfig {
+            server_url: Some("https://clips.example".into()),
+            recording_id: None,
+            auth_token: Some("token".into()),
+            cookie: None,
+        }
+        .validated()
+        .is_err());
+        assert!(ClipLiveUploadConfig {
+            server_url: Some("https://clips.example".into()),
+            recording_id: Some("recording".into()),
+            auth_token: None,
+            cookie: None,
+        }
+        .validated()
+        .is_err());
     }
 }

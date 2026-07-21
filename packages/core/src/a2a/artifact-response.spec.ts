@@ -5,11 +5,24 @@ import {
   buildA2ARecoverableArtifactMessage,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  guardA2AArtifactResponse,
   stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
   afterEach(() => vi.unstubAllEnvs());
+
+  it("identifies framework-generated unverified artifact rejections", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Created it: https://content.agent-native.com/page/provisional",
+      [],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+    expect(guarded.text).toContain("could not verify the document URL");
+  });
+
   it("appends a document URL from a successful create-document result", () => {
     const text = appendA2AArtifactLinks(
       "Created the brief.",

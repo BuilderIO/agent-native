@@ -24,23 +24,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { exportConcat } from "@/lib/ffmpeg-export";
 import { formatMs } from "@/lib/timestamp-mapping";
+import { uploadFileClient } from "@/lib/upload-file-client";
 import { cn } from "@/lib/utils";
-
-/** Client-side upload via the framework's auto-mounted `/file-upload` route. */
-async function uploadFileClient(
-  blob: Blob,
-  filename: string,
-): Promise<{ url: string } | null> {
-  const form = new FormData();
-  form.append("file", blob, filename);
-  const res = await fetch(agentNativePath("/_agent-native/file-upload"), {
-    method: "POST",
-    body: form,
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.url ? { url: json.url as string } : null;
-}
 
 export interface StitchManagerProps {
   open: boolean;

@@ -11,7 +11,7 @@ import {
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import { deleteDocumentRecursive } from "./delete-document.js";
+import { trashDocumentSubtree } from "./delete-document.js";
 
 export default defineAction({
   description:
@@ -57,10 +57,11 @@ export default defineAction({
 
     await db.transaction(async (tx) => {
       for (const row of rows) {
-        await deleteDocumentRecursive(
+        await trashDocumentSubtree(
           tx as unknown as ReturnType<typeof getDb>,
           row.document.id,
           row.document.ownerEmail,
+          now,
         );
       }
       await renumberDatabaseRows(

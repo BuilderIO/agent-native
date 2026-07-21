@@ -199,6 +199,7 @@ function draftToCalendarEvent(
     transparency: draft.transparency,
     visibility: draft.visibility,
     eventType: draft.eventType ?? "default",
+    recurrence: draft.recurrence,
     attendees: draft.attendees,
     reminders: draft.reminders,
     remindersUseDefault: draft.remindersUseDefault,
@@ -239,6 +240,7 @@ function applyDraftPatch(
   copy("transparency");
   copy("visibility");
   copy("colorId");
+  copy("recurrence");
   copy("reminders");
   copy("remindersUseDefault");
   copy("attachments");
@@ -677,6 +679,7 @@ export default function CalendarView() {
           ? getGoogleEventColorHex(draft.colorId)
           : undefined,
         colorId: draft.colorId,
+        recurrence: draft.recurrence,
         attachments: draft.attachments,
         attendees: draft.attendees,
       };

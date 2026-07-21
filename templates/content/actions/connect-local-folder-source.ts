@@ -51,6 +51,7 @@ export default defineAction({
       .optional()
       .default(false)
       .describe("Create a separate private Content space for this folder"),
+    propertyValues: z.record(z.string(), z.unknown()).optional(),
     truthPolicy: truthPolicySchema.describe(
       "Whether Content, the folder, or reviewed conflict resolution is authoritative",
     ),
@@ -130,7 +131,7 @@ export default defineAction({
       const provisioned = await provisionSourceBackedContentSpace(
         db,
         userEmail,
-        { connectionId, name: label },
+        { connectionId, name: label, propertyValues: args.propertyValues },
       );
       targetSpaceId = provisioned.spaceId;
       targetDatabaseId = provisioned.filesDatabaseId;

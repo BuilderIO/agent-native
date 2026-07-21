@@ -102,19 +102,36 @@ ladder.
   sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
+- Meeting share links include the summary, key points, and action items. The
+  full transcript is an explicit, default-off setting: call `update-meeting`
+  with `shareTranscript=true|false` only when the owner or a share admin asks
+  to change what the meeting link exposes. This does not change the linked
+  recording's visibility or expose its media.
 - Use `list-recordings --view=shared` for the current user's "Shared with me"
   collection. It returns recordings admitted by sharing access that are owned
   by someone else; public-link-only clips remain out of this list.
+- Public recordings are unlisted-by-link for agent purposes: an agent may
+  discover only recordings the current user owns or has already viewed. Do not
+  use `list-recordings` or `search-recordings` to discover another user's
+  public clips, answer a time/date question about the clip already in context,
+  or recover from a failed direct lookup. If the user supplies another clip's
+  share URL or id, use that explicit reference; otherwise stop and report the
+  lookup failure.
 - Public recordings expose AI-readable URLs for external agents:
   `/api/agent-context.json?id=<recordingId>` for metadata, transcript, and frame
   API discovery; `/api/agent-transcript.json?id=<recordingId>` for transcript
   segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
   frame at a timestamp. Password-protected clips require the password once to
   mint a short-lived token returned inside agent-context links.
-- If public agent context or transcript APIs report `transcript.status` as
-  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
-  times, especially for long recordings. Do not pivot straight to frames or tell
-  the user there is no transcript until the retry budget is exhausted.
+- If a public agent discovery/context/transcript payload reports
+  `agentReadiness.state` as `"preparing"` (the clip is `"uploading"` or
+  `"processing"`), wait 15 seconds and retry `agentContextUrl`; do not open the
+  share page, fetch frames, or draw conclusions until the recording status is
+  `"ready"`.
+  If `transcript.status` is `"pending"` after the clip is ready, wait 15-30
+  seconds and retry the context/transcript URL a few times, especially for long
+  recordings. Do not pivot straight to frames or tell the user there is no
+  transcript until the retry budget is exhausted.
 - If transcription failed because Builder transcription credits are exhausted,
   tell the user that clearly and point them to Builder.io credits/upgrade or a
   Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do

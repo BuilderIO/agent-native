@@ -3,6 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { useState, useEffect } from "react";
 
 export type LocalRecordingMode = "off" | "composed" | "separate";
+export type RewindCaptureMode = "visuals" | "visuals-audio";
+export type RewindAgentClipRetention =
+  | "forever"
+  | "24-hours"
+  | "7-days"
+  | "30-days";
 
 export interface RegionGuideRect {
   id: string;
@@ -25,6 +31,12 @@ export interface ScreenMemoryConfig {
   maxBytes: number;
   segmentSeconds: number;
   sampleIntervalSeconds: number;
+  captureMode: RewindCaptureMode;
+  reviewBeforeSending: boolean;
+  autoPreviewBeforeSending: boolean;
+  agentClipRetention: RewindAgentClipRetention;
+  excludedBundleIds: string[];
+  excludePrivateWindows: boolean;
 }
 
 export type ScreenMemoryRuntimeState =
@@ -44,6 +56,8 @@ export interface ScreenMemorySegmentMetadata {
   width?: number | null;
   height?: number | null;
   bytes: number;
+  systemAudioPath?: string | null;
+  microphonePath?: string | null;
   corrupt: boolean;
   error?: string | null;
 }
@@ -66,6 +80,8 @@ export interface ScreenMemoryStatus {
   activeSegment?: ScreenMemoryActiveSegment | null;
   recentSegments: ScreenMemorySegmentMetadata[];
   lastError?: string | null;
+  exclusionActive: boolean;
+  coverage: string;
 }
 
 export interface ScreenMemoryDeleteResult {

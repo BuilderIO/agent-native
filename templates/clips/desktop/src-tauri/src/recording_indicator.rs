@@ -9,7 +9,7 @@
 //!
 //! Two visual modes (driven entirely from the React side via the URL hash):
 //!
-//!   - `meeting`  — meeting-aware pill with mic + speaker waveforms.
+//!   - `meeting`  — meeting-aware pill with a combined audio meter.
 //!   - `clip`     — solid-mic pill for non-meeting recording sessions.
 //!
 //! The pill is used by meeting-aware recordings and Wispr-style voice
@@ -68,9 +68,9 @@ static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 /// expanded form stretches horizontally to fit the live-transcript area.
 const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
-/// Meeting mode expands wider so the live transcript and the notes editor sit
-/// side by side without either column feeling cramped.
-const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 720;
+/// Meeting mode uses the same focused transcript width as other recordings;
+/// live notes are intentionally kept out of this compact overlay.
+const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
 const PILL_H_LOGICAL: u32 = 92;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
@@ -240,9 +240,8 @@ fn pill_content_size_physical(app: &AppHandle, expanded: bool) -> (u32, u32) {
     let (w_log, h_log) = if detached {
         (PILL_DETACHED_W_LOGICAL, PILL_DETACHED_H_LOGICAL)
     } else if expanded {
-        // Meeting mode (right-side anchor) expands wide enough for the
-        // transcript + notes split; plain clip recordings keep the narrower
-        // transcript-only width.
+        // Meeting mode (right-side anchor) keeps a focused transcript-only
+        // panel; plain clip recordings use the same width today.
         let w = if PILL_RIGHT_SIDE.load(Ordering::Relaxed) {
             PILL_W_EXPANDED_MEETING_LOGICAL
         } else {
