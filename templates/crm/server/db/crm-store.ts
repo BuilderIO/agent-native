@@ -459,7 +459,12 @@ export type CrmRecordReadContext = {
   visibility: "private" | "org" | "public";
   fieldPolicies: Array<{
     fieldName: string;
-    storagePolicy: "mirrored" | "remote-only" | "redacted" | "derived-local" | "local-authoritative";
+    storagePolicy:
+      | "mirrored"
+      | "remote-only"
+      | "redacted"
+      | "derived-local"
+      | "local-authoritative";
     readable: boolean;
     sensitive: boolean;
   }>;
@@ -529,10 +534,10 @@ export async function persistReadThroughRelationships(input: {
   const relationships = input.relationships
     .filter(
       (relationship) =>
-        relationship.from.connectionId === input.connectionId &&
-        relationship.from.objectType === input.objectType &&
-        relationship.from.remoteId === input.remoteId &&
-        relationship.to.connectionId === input.connectionId,
+        relationship.from.connectionId === input.context.connectionId &&
+        relationship.from.objectType === input.context.objectType &&
+        relationship.from.remoteId === input.context.remoteId &&
+        relationship.to.connectionId === input.context.connectionId,
     )
     .slice(0, 100);
   if (!relationships.length) return [];
@@ -558,7 +563,7 @@ export async function persistReadThroughRelationships(input: {
     .from(schema.crmRecords)
     .where(
       and(
-        eq(schema.crmRecords.connectionId, input.connectionId),
+        eq(schema.crmRecords.connectionId, input.context.connectionId),
         eq(schema.crmRecords.tombstone, false),
         inArray(schema.crmRecords.remoteId, remoteIds),
         inArray(schema.crmRecords.objectType, objectTypes),
@@ -569,11 +574,11 @@ export async function persistReadThroughRelationships(input: {
     const current = input.currentScopes.get(record.objectType);
     return Boolean(
       current &&
-        scopesAreCompatible(parseCrmAccessScope(record.accessScopeJson), current),
+      scopesAreCompatible(parseCrmAccessScope(record.accessScopeJson), current),
     );
   });
   const summaries = relatedSummaries(
-    input.remoteId,
+    input.context.remoteId,
     relationships,
     localRecords,
   );
@@ -581,30 +586,36 @@ export async function persistReadThroughRelationships(input: {
 
   const relationshipByTarget = new Map(
     relationships.map((relationship) => [
-      `${relationship.to.objectType}:${relationship.to.remoteId}`,
+      `${relationship.to.objectType}:${relationship.to.remoteId}:${relationship.relationshipType}`,
       relationship,
     ]),
   );
   const now = new Date().toISOString();
   await db.transaction(async (tx) => {
     for (const summary of summaries) {
-      const relationship = relationshipByTarget.get(
-        `${localRecords.find((record) => record.id === summary.id)?.objectType}:${summary.remoteId}`,
-      );
+      const target = localRecords.find((record) => record.id === summary.id);
+      const relationship = target
+        ? relationshipByTarget.get(
+            `${target.objectType}:${summary.remoteId}:${summary.relationshipType}`,
+          )
+        : undefined;
       if (!relationship) continue;
       const [existing] = await tx
         .select({ id: schema.crmRelationships.id })
         .from(schema.crmRelationships)
         .where(
           and(
-            eq(schema.crmRelationships.connectionId, input.connectionId),
-            eq(schema.crmRelationships.fromRecordId, input.id),
-            eq(schema.crmRelationships.toRecordId, summary.id),
-            eq(schema.crmRelationships.relationshipType, relationship.relationshipType),
-            accessFilter(
-              schema.crmRelationships,
-              schema.crmRelationshipShares,
+            eq(
+              schema.crmRelationships.connectionId,
+              input.context.connectionId,
             ),
+            eq(schema.crmRelationships.fromRecordId, input.context.id),
+            eq(schema.crmRelationships.toRecordId, summary.id),
+            eq(
+              schema.crmRelationships.relationshipType,
+              relationship.relationshipType,
+            ),
+            accessFilter(schema.crmRelationships, schema.crmRelationshipShares),
           ),
         )
         .limit(1);
@@ -634,8 +645,8 @@ export async function persistReadThroughRelationships(input: {
       } else {
         await tx.insert(schema.crmRelationships).values({
           id: crypto.randomUUID(),
-          connectionId: input.connectionId,
-          fromRecordId: input.id,
+          connectionId: input.context.connectionId,
+          fromRecordId: input.context.id,
           toRecordId: summary.id,
           relationshipType: relationship.relationshipType,
           ...values,
@@ -657,6 +668,7 @@ export async function getCrmRecord(
     fields?: Record<string, CrmValue>;
     remoteUpdatedAt?: string;
     relatedRecords?: RelatedRecordSummary[];
+    accessScope?: CrmAccessScope;
   },
 ) {
   const db = getDb();
@@ -673,6 +685,7 @@ export async function getCrmRecord(
       nextContactAt: schema.crmRecords.nextContactAt,
       remoteUpdatedAt: schema.crmRecords.remoteUpdatedAt,
       updatedAt: schema.crmRecords.updatedAt,
+      accessScopeJson: schema.crmRecords.accessScopeJson,
     })
     .from(schema.crmRecords)
     .where(
@@ -695,6 +708,7 @@ export async function getCrmRecord(
         numberValue: schema.crmRecordFields.numberValue,
         booleanValue: schema.crmRecordFields.booleanValue,
         jsonValue: schema.crmRecordFields.jsonValue,
+        accessScopeJson: schema.crmRecordFields.accessScopeJson,
       })
       .from(schema.crmRecordFields)
       .where(
@@ -761,7 +775,9 @@ export async function getCrmRecord(
 
   return {
     ...toRecordSummary(record),
-    ...(readThrough?.displayName ? { displayName: readThrough.displayName } : {}),
+    ...(readThrough?.displayName
+      ? { displayName: readThrough.displayName }
+      : {}),
     ...(readThrough?.remoteUpdatedAt
       ? { updatedAt: readThrough.remoteUpdatedAt }
       : {}),
@@ -770,11 +786,23 @@ export async function getCrmRecord(
       : undefined,
     fields: {
       ...Object.fromEntries(
-      fieldRows.flatMap((field) => {
-        const value = parseStoredValue(field);
-        return value === null ? [] : [[field.fieldName, value]];
-      }),
-    ),
+        fieldRows.flatMap((field) => {
+          const scope =
+            readThrough?.accessScope ??
+            parseCrmAccessScope(record.accessScopeJson);
+          if (
+            !scope ||
+            !scopesAreCompatible(
+              parseCrmAccessScope(field.accessScopeJson),
+              scope,
+            )
+          ) {
+            return [];
+          }
+          const value = parseStoredValue(field);
+          return value === null ? [] : [[field.fieldName, value]];
+        }),
+      ),
       ...(readThrough?.fields ?? {}),
     },
     activity: activityRows.map((activity) => ({
@@ -866,6 +894,23 @@ export async function listCrmSavedViews(input: { limit: number }) {
   };
 }
 
+function safeProposalValues(value: string): Record<string, Primitive> {
+  const parsed = parseJsonObject(value);
+  const fields = parsed?.fields;
+  const source =
+    fields && typeof fields === "object" && !Array.isArray(fields)
+      ? (fields as Record<string, unknown>)
+      : (parsed ?? {});
+  return Object.fromEntries(
+    Object.entries(source)
+      .filter(
+        ([fieldName, fieldValue]) =>
+          fieldName.length <= 120 && parsePrimitive(fieldValue),
+      )
+      .slice(0, 20),
+  ) as Record<string, Primitive>;
+}
+
 export async function listCrmProposals(input: {
   recordId?: string;
   status?:
@@ -901,7 +946,9 @@ export async function listCrmProposals(input: {
       risk: schema.crmMutations.risk,
       status: schema.crmMutations.status,
       expectedRemoteRevision: schema.crmMutations.expectedRemoteRevision,
-      error: schema.crmMutations.error,
+      patchJson: schema.crmMutations.patchJson,
+      beforeJson: schema.crmMutations.beforeJson,
+      afterJson: schema.crmMutations.afterJson,
       createdAt: schema.crmMutations.createdAt,
       appliedAt: schema.crmMutations.appliedAt,
     })
@@ -911,9 +958,61 @@ export async function listCrmProposals(input: {
     .limit(limit + 1)
     .offset(offset);
   const result = page(rows, limit);
+  const recordIds = result.rows
+    .map((row) => row.recordId)
+    .filter((recordId): recordId is string => Boolean(recordId));
+  const records = recordIds.length
+    ? await db
+        .select({
+          id: schema.crmRecords.id,
+          displayName: schema.crmRecords.displayName,
+        })
+        .from(schema.crmRecords)
+        .where(
+          and(
+            inArray(schema.crmRecords.id, recordIds),
+            accessFilter(schema.crmRecords, schema.crmRecordShares),
+          ),
+        )
+    : [];
+  const displayNameByRecordId = new Map(
+    records.map((record) => [record.id, record.displayName]),
+  );
 
   return {
-    proposals: result.rows,
+    proposals: result.rows.map((proposal) => {
+      const patch = safeProposalValues(proposal.patchJson);
+      const before = safeProposalValues(proposal.beforeJson);
+      const after = safeProposalValues(proposal.afterJson);
+      const fieldNames = Array.from(
+        new Set([
+          ...Object.keys(before),
+          ...Object.keys(after),
+          ...Object.keys(patch),
+        ]),
+      ).slice(0, 20);
+      return {
+        id: proposal.id,
+        recordId: proposal.recordId,
+        ...(proposal.recordId && displayNameByRecordId.get(proposal.recordId)
+          ? { recordDisplayName: displayNameByRecordId.get(proposal.recordId) }
+          : {}),
+        operation: proposal.operation,
+        initiatedBy: proposal.initiatedBy,
+        target: proposal.target,
+        policyDecision: proposal.policyDecision,
+        risk: proposal.risk,
+        status: proposal.status,
+        expectedRemoteRevision: proposal.expectedRemoteRevision,
+        createdAt: proposal.createdAt,
+        appliedAt: proposal.appliedAt,
+        preview: {
+          fieldNames,
+          before,
+          after: Object.keys(after).length ? after : patch,
+        },
+      };
+    }),
     nextCursor: result.nextCursor ? String(offset + limit) : undefined,
     complete: !result.nextCursor,
   };

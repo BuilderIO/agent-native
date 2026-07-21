@@ -1,6 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
 import { listCrmRecords } from "../server/db/crm-store.js";
 
 const kinds = [
@@ -25,6 +26,12 @@ export default defineAction({
       .min(1)
       .optional()
       .describe("Optional CRM connection ID."),
+    viewId: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Optional access-scoped saved CRM view ID."),
     query: z
       .string()
       .trim()
@@ -41,5 +48,18 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: (input) => listCrmRecords(input),
+  run: (input, ctx?: ActionRunContext) =>
+    listCrmRecords(input, {
+      resolveScope: async (target) => {
+        if (target.provider !== "hubspot" || !target.workspaceConnectionId) {
+          return null;
+        }
+        const adapter = await createHubSpotCrmAdapter({
+          connectionId: target.workspaceConnectionId,
+          ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+          ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
+        });
+        return adapter.getAccessScope(target.objectType);
+      },
+    }),
 });

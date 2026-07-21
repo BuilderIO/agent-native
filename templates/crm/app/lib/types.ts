@@ -30,6 +30,14 @@ export interface CrmRecordDetail extends CrmRecordSummary {
     observedAt?: string;
   }>;
   tasks?: Array<CrmTask>;
+  relatedRecords?: Array<{
+    id: string;
+    displayName: string;
+    kind: CrmKind;
+    relationshipType: string;
+    relationshipLabel?: string;
+    subtitle?: string;
+  }>;
 }
 
 export interface CrmTask {

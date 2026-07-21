@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({
   getCrmOverview: vi.fn(),
   getCrmRecord: vi.fn(),
+  getCrmRecordReadContext: vi.fn(),
   listCrmProposals: vi.fn(),
   listCrmRecords: vi.fn(),
   listCrmSavedViews: vi.fn(),
@@ -22,6 +23,7 @@ describe("CRM read actions", () => {
   beforeEach(() => {
     store.getCrmOverview.mockReset();
     store.getCrmRecord.mockReset();
+    store.getCrmRecordReadContext.mockReset();
     store.listCrmProposals.mockReset();
     store.listCrmRecords.mockReset();
     store.listCrmSavedViews.mockReset();
@@ -48,17 +50,17 @@ describe("CRM read actions", () => {
 
     await listCrmRecords.run(input);
 
-    expect(store.listCrmRecords).toHaveBeenCalledWith({
-      kind: "account",
-      limit: 50,
-    });
+    expect(store.listCrmRecords).toHaveBeenCalledWith(
+      { kind: "account", limit: 50 },
+      expect.objectContaining({ resolveScope: expect.any(Function) }),
+    );
     expect(
       listCrmRecords.schema.safeParse({ kind: "account", limit: 101 }).success,
     ).toBe(false);
   });
 
   it("does not reveal a missing record as a successful empty result", async () => {
-    store.getCrmRecord.mockResolvedValue(null);
+    store.getCrmRecordReadContext.mockResolvedValue(null);
 
     await expect(
       getCrmRecord.run({ recordId: "missing" }),

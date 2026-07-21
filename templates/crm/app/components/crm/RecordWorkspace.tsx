@@ -14,6 +14,7 @@ import {
   IconNotes,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
+import { Link } from "react-router";
 
 import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
 import {
@@ -126,6 +127,45 @@ export function RecordWorkspace({
               <EmptyCopy text="No permitted fields are mirrored for this record." />
             )}
           </dl>
+          <div className="mt-6">
+            <SectionTitle
+              title="Related records"
+              description="Permitted records linked by the connected CRM."
+            />
+            <div className="mt-4 divide-y divide-border rounded-lg border border-border/70 bg-card">
+              {record.relatedRecords?.length ? (
+                record.relatedRecords.map((related) => (
+                  <Link
+                    key={`${related.id}:${related.relationshipType}`}
+                    to={`/records/${encodeURIComponent(related.id)}`}
+                    className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">
+                        {related.displayName}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        {[
+                          related.relationshipLabel ?? related.relationshipType,
+                          related.subtitle,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className="capitalize font-normal"
+                    >
+                      {related.kind}
+                    </Badge>
+                  </Link>
+                ))
+              ) : (
+                <EmptyCopy text="No permitted linked records are available." />
+              )}
+            </div>
+          </div>
         </TabsContent>
         <TabsContent value="cadence" className="mt-5 max-w-3xl">
           <SectionTitle

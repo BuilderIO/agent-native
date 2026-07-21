@@ -20,7 +20,18 @@
   },
   "surfaces": [
     { "id": "crm-overview", "action": "get-crm-overview", "path": "/" },
-    { "id": "crm-records", "action": "list-crm-records", "path": "/records" }
+    { "id": "crm-records", "action": "list-crm-records", "path": "/accounts" },
+    { "id": "crm-tasks", "action": "list-crm-tasks", "path": "/tasks" },
+    {
+      "id": "crm-proposals",
+      "action": "list-crm-proposals",
+      "path": "/proposals"
+    },
+    {
+      "id": "crm-saved-views",
+      "action": "list-crm-saved-views",
+      "path": "/views"
+    }
   ],
   "skills": [
     { "path": ".agents/skills/crm", "visibility": "both", "exportAs": "crm" }

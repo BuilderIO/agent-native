@@ -112,6 +112,7 @@ function CreateSavedViewDialog() {
       description?: string;
       kind: CrmKind;
       filters?: Record<string, unknown>;
+      columns: string[];
       sort: Array<{ field: string; direction: "desc" }>;
       dataProgramId?: string;
     }
@@ -129,6 +130,15 @@ function CreateSavedViewDialog() {
         description: description.trim() || undefined,
         kind,
         filters: Object.keys(filters).length ? filters : undefined,
+        columns: [
+          "displayName",
+          "domain",
+          "primaryEmail",
+          "ownerName",
+          "stage",
+          "nextContactAt",
+          "remoteUpdatedAt",
+        ],
         sort: [{ field: "updatedAt", direction: "desc" }],
         dataProgramId: dataProgramId.trim() || undefined,
       });
