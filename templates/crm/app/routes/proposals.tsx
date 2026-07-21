@@ -55,9 +55,10 @@ export default function ProposalsRoute() {
     setPendingProposalIds((current) => new Set(current).add(proposalId));
     try {
       const result = await apply.mutateAsync({ proposalId });
-      if (result.status === "applied") toast.success("CRM proposal applied.");
-      else
-        toast.error(result.message || `Proposal finished as ${result.status}.`);
+      toast.info(
+        result.message ||
+          "Proposal reviewed. Complete the approved change in HubSpot.",
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Proposal failed.");
     } finally {
