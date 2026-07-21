@@ -9,13 +9,12 @@ import {
 } from "../server/lib/provider-api.js";
 
 const ProviderSchema = z.enum(CRM_PROVIDER_API_IDS);
-const MethodSchema = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
+const MethodSchema = z.enum(["GET", "HEAD"]);
 
 const PaginationSchema = z
   .object({
     nextCursorPath: z.string().optional(),
     cursorParam: z.string().optional(),
-    cursorBodyPath: z.string().optional(),
     pageParam: z.string().optional(),
     startPage: z.coerce.number().int().optional(),
     offsetParam: z.string().optional(),
@@ -26,7 +25,7 @@ const PaginationSchema = z
 
 export default createProviderApiRequestAction(getCrmProviderApiRuntime(), {
   description:
-    "Make an exact authenticated HubSpot API request through a CRM-granted workspace connection. This is the flexible escape hatch for custom objects, fields, filters, associations, pagination, and API versions that CRM convenience actions do not model. It is host-constrained, access-scoped to the granted connection, and redacts secrets. Use stageAs for large results instead of returning raw provider payloads to chat.",
+    "Make an exact read-only authenticated HubSpot GET or HEAD request through a CRM-granted workspace connection. This is the flexible escape hatch for custom object, field, association, pagination, and API-version reads that CRM convenience actions do not model. It is host-constrained, access-scoped to the granted connection, and redacts secrets. Provider writes must use revision-aware CRM proposals, never this action. Use stageAs for large results instead of returning raw provider payloads to chat.",
   schema: z.object({
     provider: ProviderSchema.describe("CRM currently exposes HubSpot only."),
     method: MethodSchema.default("GET"),
@@ -38,7 +37,6 @@ export default createProviderApiRequestAction(getCrmProviderApiRuntime(), {
       ),
     query: z.unknown().optional(),
     headers: z.record(z.string(), z.unknown()).optional(),
-    body: z.unknown().optional(),
     auth: z.enum(["default", "none"]).default("default"),
     connectionId: z
       .string()
@@ -64,14 +62,13 @@ export default createProviderApiRequestAction(getCrmProviderApiRuntime(), {
       ),
     itemsPath: z.string().optional(),
     pagination: PaginationSchema.describe(
-      "Server-side pagination for a staged response. HubSpot list/search APIs commonly use nextCursorPath='paging.next.after' with cursorParam='after' or cursorBodyPath='after'.",
+      "Server-side query-string pagination for a staged response. HubSpot list APIs commonly use nextCursorPath='paging.next.after' with cursorParam='after'.",
     ),
     saveToFile: z.string().optional(),
     fetchAllPages: z
       .object({
         cursorPath: z.string(),
         cursorParam: z.string().optional(),
-        cursorBodyPath: z.string().optional(),
         itemsPath: z.string().optional(),
         maxPages: z.coerce.number().int().min(1).max(50).optional(),
       })

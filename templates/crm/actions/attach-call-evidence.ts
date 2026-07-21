@@ -3,6 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { isSafeCrmEvidenceExcerpt } from "../server/crm/crm-field-firewall.js";
 import { getDb, schema } from "../server/db/index.js";
 import { requireCrmScope } from "./_crm-action-utils.js";
 
@@ -26,11 +27,27 @@ export default defineAction({
       sourceUrl: httpUrl,
       sourceApp: z.string().trim().min(1).max(80).default("clips"),
       artifactType: z.string().trim().min(1).max(80).default("call-evidence"),
-      quote: z.string().trim().max(1_200).optional(),
+      quote: z
+        .string()
+        .trim()
+        .max(1_200)
+        .refine(
+          isSafeCrmEvidenceExcerpt,
+          "quote must be a bounded human-readable excerpt, not transcript, media, binary, base64, or data-url content",
+        )
+        .optional(),
       speaker: z.string().trim().max(240).optional(),
       startSeconds: z.number().finite().min(0).max(86_400).optional(),
       endSeconds: z.number().finite().min(0).max(86_400).optional(),
-      summary: z.string().trim().max(2_000).optional(),
+      summary: z
+        .string()
+        .trim()
+        .max(2_000)
+        .refine(
+          isSafeCrmEvidenceExcerpt,
+          "summary must be a bounded human-readable excerpt, not transcript, media, binary, base64, or data-url content",
+        )
+        .optional(),
       capturedAt: z.string().datetime({ offset: true }).optional(),
     })
     .superRefine((value, issue) => {

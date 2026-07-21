@@ -1,5 +1,7 @@
 const BINARY_OR_TRANSCRIPT_FIELD =
   /(?:attachment|audio|base64|binary|file|image|media|recording|transcript|video)/i;
+const EVIDENCE_PAYLOAD_MARKER =
+  /(?:^data:|\b(?:base64|binary|media|audio|video|recording)\s*(?:payload|blob|data)\b|\btranscript\s*:)/i;
 
 function hasBase64Shape(value: string): boolean {
   return (
@@ -55,4 +57,8 @@ export function isSafeCrmMutationFields(
     ([name, value]) =>
       isSafeCrmMutationFieldName(name) && isBoundedCrmValue(value),
   );
+}
+
+export function isSafeCrmEvidenceExcerpt(value: string): boolean {
+  return isBoundedCrmValue(value) && !EVIDENCE_PAYLOAD_MARKER.test(value);
 }
