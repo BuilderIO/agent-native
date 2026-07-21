@@ -136,6 +136,8 @@ struct MeetingPillPosition {
     y: i32,
     #[serde(default)]
     anchor: Option<String>,
+    #[serde(default)]
+    width: Option<u32>,
 }
 
 fn load_meeting_position(app: &AppHandle) -> Option<MeetingPillPosition> {
@@ -152,6 +154,7 @@ fn save_meeting_position_to_disk(app: &AppHandle, x: i32, y: i32, width: u32) {
         "x": x + width as i32,
         "y": y,
         "anchor": "right",
+        "width": width,
     })) {
         Ok(b) => b,
         Err(_) => return,
@@ -322,10 +325,13 @@ fn anchored_rect(
         let (_, h_exp) = pill_size_physical(app, true);
         let max_y_exp = (my + mh as i32 - h_exp as i32).max(my);
         let (x, y) = match load_meeting_position(app) {
-            Some(position) if position.anchor.as_deref() == Some("right") => (
-                (position.x - w as i32).clamp(mx, max_x),
-                position.y.clamp(my, max_y_exp),
-            ),
+            Some(position) if position.anchor.as_deref() == Some("right") => {
+                let saved_width = position.width.unwrap_or(w);
+                (
+                    (position.x - saved_width as i32).clamp(mx, max_x),
+                    position.y.clamp(my, max_y_exp),
+                )
+            }
             Some(position) => {
                 let (expanded_w, _) = pill_size_physical(app, true);
                 let right_margin = (PILL_RIGHT_MARGIN_LOGICAL as f64 * scale_factor(app)) as i32;
