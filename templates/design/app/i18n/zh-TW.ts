@@ -656,6 +656,16 @@ const messages = {
         "無法比對到特定的 Figma 節點。請改貼上畫框連結以進行精確匯入。",
       figmaPasteRestLabel: "透過 Figma API 匯入",
       figmaPasteHtmlLabel: "從剪貼簿預覽匯入",
+      figmaPasteLocalKiwiLabel: "已在未登入狀態下匯入 — 僅含幾何與文字",
+      figmaPasteImagesNeedToken:
+        "{{count}} 個圖片{{plural}}需要 Figma 存取權才能載入。",
+      figmaHydrationDialogTitle: "連結 Figma 以載入圖片",
+      figmaHydrationDialogDescription:
+        "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
+      figmaHydrationConnectAndLoad: "連結並載入圖片",
+      figmaHydrationSuccess: "圖片載入成功",
+      figmaHydrationSuccessDescription:
+        "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
         "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",

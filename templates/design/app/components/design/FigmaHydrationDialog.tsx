@@ -171,7 +171,7 @@ export function FigmaHydrationDialog({
               onClick={() => onOpenChange(false)}
               disabled={busy}
             >
-              {t("designManagement.cancel")}
+              {t("home.cancel")}
             </Button>
             <Button type="submit" size="sm" disabled={busy || !token.trim()}>
               {t("designEditor.import.figmaHydrationConnectAndLoad")}
