@@ -26,6 +26,7 @@ import type {
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
   getReportDashboard,
+  normalizeDashboardReportRecipients,
   type AccessCtx,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
@@ -54,11 +55,13 @@ const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
-// Leave room under Netlify's 300s background-function limit for browser
-// cleanup and delivery after a single complete chunked capture attempt.
-const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 240_000;
+// Reserve 90s under Netlify's 300s background-function limit for bounded
+// browser cleanup plus delivery to the capped recipient list.
+const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 210_000;
 const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
+const MAX_DASHBOARD_REPORT_CHUNKS = 10;
+const MAX_DASHBOARD_REPORT_ATTACHMENT_BYTES = 14 * 1024 * 1024;
 
 type DashboardScreenshotAttempt = {
   label: "chunked";
@@ -351,6 +354,37 @@ function secondReadyTimeoutMs(): number {
   return isServerlessBrowserRuntime()
     ? SERVERLESS_SECOND_READY_TIMEOUT_MS
     : screenshotTimeoutMs();
+}
+
+function boundedStageTimeout(capMs: number, deadlineAt?: number): number {
+  if (!deadlineAt) return capMs;
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) throw new Error("capture deadline exhausted");
+  return Math.max(1, Math.min(capMs, remainingMs));
+}
+
+async function runWithinCaptureDeadline<T>(
+  operation: () => Promise<T>,
+  deadlineAt?: number,
+): Promise<T> {
+  if (!deadlineAt) return operation();
+  const timeoutMs = deadlineAt - Date.now();
+  if (timeoutMs <= 0) throw new Error("capture deadline exhausted");
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("capture deadline exhausted")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function positiveIntEnv(name: string): number | null {
@@ -647,6 +681,7 @@ async function captureDashboardChunk(
   token: string,
   screenshotUrl: string,
   expectedPanelIds: string[],
+  deadlineAt?: number,
 ): Promise<Buffer> {
   const timeout = screenshotTimeoutMs();
   let captureStage = "pre-seeding the embed session";
@@ -691,17 +726,23 @@ async function captureDashboardChunk(
         errorMessage(err),
       );
     }
-    page.setDefaultTimeout(timeout);
+    page.setDefaultTimeout(boundedStageTimeout(timeout, deadlineAt));
     await page.emulateMedia({ media: "screen", colorScheme: "light" });
     await page.addInitScript(() =>
       window.localStorage.setItem("theme", "light"),
     );
     captureStage = "navigating to the report chunk";
-    await page.goto(screenshotUrl, { waitUntil: "domcontentloaded", timeout });
+    await page.goto(screenshotUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: boundedStageTimeout(timeout, deadlineAt),
+    });
     const capture = page.locator("[data-dashboard-report-capture]");
     captureStage = "waiting for the report chunk surface";
     try {
-      await capture.waitFor({ state: "visible", timeout });
+      await capture.waitFor({
+        state: "visible",
+        timeout: boundedStageTimeout(timeout, deadlineAt),
+      });
     } catch (err) {
       const diagnostics = errorMessage(
         await collectPageDiagnostics(page, consoleErrors, failedRequests),
@@ -709,7 +750,10 @@ async function captureDashboardChunk(
       throw new Error(`${errorMessage(err)}; ${diagnostics}`);
     }
     captureStage = "waiting for report chunk queries";
-    await waitForDashboardReportReady(page, attempt.readyTimeout ?? timeout);
+    await waitForDashboardReportReady(
+      page,
+      boundedStageTimeout(attempt.readyTimeout ?? timeout, deadlineAt),
+    );
     captureStage = "validating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
     captureStage = "rendering lazy report chunk panels";
@@ -717,7 +761,10 @@ async function captureDashboardChunk(
     captureStage = "waiting for lazy report chunk panels";
     await waitForDashboardReportReady(
       page,
-      attempt.secondReadyTimeout ?? secondReadyTimeoutMs(),
+      boundedStageTimeout(
+        attempt.secondReadyTimeout ?? secondReadyTimeoutMs(),
+        deadlineAt,
+      ),
     );
     captureStage = "revalidating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
@@ -726,6 +773,7 @@ async function captureDashboardChunk(
     await scaleDashboardCapture(page, attempt.captureScale);
     await capture.scrollIntoViewIfNeeded();
     captureStage = "rasterizing the report chunk PNG";
+    page.setDefaultTimeout(boundedStageTimeout(timeout, deadlineAt));
     const image = await capture.screenshot({
       type: "png",
       animations: "disabled",
@@ -741,6 +789,12 @@ async function captureDashboardPngChunks(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
 ): Promise<Buffer[]> {
+  const offsets = reportChunkOffsets(snapshot.panelIds.length);
+  if (offsets.length > MAX_DASHBOARD_REPORT_CHUNKS) {
+    throw new Error(
+      `complete dashboard requires ${offsets.length} image chunks; email delivery supports at most ${MAX_DASHBOARD_REPORT_CHUNKS}`,
+    );
+  }
   const serverless = isServerlessBrowserRuntime();
   const attempt: DashboardScreenshotAttempt = {
     label: "chunked",
@@ -759,6 +813,9 @@ async function captureDashboardPngChunks(
   let launchPromise: Promise<LaunchedScreenshotBrowser> | undefined;
   let launchTimeout: ReturnType<typeof setTimeout> | undefined;
   let attemptTimedOut = false;
+  const deadlineAt = attempt.totalTimeout
+    ? Date.now() + attempt.totalTimeout
+    : undefined;
   const attemptTimeout = attempt.totalTimeout
     ? setTimeout(() => {
         attemptTimedOut = true;
@@ -786,25 +843,39 @@ async function captureDashboardPngChunks(
     browser = launched.browser;
     cleanup = launched.cleanup;
     const images: Buffer[] = [];
-    for (const offset of reportChunkOffsets(snapshot.panelIds.length)) {
+    let attachmentBytes = 0;
+    for (const offset of offsets) {
       if (attemptTimedOut)
         throw new Error(`capture exceeded ${attempt.totalTimeout}ms`);
-      const page = await launched.newPage();
+      const page = await runWithinCaptureDeadline(
+        () => launched.newPage(),
+        deadlineAt,
+      );
       try {
         const { token, url } = screenshotUrlForChunk(sub, snapshot, offset);
         const expectedPanelIds = snapshot.panelIds.slice(
           offset,
           offset + REPORT_PANEL_CHUNK_SIZE,
         );
-        images.push(
-          await captureDashboardChunk(
-            page,
-            attempt,
-            token,
-            url,
-            expectedPanelIds,
-          ),
+        const image = await runWithinCaptureDeadline(
+          () =>
+            captureDashboardChunk(
+              page,
+              attempt,
+              token,
+              url,
+              expectedPanelIds,
+              deadlineAt,
+            ),
+          deadlineAt,
         );
+        attachmentBytes += image.length;
+        if (attachmentBytes > MAX_DASHBOARD_REPORT_ATTACHMENT_BYTES) {
+          throw new Error(
+            `complete dashboard images total ${attachmentBytes} bytes; email delivery supports at most ${MAX_DASHBOARD_REPORT_ATTACHMENT_BYTES} bytes`,
+          );
+        }
+        images.push(image);
       } finally {
         await runBoundedBrowserCleanup("Failed to close screenshot page", () =>
           page.close(),
@@ -863,12 +934,21 @@ async function captureDashboardPngWithFallback(
   error?: string;
 }> {
   try {
+    const pngs = await captureDashboardPngChunks(sub, snapshot);
+    if (isServerlessBrowserRuntime()) {
+      console.info(
+        `[dashboard-report] complete chunked capture succeeded: chunks=${pngs.length} ${memoryDiagnostics()}`,
+      );
+    }
     return {
-      pngs: await captureDashboardPngChunks(sub, snapshot),
+      pngs,
       mode: "full",
     };
   } catch (err) {
-    const error = errorMessage(err).replace(/\s+/g, " ").trim();
+    const rawError = errorMessage(err).replace(/\s+/g, " ").trim();
+    const error = rawError.includes("lambdaMemoryMb=")
+      ? rawError
+      : `${rawError}; ${memoryDiagnostics()}`;
     console.error(
       `[dashboard-report] complete chunked screenshot failed for subscription ${sub.id}:`,
       error,
@@ -968,6 +1048,7 @@ export async function sendDashboardReportSubscription(
   screenshotError?: string;
   emailsSent: boolean;
 }> {
+  const recipients = normalizeDashboardReportRecipients(sub.recipients);
   const snapshot = await collectReportSnapshot(sub);
   const capture = await captureDashboardPngWithFallback(sub, snapshot);
   if (!capture.pngs && options.requireScreenshot) {
@@ -980,7 +1061,7 @@ export async function sendDashboardReportSubscription(
   if (!capture.pngs && options.skipEmailWithoutScreenshot) {
     return {
       dashboardUrl: snapshot.dashboardUrl,
-      recipientCount: sub.recipients.length,
+      recipientCount: recipients.length,
       screenshotAttached: false,
       screenshotMode: capture.mode,
       emailsSent: false,
@@ -997,7 +1078,7 @@ export async function sendDashboardReportSubscription(
   });
   const subject = `Daily dashboard: ${snapshot.title}`;
 
-  for (const to of sub.recipients) {
+  for (const to of recipients) {
     await sendEmail({
       to,
       subject,
@@ -1021,7 +1102,7 @@ export async function sendDashboardReportSubscription(
 
   return {
     dashboardUrl: snapshot.dashboardUrl,
-    recipientCount: sub.recipients.length,
+    recipientCount: recipients.length,
     screenshotAttached,
     screenshotMode: capture.mode,
     emailsSent: true,

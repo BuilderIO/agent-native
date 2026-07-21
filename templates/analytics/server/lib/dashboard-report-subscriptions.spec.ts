@@ -16,7 +16,9 @@ import {
   dashboardReportRetryAt,
   lastDailyRunAt,
   markDashboardReportResult,
+  MAX_DASHBOARD_REPORT_RECIPIENTS,
   nextDailyRunAt,
+  normalizeDashboardReportRecipients,
   queueDashboardReportSubscriptionNow,
   truncateDashboardReportError,
 } from "./dashboard-report-subscriptions";
@@ -37,6 +39,44 @@ function createClaimDbMock(rows: unknown[]) {
 }
 
 describe("dashboard report subscriptions", () => {
+  describe("normalizeDashboardReportRecipients", () => {
+    it("rejects an empty recipient list after normalization", () => {
+      expect(() => normalizeDashboardReportRecipients([" ", ""])).toThrow(
+        "At least one recipient is required",
+      );
+    });
+
+    it("deduplicates before applying the recipient limit", () => {
+      expect(
+        normalizeDashboardReportRecipients([
+          "ONE@example.com",
+          "one@example.com",
+          "two@example.com",
+          "three@example.com",
+          "four@example.com",
+          "five@example.com",
+        ]),
+      ).toEqual([
+        "one@example.com",
+        "two@example.com",
+        "three@example.com",
+        "four@example.com",
+        "five@example.com",
+      ]);
+    });
+
+    it("rejects more than five distinct recipients after deduplication", () => {
+      const recipients = Array.from(
+        { length: MAX_DASHBOARD_REPORT_RECIPIENTS + 1 },
+        (_, index) => `person-${index}@example.com`,
+      );
+
+      expect(() => normalizeDashboardReportRecipients(recipients)).toThrow(
+        "Dashboard reports support at most 5 recipients",
+      );
+    });
+  });
+
   describe("truncateDashboardReportError", () => {
     it("preserves short errors", () => {
       const error = "Dashboard screenshot capture failed";

@@ -6,6 +6,10 @@ import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb, schema } from "../db/index.js";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
+import {
+  FIRST_PARTY_DASHBOARD_ID,
+  repairFirstPartyRecurringUserPanels,
+} from "./first-party-metric-catalog";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -43,6 +47,8 @@ export interface AccessCtx {
   orgId: string | null;
 }
 
+export const MAX_DASHBOARD_REPORT_RECIPIENTS = 5;
+
 export interface ReportDashboard {
   id: string;
   title: string;
@@ -55,10 +61,14 @@ export async function getReportDashboard(
 ): Promise<ReportDashboard | null> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (dashboard?.kind === "sql") {
+    const config =
+      dashboardId === FIRST_PARTY_DASHBOARD_ID
+        ? repairFirstPartyRecurringUserPanels(dashboard.config).config
+        : dashboard.config;
     return {
       id: dashboard.id,
       title: dashboard.title,
-      config: dashboard.config,
+      config,
     };
   }
 
@@ -101,7 +111,9 @@ function safeJsonParse<T>(raw: unknown, fallback: T): T {
   }
 }
 
-function normalizeRecipients(recipients: string[]): string[] {
+export function normalizeDashboardReportRecipients(
+  recipients: string[],
+): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
   for (const raw of recipients) {
@@ -109,6 +121,14 @@ function normalizeRecipients(recipients: string[]): string[] {
     if (!email || seen.has(email)) continue;
     seen.add(email);
     normalized.push(email);
+  }
+  if (normalized.length === 0) {
+    throw new Error("At least one recipient is required");
+  }
+  if (normalized.length > MAX_DASHBOARD_REPORT_RECIPIENTS) {
+    throw new Error(
+      `Dashboard reports support at most ${MAX_DASHBOARD_REPORT_RECIPIENTS} recipients; use a mailing-list address for larger audiences`,
+    );
   }
   return normalized;
 }
@@ -252,6 +272,8 @@ export function lastDailyRunAt(
 }
 
 const DASHBOARD_REPORT_RETRY_WINDOW_MS = 60 * 60 * 1000;
+// This is the earliest nextRunAt. The generated */15 cron means the actual
+// retry occurs on the first sweep after this floor, not exactly ten minutes later.
 const DASHBOARD_REPORT_RETRY_DELAY_MS = 10 * 60 * 1000;
 
 export function dashboardReportRetryAt(
@@ -361,10 +383,7 @@ export async function saveDashboardReportSubscription(
     throw Object.assign(new Error("Dashboard not found"), { statusCode: 404 });
   }
 
-  const recipients = normalizeRecipients(input.recipients);
-  if (recipients.length === 0) {
-    throw new Error("At least one recipient is required");
-  }
+  const recipients = normalizeDashboardReportRecipients(input.recipients);
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
