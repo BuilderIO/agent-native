@@ -749,6 +749,7 @@ const enUS = {
     makeVariations: "Make variations",
     handoff: "Handoff",
     download: "Download",
+    downloadFailed: "Could not download asset.",
     copyUrl: "Copy URL",
     delete: "Delete",
     deleteTitle: "Delete asset?",

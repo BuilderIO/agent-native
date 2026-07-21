@@ -8,6 +8,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,13 +92,23 @@ export function AssetPreviewDialog({
             Boolean(asset.mimeType?.startsWith("video/"));
           const videoSrc = assetPreviewSources(asset)[0];
           const downloadAsset = () => {
+            // Synthetic starter-preset assets aren't database rows, so
+            // export-asset can't resolve them; download the source directly.
+            if (isStarterPreviewAsset(asset)) {
+              const directUrl = assetPreviewSources(asset)[0];
+              if (directUrl) window.location.href = directUrl;
+              else toast.error(t("assetDetail.downloadFailed"));
+              return;
+            }
             exportAsset.mutate(
               { assetId: asset.id },
               {
                 onSuccess: (result: any) => {
                   const url = result?.downloadUrl;
                   if (url) window.location.href = url;
+                  else toast.error(t("assetDetail.downloadFailed"));
                 },
+                onError: () => toast.error(t("assetDetail.downloadFailed")),
               },
             );
           };
@@ -353,4 +364,11 @@ function formatPreviewDimensions(
 
 function previewGcd(a: number, b: number): number {
   return b === 0 ? a : previewGcd(b, a % b);
+}
+
+function isStarterPreviewAsset(asset: PreviewAsset): boolean {
+  return (
+    asset.id.startsWith("starter-") ||
+    Boolean(asset.libraryId?.startsWith("starter:"))
+  );
 }
