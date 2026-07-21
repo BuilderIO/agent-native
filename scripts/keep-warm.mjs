@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// Pings every first-party app's /_agent-native/health endpoint so the
-// scale-to-zero serverless databases behind them (Neon, Supabase) stay warm
-// and the next real user request doesn't pay a multi-second cold-start.
+// Audits every first-party app's /_agent-native/health endpoint. Production
+// warming happens inside each site's Netlify Scheduled Function because GitHub
+// Actions cron runs can be delayed longer than a scale-to-zero database's
+// autosuspend window.
 //
 // Driven off packages/shared-app-config/templates.ts (the single source of
 // truth for prodUrls) so new apps are covered automatically. Pure Node, no
 // dependencies or install step — safe to run on a bare `actions/setup-node`
 // runner or locally:
 //
-//   node scripts/keep-warm.mjs            # ping every app's prod health route
-//   node scripts/keep-warm.mjs plan mail  # ping only the named apps
+//   node scripts/keep-warm.mjs            # audit every app's prod health route
+//   node scripts/keep-warm.mjs plan mail  # audit only the named apps
+//   node scripts/keep-warm.mjs --strict   # fail when any app is unhealthy
 //
-// Exits 0 when at least one app responded (single hiccups are logged, not
-// fatal); exits 1 only if EVERY app failed, which signals the pinger or
-// network — not one app — is broken.
+// Ordinary runs preserve the old best-effort behavior. Use --strict for
+// monitoring so a partial outage cannot be reported as healthy.
 
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -73,7 +74,8 @@ async function pingApp({ name, prodUrl }) {
 }
 
 async function main() {
-  const filter = process.argv.slice(2);
+  const strict = process.argv.includes("--strict");
+  const filter = process.argv.slice(2).filter((arg) => arg !== "--strict");
   let apps = await readApps();
   if (filter.length) apps = apps.filter((a) => filter.includes(a.name));
   if (!apps.length) {
@@ -103,9 +105,7 @@ async function main() {
   }
   console.log(`\nWarmed ${warmed}/${results.length} apps.`);
 
-  // Only fail the run if nothing responded — that points at the pinger/network,
-  // not at one app having a transient cold start.
-  if (warmed === 0) process.exit(1);
+  if (strict ? warmed !== results.length : warmed === 0) process.exit(1);
 }
 
 main().catch((err) => {
