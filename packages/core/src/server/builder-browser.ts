@@ -28,6 +28,15 @@ export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
+export const BUILDER_PREVIEW_CONNECT_FALLBACK_URL =
+  "https://assets.agent-native.com/settings";
+
+const BUILDER_PREVIEW_CONNECT_FALLBACK_DOMAINS = [
+  "builderio.xyz",
+  "builderio.dev",
+  "builder.codes",
+  "builder.my",
+] as const;
 
 const BUILDER_RELAY_PURPOSE = "builder-preview-callback-relay";
 const BUILDER_RELAY_STATE_VERSION = 1;
@@ -61,6 +70,37 @@ export interface BuilderRelayCredentials {
 export interface BuilderRelayRequestBody {
   relayState: string;
   credentials: BuilderRelayCredentials;
+}
+
+/**
+ * Fusion preview hosts cannot currently complete Builder's cli-auth callback.
+ * Send only those connect attempts through the stable Assets deployment until
+ * the standard Builder OAuth flow replaces this compatibility path.
+ */
+export function getBuilderPreviewConnectFallbackUrl(
+  origin: string | null | undefined,
+): string | null {
+  if (!origin) return null;
+  try {
+    const url = new URL(origin);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    const hostname = url.hostname.toLowerCase();
+    const isFusionPreview = BUILDER_PREVIEW_CONNECT_FALLBACK_DOMAINS.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+    return isFusionPreview ? BUILDER_PREVIEW_CONNECT_FALLBACK_URL : null;
+  } catch {
+    return null;
+  }
 }
 
 function builderRelaySecret(): string {

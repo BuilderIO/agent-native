@@ -17,6 +17,7 @@ import {
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
   getBuilderBrowserOriginForEvent,
+  getBuilderPreviewConnectFallbackUrl,
   getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
   resolveBuilderCallbackReturnUrl,
@@ -28,6 +29,34 @@ import {
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
 } from "./builder-browser.js";
+
+describe("Builder preview connect fallback", () => {
+  it.each([
+    "https://builderio.xyz",
+    "https://preview.builderio.xyz",
+    "https://preview.builderio.dev",
+    "https://preview.builder.codes",
+    "https://PREVIEW.BUILDER.CODES",
+    "https://preview.builder.codes:443",
+    "https://preview.builder.my",
+  ])("routes Fusion preview origin %s through Assets", (origin) => {
+    expect(getBuilderPreviewConnectFallbackUrl(origin)).toBe(
+      "https://assets.agent-native.com/settings",
+    );
+  });
+
+  it.each([
+    "https://builder.io",
+    "https://agent-workspace.builder.io",
+    "https://assets.agent-native.com",
+    "http://preview.builderio.xyz",
+    "http://localhost:8080",
+    "https://builderio.xyz.attacker.example",
+    "https://preview.builderio.xyz/path",
+  ])("leaves non-Fusion origin %s unchanged", (origin) => {
+    expect(getBuilderPreviewConnectFallbackUrl(origin)).toBeNull();
+  });
+});
 
 function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
   const requestHeaders = new Headers(headers);
@@ -500,6 +529,26 @@ describe("Builder callback CSRF state", () => {
       expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
       );
+      expect(
+        getBuilderPreviewConnectFallbackUrl(
+          getBuilderBrowserOriginForEvent(event),
+        ),
+      ).toBe("https://assets.agent-native.com/settings");
+    });
+
+    it("classifies a direct Fusion preview request for the Assets fallback", () => {
+      process.env.NODE_ENV = "production";
+
+      const event = createBuilderBrowserEvent({
+        "x-forwarded-host": "preview.builder.codes",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(
+        getBuilderPreviewConnectFallbackUrl(
+          getBuilderBrowserOriginForEvent(event),
+        ),
+      ).toBe("https://assets.agent-native.com/settings");
     });
 
     it("returns users to the preview opener after a gateway callback", () => {

@@ -124,6 +124,7 @@ import {
   getBuilderConnectTrackingParams,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserOriginForEvent,
+  getBuilderPreviewConnectFallbackUrl,
   resolveBuilderCallbackReturnUrl,
   getBuilderBrowserStatusForEvent,
   resolveBuilderBranchProjectId,
@@ -1655,6 +1656,9 @@ export function createCoreRoutesPlugin(
             ...status,
             connectUrl: appendBuilderConnectToken(status.connectUrl, userEmail),
           } as T & { cliAuthUrl?: string };
+          if (getBuilderPreviewConnectFallbackUrl(previewOrigin)) {
+            return statusWithConnectToken;
+          }
           // Direct cli-auth only works when the callback lands on the same
           // deployment that minted the signed state. Builder/Fusion previews
           // often need a gateway callback origin; in that case use the
@@ -2031,6 +2035,13 @@ export function createCoreRoutesPlugin(
             /\/+$/,
             "",
           );
+          const fallbackUrl =
+            getBuilderPreviewConnectFallbackUrl(previewOrigin);
+          if (fallbackUrl) {
+            setResponseStatus(event, 302);
+            setResponseHeader(event, "Location", fallbackUrl);
+            return "";
+          }
           const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(
             event,
           ).replace(/\/+$/, "");
