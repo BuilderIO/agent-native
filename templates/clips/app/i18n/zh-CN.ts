@@ -465,6 +465,7 @@ const messages = {
     makePublicAndCopy: "公开并复制",
     copy: "复制",
     addPeopleByEmail: "通过电子邮件添加人员",
+    invite: "邀请",
     notifyPeople: "通知人们",
     peopleWithAccess: "有访问权限的人",
     ownerRole: "所有者",
