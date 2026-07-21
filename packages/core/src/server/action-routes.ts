@@ -26,10 +26,12 @@ import {
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { captureError } from "./capture-error.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
 
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
@@ -640,7 +642,27 @@ export function mountActionRoutes(
               if (isUserFacing) {
                 return { error: msg };
               }
-              console.error(`[agent-native] action '${name}' failed:`, err);
+              const requestId = getHttpRequestTelemetryId(event);
+              const captureId = captureError(err, {
+                route: routePath,
+                method: reqMethod,
+                tags: {
+                  action: name,
+                  caller: resolvedCaller
+                    ? "a2a"
+                    : isFrontendActionRequest(event)
+                      ? "frontend"
+                      : "http",
+                  status_code: String(status),
+                },
+                ...(requestId ? { extra: { request_id: requestId } } : {}),
+              });
+              console.error(`[agent-native] action '${name}' failed:`, {
+                action: name,
+                ...(requestId ? { requestId } : {}),
+                ...(captureId ? { captureId } : {}),
+                error: err?.stack ?? String(err),
+              });
               return { error: "Internal server error" };
             }
           },

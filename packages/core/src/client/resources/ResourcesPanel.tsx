@@ -613,7 +613,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
-      action: openSkillFlyout,
+      action: () => openSkillFlyout(),
       hoverAction: openSkillFlyout,
     },
     {

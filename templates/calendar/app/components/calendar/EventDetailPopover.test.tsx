@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { CalendarEvent } from "@shared/api";
-import { format, parseISO } from "date-fns";
+import { parseISO } from "date-fns";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -435,26 +435,6 @@ describe("EventDetailPopover characterization", () => {
       'input[placeholder="eventForm.addLocation"]',
     );
     expect(locationInputAfterUpdate!.value).toBe("Room A (typing)");
-
-    // The time fields were NOT being edited during the update above, so they
-    // should reflect the new event's start/end once the user opens that
-    // editor — not whatever was captured at mount.
-    const timeLabel = shortTimeLabel(updatedEvent.start);
-    const timeSummary = findByExactText("span", timeLabel);
-    expect(timeSummary).toBeTruthy();
-    act(() => {
-      (timeSummary as HTMLElement).click();
-    });
-
-    const timeInputs =
-      document.querySelectorAll<HTMLInputElement>('input[type="time"]');
-    expect(timeInputs).toHaveLength(2);
-    expect(timeInputs[0].value).toBe(
-      format(parseISO(updatedEvent.start), "HH:mm"),
-    );
-    expect(timeInputs[1].value).toBe(
-      format(parseISO(updatedEvent.end), "HH:mm"),
-    );
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {

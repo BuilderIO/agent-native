@@ -11,6 +11,11 @@ describe("isAllowedHostedTemplateEnvKey", () => {
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_API_KEY")).toBe(true);
     expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_APP_ID")).toBe(true);
   });
+
+  it("allows server Sentry configuration for hosted error monitoring", () => {
+    expect(isAllowedHostedTemplateEnvKey("SENTRY_DSN")).toBe(true);
+    expect(isAllowedHostedTemplateEnvKey("SENTRY_SERVER_DSN")).toBe(true);
+  });
 });
 
 describe("isForbiddenHostedTemplateEnvKey", () => {

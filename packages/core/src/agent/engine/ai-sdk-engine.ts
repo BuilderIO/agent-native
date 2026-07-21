@@ -24,6 +24,10 @@ import {
 } from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
+  createFirstEventAbortController,
+  FIRST_STREAM_EVENT_TIMEOUT_MS,
+} from "./first-event-timeout.js";
+import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
 } from "./output-tokens.js";
@@ -379,6 +383,7 @@ class AISDKEngine implements AgentEngine {
     }
 
     let assistantContent: EngineContentPart[] = [];
+    const firstEventAbort = createFirstEventAbortController(opts.abortSignal);
 
     try {
       const result = streamText({
@@ -390,7 +395,7 @@ class AISDKEngine implements AgentEngine {
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }
           : {}),
-        abortSignal: opts.abortSignal,
+        abortSignal: firstEventAbort.signal,
         onStepFinish: (step: any) => {
           assistantContent = aiSdkStepToAssistantContent(step);
         },
@@ -402,8 +407,18 @@ class AISDKEngine implements AgentEngine {
       // Buffer the terminal stop so assistant-content can be emitted just
       // before it, regardless of where `finish` arrives in the stream.
       let bufferedStop: EngineEvent | undefined;
+      let sawFirstEvent = false;
 
       for await (const part of result.fullStream) {
+        // "start" is a synthetic lifecycle marker the AI SDK enqueues
+        // synchronously when the stream begins — before any provider bytes
+        // arrive — so it does not count as real progress. Every other part
+        // (including "start-step", only enqueued on the step's first real
+        // chunk) proves the provider is actually responding.
+        if (!sawFirstEvent && part?.type !== "start") {
+          sawFirstEvent = true;
+          firstEventAbort.markFirstEvent();
+        }
         for (const event of aiSdkPartToEngineEvents(part)) {
           if (event.type === "stop") {
             bufferedStop = event;
@@ -413,6 +428,15 @@ class AISDKEngine implements AgentEngine {
         }
       }
 
+      // AI SDK surfaces an aborted stream as a graceful `{type: "abort"}`
+      // part rather than a thrown error, so a first-event timeout would
+      // otherwise fall through to the normal end_turn completion below.
+      if (!sawFirstEvent && firstEventAbort.didTimeout()) {
+        throw new Error(
+          `Model request produced no stream events within ${FIRST_STREAM_EVENT_TIMEOUT_MS / 1000}s; the connection appears wedged.`,
+        );
+      }
+
       yield { type: "assistant-content", parts: assistantContent };
       await clearProviderCredentialAuthFailure({
         key: PROVIDER_ENV_VARS[this.provider][0],
@@ -420,6 +444,7 @@ class AISDKEngine implements AgentEngine {
       });
       yield bufferedStop ?? { type: "stop", reason: "end_turn" };
     } catch (err: any) {
+      const timedOut = firstEventAbort.didTimeout();
       // Surface structured fields from AI SDK's APICallError so
       // isRetryableError can check statusCode/providerRetryable directly
       // rather than keyword-matching the message string.
@@ -427,12 +452,13 @@ class AISDKEngine implements AgentEngine {
         typeof err?.statusCode === "number" ? err.statusCode : undefined;
       const errorMessage = err?.message ?? String(err);
       const isConnectionError =
+        !timedOut &&
         statusCode === undefined &&
         String(errorMessage).trim().toLowerCase() === "connection error.";
       const providerRetryable: boolean | undefined =
         typeof err?.isRetryable === "boolean"
           ? err.isRetryable
-          : isConnectionError
+          : isConnectionError || timedOut
             ? true
             : undefined;
       if (statusCode === 401) {
@@ -455,12 +481,14 @@ class AISDKEngine implements AgentEngine {
         // auto-resume too — matching the Builder gateway path.
         ...(statusCode !== undefined
           ? { errorCode: `http_${statusCode}`, statusCode }
-          : isConnectionError
+          : isConnectionError || timedOut
             ? { errorCode: "provider_network_error" }
             : {}),
         ...(providerRetryable !== undefined ? { providerRetryable } : {}),
       };
       throw err;
+    } finally {
+      firstEventAbort.cleanup();
     }
   }
 

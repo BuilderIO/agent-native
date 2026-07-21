@@ -555,11 +555,22 @@ export class MseVideoLoader {
       headers: { Range: `bytes=${start}-${end}` },
       signal: controller.signal,
     });
-    // 416 means we asked past the end — treat as a clean end-of-stream.
-    if (res.status === 416) return { bytes: new Uint8Array(0), eof: true };
+    if (res.status === 416) {
+      // A 416 at an offset before the known file total means the backing object
+      // was replaced with a smaller compressed version while we were streaming.
+      // Throw so runPump's catch calls fail() -> onFatal -> native path recovery.
+      // When totalKnown is false (cross-origin CDN hides Content-Range), we
+      // cannot tell premature from real EOF so we keep the old safe-EOF behaviour.
+      if (this.totalKnown && start < this.totalBytes) {
+        throw new Error("Range 416 before known EOF: backing file replaced");
+      }
+      return { bytes: new Uint8Array(0), eof: true };
+    }
     if (!res.ok) {
       throw new Error(`Range request failed: ${res.status}`);
     }
+    // If the backing file shrank mid-response (ERR_CONTENT_LENGTH_MISMATCH),
+    // arrayBuffer() throws here, which also routes through fail() -> onFatal.
     const buffer = await res.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
