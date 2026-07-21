@@ -4905,11 +4905,36 @@ body[data-clips-route="recording-pill"] #root {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: flex-end;
+  gap: 6px;
   padding-bottom: 8px;
   background: transparent;
   pointer-events: none;
+}
+
+.flow-bar-transcript-preview {
+  max-width: 280px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(18, 18, 20, 0.92);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.flow-bar-transcript-preview span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .flow-bar {
