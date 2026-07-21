@@ -83,12 +83,12 @@ export function hydrateImageRefsInHtml(
     let hashIdx = 0;
 
     let newTag = tag.replace(/url\(&quot;about:blank&quot;\)/g, () => {
-      if (hashIdx >= hashes.length) return 'url(&quot;about:blank&quot;)';
+      if (hashIdx >= hashes.length) return "url(&quot;about:blank&quot;)";
       const hash = hashes[hashIdx++]!;
       const durableUrl = resolvedUrls.get(hash);
       if (!durableUrl) {
         unresolvedHashes.push(hash);
-        return 'url(&quot;about:blank&quot;)';
+        return "url(&quot;about:blank&quot;)";
       }
       resolvedCount++;
       const safeUrl = durableUrl.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
@@ -168,7 +168,8 @@ export default defineAction({
       const designData: unknown = row.designData
         ? JSON.parse(row.designData)
         : {};
-      const screenMeta = (designData as Record<string, unknown>)?.screenMetadata;
+      const screenMeta = (designData as Record<string, unknown>)
+        ?.screenMetadata;
       if (screenMeta && typeof screenMeta === "object") {
         const fileMeta = (screenMeta as Record<string, unknown>)[fileId];
         if (fileMeta && typeof fileMeta === "object") {
@@ -288,10 +289,10 @@ export default defineAction({
           if (!screenMeta || typeof screenMeta !== "object") return false;
           const fileMeta = (screenMeta as Record<string, unknown>)[fileId];
           if (!fileMeta || typeof fileMeta !== "object") return false;
-          const refs = (fileMeta as Record<string, unknown>).unresolvedImageRefs;
+          const refs = (fileMeta as Record<string, unknown>)
+            .unresolvedImageRefs;
           return remainingHashes.length === 0
-            ? refs === undefined ||
-                (Array.isArray(refs) && refs.length === 0)
+            ? refs === undefined || (Array.isArray(refs) && refs.length === 0)
             : Array.isArray(refs) && refs.length === remainingHashes.length;
         },
       });

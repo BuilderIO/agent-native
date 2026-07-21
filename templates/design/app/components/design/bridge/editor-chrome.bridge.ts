@@ -10430,28 +10430,38 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         .filter(function (item) {
           return item.kind === "file" && item.type.startsWith("image/");
         })
-        .map(function (item) { return item.getAsFile(); })
-        .filter(function (f): f is File { return Boolean(f); });
+        .map(function (item) {
+          return item.getAsFile();
+        })
+        .filter(function (f): f is File {
+          return Boolean(f);
+        });
       if (imageFiles.length > 0) {
         stopNativeInteraction(e);
         var readPromises = imageFiles.map(function (file) {
-          return new Promise<{ dataUrl: string; type: string; name: string } | null>(
-            function (resolve) {
-              var reader = new FileReader();
-              reader.onload = function () {
-                resolve({
-                  dataUrl: typeof reader.result === "string" ? reader.result : "",
-                  type: file.type,
-                  name: file.name,
-                });
-              };
-              reader.onerror = function () { resolve(null); };
-              reader.readAsDataURL(file);
-            },
-          );
+          return new Promise<{
+            dataUrl: string;
+            type: string;
+            name: string;
+          } | null>(function (resolve) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              resolve({
+                dataUrl: typeof reader.result === "string" ? reader.result : "",
+                type: file.type,
+                name: file.name,
+              });
+            };
+            reader.onerror = function () {
+              resolve(null);
+            };
+            reader.readAsDataURL(file);
+          });
         });
         void Promise.all(readPromises).then(function (results) {
-          var valid = results.filter(function (r) { return r && r.dataUrl; });
+          var valid = results.filter(function (r) {
+            return r && r.dataUrl;
+          });
           if (valid.length > 0) {
             (window.parent as Window).postMessage(
               { type: "canvas-image-paste", files: valid },

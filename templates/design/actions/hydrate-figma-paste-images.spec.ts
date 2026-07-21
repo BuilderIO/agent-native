@@ -66,7 +66,13 @@ vi.mock("../server/db/index.js", () => ({
     }),
   }),
   schema: {
-    designFiles: { id: "id", designId: "designId", filename: "filename", fileType: "fileType", content: "content" },
+    designFiles: {
+      id: "id",
+      designId: "designId",
+      filename: "filename",
+      fileType: "fileType",
+      content: "content",
+    },
     designs: { id: "id", data: "data" },
     designShares: {},
   },
@@ -119,7 +125,11 @@ describe("collectImageRefHashes", () => {
 describe("hydrateImageRefsInHtml", () => {
   it("leaves HTML unchanged when no data-figma-image-ref attrs are present", () => {
     const html = '<div style="color: red;">text</div>';
-    const { html: out, resolved, missing } = hydrateImageRefsInHtml(html, new Map());
+    const {
+      html: out,
+      resolved,
+      missing,
+    } = hydrateImageRefsInHtml(html, new Map());
     expect(out).toBe(html);
     expect(resolved).toBe(0);
     expect(missing).toEqual([]);
@@ -135,7 +145,7 @@ describe("hydrateImageRefsInHtml", () => {
     expect(resolved).toBe(1);
     expect(missing).toEqual([]);
     expect(out).not.toContain("data-figma-image-ref");
-    expect(out).toContain('url(&quot;https://cdn.example.com/img.png&quot;)');
+    expect(out).toContain("url(&quot;https://cdn.example.com/img.png&quot;)");
     expect(out).not.toContain("about:blank");
   });
 
@@ -150,8 +160,8 @@ describe("hydrateImageRefsInHtml", () => {
     const { html: out, resolved } = hydrateImageRefsInHtml(html, urls);
 
     expect(resolved).toBe(2);
-    expect(out).toContain('url(&quot;https://cdn.example.com/img1.png&quot;)');
-    expect(out).toContain('url(&quot;https://cdn.example.com/img2.png&quot;)');
+    expect(out).toContain("url(&quot;https://cdn.example.com/img1.png&quot;)");
+    expect(out).toContain("url(&quot;https://cdn.example.com/img2.png&quot;)");
     expect(out).not.toContain("data-figma-image-ref");
   });
 
@@ -159,7 +169,11 @@ describe("hydrateImageRefsInHtml", () => {
     const html =
       '<div data-figma-image-ref="abc123" style="background-image: url(&quot;about:blank&quot;);">x</div>';
 
-    const { html: out, resolved, missing } = hydrateImageRefsInHtml(html, new Map());
+    const {
+      html: out,
+      resolved,
+      missing,
+    } = hydrateImageRefsInHtml(html, new Map());
 
     expect(resolved).toBe(0);
     expect(missing).toEqual(["abc123"]);
@@ -177,8 +191,8 @@ describe("hydrateImageRefsInHtml", () => {
     expect(resolved).toBe(1);
     expect(missing).toEqual(["h2"]);
     expect(out).toContain('data-figma-image-ref="h2"');
-    expect(out).toContain('url(&quot;https://cdn.example.com/img1.png&quot;)');
-    expect(out).toContain('url(&quot;about:blank&quot;)');
+    expect(out).toContain("url(&quot;https://cdn.example.com/img1.png&quot;)");
+    expect(out).toContain("url(&quot;about:blank&quot;)");
   });
 
   it("encodes & in durable URLs as &amp;", () => {
@@ -188,7 +202,7 @@ describe("hydrateImageRefsInHtml", () => {
 
     const { html: out } = hydrateImageRefsInHtml(html, urls);
     expect(out).toContain(
-      'url(&quot;https://cdn.example.com/img?a=1&amp;b=2&quot;)',
+      "url(&quot;https://cdn.example.com/img?a=1&amp;b=2&quot;)",
     );
   });
 });
@@ -204,7 +218,8 @@ const SCREEN_METADATA_ROW = {
   designId: "design-1",
   filename: "Screen.html",
   fileType: "html",
-  content: '<div data-figma-image-ref="abc123" style="background-image: url(&quot;about:blank&quot;);">x</div>',
+  content:
+    '<div data-figma-image-ref="abc123" style="background-image: url(&quot;about:blank&quot;);">x</div>',
   designData: JSON.stringify({
     screenMetadata: {
       "file-1": {
@@ -225,13 +240,23 @@ describe("hydrate-figma-paste-images action", () => {
       changed: true,
       updatedAt: "2025-01-01T00:00:00Z",
     });
-    mocks.mutateDesignData.mockImplementation(async ({ mutate, isApplied }: any) => {
-      const data = mutate({
-        screenMetadata: { "file-1": { figmaFileKey: FILE_KEY, unresolvedImageRefs: ["abc123"] } },
-      }, { updatedAt: "" });
-      expect(isApplied(data)).toBe(true);
-      return { data, updatedAt: "" };
-    });
+    mocks.mutateDesignData.mockImplementation(
+      async ({ mutate, isApplied }: any) => {
+        const data = mutate(
+          {
+            screenMetadata: {
+              "file-1": {
+                figmaFileKey: FILE_KEY,
+                unresolvedImageRefs: ["abc123"],
+              },
+            },
+          },
+          { updatedAt: "" },
+        );
+        expect(isApplied(data)).toBe(true);
+        return { data, updatedAt: "" };
+      },
+    );
   });
 
   it("returns early when no image ref attrs found in live content", async () => {
@@ -261,8 +286,11 @@ describe("hydrate-figma-paste-images action", () => {
     const result = await action.run({ fileId: "file-1" });
 
     expect(result).toMatchObject({ resolved: 1, missing: 0 });
-    expect(mocks.resolveImageFillRefs).toHaveBeenCalledWith(FILE_KEY, ["abc123"]);
-    const writtenContent = mocks.writeInlineSourceFile.mock.calls[0]![0].content as string;
+    expect(mocks.resolveImageFillRefs).toHaveBeenCalledWith(FILE_KEY, [
+      "abc123",
+    ]);
+    const writtenContent = mocks.writeInlineSourceFile.mock.calls[0]![0]
+      .content as string;
     expect(writtenContent).toContain("https://cdn.example.com/img.png");
     expect(writtenContent).not.toContain("about:blank");
     expect(writtenContent).not.toContain("data-figma-image-ref");
@@ -288,7 +316,9 @@ describe("hydrate-figma-paste-images action", () => {
     dbRows = [
       {
         ...SCREEN_METADATA_ROW,
-        designData: JSON.stringify({ screenMetadata: { "file-1": { title: "Screen" } } }),
+        designData: JSON.stringify({
+          screenMetadata: { "file-1": { title: "Screen" } },
+        }),
       },
     ];
 

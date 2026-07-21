@@ -16,10 +16,7 @@
  * `hydrate-figma-paste-images` resolves and mirrors the real URLs.
  */
 
-import {
-  assertSafeDecodedFigDocument,
-  decodeFig,
-} from "./fig-file-decoder.js";
+import { assertSafeDecodedFigDocument, decodeFig } from "./fig-file-decoder.js";
 import {
   type FigNode,
   type Guid,
@@ -114,7 +111,13 @@ function normalizeClipboardDocument(document: unknown): unknown {
   const orphanKeys = new Set(orphans.map((n) => guidKey(n.guid)));
   const patchedNodes = nodeChanges.map((n) => {
     if (!orphanKeys.has(guidKey(n.guid))) return n;
-    return { ...n, parentIndex: { guid: pageGuid, position: n.parentIndex?.position ?? "0.5" } };
+    return {
+      ...n,
+      parentIndex: {
+        guid: pageGuid,
+        position: n.parentIndex?.position ?? "0.5",
+      },
+    };
   });
 
   return {
@@ -201,7 +204,8 @@ export async function importFigmaClipboardFromBuffer(options: {
         figmaNodeName: frame.frameName,
         figFormat: decoded.format,
         figVersion: decoded.version,
-        unresolvedImageRefs: unresolvedRefs.length > 0 ? unresolvedRefs : undefined,
+        unresolvedImageRefs:
+          unresolvedRefs.length > 0 ? unresolvedRefs : undefined,
       },
       preferredFrame: {
         title: frame.frameName,

@@ -568,7 +568,7 @@ const enUS = {
       figmaTokenDocs: "Get a token",
       figmaTokenPlaceholder: "Paste your Figma personal access token",
       figmaTokenDescription:
-        "Needs \"File content\" and \"Current user\" scopes. Saved securely — never added to chat.",
+        'Needs "File content" and "Current user" scopes. Saved securely — never added to chat.',
       importFigmaUrl: "Import from Figma",
       saveKeyAndImport: "Save key and import",
       figmaUrlSuccess: "Imported from Figma.",
@@ -586,7 +586,8 @@ const enUS = {
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
-      figmaPasteLocalKiwiLabel: "Imported without token — geometry and text only",
+      figmaPasteLocalKiwiLabel:
+        "Imported without token — geometry and text only",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaHydrationDialogTitle: "Connect Figma to load images",
@@ -11799,7 +11800,8 @@ const designImportOverrides = {
           "輸入您的 Figma 存取權杖，以載入已匯入螢幕{{screensPlural}}中 {{count}} 個缺少的圖片{{plural}}。",
         figmaHydrationConnectAndLoad: "連結並載入圖片",
         figmaHydrationSuccess: "圖片載入成功",
-        figmaHydrationSuccessDescription: "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
+        figmaHydrationSuccessDescription:
+          "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
         figUploadTitle: "上傳 .fig",
         figUploadDescription:
           "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
@@ -11854,13 +11856,15 @@ const designImportOverrides = {
         figmaPasteRestLabel: "通过 Figma API 导入",
         figmaPasteHtmlLabel: "从剪贴板预览导入",
         figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
-        figmaPasteImagesNeedToken: "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
+        figmaPasteImagesNeedToken:
+          "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
         figmaHydrationDialogTitle: "连接 Figma 以加载图片",
         figmaHydrationDialogDescription:
           "输入您的 Figma 访问令牌，以加载已导入屏幕{{screensPlural}}中缺少的 {{count}} 张图片{{plural}}。",
         figmaHydrationConnectAndLoad: "连接并加载图片",
         figmaHydrationSuccess: "图片加载成功",
-        figmaHydrationSuccessDescription: "已从 Figma 填入 {{count}} 张图片{{plural}}。",
+        figmaHydrationSuccessDescription:
+          "已从 Figma 填入 {{count}} 张图片{{plural}}。",
         figUploadTitle: "上传 .fig",
         figUploadDescription:
           "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 50 MB。",
@@ -11916,7 +11920,8 @@ const designImportOverrides = {
           "No se pudo hacer coincidir con nodos específicos de Figma. Pega un enlace de marco para una importación exacta.",
         figmaPasteRestLabel: "Importado mediante la API de Figma",
         figmaPasteHtmlLabel: "Importado desde la vista previa del portapapeles",
-        figmaPasteLocalKiwiLabel: "Importado sin token — solo geometría y texto",
+        figmaPasteLocalKiwiLabel:
+          "Importado sin token — solo geometría y texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagen{{plural}} necesita{{plural}} acceso a Figma para cargarse.",
         figmaHydrationDialogTitle: "Conectar Figma para cargar imágenes",
@@ -11983,7 +11988,8 @@ const designImportOverrides = {
           "Impossible de faire correspondre à des nœuds Figma précis. Collez un lien de cadre pour un import exact.",
         figmaPasteRestLabel: "Importé via l'API Figma",
         figmaPasteHtmlLabel: "Importé depuis l'aperçu du presse-papiers",
-        figmaPasteLocalKiwiLabel: "Importé sans token — géométrie et texte uniquement",
+        figmaPasteLocalKiwiLabel:
+          "Importé sans token — géométrie et texte uniquement",
         figmaPasteImagesNeedToken:
           "{{count}} image{{plural}} nécessite{{plural}} un accès Figma pour être chargée{{plural}}.",
         figmaHydrationDialogTitle: "Connecter Figma pour charger les images",
@@ -12050,7 +12056,8 @@ const designImportOverrides = {
           "Konnte nicht mit bestimmten Figma-Nodes abgeglichen werden. Füge stattdessen einen Frame-Link für einen exakten Import ein.",
         figmaPasteRestLabel: "Über die Figma-API importiert",
         figmaPasteHtmlLabel: "Aus der Zwischenablage-Vorschau importiert",
-        figmaPasteLocalKiwiLabel: "Ohne Token importiert — nur Geometrie und Text",
+        figmaPasteLocalKiwiLabel:
+          "Ohne Token importiert — nur Geometrie und Text",
         figmaPasteImagesNeedToken:
           "{{count}} Bild{{plural}} benötigt{{plural}} Figma-Zugriff zum Laden.",
         figmaHydrationDialogTitle: "Figma verbinden, um Bilder zu laden",
@@ -12058,7 +12065,8 @@ const designImportOverrides = {
           "Gib deinen Figma-Zugriffstoken ein, um {{count}} fehlendes{{plural}} Bild{{plural}} in den importierten Screen{{screensPlural}} zu laden.",
         figmaHydrationConnectAndLoad: "Verbinden und Bilder laden",
         figmaHydrationSuccess: "Bilder erfolgreich geladen",
-        figmaHydrationSuccessDescription: "{{count}} Bild{{plural}} aus Figma ausgefüllt.",
+        figmaHydrationSuccessDescription:
+          "{{count}} Bild{{plural}} aus Figma ausgefüllt.",
         figUploadTitle: ".fig hochladen",
         figUploadDescription:
           "Experimentell: Das .fig-Format von Figma ist proprietär und kann sich ändern. Unterstützte Ebenen werden zu bearbeitbaren Screens; einige Funktionen können abweichen. Maximal 50 MB.",
@@ -12115,7 +12123,8 @@ const designImportOverrides = {
           "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
         figmaPasteRestLabel: "Figma API 経由でインポート",
         figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
-        figmaPasteLocalKiwiLabel: "トークンなしでインポート — ジオメトリとテキストのみ",
+        figmaPasteLocalKiwiLabel:
+          "トークンなしでインポート — ジオメトリとテキストのみ",
         figmaPasteImagesNeedToken:
           "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
         figmaHydrationDialogTitle: "Figma を接続して画像を読み込む",
@@ -12123,7 +12132,8 @@ const designImportOverrides = {
           "Figma アクセストークンを入力して、インポートされた画面{{screensPlural}}の不足している {{count}} 枚の画像{{plural}}を読み込んでください。",
         figmaHydrationConnectAndLoad: "接続して画像を読み込む",
         figmaHydrationSuccess: "画像の読み込みが完了しました",
-        figmaHydrationSuccessDescription: "Figma から {{count}} 枚の画像{{plural}}が入力されました。",
+        figmaHydrationSuccessDescription:
+          "Figma から {{count}} 枚の画像{{plural}}が入力されました。",
         figUploadTitle: ".fig をアップロード",
         figUploadDescription:
           "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 50 MB。",
@@ -12189,7 +12199,8 @@ const designImportOverrides = {
           "Figma 액세스 토큰을 입력하여 가져온 화면{{screensPlural}}의 누락된 이미지 {{count}}개{{plural}}를 로드하세요.",
         figmaHydrationConnectAndLoad: "연결하고 이미지 로드",
         figmaHydrationSuccess: "이미지가 성공적으로 로드되었습니다",
-        figmaHydrationSuccessDescription: "Figma에서 {{count}}개의 이미지{{plural}}가 채워졌습니다.",
+        figmaHydrationSuccessDescription:
+          "Figma에서 {{count}}개의 이미지{{plural}}가 채워졌습니다.",
         figUploadTitle: ".fig 업로드",
         figUploadDescription:
           "실험적 기능: Figma의 .fig 형식은 독점 형식이며 변경될 수 있습니다. 지원되는 레이어는 편집 가능한 화면으로 변환되지만 일부 기능은 다를 수 있습니다. 최대 50MB.",
@@ -12248,7 +12259,8 @@ const designImportOverrides = {
         figmaPasteRestLabel: "Importado via API do Figma",
         figmaPasteHtmlLabel:
           "Importado da pré-visualização da área de transferência",
-        figmaPasteLocalKiwiLabel: "Importado sem token — apenas geometria e texto",
+        figmaPasteLocalKiwiLabel:
+          "Importado sem token — apenas geometria e texto",
         figmaPasteImagesNeedToken:
           "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
         figmaHydrationDialogTitle: "Conectar o Figma para carregar imagens",
@@ -12315,7 +12327,8 @@ const designImportOverrides = {
           "विशिष्ट Figma नोड्स से मेल नहीं खाया। सटीक आयात के लिए इसके बजाय एक frame लिंक paste करें।",
         figmaPasteRestLabel: "Figma API के ज़रिए आयात किया गया",
         figmaPasteHtmlLabel: "क्लिपबोर्ड पूर्वावलोकन से आयात किया गया",
-        figmaPasteLocalKiwiLabel: "बिना token के आयात किया गया — केवल geometry और text",
+        figmaPasteLocalKiwiLabel:
+          "बिना token के आयात किया गया — केवल geometry और text",
         figmaPasteImagesNeedToken:
           "{{count}} छवि{{plural}} को लोड करने के लिए Figma की पहुँच चाहिए।",
         figmaHydrationDialogTitle: "छवियाँ लोड करने के लिए Figma जोड़ें",
@@ -12323,7 +12336,8 @@ const designImportOverrides = {
           "आयातित screen{{screensPlural}} में {{count}} गायब छवि{{plural}} लोड करने के लिए अपना Figma access token दर्ज करें।",
         figmaHydrationConnectAndLoad: "जोड़ें और छवियाँ लोड करें",
         figmaHydrationSuccess: "छवियाँ सफलतापूर्वक लोड हुईं",
-        figmaHydrationSuccessDescription: "Figma से {{count}} छवि{{plural}} भरी गई{{plural}}।",
+        figmaHydrationSuccessDescription:
+          "Figma से {{count}} छवि{{plural}} भरी गई{{plural}}।",
         figUploadTitle: ".fig अपलोड करें",
         figUploadDescription:
           "प्रायोगिक: Figma का .fig format proprietary है और बदल सकता है। समर्थित layers editable screens बनती हैं; कुछ features अलग हो सकते हैं। अधिकतम 50 MB।",
@@ -12380,7 +12394,8 @@ const designImportOverrides = {
           "تعذّرت المطابقة مع عُقد Figma محددة. الصق رابط الإطار بدلاً من ذلك للحصول على استيراد دقيق.",
         figmaPasteRestLabel: "تم الاستيراد عبر واجهة Figma البرمجية",
         figmaPasteHtmlLabel: "تم الاستيراد من معاينة الحافظة",
-        figmaPasteLocalKiwiLabel: "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
+        figmaPasteLocalKiwiLabel:
+          "تم الاستيراد بدون رمز — الأشكال الهندسية والنص فقط",
         figmaPasteImagesNeedToken:
           "{{count}} صورة{{plural}} تحتاج إلى الوصول إلى Figma للتحميل.",
         figmaHydrationDialogTitle: "ربط Figma لتحميل الصور",
@@ -12388,7 +12403,8 @@ const designImportOverrides = {
           "أدخل رمز الوصول إلى Figma لتحميل {{count}} صورة{{plural}} مفقودة في الشاشة{{screensPlural}} المستوردة.",
         figmaHydrationConnectAndLoad: "ربط وتحميل الصور",
         figmaHydrationSuccess: "تم تحميل الصور بنجاح",
-        figmaHydrationSuccessDescription: "تم ملء {{count}} صورة{{plural}} من Figma.",
+        figmaHydrationSuccessDescription:
+          "تم ملء {{count}} صورة{{plural}} من Figma.",
         figUploadTitle: "رفع .fig",
         figUploadDescription:
           "ميزة تجريبية: تنسيق .fig في Figma مملوك وقد يتغير. تتحول الطبقات المدعومة إلى شاشات قابلة للتحرير، وقد تختلف بعض الميزات. الحد الأقصى 50 ميغابايت.",

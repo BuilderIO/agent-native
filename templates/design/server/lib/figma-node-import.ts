@@ -431,7 +431,10 @@ export function providerJson(envelope: unknown, label: string): unknown {
     );
   }
   if (response.ok === false) {
-    const jsonBody = response.json as { message?: string; error?: string } | null;
+    const jsonBody = response.json as {
+      message?: string;
+      error?: string;
+    } | null;
     const detail =
       (typeof response.text === "string" && response.text.trim()) ||
       (typeof jsonBody?.message === "string" && jsonBody.message) ||
@@ -681,7 +684,11 @@ export async function buildScreenFilesFromFigmaNodes(
     source?: (nodeId: string, node: FigmaNode) => Record<string, unknown>;
     sourceLabel?: (nodeId: string, node: FigmaNode) => string;
   } = {},
-): Promise<{ files: ImportedDesignFile[]; fidelityEntries: FidelityEntry[]; missingImageFillCount: number }> {
+): Promise<{
+  files: ImportedDesignFile[];
+  fidelityEntries: FidelityEntry[];
+  missingImageFillCount: number;
+}> {
   const entries = Object.entries(nodesById);
   const fallbackNodeIds = new Set<string>();
   const imageFillRefs = new Set<string>();
@@ -771,6 +778,8 @@ export async function buildScreenFilesFromFigmaNodes(
     });
   }
 
-  const finalMissingCount = missingImageFillRefs.filter((r) => !imageFillUrls[r]).length;
+  const finalMissingCount = missingImageFillRefs.filter(
+    (r) => !imageFillUrls[r],
+  ).length;
   return { files, fidelityEntries, missingImageFillCount: finalMissingCount };
 }

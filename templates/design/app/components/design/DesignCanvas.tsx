@@ -2694,7 +2694,9 @@ export function DesignCanvas({
         const files = raw
           .slice(0, MAX_IMAGE_PASTE_FILES)
           .filter(
-            (f: unknown): f is { dataUrl: string; type: string; name: string } => {
+            (
+              f: unknown,
+            ): f is { dataUrl: string; type: string; name: string } => {
               if (!f || typeof f !== "object") return false;
               const dataUrl = (f as { dataUrl?: unknown }).dataUrl;
               if (typeof dataUrl !== "string") return false;

@@ -71,7 +71,11 @@ registerRequiredSecret({
         return true;
       }
       let body = "";
-      try { body = await res.text(); } catch { /* ignore */ }
+      try {
+        body = await res.text();
+      } catch {
+        /* ignore */
+      }
       console.log("[figma-validator] Figma error body:", body);
       if (res.status === 401 || res.status === 403) {
         return {

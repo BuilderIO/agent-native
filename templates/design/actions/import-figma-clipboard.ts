@@ -1,12 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
+import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildFigmaNodeCandidates,
   extractVisibleTexts,
   matchFigmaClipboardNodes,
 } from "../server/lib/figma-clipboard-match.js";
-import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildScreenFilesFromFigmaNodes,
   fetchFileStructure,
@@ -113,10 +113,8 @@ export default defineAction({
     try {
       if (selectedNodeIds?.length) {
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
-        const { files, fidelityEntries, missingImageFillCount } = await buildScreenFilesFromFigmaNodes(
-          fileKey,
-          nodesById,
-        );
+        const { files, fidelityEntries, missingImageFillCount } =
+          await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
         const saved = await saveImportedDesignFiles({
           designId,
           sourceType: "figma-clipboard-rest",
@@ -125,9 +123,12 @@ export default defineAction({
         const selectionWarnings = selectedNodeIdsTruncated
           ? [SELECTION_TRUNCATED_GUIDANCE]
           : [];
-        const fillWarnings = missingImageFillCount > 0
-          ? [`${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted. This can happen for deleted images or very large assets.`]
-          : [];
+        const fillWarnings =
+          missingImageFillCount > 0
+            ? [
+                `${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted. This can happen for deleted images or very large assets.`,
+              ]
+            : [];
         return {
           ...saved,
           warnings: [...saved.warnings, ...selectionWarnings, ...fillWarnings],
@@ -160,18 +161,19 @@ export default defineAction({
       if (matchResult.status === "matched") {
         const nodeIds = matchResult.matches.map((match) => match.id);
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
-        const { files, fidelityEntries, missingImageFillCount } = await buildScreenFilesFromFigmaNodes(
-          fileKey,
-          nodesById,
-        );
+        const { files, fidelityEntries, missingImageFillCount } =
+          await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
         const saved = await saveImportedDesignFiles({
           designId,
           sourceType: "figma-clipboard-rest",
           files,
         });
-        const fillWarnings = missingImageFillCount > 0
-          ? [`${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted.`]
-          : [];
+        const fillWarnings =
+          missingImageFillCount > 0
+            ? [
+                `${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted.`,
+              ]
+            : [];
         return {
           ...saved,
           warnings: [...(saved.warnings ?? []), ...fillWarnings],
@@ -198,17 +200,25 @@ export default defineAction({
       }
       figmaApiKeyMissing = CREDENTIAL_MISSING_RE.test(errorMessage);
       const isTransient = TRANSIENT_ERROR_RE.test(errorMessage);
-      console.log("[import-figma-clipboard] figmaApiKeyMissing:", figmaApiKeyMissing, "isTransient:", isTransient, "clipboardBuffer present:", !!clipboardBuffer);
+      console.log(
+        "[import-figma-clipboard] figmaApiKeyMissing:",
+        figmaApiKeyMissing,
+        "isTransient:",
+        isTransient,
+        "clipboardBuffer present:",
+        !!clipboardBuffer,
+      );
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
         !figmaApiKeyMissing &&
-        !isTransient
+        (!isTransient || !clipboardBuffer)
       ) {
         // Exact ids prove this was a current Figma clipboard. With no visible
         // fallback, a permanent REST failure must surface as a real error rather
-        // than silently degrading. Transient errors (quota cooldown, network)
-        // fall through to local-kiwi when the buffer is present.
+        // than silently degrading. Transient errors fall through to local-kiwi
+        // only when a buffer is present to decode; without a buffer there is
+        // nothing to fall back to, so even transient errors must propagate.
         throw error;
       }
       if (!figmaApiKeyMissing) {
@@ -247,9 +257,10 @@ export default defineAction({
               imageFallbacks: [],
               unresolvedImages: localResult.unresolvedImageRefs.length,
             },
-            guidance: localResult.unresolvedImageRefs.length > 0
-              ? `Imported from Figma using local decode — geometry, text, and styles are editable. ${localResult.unresolvedImageRefs.length} image${localResult.unresolvedImageRefs.length === 1 ? "" : "s"} need a Figma access token to load. Connect Figma in Settings to fill them in, or use "Copy as PNG" for individual images.`
-              : "Imported from Figma using local decode — geometry, text, and styles are fully editable. Connect Figma in Settings for highest-fidelity REST imports.",
+            guidance:
+              localResult.unresolvedImageRefs.length > 0
+                ? `Imported from Figma using local decode — geometry, text, and styles are editable. ${localResult.unresolvedImageRefs.length} image${localResult.unresolvedImageRefs.length === 1 ? "" : "s"} need a Figma access token to load. Connect Figma in Settings to fill them in, or use "Copy as PNG" for individual images.`
+                : "Imported from Figma using local decode — geometry, text, and styles are fully editable. Connect Figma in Settings for highest-fidelity REST imports.",
           };
         }
       } catch {

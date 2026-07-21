@@ -126,7 +126,9 @@ const FIGMA_BUFFER_BASE64_RE = /\(figma\)([A-Za-z0-9+/=\s]+?)\(\/figma\)/i;
  * Some variants embed the comment directly in the HTML text instead. Both
  * are handled defensively.
  */
-export function extractFigmaBuffer(html: string | null | undefined): string | null {
+export function extractFigmaBuffer(
+  html: string | null | undefined,
+): string | null {
   if (!html) return null;
 
   // Try the data-buffer attribute path first (current Figma clipboard format).
@@ -183,7 +185,11 @@ export function figmaImageRefSentinel(hexHash: string): string {
 }
 
 export type FigmaApiKeyStatus = "configured" | "missing" | "unknown";
-export type FigmaPasteStrategy = "rest" | "local-kiwi" | "html-fallback" | "not-figma";
+export type FigmaPasteStrategy =
+  | "rest"
+  | "local-kiwi"
+  | "html-fallback"
+  | "not-figma";
 
 /**
  * Pure decision matrix for what a paste should attempt, given whether it

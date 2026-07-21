@@ -2516,7 +2516,9 @@ export function renderHtmlTemplates(
     imageMap: options.imageMap ?? new Map<string, string>(),
     missingImageUrl: options.missingImageUrl,
     trackUnresolvedImageRefs: options.trackUnresolvedImageRefs,
-    unresolvedImageRefs: options.trackUnresolvedImageRefs ? new Set<string>() : undefined,
+    unresolvedImageRefs: options.trackUnresolvedImageRefs
+      ? new Set<string>()
+      : undefined,
     fontUsage: new Set(),
     inliningStack: new Set(),
     renderedNodeCount: 0,

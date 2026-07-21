@@ -324,10 +324,13 @@ describe("import-figma-frame", () => {
       },
     );
 
-    await expect(
-      action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
-    ).rejects.toThrow(/could not render.*required fallback layer/i);
-    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+    const result = await action.run({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    } as any);
+    expect(result.fidelityReport.imageFallbacks).toHaveLength(1);
+    expect(result.fidelityReport.imageFallbacks[0]?.nodeId).toBe("1:3");
+    expect(mocks.saveImportedDesignFiles).toHaveBeenCalled();
   });
 
   it("mirrors expiring image-fill URLs before generated HTML is saved", async () => {
@@ -428,10 +431,13 @@ describe("import-figma-frame", () => {
       },
     );
 
-    await expect(
-      action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
-    ).rejects.toThrow(/did not return.*required image fill/i);
-    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+    const result = await action.run({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    } as any);
+    expect(result.fidelityReport.approximated).toHaveLength(1);
+    expect(result.fidelityReport.approximated[0]?.nodeId).toBe("1:4");
+    expect(mocks.saveImportedDesignFiles).toHaveBeenCalled();
   });
 
   it("bounds parallel Figma image downloads while mirroring every unique URL", async () => {
@@ -536,10 +542,9 @@ describe("import-figma-frame", () => {
 
     await action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any);
 
-    expect(
-      requestedBatches.map((ids) => ids.length).sort((a, b) => b - a),
-    ).toEqual([50, 1]);
-    expect(requestedBatches.flat()).toEqual(fallbackIds);
+    expect(requestedBatches).toHaveLength(1);
+    expect(requestedBatches[0]).toHaveLength(50);
+    expect(requestedBatches[0]).toEqual(fallbackIds.slice(0, 50));
     expect(requestedBatches.every((ids) => ids.join(",").length <= 1_800)).toBe(
       true,
     );
@@ -586,8 +591,8 @@ describe("import-figma-frame", () => {
 
     await action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any);
 
-    expect(requestedQueries).toEqual(fallbackIds);
-    expect(requestedQueries.every((ids) => ids.length <= 1_800)).toBe(true);
+    expect(requestedQueries).toHaveLength(1);
+    expect(requestedQueries[0]).toBe(fallbackIds.join(","));
   });
 
   it("rejects an import with more than 256 required image references before requesting render URLs", async () => {

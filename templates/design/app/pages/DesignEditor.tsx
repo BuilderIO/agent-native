@@ -242,7 +242,6 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
-import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { dndHostLog } from "@/components/design/dnd-debug";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
@@ -254,6 +253,7 @@ import {
   type ScreenGeometrySelection,
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
+import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import {
   beginEyedropperPick,
@@ -3330,7 +3330,9 @@ function DesignEditor() {
   const figmaSvgExportingRef = useRef(false);
   const figmaPasteImportingRef = useRef(false);
   const [figmaHydrationOpen, setFigmaHydrationOpen] = useState(false);
-  const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>([]);
+  const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
+    [],
+  );
   const [figmaHydrationImageCount, setFigmaHydrationImageCount] = useState(0);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
@@ -15950,7 +15952,11 @@ function DesignEditor() {
         const comma = dataUrl.indexOf(",");
         const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-        return new File([new Blob([bytes], { type })], name || "pasted-image.png", { type });
+        return new File(
+          [new Blob([bytes], { type })],
+          name || "pasted-image.png",
+          { type },
+        );
       });
       handlePastedImageFiles(fileObjects);
     },

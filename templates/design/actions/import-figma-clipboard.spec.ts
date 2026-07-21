@@ -453,7 +453,8 @@ describe("import-figma-clipboard", () => {
   });
 
   describe("local-kiwi path (no token)", () => {
-    const FAKE_BUFFER_BASE64 = Buffer.from("fake-kiwi-bytes").toString("base64");
+    const FAKE_BUFFER_BASE64 =
+      Buffer.from("fake-kiwi-bytes").toString("base64");
 
     beforeEach(() => {
       mocks.executeProviderApiRequest.mockRejectedValue(
@@ -468,7 +469,10 @@ describe("import-figma-clipboard", () => {
             filename: "Frame.html",
             fileType: "html",
             content: "<div>frame</div>",
-            source: { sourceType: "figma-clipboard-local-kiwi", figmaFileKey: FILE_KEY },
+            source: {
+              sourceType: "figma-clipboard-local-kiwi",
+              figmaFileKey: FILE_KEY,
+            },
           },
         ],
         warnings: [],
@@ -494,7 +498,10 @@ describe("import-figma-clipboard", () => {
       expect(result.unresolvedImages).toBe(0);
       expect(result.guidance).toMatch(/local decode/i);
       expect(mocks.importFigmaClipboardFromBuffer).toHaveBeenCalledWith(
-        expect.objectContaining({ bufferBase64: FAKE_BUFFER_BASE64, fileKey: FILE_KEY }),
+        expect.objectContaining({
+          bufferBase64: FAKE_BUFFER_BASE64,
+          fileKey: FILE_KEY,
+        }),
       );
       expect(mocks.saveImportedDesignFiles).toHaveBeenCalledWith(
         expect.objectContaining({ sourceType: "figma-clipboard-local-kiwi" }),
@@ -537,7 +544,7 @@ describe("import-figma-clipboard", () => {
       expect(result.unresolvedImages).toBe(1);
       expect(result.fidelityReport.unresolvedImages).toBe(1);
       expect(result.guidance).toMatch(/Figma access token/i);
-      expect(result.warnings).toContain(
+      expect(result.warnings).toContainEqual(
         expect.stringMatching(/could not be loaded/i),
       );
     });

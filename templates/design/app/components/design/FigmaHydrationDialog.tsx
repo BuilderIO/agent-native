@@ -91,11 +91,10 @@ export function FigmaHydrationDialog({
         err instanceof Error ? err.message : t("common.genericError");
       const is403 =
         message.includes("403") || message.toLowerCase().includes("forbidden");
-      const isServerError =
-        /internal server error/i.test(message);
+      const isServerError = /internal server error/i.test(message);
       setError(
         is403
-          ? "Token rejected (403). In Figma's token settings, enable the \"File content\" and \"Current user\" scopes, then generate a new token."
+          ? 'Token rejected (403). In Figma\'s token settings, enable the "File content" and "Current user" scopes, then generate a new token.'
           : isServerError
             ? "Server error — Figma's API may be rate-limited. Wait ~1 minute then try again; repeated retries extend the cooldown."
             : message,
@@ -108,7 +107,11 @@ export function FigmaHydrationDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
-        <form onSubmit={(e) => { void handleSubmit(e); }}>
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e);
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {t("designEditor.import.figmaHydrationDialogTitle")}
@@ -170,11 +173,7 @@ export function FigmaHydrationDialog({
             >
               {t("designManagement.cancel")}
             </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={busy || !token.trim()}
-            >
+            <Button type="submit" size="sm" disabled={busy || !token.trim()}>
               {t("designEditor.import.figmaHydrationConnectAndLoad")}
             </Button>
           </DialogFooter>
