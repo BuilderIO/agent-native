@@ -844,6 +844,7 @@ const migrations = runMigrations(
       name: "clips-public-organization-default",
       // Earlier releases persisted the old private default into org rows.
       // Normalize that state once; the org setting remains an explicit override.
+      // guard:allow-unscoped — startup migration normalizes legacy defaults across organizations.
       sql: [
         `UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
         `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
