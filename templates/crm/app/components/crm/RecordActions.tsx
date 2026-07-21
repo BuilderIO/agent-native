@@ -44,7 +44,7 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
     "string",
   );
   const update = useActionMutation<
-    { status?: string },
+    { mutationId: string; status?: string },
     {
       recordId: string;
       target: "local" | "provider";
@@ -52,6 +52,10 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
       expectedRemoteRevision?: string;
     }
   >("update-crm-record" as never);
+  const apply = useActionMutation<
+    { status?: string; message?: string },
+    { proposalId: string }
+  >("apply-crm-proposals" as never);
 
   async function submit() {
     const nextValue =
@@ -73,12 +77,23 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
           ? { expectedRemoteRevision: record.remoteRevision }
           : {}),
       });
+      if (target === "provider" && result.status === "pending") {
+        const applied = await apply.mutateAsync({
+          proposalId: result.mutationId,
+        });
+        if (applied.status !== "applied") {
+          throw new Error(
+            applied.message ||
+              `Provider update finished as ${applied.status ?? "unknown"}.`,
+          );
+        }
+      }
       setOpen(false);
       setField("");
       setValue("");
       toast.success(
-        result.status === "pending"
-          ? "Provider update saved as a proposal."
+        target === "provider"
+          ? "Connected CRM field updated."
           : "Local CRM field updated.",
       );
     } catch (error) {
@@ -99,8 +114,9 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
         <DialogHeader>
           <DialogTitle>Edit CRM field</DialogTitle>
           <DialogDescription>
-            Provider changes become revision-checked proposals. Local changes
-            are limited to local-authoritative fields.
+            Human provider edits apply after a revision check. Agent edits still
+            become proposals. Local changes are limited to local-authoritative
+            fields.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
@@ -168,10 +184,12 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
         </div>
         <DialogFooter>
           <Button
-            disabled={!field.trim() || !value || update.isPending}
+            disabled={
+              !field.trim() || !value || update.isPending || apply.isPending
+            }
             onClick={() => void submit()}
           >
-            {target === "provider" ? "Create proposal" : "Update locally"}
+            {target === "provider" ? "Update connected CRM" : "Update locally"}
           </Button>
         </DialogFooter>
       </DialogContent>
