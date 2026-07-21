@@ -230,8 +230,11 @@ membership id when its native update status reports `update-available`.
   filters; do not hand-wire custom email routes around that action surface.
   Report PNGs are Playwright captures of the real dashboard route in
   `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
-  and embedded inline in email with a CID image. Netlify builds emit a scheduled
-  trigger plus a background worker from
+  and embedded inline in email as ordered CID images. Complete dashboards are
+  captured sequentially in bounded panel windows; every window must match the
+  panel ids snapshotted at the start, and a failed or mismatched window invalidates
+  the entire image set so the scheduler can retry instead of sending a partial
+  report. Netlify builds emit a scheduled trigger plus a background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
   token and disabling the in-process interval scheduler on Netlify to avoid
   duplicate sends. External cron callers can still sweep due reports by POSTing

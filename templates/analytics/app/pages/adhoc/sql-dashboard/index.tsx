@@ -149,6 +149,7 @@ import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import {
+  listReportablePanelIds,
   parseReportPanelWindow,
   windowReportPanels,
 } from "./report-panel-window";
@@ -1162,9 +1163,9 @@ export default function SqlDashboardPage() {
         ? requestedTab
         : tabs[0]
       : null;
-  // Report captures need the complete dashboard in one image. The report
-  // URL intentionally has no `tab` parameter, so do not apply the normal
-  // first-tab selection while rendering the screenshot surface.
+  // Report captures cover the complete dashboard across ordered windows. The
+  // report URL intentionally has no `tab` parameter, so do not apply the
+  // normal first-tab selection while rendering the screenshot surface.
   const activeTab = reportScreenshot ? null : selectedTab;
   const groupedTabs = useMemo(() => groupDashboardTabs(tabs), [tabs]);
   const activeTabGroup = activeTab
@@ -1695,6 +1696,11 @@ export default function SqlDashboardPage() {
       className="space-y-4"
       data-dashboard-report-capture
       data-dashboard-report-ready={loaded && dashboard ? "true" : "false"}
+      data-dashboard-report-panel-ids={
+        reportScreenshot
+          ? JSON.stringify(listReportablePanelIds(visiblePanels))
+          : undefined
+      }
     >
       {hiddenAt ? (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-200">

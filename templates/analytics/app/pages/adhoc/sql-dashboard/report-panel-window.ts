@@ -2,6 +2,12 @@ import type { SqlPanel } from "./types";
 
 export const REPORT_PANEL_CHUNK_SIZE = 8;
 
+export function listReportablePanelIds(panels: SqlPanel[]): string[] {
+  return panels
+    .filter((panel) => panel.chartType !== "section")
+    .map((panel) => panel.id);
+}
+
 export function parseReportPanelWindow(
   offsetRaw: string | null,
   limitRaw: string | null,
@@ -15,7 +21,7 @@ export function parseReportPanelWindow(
 }
 
 export function countReportablePanels(panels: SqlPanel[]): number {
-  return panels.filter((panel) => panel.chartType !== "section").length;
+  return listReportablePanelIds(panels).length;
 }
 
 /**

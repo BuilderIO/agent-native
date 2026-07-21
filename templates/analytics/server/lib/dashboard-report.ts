@@ -16,7 +16,7 @@ import {
 } from "@agent-native/core/shared";
 
 import {
-  countReportablePanels,
+  listReportablePanelIds,
   REPORT_PANEL_CHUNK_SIZE,
 } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
@@ -38,7 +38,7 @@ type ReportSnapshot = {
   dashboardUrl: string;
   reportSettingsUrl: string;
   generatedAt: string;
-  panelCount: number;
+  panelIds: string[];
 };
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -210,7 +210,7 @@ async function collectReportSnapshot(
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),
-    panelCount: countReportablePanels(config.panels),
+    panelIds: listReportablePanelIds(config.panels),
   };
 }
 
@@ -398,6 +398,34 @@ async function waitForDashboardReportReady(
       ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify(detail)}`
       : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
     throw new Error(message);
+  }
+}
+
+async function assertDashboardReportPanelWindow(
+  page: any,
+  expectedPanelIds: string[],
+): Promise<void> {
+  const rawPanelIds = await page.evaluate(`(() =>
+    document
+      .querySelector("[data-dashboard-report-capture]")
+      ?.getAttribute("data-dashboard-report-panel-ids") ?? null
+  )()`);
+  let actualPanelIds: unknown;
+  try {
+    actualPanelIds =
+      typeof rawPanelIds === "string" ? JSON.parse(rawPanelIds) : null;
+  } catch {
+    actualPanelIds = null;
+  }
+  if (
+    !Array.isArray(actualPanelIds) ||
+    actualPanelIds.some((panelId) => typeof panelId !== "string") ||
+    actualPanelIds.length !== expectedPanelIds.length ||
+    actualPanelIds.some((panelId, index) => panelId !== expectedPanelIds[index])
+  ) {
+    throw new Error(
+      `report chunk panel mismatch; expected=${JSON.stringify(expectedPanelIds)} actual=${JSON.stringify(actualPanelIds)}`,
+    );
   }
 }
 
@@ -608,6 +636,7 @@ async function captureDashboardChunk(
   attempt: DashboardScreenshotAttempt,
   token: string,
   screenshotUrl: string,
+  expectedPanelIds: string[],
 ): Promise<Buffer> {
   const timeout = screenshotTimeoutMs();
   let captureStage = "pre-seeding the embed session";
@@ -671,6 +700,8 @@ async function captureDashboardChunk(
     }
     captureStage = "waiting for report chunk queries";
     await waitForDashboardReportReady(page, attempt.readyTimeout ?? timeout);
+    captureStage = "validating the report chunk panels";
+    await assertDashboardReportPanelWindow(page, expectedPanelIds);
     captureStage = "rendering lazy report chunk panels";
     await scrollDashboardForLazyRendering(page);
     captureStage = "waiting for lazy report chunk panels";
@@ -678,6 +709,8 @@ async function captureDashboardChunk(
       page,
       attempt.secondReadyTimeout ?? secondReadyTimeoutMs(),
     );
+    captureStage = "revalidating the report chunk panels";
+    await assertDashboardReportPanelWindow(page, expectedPanelIds);
     captureStage = "sizing the report chunk";
     await fitViewportWidthToDashboardCapture(page, capture, attempt.viewport);
     await scaleDashboardCapture(page, attempt.captureScale);
@@ -743,13 +776,25 @@ async function captureDashboardPngChunks(
     browser = launched.browser;
     cleanup = launched.cleanup;
     const images: Buffer[] = [];
-    for (const offset of reportChunkOffsets(snapshot.panelCount)) {
+    for (const offset of reportChunkOffsets(snapshot.panelIds.length)) {
       if (attemptTimedOut)
         throw new Error(`capture exceeded ${attempt.totalTimeout}ms`);
       const page = await launched.newPage();
       try {
         const { token, url } = screenshotUrlForChunk(sub, snapshot, offset);
-        images.push(await captureDashboardChunk(page, attempt, token, url));
+        const expectedPanelIds = snapshot.panelIds.slice(
+          offset,
+          offset + REPORT_PANEL_CHUNK_SIZE,
+        );
+        images.push(
+          await captureDashboardChunk(
+            page,
+            attempt,
+            token,
+            url,
+            expectedPanelIds,
+          ),
+        );
       } finally {
         await runBoundedBrowserCleanup("Failed to close screenshot page", () =>
           page.close(),
