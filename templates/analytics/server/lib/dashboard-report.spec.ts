@@ -124,7 +124,7 @@ function createPage(
       setDefaultTimeout: vi.fn(),
       emulateMedia: vi.fn(async () => {}),
       addInitScript: vi.fn(async () => {}),
-      goto: vi.fn(async () => {}),
+      goto: vi.fn(async (_url: string, _options: unknown) => {}),
       locator: vi.fn(() => locator),
       waitForFunction: vi.fn(async () => {
         if (options.readyWaitFails) {
@@ -205,11 +205,13 @@ describe("dashboard report email", () => {
   });
 
   it("captures every chunk in one browser, closes each page, and attaches CID images in order", async () => {
-    mocks.getReportDashboard.mockResolvedValue(dashboard(17));
+    mocks.getReportDashboard.mockResolvedValue(dashboard(39));
     const first = createPage({ screenshot: Buffer.from("first") });
     const second = createPage({ screenshot: Buffer.from("second") });
     const third = createPage({ screenshot: Buffer.from("third") });
-    const { browser } = createBrowser([first, second, third]);
+    const fourth = createPage({ screenshot: Buffer.from("fourth") });
+    const fifth = createPage({ screenshot: Buffer.from("fifth") });
+    const { browser } = createBrowser([first, second, third, fourth, fifth]);
     mocks.launch.mockResolvedValue(browser);
 
     const result = await sendDashboardReportSubscription(subscription());
@@ -219,18 +221,22 @@ describe("dashboard report email", () => {
       screenshotMode: "full",
     });
     expect(mocks.launch).toHaveBeenCalledOnce();
-    expect(browser.newPage).toHaveBeenCalledTimes(3);
-    for (const page of [first, second, third])
+    expect(browser.newPage).toHaveBeenCalledTimes(5);
+    for (const page of [first, second, third, fourth, fifth])
       expect(page.page.close).toHaveBeenCalledOnce();
-    const urls = [first, second, third].map(
+    const urls = [first, second, third, fourth, fifth].map(
       (entry) => entry.page.goto.mock.calls[0]?.[0],
     );
     expect(urls).toEqual([
       expect.stringContaining("reportPanelOffset=0"),
       expect.stringContaining("reportPanelOffset=8"),
       expect.stringContaining("reportPanelOffset=16"),
+      expect.stringContaining("reportPanelOffset=24"),
+      expect.stringContaining("reportPanelOffset=32"),
     ]);
-    expect(urls.every((url) => url.includes("reportPanelLimit=8"))).toBe(true);
+    expect(
+      urls.every((url) => (url ?? "").includes("reportPanelLimit=8")),
+    ).toBe(true);
     const email = mocks.sendEmail.mock.calls[0]?.[0];
     expect(
       email.attachments.map(
@@ -240,6 +246,8 @@ describe("dashboard report email", () => {
       Buffer.from("first"),
       Buffer.from("second"),
       Buffer.from("third"),
+      Buffer.from("fourth"),
+      Buffer.from("fifth"),
     ]);
     expect(
       email.attachments.map(
@@ -249,10 +257,14 @@ describe("dashboard report email", () => {
       "dashboard-report-snapshot-1",
       "dashboard-report-snapshot-2",
       "dashboard-report-snapshot-3",
+      "dashboard-report-snapshot-4",
+      "dashboard-report-snapshot-5",
     ]);
     expect(email.html).toContain("cid:dashboard-report-snapshot-1");
     expect(email.html).toContain("cid:dashboard-report-snapshot-2");
     expect(email.html).toContain("cid:dashboard-report-snapshot-3");
+    expect(email.html).toContain("cid:dashboard-report-snapshot-4");
+    expect(email.html).toContain("cid:dashboard-report-snapshot-5");
   });
 
   it("keeps a single chunk dashboard as one inline image", async () => {
