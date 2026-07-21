@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { IPC } from "../../shared/ipc-channels.js";
 import { MULTI_FRONTIER_CHANNELS } from "../../shared/multi-frontier-channels.js";
 
 const electron = vi.hoisted(() => {
@@ -145,6 +146,42 @@ describe("multi-frontier preload API", () => {
     expect(electron.send).toHaveBeenCalledWith(
       MULTI_FRONTIER_CHANNELS.providerStatusUnsubscribe,
       { subscriptionId },
+    );
+  });
+});
+
+describe("workspace identity preload API", () => {
+  it("exposes only bounded commands and status", async () => {
+    const api = (
+      electron.exposed as {
+        identity: {
+          getStatus(): Promise<unknown>;
+          signIn(): Promise<unknown>;
+          signOut(): Promise<unknown>;
+          onStatusChange(callback: (status: string) => void): () => void;
+        };
+      }
+    ).identity;
+
+    await api.getStatus();
+    await api.signIn();
+    await api.signOut();
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_STATUS_GET);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_IN);
+    expect(electron.invoke).toHaveBeenCalledWith(IPC.IDENTITY_SIGN_OUT);
+    expect(api).not.toHaveProperty("cookie");
+    expect(api).not.toHaveProperty("token");
+    expect(api).not.toHaveProperty("email");
+
+    const callback = vi.fn();
+    const unsubscribe = api.onStatusChange(callback);
+    const listener = electron.listeners.get(IPC.IDENTITY_STATUS_CHANGED)!;
+    listener({}, "signed-in");
+    expect(callback).toHaveBeenCalledWith("signed-in");
+    unsubscribe();
+    expect(electron.removeListener).toHaveBeenCalledWith(
+      IPC.IDENTITY_STATUS_CHANGED,
+      listener,
     );
   });
 });

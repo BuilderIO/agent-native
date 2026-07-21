@@ -81,6 +81,7 @@ export {
   identitySsoLoginButtonHtml,
   IDENTITY_SSO_PROVIDER_ID,
   IDENTITY_SSO_SCOPE,
+  IDENTITY_SSO_DESKTOP_COMPLETE_PATH,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export {

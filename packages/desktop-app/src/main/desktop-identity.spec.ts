@@ -1,0 +1,233 @@
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  DESKTOP_IDENTITY_COMPLETE_PATH,
+  DesktopIdentityBroker,
+  isDesktopIdentityCompletion,
+  isDesktopSignInNavigation,
+  isDesktopWorkspaceLogoutRequest,
+  type DesktopIdentityApp,
+} from "./desktop-identity";
+
+function cookieStore(initial: Electron.Cookie[] = []) {
+  const cookies = [...initial];
+  return {
+    get: vi.fn(async () => [...cookies]),
+    set: vi.fn(async (cookie: Electron.CookiesSetDetails) => {
+      cookies.push({
+        name: cookie.name!,
+        value: cookie.value!,
+        domain: new URL(cookie.url).hostname,
+        hostOnly: true,
+        path: cookie.path ?? "/",
+        secure: cookie.secure ?? true,
+        httpOnly: cookie.httpOnly ?? true,
+        session: !cookie.expirationDate,
+        sameSite: cookie.sameSite ?? "lax",
+        ...(cookie.expirationDate
+          ? { expirationDate: cookie.expirationDate }
+          : {}),
+      });
+    }),
+    remove: vi.fn(async (_url: string, name: string) => {
+      const index = cookies.findIndex((cookie) => cookie.name === name);
+      if (index >= 0) cookies.splice(index, 1);
+    }),
+  };
+}
+
+function appFixture(): DesktopIdentityApp {
+  return {
+    id: "mail",
+    origin: "https://mail.agent-native.com",
+    cookieNames: ["an_session_mail", "an_session"],
+    cookieNamesToClear: [
+      "an_session_mail",
+      "an_session",
+      "an_mail.session_token",
+      "__Secure-an_mail.session_token",
+    ],
+    session: { cookies: cookieStore() } as unknown as Electron.Session,
+  };
+}
+
+describe("Desktop identity navigation boundaries", () => {
+  const app = appFixture();
+
+  it("intercepts only the exact canonical app sign-in path", () => {
+    expect(
+      isDesktopSignInNavigation(
+        "https://mail.agent-native.com/_agent-native/sign-in?return=%2Finbox",
+        app,
+      ),
+    ).toBe(true);
+    expect(
+      isDesktopSignInNavigation(
+        "https://evil.example/_agent-native/sign-in",
+        app,
+      ),
+    ).toBe(false);
+    expect(
+      isDesktopSignInNavigation(
+        "https://mail.agent-native.com/_agent-native/identity/login",
+        app,
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts completion only for the exact origin, path, and nonce", () => {
+    const nonce = "nonce_12345678901234567890123456789012";
+    expect(
+      isDesktopIdentityCompletion(
+        `https://mail.agent-native.com${DESKTOP_IDENTITY_COMPLETE_PATH}?nonce=${nonce}`,
+        app,
+        nonce,
+      ),
+    ).toBe(true);
+    expect(
+      isDesktopIdentityCompletion(
+        `https://calendar.agent-native.com${DESKTOP_IDENTITY_COMPLETE_PATH}?nonce=${nonce}`,
+        app,
+        nonce,
+      ),
+    ).toBe(false);
+    expect(
+      isDesktopIdentityCompletion(
+        `https://mail.agent-native.com${DESKTOP_IDENTITY_COMPLETE_PATH}?nonce=stale`,
+        app,
+        nonce,
+      ),
+    ).toBe(false);
+  });
+
+  it("recognizes workspace logout only on the canonical app origin", () => {
+    expect(
+      isDesktopWorkspaceLogoutRequest(
+        "https://mail.agent-native.com/_agent-native/auth/logout",
+        app,
+      ),
+    ).toBe(true);
+    expect(
+      isDesktopWorkspaceLogoutRequest(
+        "https://evil.example/_agent-native/auth/logout",
+        app,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("DesktopIdentityBroker", () => {
+  it("coalesces duplicate requests and copies only the target cookie", async () => {
+    const app = appFixture();
+    const identityCookies = cookieStore([
+      {
+        name: "an_session_mail",
+        value: "example-session-value",
+        domain: "mail.agent-native.com",
+        hostOnly: true,
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        session: false,
+        sameSite: "lax",
+        expirationDate: Date.now() / 1000 + 3600,
+      },
+      {
+        name: "unrelated_cookie",
+        value: "do-not-copy",
+        domain: "mail.agent-native.com",
+        hostOnly: true,
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        session: true,
+        sameSite: "lax",
+      },
+    ]);
+    const webContents = {
+      on: vi.fn(),
+      setWindowOpenHandler: vi.fn(),
+    };
+    let loadedUrl = "";
+    let closedListener: (() => void) | undefined;
+    const identityWindow = {
+      webContents,
+      loadURL: vi.fn(async (url: string) => {
+        loadedUrl = url;
+      }),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn((event: string, listener: () => void) => {
+        if (event === "closed") closedListener = listener;
+      }),
+    };
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: identityCookies,
+        clearStorageData: vi.fn(),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === app.id ? app : null),
+      createWindow: () => identityWindow as never,
+      reloadApp,
+      clearLocalBroker: vi.fn(),
+      timeoutMs: 10_000,
+    });
+
+    const first = broker.ensureAppSession("mail");
+    const second = broker.ensureAppSession("mail");
+    expect(second).toBe(first);
+    await vi.waitFor(() => expect(loadedUrl).not.toBe(""));
+
+    const nonce = new URL(loadedUrl).searchParams.get("return")!;
+    const completion = new URL(nonce, app.origin).toString();
+    const navigationHandler = webContents.on.mock.calls.find(
+      ([event]) => event === "will-navigate",
+    )?.[1];
+    const preventDefault = vi.fn();
+    navigationHandler({ preventDefault }, completion);
+
+    await expect(first).resolves.toBe(true);
+    expect(preventDefault).toHaveBeenCalled();
+    expect(app.session.cookies.set).toHaveBeenCalledTimes(1);
+    expect(app.session.cookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "an_session_mail",
+        value: "example-session-value",
+      }),
+    );
+    expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(identityCookies.remove).toHaveBeenCalledWith(
+      app.origin,
+      "an_session_mail",
+    );
+    expect(closedListener).toBeDefined();
+  });
+
+  it("clears only canonical app cookies plus the central identity session", async () => {
+    const app = appFixture();
+    const identitySession = {
+      cookies: cookieStore(),
+      clearStorageData: vi.fn(async () => {}),
+    } as unknown as Electron.Session;
+    const clearLocalBroker = vi.fn();
+    const reloadApp = vi.fn();
+    const broker = new DesktopIdentityBroker({
+      identitySession,
+      resolveApp: () => app,
+      createWindow: vi.fn() as never,
+      reloadApp,
+      clearLocalBroker,
+    });
+
+    await broker.signOut([app]);
+
+    expect(identitySession.clearStorageData).toHaveBeenCalledWith({
+      storages: ["cookies"],
+    });
+    expect(app.session.cookies.remove).toHaveBeenCalledTimes(4);
+    expect(clearLocalBroker).toHaveBeenCalledOnce();
+    expect(reloadApp).toHaveBeenCalledWith(app);
+    expect(broker.getStatus()).toBe("sign-in-required");
+  });
+});

@@ -83,6 +83,17 @@ export const IDENTITY_SSO_PROVIDER_ID = "agent-native";
  */
 export const IDENTITY_SSO_SCOPE = "identity";
 
+/**
+ * Same-origin landing page used by the packaged Desktop identity broker after
+ * this app has minted its ordinary local session. The page carries only a
+ * caller-generated nonce; Electron reads the session cookie from its private
+ * identity partition and never receives identity data from the document.
+ */
+export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
+  "/_agent-native/identity/desktop-complete";
+
+const DESKTOP_COMPLETION_NONCE = /^[A-Za-z0-9_-]{32,128}$/;
+
 /** Identity tokens older than this are rejected even if `exp` is generous. */
 const MAX_TOKEN_AGE_SECONDS = 10 * 60;
 
@@ -492,6 +503,47 @@ export async function handleIdentitySso(
     // Land the user back where they started (validated same-origin path).
     const dest = safeReturnPath(stateResult.returnPath);
     return redirect(event, dest);
+  }
+
+  // ---- GET /desktop-complete → inert authenticated landing page --------
+  if (sub === "/desktop-complete") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    let nonce = "";
+    try {
+      const u = new URL(
+        (event as any).node?.req?.url ?? event.path ?? "/",
+        "http://an.invalid",
+      );
+      nonce = u.searchParams.get("nonce") || "";
+    } catch {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+
+    const current = await getSession(event).catch(() => null);
+    if (!current?.email) {
+      return new Response("Authentication required", { status: 401 });
+    }
+
+    return new Response(
+      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
   }
 
   return new Response("Not found", { status: 404 });
