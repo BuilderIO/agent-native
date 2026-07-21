@@ -9,6 +9,7 @@ templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], 
 templates/crm/app/components/crm/RecordGrid.tsx|Next step
 templates/crm/app/components/crm/RecordWorkspace.tsx|Last updated
 templates/crm/app/components/crm/RecordWorkspace.tsx|Next step
+templates/crm/app/components/crm/RecordWorkspace.tsx|Related records
 templates/crm/app/components/crm/RecordWorkspace.tsx|This CRM record is unavailable
 templates/crm/app/components/crm/Surface.tsx|Open shared connections
 templates/crm/app/components/crm/WorkOverview.tsx|A focused queue from your connected CRM.

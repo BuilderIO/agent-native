@@ -8,9 +8,14 @@ const store = vi.hoisted(() => ({
   listCrmRecords: vi.fn(),
   listCrmSavedViews: vi.fn(),
   listCrmTasks: vi.fn(),
+  persistReadThroughRelationships: vi.fn(),
 }));
+const hubspot = vi.hoisted(() => ({ createAdapter: vi.fn() }));
 
 vi.mock("../server/db/crm-store.js", () => store);
+vi.mock("../server/crm/hubspot-adapter.js", () => ({
+  createHubSpotCrmAdapter: hubspot.createAdapter,
+}));
 
 import getCrmOverview from "./get-crm-overview.js";
 import getCrmRecord from "./get-crm-record.js";
@@ -28,6 +33,8 @@ describe("CRM read actions", () => {
     store.listCrmRecords.mockReset();
     store.listCrmSavedViews.mockReset();
     store.listCrmTasks.mockReset();
+    store.persistReadThroughRelationships.mockReset();
+    hubspot.createAdapter.mockReset();
   });
 
   it("keeps every read action GET-only", () => {
@@ -68,5 +75,62 @@ describe("CRM read actions", () => {
       message: "CRM record not found",
       statusCode: 404,
     });
+  });
+
+  it("bounds provider relationship calls during a read-through refresh", async () => {
+    const scope = {
+      key: "hubspot:grant",
+      actorId: "owner@example.test",
+      grantId: "grant",
+      mode: "user",
+      objectReadable: true,
+      objectCreateable: false,
+      objectUpdateable: false,
+      objectDeleteable: false,
+      recordVisibility: "actor",
+    } as const;
+    store.getCrmRecordReadContext.mockResolvedValue({
+      id: "record-1",
+      connectionId: "crm-connection",
+      workspaceConnectionId: "hubspot-connection",
+      provider: "hubspot",
+      objectType: "companies",
+      kind: "account",
+      remoteId: "company-1",
+      accessScopeJson: JSON.stringify(scope),
+      fieldPolicies: [],
+    });
+    const listRelationships = vi.fn().mockResolvedValue({
+      relationships: [],
+      complete: true,
+    });
+    hubspot.createAdapter.mockResolvedValue({
+      connection: { connectionId: "hubspot-connection" },
+      getAccessScope: () => scope,
+      getRecord: vi.fn().mockResolvedValue({
+        ref: {
+          connectionId: "hubspot-connection",
+          provider: "hubspot",
+          objectType: "companies",
+          kind: "account",
+          remoteId: "company-1",
+        },
+        displayName: "Northstar",
+        fields: {},
+        deleted: false,
+        accessScope: scope,
+        provenance: [],
+      }),
+      listRelationships,
+    });
+    store.persistReadThroughRelationships.mockResolvedValue([]);
+    store.getCrmRecord.mockResolvedValue({ id: "record-1" });
+
+    await expect(getCrmRecord.run({ recordId: "record-1" })).resolves.toEqual({
+      id: "record-1",
+    });
+    expect(listRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 100 }),
+    );
   });
 });

@@ -995,7 +995,7 @@ export async function listCrmProposals(input: {
         id: proposal.id,
         recordId: proposal.recordId,
         ...(proposal.recordId && displayNameByRecordId.get(proposal.recordId)
-          ? { recordDisplayName: displayNameByRecordId.get(proposal.recordId) }
+          ? { recordName: displayNameByRecordId.get(proposal.recordId) }
           : {}),
         operation: proposal.operation,
         initiatedBy: proposal.initiatedBy,
@@ -1006,11 +1006,18 @@ export async function listCrmProposals(input: {
         expectedRemoteRevision: proposal.expectedRemoteRevision,
         createdAt: proposal.createdAt,
         appliedAt: proposal.appliedAt,
-        preview: {
-          fieldNames,
-          before,
-          after: Object.keys(after).length ? after : patch,
-        },
+        fields: fieldNames.map((name) => ({
+          name,
+          ...(Object.prototype.hasOwnProperty.call(before, name)
+            ? { before: before[name] }
+            : {}),
+          ...(Object.prototype.hasOwnProperty.call(
+            Object.keys(after).length ? after : patch,
+            name,
+          )
+            ? { after: (Object.keys(after).length ? after : patch)[name] }
+            : {}),
+        })),
       };
     }),
     nextCursor: result.nextCursor ? String(offset + limit) : undefined,
