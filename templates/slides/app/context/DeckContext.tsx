@@ -459,6 +459,18 @@ function discardPendingDeckOps(deckId: string) {
   notifySaveListeners();
 }
 
+// Cancels all debounced-but-not-yet-sent ops without sending them.
+// Used on provider unmount (e.g. org switch): by the time the provider
+// tears down the session already carries the new org, so flushing would
+// send ops to a session that fails access checks on the old-org decks.
+// Already-in-flight requests (inFlightSaves) are left to settle on their own.
+function cancelAllPendingOps() {
+  for (const timer of pendingSaves.values()) clearTimeout(timer);
+  pendingSaves.clear();
+  pendingOpsQueue.clear();
+  notifySaveListeners();
+}
+
 // ---------------------------------------------------------------------------
 // Local op application + inverse derivation (for inverse-op undo)
 // ---------------------------------------------------------------------------
@@ -1524,9 +1536,11 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", onHidden);
       window.removeEventListener("pagehide", onPageHide);
-      // Flush on unmount (e.g. org switch) so edits made in the previous org
-      // context are not silently dropped or sent under the wrong org.
-      flushPendingSaves();
+      // Cancel debounced-but-not-yet-sent ops on unmount (e.g. org switch).
+      // Flushing here would race: the session already carries the new org by
+      // the time cleanup runs, so those requests would fail access checks on
+      // the old-org decks. Already-in-flight requests settle on their own.
+      cancelAllPendingOps();
     };
   }, []);
 
