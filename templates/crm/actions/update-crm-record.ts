@@ -152,6 +152,33 @@ async function updateLocalFields(input: {
         });
       }
     }
+
+    if (Object.hasOwn(input.fields, "desiredCadenceDays")) {
+      const cadence = input.fields.desiredCadenceDays;
+      if (
+        cadence !== null &&
+        (typeof cadence !== "number" ||
+          !Number.isInteger(cadence) ||
+          cadence < 1 ||
+          cadence > 365)
+      ) {
+        throw new Error("desiredCadenceDays must be null or an integer from 1 to 365.");
+      }
+      await tx
+        .update(schema.crmRecords)
+        .set({ desiredCadenceDays: cadence, updatedAt: now })
+        .where(
+          and(
+            eq(schema.crmRecords.id, input.record.id),
+            accessFilter(
+              schema.crmRecords,
+              schema.crmRecordShares,
+              undefined,
+              "editor",
+            ),
+          ),
+        );
+    }
   });
 }
 

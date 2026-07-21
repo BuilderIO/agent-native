@@ -16,6 +16,8 @@ behavior only. Salesforce transport and native CRM mode are out of scope.
   `get-crm-record` for ordinary CRM reads.
 - Use `sync-crm` for a declared, bounded mirror cohort. It is not an exhaustive
   provider export.
+- After HubSpot is authorized in workspace Connections, use
+  `configure-crm-connection` to register it with CRM. Never pass a token.
 - For an endpoint, object, filter, pagination mode, or schema not represented
   by a CRM action, use `provider-api-catalog`, `provider-api-docs`, then
   `provider-api-request`. For broad work, fetch all relevant pages or state the

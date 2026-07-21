@@ -49,9 +49,13 @@ export function LoadingRows({ rows = 5 }: { rows?: number }) {
 export function SetupEmptyState({
   title = "Connect a CRM to begin",
   description = "CRM works from the workspace connections you authorize. No credentials are stored in this app.",
+  onSync,
+  isSyncing = false,
 }: {
   title?: string;
   description?: string;
+  onSync?: () => void;
+  isSyncing?: boolean;
 }) {
   return (
     <div className="grid min-h-[360px] place-items-center p-6">
@@ -63,11 +67,18 @@ export function SetupEmptyState({
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
           {description}
         </p>
-        <Button asChild variant="outline" className="mt-5 gap-2">
-          <Link to="/settings#connections">
-            Open shared connections <IconArrowUpRight className="size-4" />
-          </Link>
-        </Button>
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <Button asChild variant="outline" className="gap-2">
+            <Link to="/settings#connections">
+              Open shared connections <IconArrowUpRight className="size-4" />
+            </Link>
+          </Button>
+          {onSync ? (
+            <Button onClick={onSync} disabled={isSyncing}>
+              {isSyncing ? "Syncing…" : "Sync recent records"}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

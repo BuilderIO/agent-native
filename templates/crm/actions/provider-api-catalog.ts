@@ -1,4 +1,4 @@
-import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+import { createProviderApiCatalogAction as defineActionFactory } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
 import {
@@ -8,7 +8,7 @@ import {
 
 const ProviderSchema = z.enum(CRM_PROVIDER_API_IDS);
 
-export default createProviderApiCatalogAction(getCrmProviderApiRuntime(), {
+export default defineActionFactory(getCrmProviderApiRuntime(), {
   description:
     "List the raw HubSpot API capabilities available through CRM's granted workspace connection. Use before provider-api-request when a CRM convenience action cannot express an endpoint, filter, custom object, pagination mode, or API version. Returns metadata and examples, never secret values.",
   schema: z.object({

@@ -7,6 +7,7 @@ import {
 import actionsRegistry from "../../.generated/actions-registry.js";
 
 const INITIAL_TOOL_NAMES = [
+  "configure-crm-connection",
   "get-crm-overview",
   "list-crm-records",
   "get-crm-record",

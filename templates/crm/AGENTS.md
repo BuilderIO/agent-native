@@ -24,6 +24,7 @@ policies, provenance, provider identity, and write policy.
 | Action                                                                | Purpose                                                                       |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `get-crm-overview`                                                    | Read the scoped CRM summary and connection/mirror health.                     |
+| `configure-crm-connection`                                            | Register an authorized HubSpot workspace Connection for the companion mirror. |
 | `list-crm-records`                                                    | List a bounded set of CRM records using declared filters.                     |
 | `get-crm-record`                                                      | Read one record and its permitted scoped detail.                              |
 | `sync-crm`                                                            | Refresh a declared mirror cohort; never treat it as an export-all operation.  |
