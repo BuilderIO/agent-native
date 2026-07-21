@@ -95,6 +95,24 @@ Each hosted `*.agent-native.com` app has its **own user store**, so "sign in onc
 - **Invariant (do not break):** identity rows are only ever **added** — never modified, renamed, or deleted. Enabling SSO logs users out, but they always log back into the **same email-matched account with data intact**. Email is the only thing that crosses the trust boundary; the app never trusts a user id, role, or org from the wire.
 - **Canary rollout:** deploy with the env unset everywhere (no-op) → set it on **one** app (mail) only → verify (logout → SSO → Dispatch → back to the same pre-existing account, data intact, direct logins still work) → expand app-by-app → rollback = unset the env on that app's deploy (instant, no data change).
 
+### Packaged Desktop workspace SSO
+
+For the signed Desktop app's canonical first-party hosted registry, Electron
+owns a dedicated persistent Dispatch identity partition. Each target app still
+uses the hosted federation flow above to mint its own normal local session;
+Electron transfers only that target app's session cookie into its isolated
+`persist:app-<id>` partition. Never distribute a Dispatch cookie, an identity
+JWT, or one app's session to another app, and never expose those values through
+renderer IPC.
+
+Custom, user-added, and third-party apps are excluded. Preserve direct web
+sign-in and the per-app `AGENT_NATIVE_IDENTITY_HUB_URL` opt-in/canary behavior.
+The `desktop-sso.json` broker is only a loopback, non-production local
+development compatibility path, not packaged hosted SSO. Desktop workspace
+sign-out clears the central identity session and canonical app sessions;
+standalone web logout remains app-local. Builder Connect and Builder credentials
+are unrelated to human identity and must not join this flow.
+
 Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 
 ## Builder Browser Access
