@@ -28,6 +28,14 @@ function interpolate(input: string, values: Record<string, string>): string {
   );
 }
 
+function requiredFirstPartyPanel(
+  id: string,
+): NonNullable<ReturnType<typeof buildPanel>> {
+  const panel = buildPanel(id);
+  if (!panel) throw new Error(`Expected first-party metric "${id}" to exist`);
+  return panel;
+}
+
 function collectCssVariables(value: unknown, variables = new Set<string>()) {
   if (typeof value === "string") {
     const matches = value.matchAll(/var\(--([A-Za-z0-9-]+)\)/g);
@@ -206,8 +214,10 @@ describe("dashboard catalog", () => {
   });
 
   it("repairs only exact legacy recurring panels and preserves custom panel intent", () => {
-    const legacyDaily = buildPanel("recurring-users-by-template");
-    const legacyWeekly = buildPanel("recurring-users-by-template-bar");
+    const legacyDaily = requiredFirstPartyPanel("recurring-users-by-template");
+    const legacyWeekly = requiredFirstPartyPanel(
+      "recurring-users-by-template-bar",
+    );
     const legacyConfig = {
       name: "Legacy dashboard",
       panels: [
@@ -215,7 +225,7 @@ describe("dashboard catalog", () => {
           ...legacyDaily,
           sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
           config: {
-            ...legacyDaily.config,
+            ...(legacyDaily.config ?? {}),
             description:
               "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.",
           },
@@ -224,7 +234,7 @@ describe("dashboard catalog", () => {
           ...legacyWeekly,
           sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
           config: {
-            ...legacyWeekly.config,
+            ...(legacyWeekly.config ?? {}),
             description: "Custom weekly note",
           },
         },
@@ -239,23 +249,24 @@ describe("dashboard catalog", () => {
     const repaired = repairFirstPartyRecurringUserPanels(legacyConfig);
 
     expect(repaired.changed).toBe(true);
+    if (!repaired.config) throw new Error("Expected repaired dashboard config");
     const panels = repaired.config.panels as Array<{
       id: string;
       sql: string;
       config?: { description?: string };
     }>;
-    expect(panels[0]).toMatchObject({
-      sql: buildPanel("recurring-users-by-template").sql,
+    expect(panels[0]!).toMatchObject({
+      sql: requiredFirstPartyPanel("recurring-users-by-template").sql,
       config: {
-        description: buildPanel("recurring-users-by-template").config
-          .description,
+        description: requiredFirstPartyPanel("recurring-users-by-template")
+          .config?.description,
       },
     });
-    expect(panels[1]).toMatchObject({
-      sql: buildPanel("recurring-users-by-template-bar").sql,
+    expect(panels[1]!).toMatchObject({
+      sql: requiredFirstPartyPanel("recurring-users-by-template-bar").sql,
       config: { description: "Custom weekly note" },
     });
-    expect(panels[2]).toEqual(legacyConfig.panels[2]);
+    expect(panels[2]!).toEqual(legacyConfig.panels[2]);
 
     const customSql = repairFirstPartyRecurringUserPanels({
       panels: [

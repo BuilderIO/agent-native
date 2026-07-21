@@ -5,6 +5,8 @@ const dbMocks = vi.hoisted(() => ({
   recordChange: vi.fn(),
 }));
 
+const revisionUuid = "new-revision";
+
 const schema = vi.hoisted(() => ({
   dashboards: {
     id: { name: "id" },
@@ -26,6 +28,10 @@ const schema = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/server", () => ({
   recordChange: dbMocks.recordChange,
+}));
+
+vi.mock("node:crypto", () => ({
+  randomUUID: () => revisionUuid,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -50,6 +56,14 @@ import {
   buildPanel,
 } from "./first-party-metric-catalog";
 
+function requiredFirstPartyPanel(
+  id: string,
+): NonNullable<ReturnType<typeof buildPanel>> {
+  const panel = buildPanel(id);
+  if (!panel) throw new Error(`Expected first-party metric "${id}" to exist`);
+  return panel;
+}
+
 type DashboardRow = {
   id: string;
   kind: string;
@@ -65,6 +79,7 @@ function createDb(
   row: DashboardRow | null,
   updated: unknown[] = [{ id: FIRST_PARTY_DASHBOARD_ID }],
   revisions: Array<{ id: string }> = [],
+  options: { insertError?: Error } = {},
 ) {
   const dashboardSelectWhere = vi.fn(async () => (row ? [row] : []));
   const dashboardSelectFrom = vi.fn(() => ({ where: dashboardSelectWhere }));
@@ -80,13 +95,25 @@ function createDb(
   const updateWhere = vi.fn(() => ({ returning }));
   const updateSet = vi.fn(() => ({ where: updateWhere }));
   const update = vi.fn(() => ({ set: updateSet }));
-  const insertValues = vi.fn(async () => undefined);
+  const insertValues = vi.fn(async () => {
+    if (options.insertError) throw options.insertError;
+  });
   const insert = vi.fn(() => ({ values: insertValues }));
   const deleteWhere = vi.fn(async () => undefined);
   const deleteRow = vi.fn(() => ({ where: deleteWhere }));
+  const transactionRollback = vi.fn();
+  const tx = { select, update, insert, delete: deleteRow };
+  const transaction = vi.fn(async (callback: (transactionDb: typeof tx) => any) => {
+    try {
+      return await callback(tx);
+    } catch (err) {
+      transactionRollback(err);
+      throw err;
+    }
+  });
 
   return {
-    db: { select, update, insert, delete: deleteRow },
+    db: { select, transaction },
     dashboardSelectWhere,
     revisionOrderBy,
     revisionSelectWhere,
@@ -97,20 +124,23 @@ function createDb(
     insertValues,
     deleteRow,
     deleteWhere,
+    transaction,
+    transactionRollback,
   };
 }
 
 function legacyRow(overrides: Partial<DashboardRow> = {}): DashboardRow {
+  const daily = requiredFirstPartyPanel("recurring-users-by-template");
   return {
     id: FIRST_PARTY_DASHBOARD_ID,
     kind: "sql",
     config: JSON.stringify({
       panels: [
         {
-          ...buildPanel("recurring-users-by-template"),
+          ...daily,
           sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
           config: {
-            ...buildPanel("recurring-users-by-template").config,
+            ...(daily.config ?? {}),
             description:
               "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.",
           },
@@ -140,9 +170,13 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
   it("repairs the canonical legacy config with an optimistic config match, revision, and scoped change", async () => {
     const row = legacyRow();
-    const revisions = Array.from({ length: 52 }, (_, index) => ({
-      id: `revision-${index}`,
-    }));
+    const revisionId = `dashrev-${Date.parse("2026-07-21T17:00:00.000Z")}-${revisionUuid}`;
+    const revisions = [
+      ...Array.from({ length: 51 }, (_, index) => ({
+        id: `revision-${index}`,
+      })),
+      { id: revisionId },
+    ];
     const mocks = createDb(row, [{ id: row.id }], revisions);
     dbMocks.getDb.mockReturnValue(mocks.db);
 
@@ -150,10 +184,17 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       true,
     );
 
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
     expect(mocks.update).toHaveBeenCalledWith(schema.dashboards);
-    const update = mocks.updateSet.mock.calls[0]?.[0];
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string; updatedAt: string; updatedBy: null }]
+    >;
+    const update = updateCalls[0]?.[0];
+    expect(update).toBeDefined();
+    if (!update)
+      throw new Error("Expected persisted repair to issue an update");
     expect(JSON.parse(update.config).panels[0].sql).toBe(
-      buildPanel("recurring-users-by-template").sql,
+      requiredFirstPartyPanel("recurring-users-by-template").sql,
     );
     expect(update).toMatchObject({
       updatedAt: "2026-07-21T17:00:00.000Z",
@@ -170,6 +211,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(mocks.insert).toHaveBeenCalledWith(schema.dashboardRevisions);
     expect(mocks.insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
+        id: revisionId,
         dashboardId: row.id,
         kind: row.kind,
         title: row.title,
@@ -185,19 +227,24 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       column: "dashboardId",
       value: row.id,
     });
-    expect(mocks.revisionOrderBy).toHaveBeenCalledWith({
-      type: "desc",
-      column: "createdAt",
-    });
+    expect(mocks.revisionOrderBy).toHaveBeenCalledWith(
+      { type: "desc", column: "createdAt" },
+      { type: "desc", column: "id" },
+    );
     expect(mocks.deleteWhere).toHaveBeenNthCalledWith(1, {
       type: "eq",
       column: "id",
-      value: "revision-50",
+      value: "revision-49",
     });
     expect(mocks.deleteWhere).toHaveBeenNthCalledWith(2, {
       type: "eq",
       column: "id",
-      value: "revision-51",
+      value: "revision-50",
+    });
+    expect(mocks.deleteWhere).not.toHaveBeenCalledWith({
+      type: "eq",
+      column: "id",
+      value: revisionId,
     });
     expect(dbMocks.recordChange).toHaveBeenCalledWith({
       source: "dashboards",
@@ -218,6 +265,23 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
 
     expect(mocks.insert).not.toHaveBeenCalled();
     expect(mocks.deleteRow).not.toHaveBeenCalled();
+    expect(dbMocks.recordChange).not.toHaveBeenCalled();
+  });
+
+  it("rejects a failed revision insert from the transaction without publishing a change", async () => {
+    const row = legacyRow();
+    const revisionFailure = new Error("revision insert failed");
+    const mocks = createDb(row, [{ id: row.id }], [], {
+      insertError: revisionFailure,
+    });
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).rejects.toBe(
+      revisionFailure,
+    );
+
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.transactionRollback).toHaveBeenCalledWith(revisionFailure);
     expect(dbMocks.recordChange).not.toHaveBeenCalled();
   });
 
