@@ -1318,7 +1318,7 @@ export function PropertyManagementPopover({
                 {t(`editor.propertyTypes.${property.definition.type}`)}
               </span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-80 w-56 overflow-auto">
+            <DropdownMenuSubContent className="z-[310] max-h-80 w-56 overflow-auto">
               {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
                 const TypeIcon = TYPE_ICONS[propertyType];
                 const selected = property.definition.type === propertyType;
@@ -1357,7 +1357,7 @@ export function PropertyManagementPopover({
                 )}
               </span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
+            <DropdownMenuSubContent className="z-[310] w-56">
               {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
                 <DropdownMenuItem
                   key={visibility}
@@ -1475,7 +1475,7 @@ export function PropertyManagementPopover({
                       <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
                       {t("database.bindAFieldFromASource")}
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="max-h-80 w-64 overflow-auto">
+                    <DropdownMenuSubContent className="z-[310] max-h-80 w-64 overflow-auto">
                       {bindableSourceFields.map(({ source: src, field }) => (
                         <DropdownMenuItem
                           key={field.id}
@@ -1646,7 +1646,7 @@ function PropertyOptionSettingsRow({
               className={cn("block size-3 rounded-full", optionClass(option))}
             />
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-44">
+          <DropdownMenuSubContent className="z-[310] w-44">
             {OPTION_COLORS.map((color) => (
               <DropdownMenuItem
                 key={color}
