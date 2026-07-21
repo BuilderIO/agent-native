@@ -6068,11 +6068,14 @@ function Setup({
               <span
                 className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
               />
-              <span>
-                {rewindStatusPresentation.kind === "recording" &&
-                !rewindStatusPresentation.hasError
-                  ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
-                  : rewindStatusPresentation.detail}
+              <span className="rewind-settings-status-copy">
+                <strong>{rewindStatusPresentation.title}</strong>
+                <span>
+                  {rewindStatusPresentation.kind === "recording" &&
+                  !rewindStatusPresentation.hasError
+                    ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
+                    : rewindStatusPresentation.detail}
+                </span>
               </span>
             </div>
             <div className="setup-section-heading">Privacy</div>
