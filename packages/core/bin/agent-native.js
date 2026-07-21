@@ -16,7 +16,14 @@ const freshnessChecks = [
   ],
 ];
 
+// The tsx source fallback and mtime freshness check are for local monorepo
+// development only. Published installs ship both src and dist, and tarball
+// extraction can leave .ts files newer than .js, which must not trigger tsx
+// (not a runtime dependency). Only consider the fallback in a source checkout.
+const isSourceCheckout = existsSync(join(binDir, "../tsconfig.cli.json"));
+
 function shouldUseSourceFallback() {
+  if (!isSourceCheckout) return false;
   if (!existsSync(sourceEntry)) return false;
   if (!existsSync(distEntry)) return true;
   try {
