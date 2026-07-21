@@ -460,15 +460,24 @@ function discardPendingDeckOps(deckId: string) {
 }
 
 // Cancels all debounced-but-not-yet-sent ops without sending them.
-// Used on provider unmount (e.g. org switch): by the time the provider
-// tears down the session already carries the new org, so flushing would
-// send ops to a session that fails access checks on the old-org decks.
-// Already-in-flight requests (inFlightSaves) are left to settle on their own.
 function cancelAllPendingOps() {
   for (const timer of pendingSaves.values()) clearTimeout(timer);
   pendingSaves.clear();
   pendingOpsQueue.clear();
   notifySaveListeners();
+}
+
+// Counter of DeckProvider unmounts that are caused by an org switch.
+// Incremented during render (before commit) by OrganizationScopedDeckProvider
+// so the cleanup can distinguish org-switch unmounts from ordinary navigation.
+let _pendingOrgSwitchUnmounts = 0;
+
+// Called by OrganizationScopedDeckProvider during render when the active org
+// scope changes. Setting this during render is intentional: React renders are
+// synchronous and the commit-phase cleanups run immediately after, so the flag
+// is guaranteed to be set before the affected DeckProvider cleanup executes.
+export function markOrgSwitchUnmount() {
+  _pendingOrgSwitchUnmounts++;
 }
 
 // ---------------------------------------------------------------------------
@@ -1536,11 +1545,17 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", onHidden);
       window.removeEventListener("pagehide", onPageHide);
-      // Cancel debounced-but-not-yet-sent ops on unmount (e.g. org switch).
-      // Flushing here would race: the session already carries the new org by
-      // the time cleanup runs, so those requests would fail access checks on
-      // the old-org decks. Already-in-flight requests settle on their own.
-      cancelAllPendingOps();
+      if (_pendingOrgSwitchUnmounts > 0) {
+        // Org-switch unmount: cancel debounced ops rather than flushing.
+        // The session already carries the new org by the time cleanup runs,
+        // so flushing would send patch-deck requests that fail access checks
+        // on the old-org decks. In-flight requests settle on their own.
+        _pendingOrgSwitchUnmounts--;
+        cancelAllPendingOps();
+      } else {
+        // Ordinary navigation unmount: flush so edits are not lost.
+        flushPendingSaves();
+      }
     };
   }, []);
 

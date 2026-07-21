@@ -15,6 +15,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   }),
 }));
 
+const markOrgSwitchUnmountSpy = vi.hoisted(() => vi.fn());
+
 vi.mock("@/context/DeckContext", async () => {
   const React = await import("react");
   return {
@@ -26,6 +28,7 @@ vi.mock("@/context/DeckContext", async () => {
         </div>
       );
     },
+    markOrgSwitchUnmount: markOrgSwitchUnmountSpy,
   };
 });
 
@@ -36,6 +39,7 @@ afterEach(() => {
   testState.mountCount = 0;
   testState.orgId = "org-a";
   testState.isLoading = false;
+  markOrgSwitchUnmountSpy.mockClear();
 });
 
 describe("OrganizationScopedDeckProvider", () => {
@@ -65,9 +69,10 @@ describe("OrganizationScopedDeckProvider", () => {
       </OrganizationScopedDeckProvider>,
     );
     expect(testState.mountCount).toBe(1);
+    expect(markOrgSwitchUnmountSpy).not.toHaveBeenCalled();
   });
 
-  it("remounts deck state when the active organization changes", () => {
+  it("remounts DeckProvider when the active organization changes", () => {
     const { rerender } = render(
       <OrganizationScopedDeckProvider version={3}>
         <span>Decks</span>
@@ -87,5 +92,37 @@ describe("OrganizationScopedDeckProvider", () => {
     expect(
       screen.getByTestId("deck-provider").getAttribute("data-mount-id"),
     ).not.toBe(initialMountId);
+  });
+
+  it("signals org-switch before the key changes so cleanup can cancel instead of flush", () => {
+    const { rerender } = render(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+    expect(markOrgSwitchUnmountSpy).not.toHaveBeenCalled();
+
+    testState.orgId = "org-b";
+    rerender(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+
+    expect(markOrgSwitchUnmountSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not signal org-switch when re-rendering without an org change", () => {
+    const { rerender } = render(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+    rerender(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+    expect(markOrgSwitchUnmountSpy).not.toHaveBeenCalled();
   });
 });
