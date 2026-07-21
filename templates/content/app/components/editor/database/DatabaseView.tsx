@@ -4298,7 +4298,13 @@ function DatabaseItemPreview({
                 );
                 return;
               }
-              resolve(undefined);
+              resolve({
+                outcome: "saved" as const,
+                loadedUpdatedAt: result.updatedAt,
+                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                  result.content,
+                ),
+              });
             },
             onError: reject,
           },
