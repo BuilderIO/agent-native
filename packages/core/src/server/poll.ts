@@ -11,8 +11,16 @@
  * application_state and settings tables' updated_at timestamps. This ensures
  * that changes made by external processes (e.g., CLI actions, cron jobs)
  * are picked up even though they don't call recordChange() in this process.
+ *
+ * All change-tracking state lives on an {@link AppSyncState} instance rather
+ * than in module-level singletons, so a single process can hold one isolated
+ * instance per app (the hosted Realtime Gateway serves many apps at once). The
+ * module-level exports below delegate to a lazily-created default instance
+ * bound to the process-global DB, so self-hosted apps run exactly one code
+ * path with no behavioral change.
  */
 
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 
 import { defineEventHandler, getQuery, setResponseStatus } from "h3";
@@ -23,7 +31,7 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { getAppStateEmitter } from "../application-state/emitter.js";
-import { getDbExec, isPostgres } from "../db/client.js";
+import { type DbExec, getDbExec, isPostgres } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
@@ -70,71 +78,20 @@ const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
 const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
 const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
-const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
-let _version = 0;
-const _buffer: ChangeEvent[] = [];
+export const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
 export const POLL_CHANGE_EVENT = "poll-change";
-const _pollEmitter = new EventEmitter();
-_pollEmitter.setMaxListeners(0);
-let _syncEventsInitPromise: Promise<boolean> | undefined;
-let _lastDurablePrune = 0;
 
+/** TTL for an allowed (true) cache entry. */
+const ACCESS_CACHE_TTL_MS = 30_000;
 /**
- * Whether we've seeded _version from the DB. In serverless (Netlify,
- * Vercel, etc.) each invocation starts fresh — without seeding, _version
- * resets to 0 and polling clients see the version jump backwards, causing
- * duplicate events and stuck UI.
+ * Shorter TTL for a denied (false) entry so a transient DB error (which we
+ * fail-closed on) doesn't lock a legitimate user out of the push path for the
+ * full 30s — they recover on their next event after this window.
  */
-let _versionSeeded = false;
-
-/** Tracks the latest updated_at we've seen from the DB, per table. */
-let _lastDbCheck = 0;
-// Coalesces concurrent checkExternalDbChanges runs. The 1s throttle alone does
-// not prevent overlap when a single check takes longer than 1s — two overlapping
-// runs would each read+advance the shared watermarks and double-emit events.
-let _checkPromise: Promise<void> | null = null;
-let _lastAppStateTs = 0;
-let _lastSettingsTs = 0;
-let _lastExtensionsTs = 0;
-let _lastExtensionsUpdatedAt: string | number | undefined;
-let _lastExtensionMarkerTs = 0;
-let _lastActionMarkerTs = 0;
-
-/**
- * Tracks the latest updated_at seen on the `__screen_refresh__` key in
- * application_state. Bumped when the agent calls the `refresh-screen` tool,
- * and surfaced as a distinct `screen-refresh` event so clients can remount
- * the main content subtree via React key.
- *
- * `_screenRefreshInitialized` guards against spurious emits on the first
- * poll after a restart (where an existing row would look like a fresh bump).
- * Once we've taken a baseline reading, any subsequent increase emits.
- */
-let _lastScreenRefreshTs = 0;
-let _screenRefreshInitialized = false;
-// Per-session high-water marks for `__screen_refresh__`. Each user's row is
-// tracked independently so a refresh triggered by one user only remounts that
-// user's screen (owner-scoped), never every authenticated poller.
-const _lastScreenRefreshTsBySession = new Map<string, number>();
+const ACCESS_CACHE_DENY_TTL_MS = 5_000;
+/** Max cache entries before FIFO eviction kicks in. */
+const ACCESS_CACHE_MAX = 500;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
-let _localEmittersWired = false;
-
-function wireLocalEmitters(): void {
-  if (_localEmittersWired) return;
-  _localEmittersWired = true;
-  getAppStateEmitter().on("app-state", (event) => {
-    if (
-      event.key === EXTENSION_CHANGE_MARKER_KEY ||
-      event.key === ACTION_CHANGE_MARKER_KEY
-    ) {
-      return;
-    }
-    recordChange(event);
-  });
-  getSettingsEmitter().on("settings", (event) => {
-    recordChange(event);
-  });
-}
 
 function timestampValue(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -157,122 +114,6 @@ function syncEventsDisabled(): boolean {
     (process.env.VITEST === "true" &&
       process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS !== "1")
   );
-}
-
-async function ensureSyncEventsTable(): Promise<boolean> {
-  if (syncEventsDisabled()) return false;
-  if (!_syncEventsInitPromise) {
-    _syncEventsInitPromise = (async () => {
-      const client = getDbExec();
-      const createSql = `
-        CREATE TABLE IF NOT EXISTS sync_events (
-          id TEXT PRIMARY KEY,
-          version BIGINT NOT NULL,
-          event_json TEXT NOT NULL,
-          source TEXT NOT NULL,
-          type TEXT NOT NULL,
-          event_key TEXT,
-          owner TEXT,
-          org_id TEXT,
-          resource_type TEXT,
-          resource_id TEXT,
-          created_at BIGINT NOT NULL
-        )
-      `;
-
-      if (isPostgres()) {
-        await ensureTableExists("sync_events", createSql);
-        await ensureIndexExists(
-          "sync_events_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-        );
-        await ensureIndexExists(
-          "sync_events_owner_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-        );
-        await ensureIndexExists(
-          "sync_events_org_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-        );
-        return true;
-      }
-
-      await client.execute(createSql);
-      for (const ddl of [
-        "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-        "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-        "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-      ]) {
-        try {
-          await client.execute(ddl);
-        } catch {
-          // Index already exists or the dialect rejected a duplicate.
-        }
-      }
-      return true;
-    })().catch(() => {
-      _syncEventsInitPromise = undefined;
-      return false;
-    });
-  }
-  return _syncEventsInitPromise;
-}
-
-function durableEventId(version: number): string {
-  return `${version}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-async function pruneDurableEvents(client: ReturnType<typeof getDbExec>) {
-  const now = Date.now();
-  if (now - _lastDurablePrune < 5 * 60 * 1000) return;
-  _lastDurablePrune = now;
-  await client
-    .execute({
-      sql: "DELETE FROM sync_events WHERE created_at < ?",
-      args: [now - DURABLE_RETENTION_MS],
-    })
-    .catch(() => {});
-}
-
-async function persistSyncEvent(event: ChangeEvent): Promise<void> {
-  if (!(await ensureSyncEventsTable())) return;
-  const client = getDbExec();
-  await client
-    .execute({
-      sql: isPostgres()
-        ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (id) DO NOTHING`
-        : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        durableEventId(event.version),
-        event.version,
-        JSON.stringify(event),
-        event.source,
-        event.type,
-        event.key ?? null,
-        event.owner ?? null,
-        event.orgId ?? null,
-        event.resourceType ?? null,
-        event.resourceId ?? null,
-        Date.now(),
-      ],
-    })
-    .catch(() => {});
-  await pruneDurableEvents(client);
-}
-
-async function readMaxSyncEventVersion(): Promise<number> {
-  if (!(await ensureSyncEventsTable())) return 0;
-  try {
-    const result = await getDbExec().execute(
-      "SELECT MAX(version) as max_version FROM sync_events",
-    );
-    return timestampValue(result.rows[0]?.max_version);
-  } catch {
-    return 0;
-  }
 }
 
 async function readMaxUpdatedAtRaw(
@@ -337,38 +178,6 @@ async function readActionMarkerMaxUpdatedAt(db: {
   }
 }
 
-/** Get the current global version counter. */
-export function getVersion(): number {
-  return _version;
-}
-
-export function getPollEmitter(): EventEmitter {
-  return _pollEmitter;
-}
-
-/**
- * In-memory, TTL'd access cache for the access-aware branch of
- * `canSeeChangeForUser`. Keyed by `${userEmail}|${resourceType}|${resourceId}`.
- *
- * Insertion order doubles as FIFO for eviction (JS Maps preserve insertion
- * order), so we can evict the oldest entries when we exceed the cap.
- */
-const _accessCache = new Map<string, { allowed: boolean; checkedAt: number }>();
-/** In-flight background access checks, keyed identically, to dedupe bursts. */
-const _accessInFlight = new Set<string>();
-/** Per-resource generation bumped when shares/visibility change. */
-const _accessInvalidationEpoch = new Map<string, number>();
-/** TTL for an allowed (true) cache entry. */
-const ACCESS_CACHE_TTL_MS = 30_000;
-/**
- * Shorter TTL for a denied (false) entry so a transient DB error (which we
- * fail-closed on) doesn't lock a legitimate user out of the push path for the
- * full 30s — they recover on their next event after this window.
- */
-const ACCESS_CACHE_DENY_TTL_MS = 5_000;
-/** Max cache entries before FIFO eviction kicks in. */
-const ACCESS_CACHE_MAX = 500;
-
 function accessCacheKey(
   userEmail: string,
   resourceType: string,
@@ -385,189 +194,6 @@ function accessCacheTtl(allowed: boolean): number {
   return allowed ? ACCESS_CACHE_TTL_MS : ACCESS_CACHE_DENY_TTL_MS;
 }
 
-export function invalidateCollabAccessCache(
-  resourceType: string,
-  resourceId: string,
-): void {
-  const resourceKey = accessResourceKey(resourceType, resourceId);
-  _accessInvalidationEpoch.set(
-    resourceKey,
-    (_accessInvalidationEpoch.get(resourceKey) ?? 0) + 1,
-  );
-  const suffix = `|${resourceKey}`;
-  for (const key of Array.from(_accessCache.keys())) {
-    if (key.endsWith(suffix)) _accessCache.delete(key);
-  }
-  for (const key of Array.from(_accessInFlight)) {
-    if (key.endsWith(suffix)) _accessInFlight.delete(key);
-  }
-}
-
-function setAccessCache(key: string, allowed: boolean, now: number): void {
-  // Re-insert so the key moves to the end (most-recent) for FIFO ordering.
-  _accessCache.delete(key);
-  _accessCache.set(key, { allowed, checkedAt: now });
-  if (_accessCache.size > ACCESS_CACHE_MAX) {
-    // Evict the oldest entries (front of insertion order) back under the cap.
-    const overflow = _accessCache.size - ACCESS_CACHE_MAX;
-    let removed = 0;
-    for (const oldestKey of _accessCache.keys()) {
-      _accessCache.delete(oldestKey);
-      if (++removed >= overflow) break;
-    }
-  }
-}
-
-/**
- * Fire a background access check for a cache-miss key. Never awaited by the
- * caller — the current event is NOT delivered (we returned false), but the
- * result is cached so the user's NEXT event within the TTL is pushed. Dedupes
- * concurrent checks for the same key via `_accessInFlight`.
- */
-function scheduleAccessCheck(
-  key: string,
-  resourceType: string,
-  resourceId: string,
-  userEmail: string,
-  orgId: string | undefined,
-): void {
-  if (_accessInFlight.has(key)) return;
-  _accessInFlight.add(key);
-  const resourceKey = accessResourceKey(resourceType, resourceId);
-  const epoch = _accessInvalidationEpoch.get(resourceKey) ?? 0;
-  void (async () => {
-    try {
-      // Dynamic import to avoid a load-order/circular-import hazard: poll.ts is
-      // imported very widely, and the sharing/access module pulls in the
-      // resource registry. Importing it lazily inside this background function
-      // keeps the module graph acyclic at load time.
-      const { resolveAccess } = await import("../sharing/access.js");
-      const access = await resolveAccess(resourceType, resourceId, {
-        userEmail,
-        orgId,
-      });
-      if ((_accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) return;
-      setAccessCache(key, access != null, Date.now());
-    } catch {
-      // Fail closed on any error (DB not ready, missing registration, etc.),
-      // but with the short deny TTL so a transient failure self-heals quickly.
-      if ((_accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) return;
-      setAccessCache(key, false, Date.now());
-    } finally {
-      _accessInFlight.delete(key);
-    }
-  })();
-}
-
-/**
- * Test-only: clear the access cache and in-flight set so cases don't bleed
- * into each other. Underscore-prefixed and intentionally NOT part of the
- * public API — do not rely on it outside tests.
- */
-export function __resetCollabAccessCacheForTests(): void {
-  _accessCache.clear();
-  _accessInFlight.clear();
-  _accessInvalidationEpoch.clear();
-}
-
-type ChangeVisibility = "visible" | "hidden" | "pending";
-type ChangeReadResult = {
-  version: number;
-  events: ChangeEvent[];
-  /**
-   * True when the returned version is an intentional cursor stop, not the
-   * source high-water mark. This happens when access is still pending or when a
-   * durable page hit the read limit and more rows may remain unread.
-   */
-  cursorLimited?: boolean;
-};
-
-/**
- * Decide whether a poll/SSE change event should be delivered to a user.
- *
- * SYNC-CACHE VARIANT — WHY THIS IS SYNCHRONOUS:
- * This function is called on hot, synchronous paths: the SSE emitter callback
- * `push(change)` in poll-events.ts (fires per event) and the
- * `getChangesSinceForUser` loop in this file. Making it async would be
- * invasive (it would ripple through both call sites and their emitters).
- * Instead, for the access-aware branch we consult an in-memory cache and, on a
- * miss, fire a NON-BLOCKING background access check and return `false` for the
- * current event. Because the poll fallback (`getChangesSinceForUser` on the
- * next `/poll` cycle) re-evaluates with the now-populated cache, delivery is
- * eventually guaranteed — the only cost is that the very first event for a
- * fresh (user, resource) pair goes over poll instead of push, and every
- * subsequent event within the TTL is pushed.
- *
- * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
- * their access has been affirmatively confirmed by `resolveAccess` — the same
- * authority that gates the HTTP routes. Errors fail closed (cached deny). The
- * owner/org fast paths below are unchanged and evaluated first.
- */
-export function canSeeChangeForUser(
-  event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
-  userEmail: string,
-  orgId: string | undefined,
-): boolean {
-  return getChangeVisibilityForUser(event, userEmail, orgId) === "visible";
-}
-
-function getChangeVisibilityForUser(
-  event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
-  userEmail: string,
-  orgId: string | undefined,
-): ChangeVisibility {
-  // Global / unowned events: every authenticated user gets them. Events that
-  // predate resource tagging (owner/org only, no resourceType) keep the exact
-  // conservative contract they had before.
-  if (!event.owner && !event.orgId && !event.resourceType) return "visible";
-  if (event.owner && event.owner === userEmail) return "visible";
-  if (event.orgId && orgId && event.orgId === orgId) return "visible";
-
-  // Access-aware branch: only when the event carries BOTH resourceType and
-  // resourceId and the owner/org fast paths above did not already grant.
-  if (event.resourceType && event.resourceId) {
-    const key = accessCacheKey(userEmail, event.resourceType, event.resourceId);
-    const cached = _accessCache.get(key);
-    const now = Date.now();
-    if (cached && now - cached.checkedAt < accessCacheTtl(cached.allowed)) {
-      // Fresh, non-expired cache hit → trust the cached decision.
-      return cached.allowed ? "visible" : "hidden";
-    }
-    // Miss or expired: do NOT deliver this event, but schedule the async check
-    // so the user's next event (or poll cycle) resolves correctly.
-    scheduleAccessCheck(
-      key,
-      event.resourceType,
-      event.resourceId,
-      userEmail,
-      orgId,
-    );
-    return "pending";
-  }
-
-  return "hidden";
-}
-
-/** Record a change event. Called by emitter listeners. */
-export function recordChange(event: {
-  source: string;
-  type: string;
-  key?: string;
-  [k: string]: unknown;
-}): void {
-  // Use timestamp-aligned versions so all serverless instances produce
-  // values in the same range (seeded from DB, then incremented via
-  // Date.now). Plain ++counter diverges across cold starts.
-  _version = Math.max(_version + 1, Date.now());
-  const entry: ChangeEvent = { ...event, version: _version };
-  _buffer.push(entry);
-  if (_buffer.length > MAX_BUFFER) {
-    _buffer.splice(0, _buffer.length - MAX_BUFFER);
-  }
-  _pollEmitter.emit(POLL_CHANGE_EVENT, entry);
-  void persistSyncEvent(entry);
-}
-
 function extensionTargetKey(target: ExtensionChangeTarget): string | null {
   if (target.owner) return `owner:${target.owner}`;
   if (target.orgId) return `org:${target.orgId}`;
@@ -580,33 +206,6 @@ function addExtensionTarget(
 ): void {
   const key = extensionTargetKey(target);
   if (key) targets.set(key, target);
-}
-
-function recordExtensionChanges(targets: ExtensionChangeTarget[]): void {
-  const uniqueTargets = new Map<string, ExtensionChangeTarget>();
-  for (const target of targets) addExtensionTarget(uniqueTargets, target);
-  for (const target of uniqueTargets.values()) {
-    recordChange({
-      source: "extensions",
-      type: "change",
-      key: "*",
-      ...(target.owner ? { owner: target.owner } : {}),
-      ...(target.orgId ? { orgId: target.orgId } : {}),
-    });
-  }
-}
-
-function recordActionChanges(targets: ActionChangeTarget[]): void {
-  for (const target of targets) {
-    recordChange({
-      source: "action",
-      type: "change",
-      key: target.actionName ?? "*",
-      ...(target.owner ? { owner: target.owner } : {}),
-      ...(target.orgId ? { orgId: target.orgId } : {}),
-      ...(target.requestSource ? { requestSource: target.requestSource } : {}),
-    });
-  }
 }
 
 function extensionTargetsForRow(
@@ -678,84 +277,620 @@ async function readExtensionTargetsForRows(
   );
 }
 
-/** Get all changes after a given version. */
-export function getChangesSince(since: number): {
+type ChangeVisibility = "visible" | "hidden" | "pending";
+
+export type ChangeReadResult = {
   version: number;
   events: ChangeEvent[];
-} {
-  if (since >= _version) {
-    return { version: _version, events: [] };
-  }
-  const events = _buffer.filter((e) => e.version > since);
-  return { version: _version, events };
+  /**
+   * True when the returned version is an intentional cursor stop, not the
+   * source high-water mark. This happens when access is still pending or when a
+   * durable page hit the read limit and more rows may remain unread.
+   */
+  cursorLimited?: boolean;
+};
+
+/**
+ * Resolve whether `userEmail`/`orgId` may access a shareable resource. Injected
+ * so the hosted gateway can bind the check to a specific app's resource
+ * registry + DB; the default resolves the framework's process-global registry
+ * lazily to avoid a load-order/circular-import hazard (poll.ts is imported very
+ * widely and the sharing module pulls in the resource registry).
+ */
+export type AccessResolver = (
+  resourceType: string,
+  resourceId: string,
+  ctx: { userEmail: string; orgId: string | undefined },
+) => Promise<unknown | null>;
+
+const defaultResolveAccess: AccessResolver = async (
+  resourceType,
+  resourceId,
+  ctx,
+) => {
+  const { resolveAccess } = await import("../sharing/access.js");
+  return resolveAccess(resourceType, resourceId, ctx);
+};
+
+export interface AppSyncStateOptions {
+  /**
+   * Per-app DB accessor. Called per query (not memoized here) so a mocked or
+   * hot-swapped exec is always honored. Defaults to the process-global
+   * `getDbExec`.
+   */
+  getDb?: () => DbExec;
+  /** Whether this app's DB is Postgres. Defaults to the process-global check. */
+  isPostgres?: () => boolean;
+  /** Access-aware delivery resolver. Defaults to the framework registry. */
+  resolveAccess?: AccessResolver;
+  /**
+   * Derive durable-event ids deterministically from the event's logical
+   * identity plus a caller-supplied dedupe signal (the source row's
+   * `updated_at`), instead of the default `version-<random>` id.
+   *
+   * Off by default: a single-process app has one writer, so random ids are
+   * fine and `ON CONFLICT (id) DO NOTHING` never needs to fire. The hosted
+   * gateway sets this so two instances that independently detect the same
+   * out-of-band write persist the SAME id and dedupe to one row. The signal
+   * intentionally excludes `version` (which is per-instance) so it collides
+   * across instances.
+   */
+  deterministicEventIds?: boolean;
 }
 
 /**
- * Get changes after a given version, filtered to events the caller is
- * allowed to see.
- *
- * Filtering rules:
- *   - Events without an `owner`/`orgId`/`resourceType` are deployment-global
- *     (table-level pings, screen-refresh, etc.) and visible to every
- *     authenticated user.
- *   - Events with `owner === userEmail` go to that user.
- *   - Events with `orgId === orgId` go to anyone in that org.
- *   - Events carrying `resourceType` + `resourceId` additionally reach explicit
- *     viewer+ sharees via the access-aware cache in `canSeeChangeForUser`.
- *   - All other owned events are filtered out.
+ * Per-app change-tracking state and read path. One instance per deployed app.
+ * The framework runs a single default instance ({@link getDefaultAppSyncState})
+ * bound to the process DB; the hosted Realtime Gateway constructs one instance
+ * per app with that app's pooled Neon connection injected.
  */
-export function getChangesSinceForUser(
-  since: number,
-  userEmail: string,
-  orgId: string | undefined,
-): ChangeReadResult {
-  if (since >= _version) {
-    return { version: _version, events: [] };
-  }
-  const events: ChangeEvent[] = [];
-  let version = _version;
-  for (const event of _buffer) {
-    if (event.version <= since) continue;
-    const visibility = getChangeVisibilityForUser(event, userEmail, orgId);
-    if (visibility === "visible") {
-      events.push(event);
-      continue;
-    }
-    if (visibility === "pending") {
-      version = Math.max(since, event.version - 1);
-      return { version, events, cursorLimited: true };
-    }
-  }
-  return { version, events };
-}
+export class AppSyncState {
+  private readonly getDb: () => DbExec;
+  private readonly isPg: () => boolean;
+  private readonly resolveAccessFn: AccessResolver;
+  private readonly deterministicEventIds: boolean;
 
-async function getDurableChangesSinceForUser(
-  since: number,
-  userEmail: string,
-  orgId: string | undefined,
-): Promise<ChangeReadResult> {
-  if (since <= 0 || !(await ensureSyncEventsTable())) {
-    return { version: _version, events: [] };
+  // Timestamp-aligned versions so all serverless instances produce values in
+  // the same range (seeded from DB, then incremented via Date.now). Plain
+  // ++counter diverges across cold starts.
+  private version = 0;
+  private readonly buffer: ChangeEvent[] = [];
+  private readonly pollEmitter = new EventEmitter();
+  private syncEventsInitPromise: Promise<boolean> | undefined;
+  private lastDurablePrune = 0;
+
+  /**
+   * Whether we've seeded `version` from the DB. In serverless (Netlify,
+   * Vercel, etc.) each invocation starts fresh — without seeding, `version`
+   * resets to 0 and polling clients see the version jump backwards, causing
+   * duplicate events and stuck UI.
+   */
+  private versionSeeded = false;
+
+  private lastDbCheck = 0;
+  // Coalesces concurrent checkExternalDbChanges runs. The throttle alone does
+  // not prevent overlap when a single check takes longer than the interval —
+  // two overlapping runs would each read+advance the watermarks and double-emit.
+  private checkPromise: Promise<void> | null = null;
+  private lastAppStateTs = 0;
+  private lastSettingsTs = 0;
+  private lastExtensionsTs = 0;
+  private lastExtensionsUpdatedAt: string | number | undefined;
+  private lastExtensionMarkerTs = 0;
+  private lastActionMarkerTs = 0;
+
+  /**
+   * Tracks the latest updated_at seen on the `__screen_refresh__` key.
+   * `screenRefreshInitialized` guards against spurious emits on the first poll
+   * after a restart (where an existing row would look like a fresh bump).
+   */
+  private lastScreenRefreshTs = 0;
+  private screenRefreshInitialized = false;
+  private readonly lastScreenRefreshTsBySession = new Map<string, number>();
+  private localEmittersWired = false;
+
+  /**
+   * TTL'd access cache for the access-aware branch of `canSeeChangeForUser`,
+   * keyed `${userEmail}|${resourceType}|${resourceId}`. Insertion order doubles
+   * as FIFO for eviction (JS Maps preserve insertion order). Held per-instance
+   * so one gateway process serving many apps never leaks one app's cached
+   * access decision into another app's delivery filter.
+   */
+  private readonly accessCache = new Map<
+    string,
+    { allowed: boolean; checkedAt: number }
+  >();
+  /** In-flight background access checks, keyed identically, to dedupe bursts. */
+  private readonly accessInFlight = new Set<string>();
+  /** Per-resource generation bumped when shares/visibility change. */
+  private readonly accessInvalidationEpoch = new Map<string, number>();
+
+  constructor(options: AppSyncStateOptions = {}) {
+    this.getDb = options.getDb ?? getDbExec;
+    this.isPg = options.isPostgres ?? isPostgres;
+    this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
+    this.deterministicEventIds = options.deterministicEventIds ?? false;
+    this.pollEmitter.setMaxListeners(0);
   }
 
-  try {
-    // Scope the fetch to rows that could ever be visible to this caller
-    // before paying to JSON.parse and visibility-check every deployment-wide
-    // event: deployment-global rows (no owner, no org), the caller's own
-    // rows, the caller's org's rows, and resource-scoped rows (owner/org
-    // don't gate those — access is decided below by
-    // `getChangeVisibilityForUser`'s access-aware branch, which can grant a
-    // non-owner sharee, so resource-scoped rows must still flow through that
-    // check regardless of who owns them). This lets Postgres/SQLite use the
-    // `sync_events_owner_version_idx` / `sync_events_org_version_idx` indexes
-    // instead of scanning every tenant's activity on every poll. The OR group
-    // is parenthesized so `version > ?` ANDs against the whole group, not
-    // just the first term. A caller with no org passes a null `orgId` bind
-    // param, which makes `org_id = ?` evaluate to no match for every row
-    // (including null-org rows) in both dialects — mirroring the
-    // `event.orgId && orgId` truthy check in `getChangeVisibilityForUser`.
-    const result = await getDbExec().execute({
-      sql: `SELECT version, event_json FROM sync_events WHERE version > ?
+  /**
+   * Durable-event id. Deterministic (hash of logical identity + `dedupeKey`,
+   * excluding the per-instance `version`) when the instance opts in AND a
+   * dedupe signal is supplied — that combination lets `ON CONFLICT (id) DO
+   * NOTHING` collapse the same out-of-band write detected by multiple gateway
+   * instances into one row. Otherwise the historical `version-<random>` id,
+   * which is unique-per-write for a single-writer app.
+   */
+  private durableEventId(event: ChangeEvent, dedupeKey?: string): string {
+    if (this.deterministicEventIds && dedupeKey !== undefined) {
+      const identity = [
+        event.source,
+        event.type,
+        event.key ?? "",
+        event.owner ?? "",
+        event.orgId ?? "",
+        event.resourceType ?? "",
+        event.resourceId ?? "",
+        dedupeKey,
+      ].join(" ");
+      return createHash("sha256").update(identity).digest("hex").slice(0, 32);
+    }
+    return `${event.version}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  /** Get the current version counter. */
+  getVersion(): number {
+    return this.version;
+  }
+
+  getPollEmitter(): EventEmitter {
+    return this.pollEmitter;
+  }
+
+  /**
+   * Wire the in-process app-state/settings emitters into `recordChange` so
+   * same-process writes surface on the poll/SSE fast path. Idempotent. Only the
+   * default (in-process) instance calls this — the gateway learns of changes by
+   * tailing the DB, not from these process-global emitters.
+   */
+  wireLocalEmitters(): void {
+    if (this.localEmittersWired) return;
+    this.localEmittersWired = true;
+    getAppStateEmitter().on("app-state", (event) => {
+      if (
+        event.key === EXTENSION_CHANGE_MARKER_KEY ||
+        event.key === ACTION_CHANGE_MARKER_KEY
+      ) {
+        return;
+      }
+      this.recordChange(event);
+    });
+    getSettingsEmitter().on("settings", (event) => {
+      this.recordChange(event);
+    });
+  }
+
+  async ensureSyncEventsTable(): Promise<boolean> {
+    if (syncEventsDisabled()) return false;
+    if (!this.syncEventsInitPromise) {
+      this.syncEventsInitPromise = (async () => {
+        const client = this.getDb();
+        const createSql = `
+        CREATE TABLE IF NOT EXISTS sync_events (
+          id TEXT PRIMARY KEY,
+          version BIGINT NOT NULL,
+          event_json TEXT NOT NULL,
+          source TEXT NOT NULL,
+          type TEXT NOT NULL,
+          event_key TEXT,
+          owner TEXT,
+          org_id TEXT,
+          resource_type TEXT,
+          resource_id TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `;
+
+        if (this.isPg()) {
+          await ensureTableExists("sync_events", createSql);
+          await ensureIndexExists(
+            "sync_events_version_idx",
+            "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+          );
+          await ensureIndexExists(
+            "sync_events_owner_version_idx",
+            "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+          );
+          await ensureIndexExists(
+            "sync_events_org_version_idx",
+            "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+          );
+          return true;
+        }
+
+        await client.execute(createSql);
+        for (const ddl of [
+          "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+          "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+          "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+        ]) {
+          try {
+            await client.execute(ddl);
+          } catch {
+            // Index already exists or the dialect rejected a duplicate.
+          }
+        }
+        return true;
+      })().catch(() => {
+        this.syncEventsInitPromise = undefined;
+        return false;
+      });
+    }
+    return this.syncEventsInitPromise;
+  }
+
+  private async pruneDurableEvents(client: DbExec): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastDurablePrune < 5 * 60 * 1000) return;
+    this.lastDurablePrune = now;
+    await client
+      .execute({
+        sql: "DELETE FROM sync_events WHERE created_at < ?",
+        args: [now - DURABLE_RETENTION_MS],
+      })
+      .catch(() => {});
+  }
+
+  async persistSyncEvent(
+    event: ChangeEvent,
+    dedupeKey?: string,
+  ): Promise<void> {
+    if (!(await this.ensureSyncEventsTable())) return;
+    const client = this.getDb();
+    await client
+      .execute({
+        sql: this.isPg()
+          ? `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (id) DO NOTHING`
+          : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          this.durableEventId(event, dedupeKey),
+          event.version,
+          JSON.stringify(event),
+          event.source,
+          event.type,
+          event.key ?? null,
+          event.owner ?? null,
+          event.orgId ?? null,
+          event.resourceType ?? null,
+          event.resourceId ?? null,
+          Date.now(),
+        ],
+      })
+      .catch(() => {});
+    await this.pruneDurableEvents(client);
+  }
+
+  async readMaxSyncEventVersion(): Promise<number> {
+    if (!(await this.ensureSyncEventsTable())) return 0;
+    try {
+      const result = await this.getDb().execute(
+        "SELECT MAX(version) as max_version FROM sync_events",
+      );
+      return timestampValue(result.rows[0]?.max_version);
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Oldest retained durable version. Used to detect a reconnect cursor that
+   * predates the 24h retention window so the gateway can signal a full
+   * resync instead of silently dropping events. One indexed aggregate over
+   * `sync_events_version_idx`; no schema change.
+   */
+  async readMinSyncEventVersion(): Promise<number> {
+    if (!(await this.ensureSyncEventsTable())) return 0;
+    try {
+      const result = await this.getDb().execute(
+        "SELECT MIN(version) as min_version FROM sync_events",
+      );
+      return timestampValue(result.rows[0]?.min_version);
+    } catch {
+      return 0;
+    }
+  }
+
+  invalidateCollabAccessCache(resourceType: string, resourceId: string): void {
+    const resourceKey = accessResourceKey(resourceType, resourceId);
+    this.accessInvalidationEpoch.set(
+      resourceKey,
+      (this.accessInvalidationEpoch.get(resourceKey) ?? 0) + 1,
+    );
+    const suffix = `|${resourceKey}`;
+    for (const key of Array.from(this.accessCache.keys())) {
+      if (key.endsWith(suffix)) this.accessCache.delete(key);
+    }
+    for (const key of Array.from(this.accessInFlight)) {
+      if (key.endsWith(suffix)) this.accessInFlight.delete(key);
+    }
+  }
+
+  private setAccessCache(key: string, allowed: boolean, now: number): void {
+    // Re-insert so the key moves to the end (most-recent) for FIFO ordering.
+    this.accessCache.delete(key);
+    this.accessCache.set(key, { allowed, checkedAt: now });
+    if (this.accessCache.size > ACCESS_CACHE_MAX) {
+      // Evict the oldest entries (front of insertion order) back under the cap.
+      const overflow = this.accessCache.size - ACCESS_CACHE_MAX;
+      let removed = 0;
+      for (const oldestKey of this.accessCache.keys()) {
+        this.accessCache.delete(oldestKey);
+        if (++removed >= overflow) break;
+      }
+    }
+  }
+
+  /**
+   * Fire a background access check for a cache-miss key. Never awaited by the
+   * caller — the current event is NOT delivered (we returned false), but the
+   * result is cached so the user's NEXT event within the TTL is pushed. Dedupes
+   * concurrent checks for the same key via `accessInFlight`.
+   */
+  private scheduleAccessCheck(
+    key: string,
+    resourceType: string,
+    resourceId: string,
+    userEmail: string,
+    orgId: string | undefined,
+  ): void {
+    if (this.accessInFlight.has(key)) return;
+    this.accessInFlight.add(key);
+    const resourceKey = accessResourceKey(resourceType, resourceId);
+    const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
+    void (async () => {
+      try {
+        const access = await this.resolveAccessFn(resourceType, resourceId, {
+          userEmail,
+          orgId,
+        });
+        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+          return;
+        }
+        this.setAccessCache(key, access != null, Date.now());
+      } catch {
+        // Fail closed on any error (DB not ready, missing registration, etc.),
+        // but with the short deny TTL so a transient failure self-heals quickly.
+        if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
+          return;
+        }
+        this.setAccessCache(key, false, Date.now());
+      } finally {
+        this.accessInFlight.delete(key);
+      }
+    })();
+  }
+
+  /**
+   * Test-only: clear the access cache and in-flight set so cases don't bleed
+   * into each other. Intentionally NOT part of the public API.
+   */
+  __resetAccessCacheForTests(): void {
+    this.accessCache.clear();
+    this.accessInFlight.clear();
+    this.accessInvalidationEpoch.clear();
+  }
+
+  /**
+   * Decide whether a poll/SSE change event should be delivered to a user.
+   *
+   * SYNC-CACHE VARIANT — WHY THIS IS SYNCHRONOUS:
+   * This function is called on hot, synchronous paths: the SSE emitter callback
+   * `push(change)` in poll-events.ts (fires per event) and the
+   * `getChangesSinceForUser` loop in this file. Making it async would be
+   * invasive. Instead, for the access-aware branch we consult an in-memory
+   * cache and, on a miss, fire a NON-BLOCKING background access check and
+   * return `false` for the current event. Because the poll fallback re-evaluates
+   * with the now-populated cache, delivery is eventually guaranteed — the only
+   * cost is that the very first event for a fresh (user, resource) pair goes
+   * over poll instead of push, and every subsequent event within the TTL is
+   * pushed.
+   *
+   * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
+   * their access has been affirmatively confirmed by the resolver — the same
+   * authority that gates the HTTP routes. Errors fail closed (cached deny). The
+   * owner/org fast paths below are unchanged and evaluated first.
+   */
+  canSeeChangeForUser(
+    event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+    userEmail: string,
+    orgId: string | undefined,
+  ): boolean {
+    return (
+      this.getChangeVisibilityForUser(event, userEmail, orgId) === "visible"
+    );
+  }
+
+  private getChangeVisibilityForUser(
+    event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+    userEmail: string,
+    orgId: string | undefined,
+  ): ChangeVisibility {
+    // Global / unowned events: every authenticated user gets them. Events that
+    // predate resource tagging (owner/org only, no resourceType) keep the exact
+    // conservative contract they had before.
+    if (!event.owner && !event.orgId && !event.resourceType) return "visible";
+    if (event.owner && event.owner === userEmail) return "visible";
+    if (event.orgId && orgId && event.orgId === orgId) return "visible";
+
+    // Access-aware branch: only when the event carries BOTH resourceType and
+    // resourceId and the owner/org fast paths above did not already grant.
+    if (event.resourceType && event.resourceId) {
+      const key = accessCacheKey(
+        userEmail,
+        event.resourceType,
+        event.resourceId,
+      );
+      const cached = this.accessCache.get(key);
+      const now = Date.now();
+      if (cached && now - cached.checkedAt < accessCacheTtl(cached.allowed)) {
+        // Fresh, non-expired cache hit → trust the cached decision.
+        return cached.allowed ? "visible" : "hidden";
+      }
+      // Miss or expired: do NOT deliver this event, but schedule the async check
+      // so the user's next event (or poll cycle) resolves correctly.
+      this.scheduleAccessCheck(
+        key,
+        event.resourceType,
+        event.resourceId,
+        userEmail,
+        orgId,
+      );
+      return "pending";
+    }
+
+    return "hidden";
+  }
+
+  /**
+   * Record a change event. Called by emitter listeners and the tail detector.
+   * `dedupeKey` is a stable cross-instance signal (a source row's `updated_at`)
+   * used only when the instance derives deterministic ids; it is a persistence
+   * concern and never stored on the event object.
+   */
+  recordChange(
+    event: {
+      source: string;
+      type: string;
+      key?: string;
+      [k: string]: unknown;
+    },
+    opts?: { dedupeKey?: string },
+  ): void {
+    this.version = Math.max(this.version + 1, Date.now());
+    const entry: ChangeEvent = { ...event, version: this.version };
+    this.buffer.push(entry);
+    if (this.buffer.length > MAX_BUFFER) {
+      this.buffer.splice(0, this.buffer.length - MAX_BUFFER);
+    }
+    this.pollEmitter.emit(POLL_CHANGE_EVENT, entry);
+    void this.persistSyncEvent(entry, opts?.dedupeKey);
+  }
+
+  private recordExtensionChanges(
+    targets: ExtensionChangeTarget[],
+    dedupeKey?: string,
+  ): void {
+    const uniqueTargets = new Map<string, ExtensionChangeTarget>();
+    for (const target of targets) addExtensionTarget(uniqueTargets, target);
+    for (const target of uniqueTargets.values()) {
+      this.recordChange(
+        {
+          source: "extensions",
+          type: "change",
+          key: "*",
+          ...(target.owner ? { owner: target.owner } : {}),
+          ...(target.orgId ? { orgId: target.orgId } : {}),
+        },
+        dedupeKey !== undefined
+          ? {
+              dedupeKey: `${dedupeKey}|${target.owner ?? ""}|${target.orgId ?? ""}`,
+            }
+          : undefined,
+      );
+    }
+  }
+
+  private recordActionChanges(
+    targets: ActionChangeTarget[],
+    dedupeKey?: string,
+  ): void {
+    for (const target of targets) {
+      this.recordChange(
+        {
+          source: "action",
+          type: "change",
+          key: target.actionName ?? "*",
+          ...(target.owner ? { owner: target.owner } : {}),
+          ...(target.orgId ? { orgId: target.orgId } : {}),
+          ...(target.requestSource
+            ? { requestSource: target.requestSource }
+            : {}),
+        },
+        dedupeKey !== undefined
+          ? {
+              dedupeKey: `${dedupeKey}|${target.actionName ?? ""}|${target.owner ?? ""}|${target.orgId ?? ""}`,
+            }
+          : undefined,
+      );
+    }
+  }
+
+  /** Get all changes after a given version. */
+  getChangesSince(since: number): { version: number; events: ChangeEvent[] } {
+    if (since >= this.version) {
+      return { version: this.version, events: [] };
+    }
+    const events = this.buffer.filter((e) => e.version > since);
+    return { version: this.version, events };
+  }
+
+  /**
+   * Get changes after a given version, filtered to events the caller is
+   * allowed to see.
+   */
+  getChangesSinceForUser(
+    since: number,
+    userEmail: string,
+    orgId: string | undefined,
+  ): ChangeReadResult {
+    if (since >= this.version) {
+      return { version: this.version, events: [] };
+    }
+    const events: ChangeEvent[] = [];
+    let version = this.version;
+    for (const event of this.buffer) {
+      if (event.version <= since) continue;
+      const visibility = this.getChangeVisibilityForUser(
+        event,
+        userEmail,
+        orgId,
+      );
+      if (visibility === "visible") {
+        events.push(event);
+        continue;
+      }
+      if (visibility === "pending") {
+        version = Math.max(since, event.version - 1);
+        return { version, events, cursorLimited: true };
+      }
+    }
+    return { version, events };
+  }
+
+  async getDurableChangesSinceForUser(
+    since: number,
+    userEmail: string,
+    orgId: string | undefined,
+  ): Promise<ChangeReadResult> {
+    if (since <= 0 || !(await this.ensureSyncEventsTable())) {
+      return { version: this.version, events: [] };
+    }
+
+    try {
+      // Scope the fetch to rows that could ever be visible to this caller
+      // before paying to JSON.parse and visibility-check every deployment-wide
+      // event: deployment-global rows (no owner, no org), the caller's own
+      // rows, the caller's org's rows, and resource-scoped rows (access is
+      // decided below by the access-aware branch, which can grant a non-owner
+      // sharee, so resource-scoped rows must still flow through that check
+      // regardless of who owns them). A caller with no org passes a null
+      // `orgId` bind param, which makes `org_id = ?` match no row in both
+      // dialects — mirroring the `event.orgId && orgId` truthy check.
+      const result = await this.getDb().execute({
+        sql: `SELECT version, event_json FROM sync_events WHERE version > ?
               AND (
                 (owner IS NULL AND org_id IS NULL)
                 OR owner = ?
@@ -763,426 +898,527 @@ async function getDurableChangesSinceForUser(
                 OR resource_type IS NOT NULL
               )
             ORDER BY version ASC LIMIT ?`,
-      args: [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
-    });
-    const events: ChangeEvent[] = [];
-    let version = Math.max(_version, since);
-    let lastDurableVersion = since;
-    const rows = result.rows.slice(0, DURABLE_READ_LIMIT);
-    const overflowVersion = timestampValue(
-      result.rows[DURABLE_READ_LIMIT]?.version,
-    );
+        args: [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
+      });
+      const events: ChangeEvent[] = [];
+      let version = Math.max(this.version, since);
+      let lastDurableVersion = since;
+      const rows = result.rows.slice(0, DURABLE_READ_LIMIT);
+      const overflowVersion = timestampValue(
+        result.rows[DURABLE_READ_LIMIT]?.version,
+      );
 
-    for (const row of rows) {
-      const rawVersion = timestampValue(row.version);
-      if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
-      if (rawVersion > version) version = rawVersion;
-      let event: ChangeEvent | null = null;
-      try {
-        const parsed = JSON.parse(String(row.event_json));
-        if (
-          parsed &&
-          typeof parsed === "object" &&
-          typeof parsed.source === "string" &&
-          typeof parsed.type === "string"
-        ) {
-          event = {
-            ...(parsed as ChangeEvent),
-            version: rawVersion || (parsed as ChangeEvent).version,
+      for (const row of rows) {
+        const rawVersion = timestampValue(row.version);
+        if (rawVersion > lastDurableVersion) lastDurableVersion = rawVersion;
+        if (rawVersion > version) version = rawVersion;
+        let event: ChangeEvent | null = null;
+        try {
+          const parsed = JSON.parse(String(row.event_json));
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            typeof parsed.source === "string" &&
+            typeof parsed.type === "string"
+          ) {
+            event = {
+              ...(parsed as ChangeEvent),
+              version: rawVersion || (parsed as ChangeEvent).version,
+            };
+          }
+        } catch {
+          event = null;
+        }
+        if (!event) continue;
+
+        const visibility = this.getChangeVisibilityForUser(
+          event,
+          userEmail,
+          orgId,
+        );
+        if (visibility === "visible") {
+          events.push(event);
+          continue;
+        }
+        if (visibility === "pending") {
+          return {
+            version: Math.max(since, event.version - 1),
+            events,
+            cursorLimited: true,
           };
         }
-      } catch {
-        event = null;
       }
-      if (!event) continue;
 
-      const visibility = getChangeVisibilityForUser(event, userEmail, orgId);
-      if (visibility === "visible") {
-        events.push(event);
-        continue;
-      }
-      if (visibility === "pending") {
+      if (rows.length >= DURABLE_READ_LIMIT) {
+        if (overflowVersion === lastDurableVersion) {
+          const boundaryVersion = lastDurableVersion;
+          return {
+            version: Math.max(since, boundaryVersion - 1),
+            events: events.filter((event) => event.version < boundaryVersion),
+            cursorLimited: true,
+          };
+        }
         return {
-          version: Math.max(since, event.version - 1),
+          version: Math.max(since, lastDurableVersion),
           events,
           cursorLimited: true,
         };
       }
-    }
 
-    if (rows.length >= DURABLE_READ_LIMIT) {
-      if (overflowVersion === lastDurableVersion) {
-        const boundaryVersion = lastDurableVersion;
-        return {
-          version: Math.max(since, boundaryVersion - 1),
-          events: events.filter((event) => event.version < boundaryVersion),
-          cursorLimited: true,
-        };
-      }
-      return {
-        version: Math.max(since, lastDurableVersion),
-        events,
-        cursorLimited: true,
-      };
+      return { version, events };
+    } catch {
+      return { version: this.version, events: [] };
     }
-
-    return { version, events };
-  } catch {
-    return { version: _version, events: [] };
   }
-}
 
-async function getCombinedChangesSinceForUser(
-  since: number,
-  userEmail: string,
-  orgId: string | undefined,
-  useDurableEvents: boolean,
-): Promise<{ version: number; events: ChangeEvent[] }> {
-  const memory = getChangesSinceForUser(since, userEmail, orgId);
-  if (!useDurableEvents) return memory;
+  async getCombinedChangesSinceForUser(
+    since: number,
+    userEmail: string,
+    orgId: string | undefined,
+    useDurableEvents: boolean,
+  ): Promise<{ version: number; events: ChangeEvent[] }> {
+    const memory = this.getChangesSinceForUser(since, userEmail, orgId);
+    if (!useDurableEvents) return memory;
 
-  const durable = await getDurableChangesSinceForUser(since, userEmail, orgId);
-  const byIdentity = new Map<string, ChangeEvent>();
-  for (const event of [...durable.events, ...memory.events]) {
-    byIdentity.set(
-      JSON.stringify([
-        event.version,
-        event.source,
-        event.type,
-        event.key,
-        event.owner,
-        event.orgId,
-        event.resourceType,
-        event.resourceId,
-      ]),
-      event,
+    const durable = await this.getDurableChangesSinceForUser(
+      since,
+      userEmail,
+      orgId,
     );
+    const byIdentity = new Map<string, ChangeEvent>();
+    for (const event of [...durable.events, ...memory.events]) {
+      byIdentity.set(
+        JSON.stringify([
+          event.version,
+          event.source,
+          event.type,
+          event.key,
+          event.owner,
+          event.orgId,
+          event.resourceType,
+          event.resourceId,
+        ]),
+        event,
+      );
+    }
+    const events = Array.from(byIdentity.values()).sort(
+      (a, b) => a.version - b.version,
+    );
+    const limitedVersions = [memory, durable]
+      .filter((result) => result.cursorLimited)
+      .map((result) => result.version);
+    return {
+      version:
+        limitedVersions.length > 0
+          ? Math.min(...limitedVersions)
+          : Math.max(memory.version, durable.version, since),
+      events:
+        limitedVersions.length > 0
+          ? events.filter(
+              (event) => event.version <= Math.min(...limitedVersions),
+            )
+          : events,
+    };
   }
-  const events = Array.from(byIdentity.values()).sort(
-    (a, b) => a.version - b.version,
-  );
-  const limitedVersions = [memory, durable]
-    .filter((result) => result.cursorLimited)
-    .map((result) => result.version);
-  return {
-    version:
-      limitedVersions.length > 0
-        ? Math.min(...limitedVersions)
-        : Math.max(memory.version, durable.version, since),
-    events:
-      limitedVersions.length > 0
-        ? events.filter(
-            (event) => event.version <= Math.min(...limitedVersions),
-          )
-        : events,
-  };
-}
 
-/**
- * Seed _version from DB timestamps on the first call so serverless
- * cold starts don't return version 0 and confuse polling clients.
- */
-async function seedVersionFromDb(): Promise<void> {
-  if (_versionSeeded) return;
-  _versionSeeded = true;
+  /**
+   * Seed `version` from DB timestamps on the first call so serverless cold
+   * starts don't return version 0 and confuse polling clients.
+   */
+  async seedVersionFromDb(): Promise<void> {
+    if (this.versionSeeded) return;
+    this.versionSeeded = true;
 
-  try {
-    const db = getDbExec();
+    try {
+      const db = this.getDb();
 
-    const [
-      syncEventsTs,
-      appTs,
-      settingsTs,
-      extensionsMaxUpdatedAt,
-      extensionMarkerTs,
-      actionMarkerTs,
-      refreshResult,
-    ] = await Promise.all([
-      readMaxSyncEventVersion(),
-      readMaxUpdatedAt(db, "application_state"),
-      readMaxUpdatedAt(db, "settings"),
-      readMaxUpdatedAtRaw(db, "tools"),
-      readExtensionMarkerMaxUpdatedAt(db),
-      readActionMarkerMaxUpdatedAt(db),
-      db
-        .execute({
-          sql: "SELECT session_id, updated_at FROM application_state WHERE key = ?",
-          args: [SCREEN_REFRESH_KEY],
-        })
-        .catch(() => ({ rows: [] as Record<string, unknown>[] })),
-    ]);
+      const [
+        syncEventsTs,
+        appTs,
+        settingsTs,
+        extensionsMaxUpdatedAt,
+        extensionMarkerTs,
+        actionMarkerTs,
+        refreshResult,
+      ] = await Promise.all([
+        this.readMaxSyncEventVersion(),
+        readMaxUpdatedAt(db, "application_state"),
+        readMaxUpdatedAt(db, "settings"),
+        readMaxUpdatedAtRaw(db, "tools"),
+        readExtensionMarkerMaxUpdatedAt(db),
+        readActionMarkerMaxUpdatedAt(db),
+        db
+          .execute({
+            sql: "SELECT session_id, updated_at FROM application_state WHERE key = ?",
+            args: [SCREEN_REFRESH_KEY],
+          })
+          .catch(() => ({ rows: [] as Record<string, unknown>[] })),
+      ]);
 
-    const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
-    let refreshTs = 0;
-    for (const row of refreshResult.rows) {
-      refreshTs = Math.max(refreshTs, timestampValue(row.updated_at));
-    }
-
-    // Seed version — never decrease an already-set value
-    _version = Math.max(
-      _version,
-      syncEventsTs,
-      appTs,
-      settingsTs,
-      extensionsTs,
-      extensionMarkerTs,
-      actionMarkerTs,
-    );
-
-    // Set baselines so checkExternalDbChanges detects future writes
-    _lastAppStateTs = appTs;
-    _lastSettingsTs = settingsTs;
-    _lastExtensionsTs = extensionsTs;
-    _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
-    _lastExtensionMarkerTs = extensionMarkerTs;
-    // Action markers are durable specifically so a web server can observe work
-    // performed by a separate action process. Do not baseline past an existing
-    // marker on cold start, or the first poll after the action will miss it.
-    _lastActionMarkerTs = 0;
-    _lastScreenRefreshTs = refreshTs;
-    _lastScreenRefreshTsBySession.clear();
-    for (const row of refreshResult.rows) {
-      if (typeof row.session_id === "string") {
-        _lastScreenRefreshTsBySession.set(
-          row.session_id,
-          timestampValue(row.updated_at),
-        );
+      const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
+      let refreshTs = 0;
+      for (const row of refreshResult.rows) {
+        refreshTs = Math.max(refreshTs, timestampValue(row.updated_at));
       }
-    }
-    _screenRefreshInitialized = true;
-    // Skip the redundant cold-start recheck unless there is an existing durable
-    // action marker that the first poll still needs to emit.
-    _lastDbCheck = actionMarkerTs > 0 ? 0 : Date.now();
-  } catch {
-    // Tables may not exist yet — ignore
-  }
-}
 
-/**
- * Check for cross-process DB writes by comparing updated_at timestamps.
- * Runs at most once per second to avoid excessive queries.
- */
-async function checkExternalDbChanges(options: {
-  durableEvents: boolean;
-}): Promise<void> {
-  const now = Date.now();
-  const interval = options.durableEvents
-    ? DURABLE_LEGACY_DB_CHECK_INTERVAL_MS
-    : LEGACY_DB_CHECK_INTERVAL_MS;
-  if (now - _lastDbCheck < interval) return;
-  // Coalesce: if a check is already running, await it instead of starting a
-  // second overlapping run that would double-advance the shared watermarks
-  // (and double-emit change events).
-  if (_checkPromise) return _checkPromise;
-  _lastDbCheck = now;
-  _checkPromise = doCheckExternalDbChanges().finally(() => {
-    _checkPromise = null;
-  });
-  return _checkPromise;
-}
-
-async function doCheckExternalDbChanges(): Promise<void> {
-  try {
-    const db = getDbExec();
-
-    // These reads are independent — each compares the DB against module-level
-    // high-water marks (`_lastAppStateTs`, etc.) rather than another query's
-    // result, and none of them mutate state before processing below. On a
-    // serverless SQL backend every `await` is a network round-trip, so running
-    // them concurrently shaves stacked latency off every poll cycle. Results
-    // are still processed in the original sequential order, and conditional
-    // follow-up queries (action/extension marker detail rows, tool-shares) stay
-    // sequential within their branch where they depend on these results.
-    const [
-      appResult,
-      actionMarkerTs,
-      refreshResult,
-      extensionMarkerTs,
-      settingsTs,
-      extensionsMaxUpdatedAt,
-    ] = await Promise.all([
-      db.execute({
-        sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
-        args: [_lastAppStateTs],
-      }),
-      readActionMarkerMaxUpdatedAt(db),
-      db.execute({
-        sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
-        args: [SCREEN_REFRESH_KEY],
-      }),
-      readExtensionMarkerMaxUpdatedAt(db),
-      readMaxUpdatedAt(db, "settings"),
-      readMaxUpdatedAtRaw(db, "tools"),
-    ]);
-
-    // Check application_state for external writes. Preserve the changed key so
-    // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)
-    // only when those command rows actually change; noisy keys such as
-    // `slide-fit-check` should not wake navigation readers.
-    if (appResult.rows.length > 0) {
-      const appTs = appResult.rows.reduce(
-        (max, row) => Math.max(max, timestampValue(row.updated_at)),
-        _lastAppStateTs,
+      // Seed version — never decrease an already-set value
+      this.version = Math.max(
+        this.version,
+        syncEventsTs,
+        appTs,
+        settingsTs,
+        extensionsTs,
+        extensionMarkerTs,
+        actionMarkerTs,
       );
-      if (_lastAppStateTs > 0) {
-        for (const row of appResult.rows) {
-          const key = typeof row.key === "string" ? row.key : "*";
-          if (
-            key === EXTENSION_CHANGE_MARKER_KEY ||
-            key === ACTION_CHANGE_MARKER_KEY
-          ) {
-            continue;
-          }
-          const owner =
-            typeof row.session_id === "string" ? row.session_id : undefined;
-          recordChange({
-            source: "app-state",
-            type: "change",
-            key,
-            ...(owner ? { owner } : {}),
-          });
-        }
-      }
-      _lastAppStateTs = appTs;
-    }
 
-    // Mutating actions write a durable marker in addition to the in-process
-    // event. This lets dev-mode `pnpm action ...` child processes and
-    // serverless action invocations wake the web server's SSE/poll loop as a
-    // first-class source:"action" event rather than a generic app-state bump.
-    // `actionMarkerTs` was read above; the detail-row query below is conditional
-    // on it and depends on its result, so it stays sequential.
-    if (actionMarkerTs > _lastActionMarkerTs) {
-      const actionMarkerResult = await db.execute({
-        sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-        args: [ACTION_CHANGE_MARKER_KEY],
-      });
-      const changedActionMarkers = actionMarkerResult.rows.filter(
-        (row) => timestampValue(row.updated_at) > _lastActionMarkerTs,
-      );
-      recordActionChanges(
-        changedActionMarkers
-          .map((row) => parseActionChangeMarker(row.session_id, row.value))
-          .filter((target): target is ActionChangeTarget => !!target),
-      );
-      _lastActionMarkerTs = actionMarkerTs;
-    }
-
-    // Check for screen-refresh requests from the agent. The `refresh-screen`
-    // tool writes to application_state under a well-known key; when its
-    // updated_at bumps, emit a distinct event so the client invalidates
-    // all queries (not just the ones matching its default queryKey prefix).
-    // `refreshResult` was read above.
-    const refreshTs = refreshResult.rows.reduce(
-      (max, row) => Math.max(max, timestampValue(row.updated_at)),
-      0,
-    );
-    if (!_screenRefreshInitialized) {
-      _lastScreenRefreshTs = refreshTs;
+      // Set baselines so checkExternalDbChanges detects future writes
+      this.lastAppStateTs = appTs;
+      this.lastSettingsTs = settingsTs;
+      this.lastExtensionsTs = extensionsTs;
+      this.lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
+      this.lastExtensionMarkerTs = extensionMarkerTs;
+      // Action markers are durable specifically so a web server can observe work
+      // performed by a separate action process. Do not baseline past an existing
+      // marker on cold start, or the first poll after the action will miss it.
+      this.lastActionMarkerTs = 0;
+      this.lastScreenRefreshTs = refreshTs;
+      this.lastScreenRefreshTsBySession.clear();
       for (const row of refreshResult.rows) {
         if (typeof row.session_id === "string") {
-          _lastScreenRefreshTsBySession.set(
+          this.lastScreenRefreshTsBySession.set(
             row.session_id,
             timestampValue(row.updated_at),
           );
         }
       }
-      _screenRefreshInitialized = true;
-    } else if (refreshTs > _lastScreenRefreshTs) {
-      // Emit a per-user event only for the session(s) whose row actually
-      // advanced, scoped with `owner` so canSeeChangeForUser delivers it only
-      // to that user — not every authenticated poller.
-      for (const row of refreshResult.rows) {
-        const owner =
-          typeof row.session_id === "string" ? row.session_id : undefined;
-        if (!owner) continue;
-        const rowTs = timestampValue(row.updated_at);
-        if (rowTs <= (_lastScreenRefreshTsBySession.get(owner) ?? 0)) continue;
-        let scope: string | undefined;
-        try {
-          const raw = row.value;
-          if (typeof raw === "string") {
-            const parsed = JSON.parse(raw);
-            if (typeof parsed?.scope === "string") scope = parsed.scope;
-          }
-        } catch {}
-        recordChange({
-          source: "screen-refresh",
-          type: "change",
-          key: SCREEN_REFRESH_KEY,
-          owner,
-          ...(scope ? { scope } : {}),
-        });
-        _lastScreenRefreshTsBySession.set(owner, rowTs);
-      }
-      _lastScreenRefreshTs = refreshTs;
+      this.screenRefreshInitialized = true;
+      // Skip the redundant cold-start recheck unless there is an existing durable
+      // action marker that the first poll still needs to emit.
+      this.lastDbCheck = actionMarkerTs > 0 ? 0 : Date.now();
+    } catch {
+      // Tables may not exist yet — ignore
     }
-
-    // Extension mutations write a durable marker row so delete and hide/unhide
-    // operations are visible across serverless invocations. Translate those
-    // marker rows back into extension-source events for targeted client
-    // invalidation while preserving user/org scope. `extensionMarkerTs` was read
-    // above; the detail-row query below depends on it and stays sequential.
-    if (extensionMarkerTs > _lastExtensionMarkerTs) {
-      const extensionMarkerResult = await db.execute({
-        sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-        args: [EXTENSION_CHANGE_MARKER_KEY],
-      });
-      const changedExtensionMarkers = extensionMarkerResult.rows.filter(
-        (row) => timestampValue(row.updated_at) > _lastExtensionMarkerTs,
-      );
-      if (_lastExtensionMarkerTs > 0) {
-        recordExtensionChanges(
-          changedExtensionMarkers
-            .map((row) => parseExtensionChangeMarker(row.session_id, row.value))
-            .filter((target): target is ExtensionChangeTarget => !!target),
-        );
-      }
-      _lastExtensionMarkerTs = extensionMarkerTs;
-    }
-
-    // Check settings for external writes. `settingsTs` was read above.
-    if (settingsTs > _lastSettingsTs) {
-      if (_lastSettingsTs > 0) {
-        recordChange({ source: "settings", type: "change", key: "*" });
-      }
-      _lastSettingsTs = settingsTs;
-    }
-
-    // Extension rows live in the legacy physical `tools` table. Keep this as a
-    // compatibility fallback for direct table writes, but scope events to the
-    // resource owner/share targets instead of broadcasting deployment-wide.
-    // `extensionsMaxUpdatedAt` was read above; the per-row query below is
-    // conditional on `extensionsTs` and stays sequential.
-    const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
-    if (extensionsTs > _lastExtensionsTs) {
-      const since = _lastExtensionsUpdatedAt;
-      const extensionResult =
-        since === undefined
-          ? await db.execute({
-              sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
-              args: [],
-            })
-          : await db.execute({
-              sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
-              args: [since],
-            });
-      const changedExtensionRows = extensionResult.rows.filter(
-        (row) => timestampValue(row.updated_at) > _lastExtensionsTs,
-      );
-      if (_lastExtensionsTs > 0) {
-        const targetsByRow = await readExtensionTargetsForRows(
-          db,
-          changedExtensionRows,
-        );
-        for (const targets of targetsByRow) recordExtensionChanges(targets);
-      }
-      _lastExtensionsTs = extensionsTs;
-      _lastExtensionsUpdatedAt = sqlWatermarkValue(extensionsMaxUpdatedAt);
-    }
-  } catch {
-    // Tables may not exist yet — ignore
   }
+
+  /**
+   * Check for cross-process DB writes by comparing updated_at timestamps.
+   * Throttled per instance.
+   */
+  async checkExternalDbChanges(options: {
+    durableEvents: boolean;
+  }): Promise<void> {
+    const now = Date.now();
+    const interval = options.durableEvents
+      ? DURABLE_LEGACY_DB_CHECK_INTERVAL_MS
+      : LEGACY_DB_CHECK_INTERVAL_MS;
+    if (now - this.lastDbCheck < interval) return;
+    // Coalesce: if a check is already running, await it instead of starting a
+    // second overlapping run that would double-advance the watermarks.
+    if (this.checkPromise) return this.checkPromise;
+    this.lastDbCheck = now;
+    this.checkPromise = this.doCheckExternalDbChanges().finally(() => {
+      this.checkPromise = null;
+    });
+    return this.checkPromise;
+  }
+
+  private async doCheckExternalDbChanges(): Promise<void> {
+    try {
+      const db = this.getDb();
+
+      // These reads are independent — each compares the DB against instance
+      // high-water marks rather than another query's result. Run them
+      // concurrently to shave stacked latency; results are still processed in
+      // the original sequential order, and conditional follow-up queries stay
+      // sequential within their branch.
+      const [
+        appResult,
+        actionMarkerTs,
+        refreshResult,
+        extensionMarkerTs,
+        settingsTs,
+        extensionsMaxUpdatedAt,
+      ] = await Promise.all([
+        db.execute({
+          sql: "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ? ORDER BY updated_at ASC",
+          args: [this.lastAppStateTs],
+        }),
+        readActionMarkerMaxUpdatedAt(db),
+        db.execute({
+          sql: "SELECT session_id, updated_at, value FROM application_state WHERE key = ?",
+          args: [SCREEN_REFRESH_KEY],
+        }),
+        readExtensionMarkerMaxUpdatedAt(db),
+        readMaxUpdatedAt(db, "settings"),
+        readMaxUpdatedAtRaw(db, "tools"),
+      ]);
+
+      // Check application_state for external writes. Preserve the changed key so
+      // clients can invalidate one-shot command queries (`navigate`, `__set_url__`)
+      // only when those command rows actually change; noisy keys such as
+      // `slide-fit-check` should not wake navigation readers.
+      if (appResult.rows.length > 0) {
+        const appTs = appResult.rows.reduce(
+          (max, row) => Math.max(max, timestampValue(row.updated_at)),
+          this.lastAppStateTs,
+        );
+        if (this.lastAppStateTs > 0) {
+          for (const row of appResult.rows) {
+            const key = typeof row.key === "string" ? row.key : "*";
+            if (
+              key === EXTENSION_CHANGE_MARKER_KEY ||
+              key === ACTION_CHANGE_MARKER_KEY
+            ) {
+              continue;
+            }
+            const owner =
+              typeof row.session_id === "string" ? row.session_id : undefined;
+            this.recordChange(
+              {
+                source: "app-state",
+                type: "change",
+                key,
+                ...(owner ? { owner } : {}),
+              },
+              { dedupeKey: `app-state|${timestampValue(row.updated_at)}` },
+            );
+          }
+        }
+        this.lastAppStateTs = appTs;
+      }
+
+      // Mutating actions write a durable marker in addition to the in-process
+      // event. This lets dev-mode `pnpm action ...` child processes and
+      // serverless action invocations wake the web server's SSE/poll loop as a
+      // first-class source:"action" event rather than a generic app-state bump.
+      if (actionMarkerTs > this.lastActionMarkerTs) {
+        const actionMarkerResult = await db.execute({
+          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
+          args: [ACTION_CHANGE_MARKER_KEY],
+        });
+        const changedActionMarkers = actionMarkerResult.rows.filter(
+          (row) => timestampValue(row.updated_at) > this.lastActionMarkerTs,
+        );
+        this.recordActionChanges(
+          changedActionMarkers
+            .map((row) => parseActionChangeMarker(row.session_id, row.value))
+            .filter((target): target is ActionChangeTarget => !!target),
+          `action|${actionMarkerTs}`,
+        );
+        this.lastActionMarkerTs = actionMarkerTs;
+      }
+
+      // Check for screen-refresh requests from the agent. The `refresh-screen`
+      // tool writes to application_state under a well-known key; when its
+      // updated_at bumps, emit a distinct event so the client invalidates
+      // all queries (not just the ones matching its default queryKey prefix).
+      const refreshTs = refreshResult.rows.reduce(
+        (max, row) => Math.max(max, timestampValue(row.updated_at)),
+        0,
+      );
+      if (!this.screenRefreshInitialized) {
+        this.lastScreenRefreshTs = refreshTs;
+        for (const row of refreshResult.rows) {
+          if (typeof row.session_id === "string") {
+            this.lastScreenRefreshTsBySession.set(
+              row.session_id,
+              timestampValue(row.updated_at),
+            );
+          }
+        }
+        this.screenRefreshInitialized = true;
+      } else if (refreshTs > this.lastScreenRefreshTs) {
+        // Emit a per-user event only for the session(s) whose row actually
+        // advanced, scoped with `owner` so canSeeChangeForUser delivers it only
+        // to that user — not every authenticated poller.
+        for (const row of refreshResult.rows) {
+          const owner =
+            typeof row.session_id === "string" ? row.session_id : undefined;
+          if (!owner) continue;
+          const rowTs = timestampValue(row.updated_at);
+          if (rowTs <= (this.lastScreenRefreshTsBySession.get(owner) ?? 0)) {
+            continue;
+          }
+          let scope: string | undefined;
+          try {
+            const raw = row.value;
+            if (typeof raw === "string") {
+              const parsed = JSON.parse(raw);
+              if (typeof parsed?.scope === "string") scope = parsed.scope;
+            }
+          } catch {}
+          this.recordChange(
+            {
+              source: "screen-refresh",
+              type: "change",
+              key: SCREEN_REFRESH_KEY,
+              owner,
+              ...(scope ? { scope } : {}),
+            },
+            { dedupeKey: `screen-refresh|${rowTs}` },
+          );
+          this.lastScreenRefreshTsBySession.set(owner, rowTs);
+        }
+        this.lastScreenRefreshTs = refreshTs;
+      }
+
+      // Extension mutations write a durable marker row so delete and hide/unhide
+      // operations are visible across serverless invocations. Translate those
+      // marker rows back into extension-source events for targeted client
+      // invalidation while preserving user/org scope.
+      if (extensionMarkerTs > this.lastExtensionMarkerTs) {
+        const extensionMarkerResult = await db.execute({
+          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
+          args: [EXTENSION_CHANGE_MARKER_KEY],
+        });
+        const changedExtensionMarkers = extensionMarkerResult.rows.filter(
+          (row) => timestampValue(row.updated_at) > this.lastExtensionMarkerTs,
+        );
+        if (this.lastExtensionMarkerTs > 0) {
+          this.recordExtensionChanges(
+            changedExtensionMarkers
+              .map((row) =>
+                parseExtensionChangeMarker(row.session_id, row.value),
+              )
+              .filter((target): target is ExtensionChangeTarget => !!target),
+            `ext-marker|${extensionMarkerTs}`,
+          );
+        }
+        this.lastExtensionMarkerTs = extensionMarkerTs;
+      }
+
+      // Check settings for external writes.
+      if (settingsTs > this.lastSettingsTs) {
+        if (this.lastSettingsTs > 0) {
+          this.recordChange(
+            { source: "settings", type: "change", key: "*" },
+            { dedupeKey: `settings|${settingsTs}` },
+          );
+        }
+        this.lastSettingsTs = settingsTs;
+      }
+
+      // Extension rows live in the legacy physical `tools` table. Keep this as a
+      // compatibility fallback for direct table writes, but scope events to the
+      // resource owner/share targets instead of broadcasting deployment-wide.
+      const extensionsTs = timestampValue(extensionsMaxUpdatedAt);
+      if (extensionsTs > this.lastExtensionsTs) {
+        const since = this.lastExtensionsUpdatedAt;
+        const extensionResult =
+          since === undefined
+            ? await db.execute({
+                sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools ORDER BY updated_at ASC",
+                args: [],
+              })
+            : await db.execute({
+                sql: "SELECT id, owner_email, org_id, visibility, updated_at FROM tools WHERE updated_at > ? ORDER BY updated_at ASC",
+                args: [since],
+              });
+        const changedExtensionRows = extensionResult.rows.filter(
+          (row) => timestampValue(row.updated_at) > this.lastExtensionsTs,
+        );
+        if (this.lastExtensionsTs > 0) {
+          const targetsByRow = await readExtensionTargetsForRows(
+            db,
+            changedExtensionRows,
+          );
+          targetsByRow.forEach((targets, i) => {
+            this.recordExtensionChanges(
+              targets,
+              `ext-tools|${timestampValue(changedExtensionRows[i]?.updated_at)}`,
+            );
+          });
+        }
+        this.lastExtensionsTs = extensionsTs;
+        this.lastExtensionsUpdatedAt = sqlWatermarkValue(
+          extensionsMaxUpdatedAt,
+        );
+      }
+    } catch {
+      // Tables may not exist yet — ignore
+    }
+  }
+}
+
+let _defaultState: AppSyncState | undefined;
+
+/**
+ * The process-wide default instance, bound to the global DB. All module-level
+ * exports delegate here so self-hosted apps run exactly one code path.
+ */
+export function getDefaultAppSyncState(): AppSyncState {
+  if (!_defaultState) _defaultState = new AppSyncState();
+  return _defaultState;
+}
+
+/** Get the current global version counter. */
+export function getVersion(): number {
+  return getDefaultAppSyncState().getVersion();
+}
+
+export function getPollEmitter(): EventEmitter {
+  return getDefaultAppSyncState().getPollEmitter();
+}
+
+export function invalidateCollabAccessCache(
+  resourceType: string,
+  resourceId: string,
+): void {
+  getDefaultAppSyncState().invalidateCollabAccessCache(
+    resourceType,
+    resourceId,
+  );
+}
+
+/**
+ * Test-only: clear the default instance's access cache. Underscore-prefixed and
+ * intentionally NOT part of the public API — do not rely on it outside tests.
+ */
+export function __resetCollabAccessCacheForTests(): void {
+  getDefaultAppSyncState().__resetAccessCacheForTests();
+}
+
+export function canSeeChangeForUser(
+  event: Pick<ChangeEvent, "owner" | "orgId" | "resourceType" | "resourceId">,
+  userEmail: string,
+  orgId: string | undefined,
+): boolean {
+  return getDefaultAppSyncState().canSeeChangeForUser(event, userEmail, orgId);
+}
+
+/** Record a change event. Called by emitter listeners. */
+export function recordChange(event: {
+  source: string;
+  type: string;
+  key?: string;
+  [k: string]: unknown;
+}): void {
+  getDefaultAppSyncState().recordChange(event);
+}
+
+/** Get all changes after a given version. */
+export function getChangesSince(since: number): {
+  version: number;
+  events: ChangeEvent[];
+} {
+  return getDefaultAppSyncState().getChangesSince(since);
+}
+
+/**
+ * Get changes after a given version, filtered to events the caller is
+ * allowed to see.
+ */
+export function getChangesSinceForUser(
+  since: number,
+  userEmail: string,
+  orgId: string | undefined,
+): ChangeReadResult {
+  return getDefaultAppSyncState().getChangesSinceForUser(
+    since,
+    userEmail,
+    orgId,
+  );
 }
 
 /**
@@ -1197,24 +1433,25 @@ async function doCheckExternalDbChanges(): Promise<void> {
  * and infer cross-tenant activity from the global event stream.
  */
 export function createPollHandler() {
-  wireLocalEmitters();
+  const state = getDefaultAppSyncState();
+  state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Unauthenticated" };
     }
-    // On cold start, seed _version from DB so we don't return version: 0
-    await seedVersionFromDb();
-    const durableEvents = await ensureSyncEventsTable();
+    // On cold start, seed version from DB so we don't return version: 0
+    await state.seedVersionFromDb();
+    const durableEvents = await state.ensureSyncEventsTable();
     // Durable sync_events rows are the cheap cross-process path. Keep the
     // legacy watermark scan as a slower safety net for direct SQL writes and
     // older processes that have not started writing durable events yet.
-    await checkExternalDbChanges({ durableEvents });
+    await state.checkExternalDbChanges({ durableEvents });
 
     const query = getQuery(event);
     const since = parseInt(String(query.since ?? "0"), 10) || 0;
-    return getCombinedChangesSinceForUser(
+    return state.getCombinedChangesSinceForUser(
       since,
       session.email,
       session.orgId,

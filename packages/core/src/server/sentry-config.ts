@@ -71,3 +71,36 @@ export function getSentryClientConfigScript(): string | null {
     "</script>",
   ].join("");
 }
+
+/**
+ * Hosted Realtime Gateway config for the client, or null for the in-process
+ * (local) transport. Values are env-derived and identical for every visitor,
+ * so this is safe inside the CDN-cached SSR shell (see `guard:ssr-cache-shell`).
+ * The per-user subscribe token is NOT here — it is minted client-side after
+ * load from `/_agent-native/realtime-token`.
+ */
+export function resolveRealtimeClientConfig(): {
+  transport: "hosted";
+  gatewayBaseUrl: string;
+} | null {
+  if (firstNonEmpty(process.env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
+    return null;
+  }
+  const gatewayBaseUrl =
+    firstNonEmpty(process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL) ??
+    "https://api.builder.io/agent-native/gateway/v1/realtime";
+  return { transport: "hosted", gatewayBaseUrl };
+}
+
+export function getRealtimeClientConfigScript(): string | null {
+  const realtime = resolveRealtimeClientConfig();
+  if (!realtime) return null;
+
+  return [
+    "<script data-agent-native-realtime-config>",
+    "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,",
+    JSON.stringify({ realtime }),
+    ");",
+    "</script>",
+  ].join("");
+}

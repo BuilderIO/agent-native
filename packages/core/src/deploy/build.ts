@@ -951,6 +951,23 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getRealtimeClientConfigScript() {
+  const env = globalThis.process?.env || {};
+  if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
+    return null;
+  }
+  const gatewayBaseUrl =
+    firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL) ||
+    "https://api.builder.io/agent-native/gateway/v1/realtime";
+  const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
+  return (
+    '<script data-agent-native-realtime-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -1102,7 +1119,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
 }
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -1129,7 +1149,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(request, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,
