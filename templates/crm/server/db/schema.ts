@@ -30,7 +30,7 @@ export const crmConnections = table("crm_connections", {
   selectedObjectTypesJson: text("selected_object_types_json")
     .notNull()
     .default("[]"),
-  accessScopeKey: text("access_scope_key").notNull(),
+  accessScopeKey: text("access_scope_key").notNull().default("unverified"),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
   lastSyncedAt: text("last_synced_at"),
   lastError: text("last_error"),
