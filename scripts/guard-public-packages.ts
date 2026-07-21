@@ -9,6 +9,7 @@ const repoRoot = path.resolve(
 
 const npmPublishAllowlist = new Set([
   "@agent-native/core",
+  "@agent-native/creative-context",
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
   "@agent-native/recap-cli",
@@ -107,7 +108,9 @@ function dependencyProtocolFailures(
   if (!dependencies) return [];
   return Object.entries(dependencies)
     .filter(([dep, version]) => {
-      if (/^catalog:/.test(version)) return true;
+      // pnpm rewrites catalog references to their publishable semver ranges
+      // during pack and publish, just like workspace protocol references.
+      if (/^catalog:/.test(version)) return false;
       if (/^workspace:/.test(version)) {
         return !npmPublishAllowlist.has(dep);
       }

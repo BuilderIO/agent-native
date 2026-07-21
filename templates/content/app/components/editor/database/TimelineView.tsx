@@ -51,6 +51,7 @@ export function DatabaseTimelineView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -71,6 +72,7 @@ export function DatabaseTimelineView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -119,6 +121,7 @@ export function DatabaseTimelineView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const rangeLabel = databaseTimelineRangeLabel(timelineDays);

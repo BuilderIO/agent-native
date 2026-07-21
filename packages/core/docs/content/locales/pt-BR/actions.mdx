@@ -443,8 +443,7 @@ Dois ganchos, ambos em `@agent-native/core/client`. Os tipos são inferidos a pa
 Para actions que muda de estado:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +461,7 @@ Em caso de sucesso, a estrutura emite um evento de mudança com `source: "action
 Para GET actions somente leitura:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -617,6 +615,44 @@ export default defineAction({
   },
 });
 ```
+
++## Protegendo recursos em etapas {#feature-flags}
+
+Use feature flags do Core quando uma action for segura para implantar, mas precisar chegar gradualmente à produção. Declare a flag desativada por padrão uma vez, registre-a em um plugin Nitro e avalie-a dentro de cada action protegida. Ocultar o botão correspondente é apresentação; a verificação na action é a aplicação da regra.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Use `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar ou revelar a superfície do cliente. O Core disponibiliza `get-feature-flags`, `list-feature-flags` e `set-feature-flag`. O gerenciamento verifica permissões e é auditado; interfaces de frota chamam as mesmas actions locais do app por delegação A2A estritamente limitada. Nunca encaminhe gravações de flags por endpoints genéricos de configurações ou SQL bruto, nem coloque autenticação, autorização, auditoria, segredos ou cache SSR atrás de uma flag de runtime.
 
 ## actions estilo CLI legado {#legacy-cli-actions}
 

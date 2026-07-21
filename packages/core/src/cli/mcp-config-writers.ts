@@ -123,12 +123,13 @@ export function buildLocalMcpEntryForClient(
   client: ClientId,
   args: string[],
   env?: Record<string, string>,
+  command = "agent-native",
 ): Record<string, unknown> {
   const cleanEnv = env ? Object.fromEntries(Object.entries(env)) : {};
   if (client === "opencode") {
     return {
       type: "local",
-      command: ["agent-native", ...args],
+      command: [command, ...args],
       enabled: true,
       ...(Object.keys(cleanEnv).length ? { environment: cleanEnv } : {}),
     };
@@ -136,13 +137,13 @@ export function buildLocalMcpEntryForClient(
   if (client === "github-copilot") {
     return {
       type: "stdio",
-      command: "agent-native",
+      command,
       args,
       ...(Object.keys(cleanEnv).length ? { env: cleanEnv } : {}),
     };
   }
   return {
-    command: "agent-native",
+    command,
     args,
     ...(Object.keys(cleanEnv).length ? { env: cleanEnv } : {}),
   };
@@ -543,9 +544,10 @@ export function buildCodexLocalBlock(
   name: string,
   args: string[],
   env?: Record<string, string>,
+  command = "agent-native",
 ): string {
   const lines: string[] = [codexMcpHeader(name)];
-  lines.push(`command = "agent-native"`);
+  lines.push(`command = ${tomlQuote(command)}`);
   lines.push(`args = [${args.map(tomlQuote).join(", ")}]`);
   const cleanEnv = env ? Object.fromEntries(Object.entries(env)) : {};
   if (Object.keys(cleanEnv).length) {

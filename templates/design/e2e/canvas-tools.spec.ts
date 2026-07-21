@@ -1890,6 +1890,52 @@ test("rectangle insertion keeps the new primitive selected", async ({
   await restoreHome(page);
 });
 
+test("creating a layer does not restore a layer deleted immediately before it", async ({
+  page,
+}) => {
+  const alphaLayer = page
+    .getByRole("tree", { name: "Layers" })
+    .getByRole("treeitem")
+    .filter({ hasText: "Alpha Button" })
+    .first();
+  await expect(alphaLayer).toBeVisible();
+  await alphaLayer.click();
+  await page.keyboard.press("Delete");
+  await expect
+    .poll(
+      async () =>
+        (await fileContent(page, "index.html")).includes(
+          'data-agent-native-node-id="e2e-alpha-button"',
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(false);
+
+  const card = await homeScreenCard(page);
+  const cardBox = await card.boundingBox();
+  if (!cardBox) throw new Error("no home screen card box");
+  await createDraftPrimitive(page, "Rectangle", "Rectangle", {
+    start: {
+      x: cardBox.x + cardBox.width * 0.58,
+      y: cardBox.y + cardBox.height * 0.56,
+    },
+    end: {
+      x: cardBox.x + cardBox.width * 0.8,
+      y: cardBox.y + cardBox.height * 0.78,
+    },
+  });
+
+  await expect
+    .poll(
+      async () =>
+        (await fileContent(page, "index.html")).includes(
+          'data-agent-native-node-id="e2e-alpha-button"',
+        ),
+      { timeout: 20_000 },
+    )
+    .toBe(false);
+});
+
 test("dragging a rectangle between screens moves it across files", async ({
   page,
 }) => {

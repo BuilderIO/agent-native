@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 import { mimeTypeFromFilename } from "@shared/plan-assets";
 import type { PlanBlock, PlanContent } from "@shared/plan-content";
 import type { PlanBundle, PlanKind } from "@shared/types";
@@ -478,6 +478,24 @@ export async function fetchLocalPlanBridgeBundle(
     );
   }
   return localPlanBridgePayloadToBundle(payload, fallbackSlug);
+}
+
+export async function fetchLocalPlanBridgeComments(
+  bridgeUrl: string,
+): Promise<LocalPlanBundle["comments"]> {
+  const response = await fetch(localPlanBridgeCommentsUrl(bridgeUrl), {
+    cache: "no-store",
+  });
+  const payload = (await response
+    .json()
+    .catch(() => null)) as LocalPlanBridgePayload | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(
+      payload?.error ||
+        `Local plan bridge returned ${response.status || "an error"}.`,
+    );
+  }
+  return (payload.comments ?? []).filter((comment) => !comment.deletedAt);
 }
 
 export async function updateLocalPlanBridgeComments(

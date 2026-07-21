@@ -1,9 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const callAgentMock = vi.hoisted(() => vi.fn());
+const invokeActionMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
+const integrationRequestContextMock = vi.hoisted(() => vi.fn());
+
+const slackIntegrationContext = {
+  taskId: "integration-task-1",
+  attempts: 1,
+  incoming: {
+    platform: "slack",
+    externalThreadId: "C123:123.456",
+    text: "make a deck",
+    sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+    platformContext: {},
+    timestamp: 123,
+  },
+  placeholderRef: "placeholder-1",
+  progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+};
 
 vi.mock("../server/agent-discovery.js", () => ({
   findAgent: vi.fn(async () => ({
@@ -22,7 +39,7 @@ vi.mock("../a2a/client.js", () => ({
       this.taskId = taskId;
     }
   },
-  A2AClient: class A2AClient {},
+  callAction: invokeActionMock,
   callAgent: callAgentMock,
   shouldPreferGlobalA2ASecret: (orgSecret?: string) =>
     !!process.env.A2A_SECRET?.trim() || !orgSecret,
@@ -38,20 +55,7 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
   isIntegrationCallerRequest: () => true,
-  getIntegrationRequestContext: () => ({
-    taskId: "integration-task-1",
-    attempts: 1,
-    incoming: {
-      platform: "slack",
-      externalThreadId: "C123:123.456",
-      text: "make a deck",
-      sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
-      platformContext: {},
-      timestamp: 123,
-    },
-    placeholderRef: "placeholder-1",
-    progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
-  }),
+  getIntegrationRequestContext: integrationRequestContextMock,
 }));
 
 vi.mock("../integrations/a2a-continuations-store.js", () => ({
@@ -123,6 +127,7 @@ describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.NETLIFY;
+    integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
     dispatchA2AContinuationMock.mockResolvedValue(undefined);
   });
@@ -145,6 +150,227 @@ describe("call-agent action", () => {
       expect.stringContaining("send it"),
       expect.objectContaining({ approvedActions }),
     );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain(
+      "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
+    );
+  });
+
+  it("forwards Slack source context as structured A2A data", async () => {
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await run({ agent: "content", message: "capture this request" });
+
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.not.stringContaining("Verified source context"),
+      expect.objectContaining({
+        sourceContext: {
+          platform: "slack",
+          integrationTaskId: "integration-task-1",
+        },
+      }),
+    );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain(
+      "Source Slack thread: https://example-workspace.slack.com/archives/C123/p123456",
+    );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain(
+      "this text is not authoritative",
+    );
+  });
+
+  it.each([
+    {
+      label: "non-Slack source",
+      context: {
+        ...slackIntegrationContext,
+        incoming: {
+          ...slackIntegrationContext.incoming,
+          platform: "email",
+          sourceUrl: "https://example.test/thread/123",
+        },
+      },
+    },
+    {
+      label: "malformed Slack source URL",
+      context: {
+        ...slackIntegrationContext,
+        incoming: {
+          ...slackIntegrationContext.incoming,
+          sourceUrl: "not a URL",
+        },
+      },
+    },
+    {
+      label: "whitespace-padded Slack source URL",
+      context: {
+        ...slackIntegrationContext,
+        incoming: {
+          ...slackIntegrationContext.incoming,
+          sourceUrl:
+            " https://example-workspace.slack.com/archives/C123/p123456 ",
+        },
+      },
+    },
+  ])("does not forward Slack provenance for $label", async ({ context }) => {
+    integrationRequestContextMock.mockReturnValue(context);
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await run({ agent: "content", message: "capture this request" });
+
+    expect(callAgentMock.mock.calls[0]?.[1]).not.toContain(
+      "Verified source context",
+    );
+    expect(callAgentMock.mock.calls[0]?.[1]).not.toContain(
+      "Source Slack thread",
+    );
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty(
+      "sourceContext",
+    );
+  });
+
+  it("propagates caller lineage and a deterministic per-turn message key", async () => {
+    callAgentMock.mockResolvedValue("done");
+    const { run } = await import("./call-agent.js");
+    const context = {
+      send: vi.fn(),
+      threadId: "thread-qa",
+      runId: "run-qa",
+      turnId: "turn-qa",
+    } as any;
+
+    await run({ agent: "slides", message: "exact message" }, context, "mail");
+    await run({ agent: "slides", message: "exact message" }, context, "mail");
+    await run(
+      { agent: "slides", message: "exact message changed" },
+      context,
+      "mail",
+    );
+
+    const firstOptions = callAgentMock.mock.calls[0]?.[2];
+    const duplicateOptions = callAgentMock.mock.calls[1]?.[2];
+    const changedOptions = callAgentMock.mock.calls[2]?.[2];
+    expect(firstOptions).toMatchObject({
+      contextId: "thread-qa",
+      correlation: {
+        callerApp: "mail",
+        callerThreadId: "thread-qa",
+        parentRunId: "run-qa",
+        parentTurnId: "turn-qa",
+      },
+      idempotencyKey: expect.stringMatching(/^v1:[a-f0-9]{64}$/),
+    });
+    expect(duplicateOptions.idempotencyKey).toBe(firstOptions.idempotencyKey);
+    expect(changedOptions.idempotencyKey).not.toBe(firstOptions.idempotencyKey);
+  });
+
+  it("polls a returned task id without sending another downstream message", async () => {
+    callAgentMock.mockResolvedValueOnce("finished once");
+    const { run, tool } = await import("./call-agent.js");
+
+    const result = await run({
+      agent: "analytics",
+      taskId: "remote-task-1",
+    });
+
+    expect(result).toBe("finished once");
+    expect(tool.parameters.required).toEqual(["agent"]);
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      "",
+      expect.objectContaining({
+        taskId: "remote-task-1",
+        returnRecoverableArtifactsOnTimeout: false,
+      }),
+    );
+  });
+
+  it("directly invokes an exposed read-only action without calling the remote agent", async () => {
+    invokeActionMock.mockResolvedValueOnce({
+      action: "gong-calls",
+      status: "completed",
+      output: '{"total":13}',
+    });
+    const { run } = await import("./call-agent.js");
+    const send = vi.fn();
+
+    const result = await run(
+      {
+        agent: "analytics",
+        action: "gong-calls",
+        input: { company: "Edmunds", days: 90 },
+      },
+      {
+        send,
+        threadId: "thread-qa",
+        runId: "run-qa",
+        turnId: "turn-qa",
+      } as any,
+      "mail",
+    );
+
+    expect(result).toBe('{"total":13}');
+    expect(invokeActionMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      "gong-calls",
+      { company: "Edmunds", days: 90 },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        orgDomain: "builder.io",
+        orgSecret: "org-secret",
+        correlation: {
+          callerApp: "mail",
+          callerThreadId: "thread-qa",
+          parentRunId: "run-qa",
+          parentTurnId: "turn-qa",
+          invocationId: expect.any(String),
+        },
+      }),
+    );
+    expect(callAgentMock).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_call",
+      agent: "Slides",
+      status: "start",
+    });
+    expect(send).toHaveBeenCalledWith({
+      type: "agent_call",
+      agent: "Slides",
+      status: "done",
+    });
+  });
+
+  it("tells the model to keep polling the same task after a bounded wait", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    insertA2AContinuationMock.mockRejectedValueOnce(
+      new Error("continuations unavailable"),
+    );
+    const timeout = Object.assign(
+      new Error(
+        "A2A task remote-task-keep did not complete within 300000ms (last state: working)",
+      ),
+      {
+        name: "A2ATaskTimeoutError",
+        taskId: "remote-task-keep",
+      },
+    );
+    callAgentMock.mockRejectedValueOnce(timeout);
+    const { run } = await import("./call-agent.js");
+
+    const result = await run(
+      { agent: "analytics", message: "review all calls" },
+      { send: vi.fn() } as any,
+    );
+
+    expect(result).toContain('taskId "remote-task-keep"');
+    expect(result).toContain(
+      'taskId="remote-task-keep" (omit message) to continue waiting',
+    );
+    expect(result).toContain("Do not send Slides a new check-in");
+    consoleError.mockRestore();
   });
 
   it("queues an integration continuation for structurally equivalent timeout errors", async () => {

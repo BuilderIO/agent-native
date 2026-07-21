@@ -7,9 +7,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExtensionSlot } from "./ExtensionSlot.js";
 
 vi.mock("./EmbeddedExtension.js", () => ({
-  EmbeddedExtension: ({ extensionId }: { extensionId: string }) => (
-    <div>Embedded {extensionId}</div>
-  ),
+  EmbeddedExtension: ({
+    extensionId,
+    onReady,
+  }: {
+    extensionId: string;
+    onReady?: () => void;
+  }) => {
+    React.useEffect(() => {
+      onReady?.();
+    }, [onReady]);
+    return <div>Embedded {extensionId}</div>;
+  },
 }));
 
 describe("ExtensionSlot", () => {
@@ -80,5 +89,37 @@ describe("ExtensionSlot", () => {
       expect(container.textContent).toContain("Embedded extension-1");
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies the host after installed widgets become ready", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json([
+        {
+          installId: "install-1",
+          extensionId: "extension-1",
+          name: "Status",
+          description: "Status widget",
+          icon: null,
+          updatedAt: "2026-07-11T00:00:00.000Z",
+          position: 0,
+          config: null,
+        },
+      ]),
+    );
+    const onReady = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ExtensionSlot id="test.sidebar.bottom" onReady={onReady} />
+        </QueryClientProvider>,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Embedded extension-1");
+      expect(onReady).toHaveBeenCalledTimes(1);
+    });
   });
 });

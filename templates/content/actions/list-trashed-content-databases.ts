@@ -34,6 +34,7 @@ export default defineAction({
         deletedAt: schema.contentDatabases.deletedAt,
         documentTitle: schema.documents.title,
         documentParentId: schema.documents.parentId,
+        documentTrashRootId: schema.documents.trashRootId,
       })
       .from(schema.contentDatabases)
       .innerJoin(
@@ -47,6 +48,10 @@ export default defineAction({
       .where(
         and(
           isNotNull(schema.contentDatabases.deletedAt),
+          or(
+            isNull(schema.documents.trashRootId),
+            eq(schema.documents.trashRootId, schema.documents.id),
+          ),
           or(
             and(
               isBlockOwned,
@@ -82,8 +87,9 @@ export default defineAction({
         ownerDocumentId: row.ownerDocumentId,
         deletedAt: row.deletedAt!,
         canPermanentlyDelete:
-          row.ownerDocumentId === null ||
-          row.documentParentId !== row.ownerDocumentId,
+          row.documentTrashRootId === row.documentId &&
+          (row.ownerDocumentId === null ||
+            row.documentParentId !== row.ownerDocumentId),
       })),
     };
   },

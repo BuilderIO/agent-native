@@ -233,6 +233,9 @@ jobs:
     if: needs.gate.outputs.run == 'true'
     runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     permissions:
       actions: write
       checks: write
@@ -605,9 +608,46 @@ jobs:
             fi
           fi
 
+      - name: Check recap source
+        id: source_status
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
+        env:
+          RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+        run: |
+          set -uo pipefail
+          if [ -s recap-source.json ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$RECAP_AGENT" in
+            codex) AGENT_LABEL="Codex" ;;
+            claude) AGENT_LABEL="Claude" ;;
+            openai-compatible) AGENT_LABEL="OpenAI-compatible agent" ;;
+            *) AGENT_LABEL="Recap agent" ;;
+          esac
+          if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit' codex-events.jsonl codex-stderr.log claude-result.json claude-stderr.log openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
+            case "$RECAP_AGENT" in
+              codex) REASON="Codex could not author recap-source.json because the OpenAI API project's quota/budget is exhausted. Add API credits or raise that project's monthly budget, then rerun the workflow." ;;
+              claude) REASON="Claude could not author recap-source.json because the Anthropic provider quota is exhausted. Restore its quota or billing, then rerun the workflow." ;;
+              *) REASON="$AGENT_LABEL could not author recap-source.json because its provider quota was exceeded." ;;
+            esac
+          elif grep -Eiq -- 'invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' codex-events.jsonl codex-stderr.log claude-result.json claude-stderr.log openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
+            REASON="$AGENT_LABEL could not author recap-source.json because provider authentication failed."
+          else
+            REASON="$AGENT_LABEL did not produce recap-source.json before source authoring completed."
+          fi
+          printf '%s\n' "$REASON" > recap-url-reason.txt
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reason<<__RECAP_SOURCE_REASON_EOF__'
+            echo "$REASON"
+            echo '__RECAP_SOURCE_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
+          echo "::warning::$REASON Skipping deterministic publish."
+
       - name: Publish recap source
         id: publish
-        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true' && steps.source_status.outputs.ready == 'true'
         continue-on-error: true
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
@@ -1018,7 +1058,7 @@ jobs:
           # Prefer the route-health diagnostic when the plan app routes are not
           # yet deployed so the comment explains the 404 instead of a generic
           # "recap-url.txt was not created" message.
-          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail
           $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN" --head-sha "$HEAD_SHA"
@@ -1037,7 +1077,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \

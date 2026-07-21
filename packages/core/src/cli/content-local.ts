@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -8,7 +9,7 @@ const CONTENT_APP_ID = "content";
 const MANIFEST_FILE = "agent-native.json";
 const DEFAULT_PORT = 8083;
 const DEFAULT_PROFILE = "docs/no-bookkeeping";
-const LOCAL_FILE_ID_PREFIX = "local-file:";
+const LOCAL_FOLDER_CONNECTION_PREFIX = "local-folder:";
 
 export interface ContentLocalArgs {
   target?: string;
@@ -25,6 +26,7 @@ export interface ContentLocalLaunchPlan {
   manifestPath: string;
   rootPath: string;
   filePath?: string;
+  connectionId: string;
   url: string;
   command: string;
   args: string[];
@@ -48,10 +50,18 @@ function titleFromPath(value: string) {
   );
 }
 
-function encodeLocalFileId(filePath: string) {
-  return `${LOCAL_FILE_ID_PREFIX}${Buffer.from(filePath, "utf8").toString(
-    "base64url",
-  )}`;
+function localFolderConnectionId(absoluteRootPath: string) {
+  let canonicalRootPath = path.resolve(absoluteRootPath);
+  try {
+    canonicalRootPath = fsSync.realpathSync(canonicalRootPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const digest = createHash("sha256")
+    .update(canonicalRootPath)
+    .digest("base64url")
+    .slice(0, 24);
+  return `${LOCAL_FOLDER_CONNECTION_PREFIX}${digest}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -134,6 +144,7 @@ function resolveTarget(target: string, cwd: string) {
 
   return {
     absoluteTarget,
+    absoluteRootPath: targetDirectory,
     isFile: stat.isFile(),
     workspaceRoot,
     rootPath: normalizeSlash(rootPath),
@@ -161,8 +172,13 @@ async function readManifest(
 
 function upsertContentManifest(
   manifest: Record<string, unknown>,
+  workspaceRoot: string,
   rootPath: string,
-  options: { filePath?: string; profile?: string },
+  options: {
+    connectionId: string;
+    filePath?: string;
+    profile?: string;
+  },
 ) {
   const next: Record<string, unknown> = {
     ...manifest,
@@ -192,18 +208,62 @@ function upsertContentManifest(
       ? existingRoot.extensions
       : [".md", ".mdx"],
     ...(profile ? { profile } : {}),
-    ...(include && rootIndex === -1 ? { include } : {}),
+    ...(include && (rootIndex === -1 || Array.isArray(existingRoot?.include))
+      ? {
+          include: Array.from(
+            new Set([
+              ...(Array.isArray(existingRoot?.include)
+                ? existingRoot.include.filter(
+                    (value): value is string => typeof value === "string",
+                  )
+                : []),
+              ...include,
+            ]),
+          ),
+        }
+      : {}),
+    source: {
+      ...(isRecord(existingRoot?.source) ? existingRoot.source : {}),
+      type: "local-folder",
+      connectionId: options.connectionId,
+      truthPolicy: "source_primary",
+    },
   };
-  const roots =
+  let roots =
     rootIndex === -1
       ? [...existingRoots, root]
       : existingRoots.map((entry, index) =>
           index === rootIndex ? { ...entry, ...root } : entry,
         );
 
+  if (existingContent.mode === "local-files") {
+    roots = roots.map((entry) => {
+      if (entry === root || typeof entry.path !== "string") return entry;
+      const existingSource = isRecord(entry.source) ? entry.source : {};
+      return {
+        ...entry,
+        source: {
+          ...existingSource,
+          type: "local-folder",
+          connectionId:
+            typeof existingSource.connectionId === "string" &&
+            existingSource.connectionId
+              ? existingSource.connectionId
+              : localFolderConnectionId(
+                  path.resolve(workspaceRoot, entry.path),
+                ),
+          truthPolicy:
+            typeof existingSource.truthPolicy === "string"
+              ? existingSource.truthPolicy
+              : "source_primary",
+        },
+      };
+    });
+  }
+
+  delete existingContent.mode;
   apps[CONTENT_APP_ID] = {
     ...existingContent,
-    mode: "local-files",
     roots,
     hide: Array.isArray(existingContent.hide)
       ? existingContent.hide
@@ -234,9 +294,10 @@ export function findContentTemplateDir(cwd = process.cwd()) {
   );
 }
 
-function launchUrl(port: number, filePath?: string) {
-  const base = `http://127.0.0.1:${port}`;
-  return filePath ? `${base}/page/${encodeLocalFileId(filePath)}` : base;
+function launchUrl(port: number, connectionId: string, filePath?: string) {
+  const params = new URLSearchParams({ connectionId });
+  if (filePath) params.set("file", filePath);
+  return `http://127.0.0.1:${port}/local-files?${params.toString()}`;
 }
 
 export async function prepareContentLocalLaunch(options: {
@@ -249,10 +310,13 @@ export async function prepareContentLocalLaunch(options: {
   const cwd = path.resolve(options.cwd ?? process.cwd());
   const target = resolveTarget(options.target, cwd);
   const manifestPath = path.join(target.workspaceRoot, MANIFEST_FILE);
+  const connectionId = localFolderConnectionId(target.absoluteRootPath);
   const manifest = upsertContentManifest(
     await readManifest(manifestPath),
+    target.workspaceRoot,
     target.rootPath,
     {
+      connectionId,
       filePath: target.filePath,
       profile: options.profile,
     },
@@ -273,7 +337,8 @@ export async function prepareContentLocalLaunch(options: {
     manifestPath,
     rootPath: target.rootPath,
     filePath: target.filePath,
-    url: launchUrl(options.port ?? DEFAULT_PORT, target.filePath),
+    connectionId,
+    url: launchUrl(options.port ?? DEFAULT_PORT, connectionId, target.filePath),
     command: "corepack",
     args: [
       "pnpm",
@@ -287,7 +352,6 @@ export async function prepareContentLocalLaunch(options: {
       "--strictPort",
     ],
     env: {
-      AGENT_NATIVE_MODE: "local-files",
       AGENT_NATIVE_MANIFEST_PATH: manifestPath,
     },
     manifest,
@@ -316,7 +380,7 @@ function printHelp() {
   agent-native content <file-or-folder> [options]
 
 Options:
-  --profile <name>   Local file profile, for example docs/no-bookkeeping
+  --profile <name>   Local folder profile, for example docs/no-bookkeeping
   --port <number>    Dev server port (default ${DEFAULT_PORT})
   --open             Open the target in the browser (default)
   --no-open          Start the server without opening the browser
@@ -326,9 +390,13 @@ Options:
 
 export async function runContentLocal(argv: string[]) {
   const parsed = parseContentLocalArgs(argv);
-  if (parsed.help || !parsed.target) {
+  if (parsed.help) {
     printHelp();
-    return parsed.target ? 0 : 1;
+    return 0;
+  }
+  if (!parsed.target) {
+    printHelp();
+    return 1;
   }
 
   const plan = await prepareContentLocalLaunch({
@@ -343,7 +411,7 @@ export async function runContentLocal(argv: string[]) {
     return 0;
   }
 
-  console.log(`Content local files: ${plan.rootPath}`);
+  console.log(`Content folder source: ${plan.rootPath}`);
   console.log(`Manifest: ${plan.manifestPath}`);
   console.log(`Opening: ${plan.url}`);
 

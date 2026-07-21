@@ -1,13 +1,12 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useSession } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
-  ChangelogSettingsCard,
-  LanguagePicker,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useSession,
-  useT,
   type SettingsTabItem,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import { IconBell } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { Link } from "react-router";

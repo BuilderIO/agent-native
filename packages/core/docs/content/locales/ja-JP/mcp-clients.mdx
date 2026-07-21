@@ -247,7 +247,27 @@ MCP ツールはノード ランタイムでのみ有効になります — Clou
 MCP (モデル コンテキスト プロトコル) サーバーは、Zapier、Cloudflare、Composio、または会社の内部ツールへの接続など、エージェントに新しい機能を提供します。接続すると、エージェントはこれらのツールを組み込みツールと同じように使用できるようになります。
 
 プリセット ID は `context7`、`sentry`、`notion`、`semgrep`、`linear`、
-`atlassian`、`supabase`、`neon`、`stripe` です。
+`atlassian`、`supabase`、`neon`、`stripe`、`cloudflare`、`gitlab`、`figma`、
+`vercel`、`github`、`slack`、`asana`、`hubspot`、`intercom`、`monday`、`webflow`、`paypal`、`box`、`netlify`、`zapier` です。
+
+ディレクトリでは、汎用 OAuth フローに対応するエンドポイントと、プロバイダー
+が承認したクライアントまたは事前登録済みの OAuth アプリを必要とするプロバイダーを
+区別します。後者も発見用に表示され公式のセットアップ手順へリンクしますが、対応して
+いない場合に誤解を招くワンクリック接続ボタンは表示しません。サンドボックス化された
+拡張機能はホストのアクションを通じて `agentNative.mcp.listTools`、
+`agentNative.mcp.callTool`、`agentNative.providerApi.catalog(...)`、
+`agentNative.providerApi.docs(...)` を使用して接続済みデータを検出でき、接続 URL や
+アクセストークン、リフレッシュトークンを受け取ることはありません。生の
+`provider-api-request` は意図的にホストとエージェントのみに限定されています。任意の
+メソッド/パスのリクエストを共有拡張機能に公開すると、拡張機能が認証済みの書き込み
+プロキシになってしまうためです。拡張機能は代わりに、範囲を限定したプロバイダー操作
+のために `agentNative.mcp.callTool(...)` か、専用に用意されたアプリのアクションを
+使用する必要があります。
+
+ローカルファイル拡張機能は、`extension.json` で `list-mcp-tools`、
+`call-mcp-tool`、および使用するサポート対象のプロバイダーアクションを
+明示的に許可する必要があります。検出ヘルパーは
+`agentNative.connectors.mcp` と `agentNative.connectors.providerApi` からも利用できます。
 
 ### Atlassian / Jira
 

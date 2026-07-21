@@ -72,7 +72,7 @@ describe("recurrence helpers", () => {
   it("detects presets from Google RRULE values", () => {
     expect(getRecurrencePreset(["RRULE:FREQ=MONTHLY"])).toBe("monthly");
     expect(getRecurrencePreset(["RRULE:FREQ=WEEKLY;INTERVAL=2"])).toBe(
-      "custom",
+      "biweekly",
     );
   });
 
@@ -86,5 +86,11 @@ describe("recurrence helpers", () => {
     expect(
       buildRecurrenceRules("weekly", "2026-05-17T15:30:00.000Z", "Asia/Tokyo"),
     ).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=MO"]);
+  });
+
+  it("builds biweekly rules using the event start day", () => {
+    expect(
+      buildRecurrenceRules("biweekly", "2026-05-20T16:00:00.000Z"),
+    ).toEqual(["RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=WE"]);
   });
 });

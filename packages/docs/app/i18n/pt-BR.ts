@@ -39,6 +39,7 @@ const ptBR = {
   theme: {
     light: "claro",
     dark: "escuro",
+    toggle: "Alternar tema",
     label: "Tema: {{theme}}",
   },
   docs: {
@@ -1474,6 +1475,8 @@ const ptBR = {
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Visão geral",
     toolkitUiPrimitives: "Primitivas de UI",
+    toolkitEditorsCanvases: "Editores e canvases",
+    toolkitContextKnowledge: "Contexto e conhecimento",
     toolkitSharing: "Compartilhamento",
     toolkitCollaboration: "Colaboração",
     toolkitSettings: "Configurações",
@@ -1487,6 +1490,9 @@ const ptBR = {
     toolkitObservability: "Observabilidade",
     featureKits: "Kits de recursos",
     appChrome: "Estrutura do app",
+    capabilityPackages: "Pacotes de capacidade",
+    capabilityPackagesOverview: "Visão geral",
+    packageLifecycle: "Ciclo de vida de pacotes",
     templatesOverview: "Modelos",
     pureAgentApps: "Apps focados em automação",
     faq: "FAQ",

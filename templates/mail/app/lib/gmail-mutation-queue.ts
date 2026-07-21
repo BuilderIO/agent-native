@@ -1,13 +1,4 @@
-/**
- * Debounced client-side buffer for Gmail state mutations.
- *
- * Rapid archive / mark-read / star must feel instant (optimistic UI), but
- * each keypress hitting Gmail as its own modify burns quota. We keep the
- * React Query optimistic path, then coalesce outbound calls into the
- * existing bulk actions (one messages.batchModify per account).
- */
-
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 export type GmailMutationKind = "archive" | "mark-read" | "star";
 

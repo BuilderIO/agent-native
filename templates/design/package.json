@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/creative-context": "workspace:*",
     "@agent-native/pinpoint": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
@@ -39,7 +40,7 @@
     "pako": "^3.0.0",
     "pdf-parse": "^2.4.5",
     "prettier": "^3.9.4",
-    "yjs": "^13.6.31",
+    "yjs": "catalog:",
     "zod": "^4.3.6"
   },
   "devDependencies": {

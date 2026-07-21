@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
   IconCheck,
@@ -99,6 +99,7 @@ interface Meeting {
   recordingId?: string | null;
   recordingDurationMs?: number | null;
   transcriptStatus?: "pending" | "ready" | "failed" | "in_progress" | string;
+  shareTranscript?: boolean | null;
   summaryMd?: string | null;
   userNotesMd?: string | null;
   bulletsJson?: Bullet[] | null;
@@ -313,7 +314,10 @@ export default function MeetingDetailRoute() {
     meeting?: Omit<Meeting, "participants" | "segmentsJson"> | null;
     participants?: Participant[];
     actionItems?: ActionItem[];
-    transcript?: { segmentsJson?: TranscriptSegment[] | null } | null;
+    transcript?: {
+      fullText?: string | null;
+      segmentsJson?: TranscriptSegment[] | null;
+    } | null;
     recording?: { id: string; durationMs?: number | null } | null;
     role?: "owner" | "admin" | "editor" | "viewer";
   };
@@ -682,6 +686,12 @@ export default function MeetingDetailRoute() {
           <ShareMeetingPopover
             meetingId={meeting.id}
             meetingTitle={meeting.title}
+            shareTranscript={meeting.shareTranscript === true}
+            transcriptReady={
+              meeting.transcriptStatus === "ready" &&
+              (segments.length > 0 ||
+                Boolean(data?.transcript?.fullText?.trim()))
+            }
           >
             <Button size="sm" className="shrink-0 gap-1.5">
               <IconShare3 className="h-4 w-4" />

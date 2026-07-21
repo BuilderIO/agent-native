@@ -7,11 +7,12 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  StyleSheet,
   Alert,
 } from "react-native";
 
 import AppForm from "@/components/AppForm";
+import DictationSettings from "@/components/DictationSettings";
+import { SafeAreaView } from "@/components/uniwind-interop";
 import { useApps } from "@/lib/use-apps";
 
 export default function SettingsScreen() {
@@ -21,7 +22,7 @@ export default function SettingsScreen() {
 
   const handleToggle = useCallback(
     (id: string, enabled: boolean) => {
-      updateApp(id, { enabled });
+      void updateApp(id, { enabled });
     },
     [updateApp],
   );
@@ -33,9 +34,9 @@ export default function SettingsScreen() {
   const handleSaveEdit = useCallback(
     (app: AppConfig) => {
       if (editingApp) {
-        updateApp(app.id, app);
+        void updateApp(app.id, app);
       } else {
-        addApp(app);
+        void addApp(app);
       }
       setEditingApp(undefined);
     },
@@ -72,31 +73,43 @@ export default function SettingsScreen() {
   }, [resetToDefaults]);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
       <ScrollView>
+        <DictationSettings />
+
         {/* Installed Apps */}
-        <Text style={styles.sectionTitle}>Installed Apps</Text>
+        <Text className="text-gray-light text-[13px] font-semibold uppercase tracking-[0.5px] px-4 pt-5 pb-2">
+          Installed Apps
+        </Text>
         {apps.map((app) => (
-          <View key={app.id} style={styles.appRow}>
-            <View style={styles.appInfo}>
-              <View style={styles.appText}>
-                <Text style={styles.appName}>{app.name}</Text>
-                <Text style={styles.appUrl} numberOfLines={1}>
+          <View
+            key={app.id}
+            className="flex-row items-center justify-between px-4 py-3 border-b border-gray-dark"
+          >
+            <View className="flex-row items-center flex-1">
+              <View className="flex-1">
+                <Text className="text-white text-base font-medium">
+                  {app.name}
+                </Text>
+                <Text
+                  className="text-gray-medium text-xs mt-0.5"
+                  numberOfLines={1}
+                >
                   {app.url}
                 </Text>
               </View>
             </View>
-            <View style={styles.appActions}>
+            <View className="flex-row items-center gap-2">
               <TouchableOpacity
                 onPress={() => handleEdit(app)}
-                style={styles.editButton}
+                className="p-1.5 active:opacity-75"
               >
                 <Feather name="edit-2" size={16} color="#888888" />
               </TouchableOpacity>
               {!app.isBuiltIn && (
                 <TouchableOpacity
                   onPress={() => handleRemove(app)}
-                  style={styles.editButton}
+                  className="p-1.5 active:opacity-75"
                 >
                   <Feather name="trash-2" size={16} color="#EF4444" />
                 </TouchableOpacity>
@@ -112,18 +125,23 @@ export default function SettingsScreen() {
         ))}
 
         {/* Actions */}
-        <View style={styles.actions}>
+        <View className="p-4 gap-3">
           <TouchableOpacity
-            style={styles.addButton}
+            className="flex-row items-center justify-center bg-gray-dark rounded-xl p-3.5 gap-2 border border-[#33333366] active:opacity-75"
             onPress={() => setShowAddForm(true)}
           >
             <Feather name="plus" size={18} color="#ffffff" />
-            <Text style={styles.addButtonText}>Add Custom App</Text>
+            <Text className="text-white text-base font-medium">
+              Add Custom App
+            </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.resetButton} onPress={handleReset}>
+          <TouchableOpacity
+            className="flex-row items-center justify-center p-3.5 gap-2 active:opacity-75"
+            onPress={handleReset}
+          >
             <Feather name="rotate-ccw" size={16} color="#EF4444" />
-            <Text style={styles.resetButtonText}>Reset to Defaults</Text>
+            <Text className="text-error text-sm">Reset to Defaults</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -133,7 +151,7 @@ export default function SettingsScreen() {
         visible={showAddForm}
         onClose={() => setShowAddForm(false)}
         onSave={(app) => {
-          addApp(app);
+          void addApp(app);
           setShowAddForm(false);
         }}
       />
@@ -147,89 +165,6 @@ export default function SettingsScreen() {
           editApp={editingApp}
         />
       )}
-    </View>
+    </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  sectionTitle: {
-    color: "#999999",
-    fontSize: 13,
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 8,
-  },
-  appRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1A1A1A",
-  },
-  appInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  appText: {
-    flex: 1,
-  },
-  appName: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  appUrl: {
-    color: "#666666",
-    fontSize: 12,
-    marginTop: 2,
-  },
-  appActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  editButton: {
-    padding: 6,
-  },
-  actions: {
-    padding: 16,
-    gap: 12,
-  },
-  addButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1A1A1A",
-    borderRadius: 10,
-    padding: 14,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#33333366",
-  },
-  addButtonText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  resetButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 14,
-    gap: 8,
-  },
-  resetButtonText: {
-    color: "#EF4444",
-    fontSize: 14,
-  },
-});

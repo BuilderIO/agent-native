@@ -13,14 +13,9 @@ import { MultiScreenCanvas } from "./MultiScreenCanvas";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 function ToolHarness({ initialTool }: { initialTool: MultiScreenCanvasTool }) {
   const [tool, setTool] = useState(initialTool);
@@ -155,6 +150,43 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(label).not.toBeNull();
     return { frame: frame!, label: label! };
   }
+
+  it("keeps pending review discoverable in constant-size frame chrome", async () => {
+    const onReviewPendingScreen = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-review",
+              filename: "review.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={25}
+          activeId="screen-review"
+          pendingReviewScreenIds={new Set(["screen-review"])}
+          onReviewPendingScreen={onReviewPendingScreen}
+          geometryById={{
+            "screen-review": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const badge = container.querySelector<HTMLButtonElement>(
+      "[data-node-rewrite-review-badge]",
+    );
+    expect(badge?.textContent).toContain(
+      "designEditor.nodeRewrite.reviewCandidate",
+    );
+    expect(
+      badge?.closest<HTMLElement>("[data-frame-label]")?.style.transform,
+    ).toContain("scale(4)");
+    await act(async () => badge?.click());
+    expect(onReviewPendingScreen).toHaveBeenCalledWith("screen-review");
+  });
 
   it("keeps the Interact action inside narrow frames as a compact icon", async () => {
     const { frame } = await renderSelectedFrame(240);

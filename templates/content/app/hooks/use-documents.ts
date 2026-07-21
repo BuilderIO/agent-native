@@ -1,5 +1,9 @@
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 import type {
+  ContentDatabaseResponse,
   ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
@@ -7,6 +11,7 @@ import type {
   DocumentUpdateRequest,
   DocumentUpdateResponse,
   DocumentMoveRequest,
+  ListTrashedDocumentsResponse,
   DocumentTreeNode,
 } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
@@ -17,11 +22,18 @@ import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hyd
 import { isEffectivelyEmptyDocumentContent } from "@/components/editor/body-hydration";
 
 import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
-import { useRestoreContentDatabase } from "./use-content-database";
+import {
+  removeOptimisticItemFromContentDatabase,
+  useRestoreContentDatabase,
+} from "./use-content-database";
 
 export type { DocumentUpdateConflictResponse };
 
-const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+export const LIST_DOCUMENTS_QUERY_KEY = [
+  "action",
+  "list-documents",
+  undefined,
+] as const;
 
 export function documentQueryKey(documentId: string) {
   return ["action", "get-document", { id: documentId }] as const;
@@ -65,9 +77,17 @@ export function mergeDocumentIntoListDocumentsCache(
   old: unknown,
   document: Document,
 ) {
+  return patchDocumentInListDocumentsCache(old, document.id, document);
+}
+
+export function patchDocumentInListDocumentsCache(
+  old: unknown,
+  documentId: string,
+  patch: Partial<Document>,
+) {
   if (Array.isArray(old)) {
     return old.map((item: Document) =>
-      item.id === document.id ? { ...item, ...document } : item,
+      item.id === documentId ? { ...item, ...patch } : item,
     );
   }
 
@@ -76,10 +96,147 @@ export function mergeDocumentIntoListDocumentsCache(
   if (!Array.isArray(cached.documents)) return old;
 
   const nextDocuments = cached.documents.map((item: Document) =>
-    item.id === document.id ? { ...item, ...document } : item,
+    item.id === documentId ? { ...item, ...patch } : item,
   );
 
   return { ...(old as object), documents: nextDocuments };
+}
+
+export function setDocumentFavoriteInListCache(
+  old: unknown,
+  documentId: string,
+  isFavorite: boolean,
+) {
+  return patchDocumentInListDocumentsCache(old, documentId, { isFavorite });
+}
+
+export function patchDocumentInDatabaseCache(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+  patch: Partial<Document>,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  let changed = false;
+  const items = current.items.map((item) => {
+    if (item.document.id !== documentId) return item;
+    changed = true;
+    return {
+      ...item,
+      document: { ...item.document, ...patch },
+    };
+  });
+  return changed ? { ...current, items } : current;
+}
+
+export function setDocumentFavoriteInDatabaseCache(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+  isFavorite: boolean,
+): ContentDatabaseResponse | undefined {
+  if (current?.database?.systemRole === "favorites" && !isFavorite) {
+    return removeOptimisticItemFromContentDatabase(current, documentId);
+  }
+  return patchDocumentInDatabaseCache(current, documentId, { isFavorite });
+}
+
+function patchDocumentWithFavoriteMembershipInDatabaseCache(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+  patch: Partial<Document>,
+): ContentDatabaseResponse | undefined {
+  const patched = patchDocumentInDatabaseCache(current, documentId, patch);
+  return patch.isFavorite === undefined
+    ? patched
+    : setDocumentFavoriteInDatabaseCache(patched, documentId, patch.isFavorite);
+}
+
+export function patchDocumentCaches(
+  queryClient: Pick<QueryClient, "setQueryData" | "setQueriesData">,
+  documentId: string,
+  patch: Partial<Document>,
+) {
+  queryClient.setQueryData(documentQueryKey(documentId), (old: unknown) =>
+    old && typeof old === "object" ? { ...old, ...patch } : old,
+  );
+  queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+    patchDocumentInListDocumentsCache(old, documentId, patch),
+  );
+  queryClient.setQueriesData<ContentDatabaseResponse>(
+    { queryKey: ["action", "get-content-database"] },
+    (current) =>
+      patchDocumentWithFavoriteMembershipInDatabaseCache(
+        current,
+        documentId,
+        patch,
+      ),
+  );
+}
+
+type ContentSpaceNameCache = {
+  spaces?: Array<{
+    name: string;
+    filesDocumentId: string;
+    catalogDocumentId: string;
+  }>;
+};
+
+export function patchContentSpaceNameCaches(
+  queryClient: Pick<QueryClient, "setQueriesData"> &
+    Parameters<typeof patchDocumentCaches>[0],
+  filesDocumentId: string,
+  name: string,
+) {
+  const catalogDocumentIds = new Set<string>();
+  let matched = false;
+
+  queryClient.setQueriesData<ContentSpaceNameCache>(
+    { queryKey: ["action", "list-content-spaces"] },
+    (current) => {
+      if (!current?.spaces) return current;
+      let cacheMatched = false;
+      const spaces = current.spaces.map((space) => {
+        if (space.filesDocumentId !== filesDocumentId) return space;
+        matched = true;
+        cacheMatched = true;
+        catalogDocumentIds.add(space.catalogDocumentId);
+        return { ...space, name };
+      });
+      return cacheMatched ? { ...current, spaces } : current;
+    },
+  );
+
+  for (const catalogDocumentId of catalogDocumentIds) {
+    patchDocumentCaches(queryClient, catalogDocumentId, { title: name });
+  }
+
+  return matched;
+}
+
+export function documentUpdateSuccessPatch(
+  data: DocumentUpdateResponse,
+  variables: DocumentUpdateRequestWithCas,
+): Partial<Document> {
+  return {
+    updatedAt: data.updatedAt,
+    ...(variables.title !== undefined ? { title: data.title } : {}),
+    ...(variables.content !== undefined ? { content: data.content } : {}),
+    ...(variables.description !== undefined
+      ? { description: data.description }
+      : {}),
+    ...(variables.icon !== undefined ? { icon: data.icon } : {}),
+    ...(variables.isFavorite !== undefined
+      ? { isFavorite: data.isFavorite }
+      : {}),
+  };
+}
+
+export function restoreQuerySnapshots(
+  queryClient: Pick<QueryClient, "setQueryData">,
+  snapshots: Array<[readonly unknown[], unknown]>,
+) {
+  for (const [queryKey, data] of snapshots) {
+    queryClient.setQueryData(queryKey, data);
+  }
 }
 
 export function seedDatabaseItemDocumentCaches(
@@ -198,7 +355,65 @@ export function useUpdateDocument() {
   return useActionMutation<DocumentUpdateResult, DocumentUpdateRequestWithCas>(
     "update-document",
     {
-      onSuccess: (data, variables) => {
+      skipActionQueryInvalidation: true,
+      onMutate: async (variables) => {
+        const optimisticPatch: Partial<Document> = {
+          ...(variables.title !== undefined ? { title: variables.title } : {}),
+          ...(variables.icon !== undefined ? { icon: variables.icon } : {}),
+          ...(variables.isFavorite !== undefined
+            ? { isFavorite: variables.isFavorite }
+            : {}),
+        };
+        if (Object.keys(optimisticPatch).length === 0) return undefined;
+
+        const documentKey = documentQueryKey(variables.id);
+        const databaseFilter = {
+          queryKey: ["action", "get-content-database"],
+        } as const;
+        const contentSpacesFilter = {
+          queryKey: ["action", "list-content-spaces"],
+        } as const;
+        await Promise.all([
+          queryClient.cancelQueries({ queryKey: documentKey }),
+          queryClient.cancelQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY }),
+          queryClient.cancelQueries(databaseFilter),
+          queryClient.cancelQueries(contentSpacesFilter),
+        ]);
+
+        const previous: Array<[readonly unknown[], unknown]> = [
+          [documentKey, queryClient.getQueryData(documentKey)],
+          [
+            LIST_DOCUMENTS_QUERY_KEY,
+            queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY),
+          ],
+          ...queryClient.getQueriesData<ContentDatabaseResponse>(
+            databaseFilter,
+          ),
+          ...queryClient.getQueriesData(contentSpacesFilter),
+        ];
+
+        patchDocumentCaches(queryClient, variables.id, optimisticPatch);
+        const renamedContentSpace =
+          variables.title !== undefined
+            ? patchContentSpaceNameCaches(
+                queryClient,
+                variables.id,
+                variables.title,
+              )
+            : false;
+
+        return { previous, renamedContentSpace };
+      },
+      onError: (_error, variables, context) => {
+        const rollback = context as
+          | { previous?: Array<[readonly unknown[], unknown]> }
+          | undefined;
+        restoreQuerySnapshots(queryClient, rollback?.previous ?? []);
+      },
+      onSuccess: (data, variables, context) => {
+        const renamedContentSpace = (
+          context as { renamedContentSpace?: boolean } | undefined
+        )?.renamedContentSpace;
         // A CAS conflict is a normal (non-thrown) result, not a successful
         // save — converge the caches to the returned server document (so the
         // UI immediately reflects the write that actually won) but skip the
@@ -214,6 +429,28 @@ export function useUpdateDocument() {
           queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
             mergeDocumentIntoListDocumentsCache(old, serverDocument),
           );
+          queryClient.setQueriesData<ContentDatabaseResponse>(
+            { queryKey: ["action", "get-content-database"] },
+            (current) =>
+              patchDocumentWithFavoriteMembershipInDatabaseCache(
+                current,
+                variables.id,
+                serverDocument,
+              ),
+          );
+          if (renamedContentSpace) {
+            patchContentSpaceNameCaches(
+              queryClient,
+              variables.id,
+              serverDocument.title,
+            );
+            queryClient.invalidateQueries({
+              queryKey: ["action", "list-content-spaces"],
+            });
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-content-database"],
+            });
+          }
           queryClient.invalidateQueries({
             queryKey: ["action", "get-document", { id: variables.id }],
           });
@@ -223,21 +460,33 @@ export function useUpdateDocument() {
           return;
         }
 
-        queryClient.setQueryData(
-          ["action", "get-document", { id: variables.id }],
-          (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
+        patchDocumentCaches(
+          queryClient,
+          variables.id,
+          documentUpdateSuccessPatch(data, variables),
         );
-        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
-          mergeDocumentIntoListDocumentsCache(old, data),
-        );
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: variables.id }],
-        });
-        queryClient.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
+        if (renamedContentSpace) {
+          patchContentSpaceNameCaches(queryClient, variables.id, data.title);
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-content-spaces"],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          });
+        }
+        if (variables.isFavorite !== undefined) {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          });
+        }
 
         if (data.softDeletedDatabaseIds.length > 0) {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-trashed-content-databases"],
+          });
           const databaseIds = data.softDeletedDatabaseIds;
           toast("Database deleted", {
             action: {
@@ -267,8 +516,8 @@ export function useUpdateDocument() {
 export function useDeleteDocument() {
   const queryClient = useQueryClient();
   return useActionMutation<
-    { success: boolean; deleted: number },
-    { id: string }
+    { success: boolean; deleted: number; removed?: number },
+    { id: string; databaseDocumentId?: string }
   >("delete-document", {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
@@ -276,6 +525,68 @@ export function useDeleteDocument() {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "get-document", { id: variables.id }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-spaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
+    },
+  });
+}
+
+export function useTrashedDocuments() {
+  return useActionQuery<ListTrashedDocumentsResponse>(
+    "list-trashed-documents",
+    {},
+  );
+}
+
+export function useRestoreDocument() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; restored: number; documentId: string },
+    { id: string }
+  >("restore-document", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-content-databases"],
+      });
+    },
+  });
+}
+
+export function usePermanentlyDeleteDocument() {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    { success: boolean; deleted: number },
+    { id: string }
+  >("permanently-delete-document", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],

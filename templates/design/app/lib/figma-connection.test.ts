@@ -4,11 +4,9 @@ const mocks = vi.hoisted(() => ({
   callAction: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return { ...actual, callAction: mocks.callAction };
-});
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: mocks.callAction,
+}));
 
 import {
   FIGMA_ACCESS_TOKEN_SECRET_KEY,

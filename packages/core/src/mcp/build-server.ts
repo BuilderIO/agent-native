@@ -345,7 +345,7 @@ function warnFullCatalogServed(toolCount: number): void {
   );
 }
 
-function isAuthenticatedReadAction(entry: ActionEntry): boolean {
+export function isAuthenticatedReadAction(entry: ActionEntry): boolean {
   return (
     entry.http !== false &&
     entry.http?.method === "GET" &&
@@ -404,7 +404,7 @@ const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
   /browser-session/,
 ];
 
-function isAutoReadExcludedActionName(name: string): boolean {
+export function isAutoReadExcludedActionName(name: string): boolean {
   return (
     AUTO_READ_EXCLUDED_ACTION_NAMES.has(name) ||
     AUTO_READ_EXCLUDED_ACTION_PATTERNS.some((pattern) => pattern.test(name))

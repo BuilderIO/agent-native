@@ -1,10 +1,12 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   isInAgentEmbed,
   postNavigate,
-  appPath,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/navigation";
 import {
   IconCheck,
   IconX,

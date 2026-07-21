@@ -49,6 +49,18 @@ pub struct ScreenMemoryConfig {
     pub segment_seconds: u64,
     #[serde(default = "default_screen_memory_sample_interval_seconds")]
     pub sample_interval_seconds: u64,
+    #[serde(default)]
+    pub capture_mode: RewindCaptureMode,
+    #[serde(default = "default_rewind_review_before_sending")]
+    pub review_before_sending: bool,
+    #[serde(default = "default_rewind_auto_preview_before_sending")]
+    pub auto_preview_before_sending: bool,
+    #[serde(default)]
+    pub agent_clip_retention: RewindAgentClipRetention,
+    #[serde(default = "default_screen_memory_excluded_bundle_ids")]
+    pub excluded_bundle_ids: Vec<String>,
+    #[serde(default = "default_screen_memory_exclude_private_windows")]
+    pub exclude_private_windows: bool,
 }
 
 impl Default for ScreenMemoryConfig {
@@ -60,8 +72,37 @@ impl Default for ScreenMemoryConfig {
             max_bytes: default_screen_memory_max_bytes(),
             segment_seconds: default_screen_memory_segment_seconds(),
             sample_interval_seconds: default_screen_memory_sample_interval_seconds(),
+            capture_mode: RewindCaptureMode::default(),
+            review_before_sending: default_rewind_review_before_sending(),
+            auto_preview_before_sending: default_rewind_auto_preview_before_sending(),
+            agent_clip_retention: RewindAgentClipRetention::default(),
+            excluded_bundle_ids: default_screen_memory_excluded_bundle_ids(),
+            exclude_private_windows: default_screen_memory_exclude_private_windows(),
         }
     }
+}
+
+/// The local capture tracks Rewind is allowed to retain. Audio collection is
+/// explicit so an existing local buffer never begins recording sound by default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RewindCaptureMode {
+    #[default]
+    Visuals,
+    VisualsAudio,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RewindAgentClipRetention {
+    #[default]
+    Forever,
+    #[serde(rename = "24-hours")]
+    Hours24,
+    #[serde(rename = "7-days")]
+    Days7,
+    #[serde(rename = "30-days")]
+    Days30,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,7 +171,24 @@ fn default_whisper_model_enabled() -> bool {
 }
 
 fn default_screen_memory_retention_hours() -> u32 {
-    24
+    8
+}
+
+fn default_screen_memory_excluded_bundle_ids() -> Vec<String> {
+    [
+        "com.1password.1password",
+        "com.agilebits.onepassword7",
+        "com.bitwarden.desktop",
+        "com.dashlane.dashlane",
+        "com.lastpass.lastpass",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn default_screen_memory_exclude_private_windows() -> bool {
+    false
 }
 
 fn default_screen_memory_max_bytes() -> u64 {
@@ -143,6 +201,14 @@ fn default_screen_memory_segment_seconds() -> u64 {
 
 fn default_screen_memory_sample_interval_seconds() -> u64 {
     10
+}
+
+fn default_rewind_review_before_sending() -> bool {
+    true
+}
+
+fn default_rewind_auto_preview_before_sending() -> bool {
+    true
 }
 
 impl Default for FeatureConfig {
@@ -268,6 +334,14 @@ pub async fn get_feature_config(app: AppHandle) -> Result<FeatureConfig, String>
 #[tauri::command]
 pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result<(), String> {
     let previous = load_config(&app);
+    if (crate::rewind_clip::is_active(&app) || crate::util::is_recording_active(&app))
+        && rewind_capture_contract_changed(&previous.screen_memory, &config.screen_memory)
+    {
+        return Err(
+            "Rewind capture settings stay unchanged while a Clip is recording. Stop the Clip before turning Rewind on or off, pausing it, or changing what it remembers."
+                .to_string(),
+        );
+    }
     if previous.launch_at_login_enabled != config.launch_at_login_enabled {
         if let Err(err) = apply_launch_at_login(&app, config.launch_at_login_enabled) {
             eprintln!("[clips-tray] launch-at-login apply failed: {err}");
@@ -295,4 +369,77 @@ pub async fn set_feature_config(app: AppHandle, config: FeatureConfig) -> Result
     crate::screen_memory::sync_from_config(&app, &config);
     let _ = app.emit("app:feature-config-changed", config);
     Ok(())
+}
+
+fn rewind_capture_contract_changed(
+    previous: &ScreenMemoryConfig,
+    next: &ScreenMemoryConfig,
+) -> bool {
+    previous.enabled != next.enabled
+        || previous.paused != next.paused
+        || previous.capture_mode != next.capture_mode
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screen_memory_config_defaults_agent_handoff_fields_when_loading_legacy_json() {
+        let config: ScreenMemoryConfig = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "retentionHours": 24
+        }))
+        .unwrap();
+
+        assert_eq!(config.retention_hours, 24);
+        assert_eq!(config.capture_mode, RewindCaptureMode::Visuals);
+        assert!(config.review_before_sending);
+        assert!(config.auto_preview_before_sending);
+        assert_eq!(
+            config.agent_clip_retention,
+            RewindAgentClipRetention::Forever
+        );
+        assert!(!config.exclude_private_windows);
+        assert!(config
+            .excluded_bundle_ids
+            .contains(&"com.1password.1password".to_string()));
+    }
+
+    #[test]
+    fn rewind_enums_use_stable_kebab_case_values() {
+        assert_eq!(
+            serde_json::to_string(&RewindCaptureMode::VisualsAudio).unwrap(),
+            "\"visuals-audio\""
+        );
+        assert_eq!(
+            serde_json::to_string(&RewindAgentClipRetention::Days7).unwrap(),
+            "\"7-days\""
+        );
+    }
+
+    #[test]
+    fn active_clip_interlock_only_blocks_capture_contract_changes() {
+        let previous = ScreenMemoryConfig {
+            enabled: true,
+            paused: false,
+            capture_mode: RewindCaptureMode::VisualsAudio,
+            ..ScreenMemoryConfig::default()
+        };
+        let mut retention_only = previous.clone();
+        retention_only.retention_hours = 24;
+        assert!(!rewind_capture_contract_changed(&previous, &retention_only));
+
+        let mut paused = previous.clone();
+        paused.paused = true;
+        assert!(rewind_capture_contract_changed(&previous, &paused));
+
+        let mut disabled = previous.clone();
+        disabled.enabled = false;
+        assert!(rewind_capture_contract_changed(&previous, &disabled));
+
+        let mut mode_changed = previous.clone();
+        mode_changed.capture_mode = RewindCaptureMode::Visuals;
+        assert!(rewind_capture_contract_changed(&previous, &mode_changed));
+    }
 }

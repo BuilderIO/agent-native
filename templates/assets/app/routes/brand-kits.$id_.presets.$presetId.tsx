@@ -1,10 +1,10 @@
+import { insertAgentComposerReference } from "@agent-native/core/client/agent-chat";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  appBasePath,
-  insertAgentComposerReference,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   Alert,
   AlertDescription,
@@ -642,7 +642,7 @@ export default function GenerationPresetEditorRoute() {
     );
   }, [referenceAssetSearch, skeletonBackgroundAssets]);
   const settingsHref = libraryId
-    ? `/library/${encodeURIComponent(libraryId)}?tab=settings`
+    ? `/brand-kits/${encodeURIComponent(libraryId)}/settings`
     : "/library";
 
   function updateForm(patch: Partial<PresetFormState>) {

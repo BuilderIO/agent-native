@@ -37,7 +37,7 @@ export const organizationSettings = table("organization_settings", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -52,7 +52,7 @@ export const workspaces = table("workspaces", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -425,6 +425,9 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  shareTranscript: integer("share_transcript", { mode: "boolean" })
+    .notNull()
+    .default(false),
   summaryMd: text("summary_md").notNull().default(""),
   // JSON array of `{ text }` bullets.
   bulletsJson: text("bullets_json").notNull().default("[]"),
@@ -586,7 +589,15 @@ export const dictations = table("clips_dictations", {
   // are text-only since native recognition runs on-device.
   audioUrl: text("audio_url"),
   source: text("source", {
-    enum: ["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"],
+    enum: [
+      "fn-hold",
+      "cmd-shift-space",
+      "manual",
+      "mobile",
+      "other",
+      "fn",
+      "custom",
+    ],
   })
     .notNull()
     .default("fn-hold"),

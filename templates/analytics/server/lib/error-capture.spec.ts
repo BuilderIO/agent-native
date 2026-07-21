@@ -158,6 +158,12 @@ describe("normalizeFrameFile", () => {
     expect(normalizeFrameFile("/assets/chunk-9a8b7c6d5e.js")).toBe(
       "/assets/chunk.js",
     );
+    expect(normalizeFrameFile("/assets/entry-ClHrLGJQ.js")).toBe(
+      "/assets/entry.js",
+    );
+    expect(normalizeFrameFile("/assets/entry-CVi_y2nS.js")).toBe(
+      "/assets/entry.js",
+    );
   });
 
   it("returns empty string for null", () => {
@@ -184,6 +190,9 @@ describe("fingerprint", () => {
     );
     expect(fingerprint("TypeError", frames, "boom")).not.toBe(
       fingerprint("RangeError", frames, "boom"),
+    );
+    expect(fingerprint("Error", frames, "boom")).toBe(
+      fingerprint("UnhandledRejection", frames, "boom"),
     );
   });
 
@@ -456,6 +465,26 @@ async function createTables(client: Client): Promise<void> {
       org_id text
     )
   `);
+  await client.execute(`
+    CREATE TABLE session_recordings (
+      id text PRIMARY KEY,
+      client_recording_id text NOT NULL,
+      owner_email text NOT NULL,
+      org_id text,
+      visibility text NOT NULL DEFAULT 'private'
+    )
+  `);
+  await client.execute(`
+    CREATE TABLE session_recording_shares (
+      id text PRIMARY KEY,
+      resource_id text NOT NULL,
+      principal_type text NOT NULL,
+      principal_id text NOT NULL,
+      role text NOT NULL DEFAULT 'viewer',
+      created_by text NOT NULL,
+      created_at text NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
 }
 
 describe("ingestException", () => {
@@ -608,9 +637,17 @@ describe("ingestException", () => {
       derivedFor({ userId: "other-user-id", userKey: "other@example.com" }),
     );
     const db = drizzle(client, { schema }) as any;
+    await client.execute({
+      sql: `
+        INSERT INTO session_recordings
+          (id, client_recording_id, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: ["sr_tim", "client-tim", SCOPE.ownerEmail, null, "private"],
+    });
     await db
       .update(schema.errorEvents)
-      .set({ sessionRecordingId: "sr_tim" })
+      .set({ clientRecordingId: "client-tim" })
       .where(eq(schema.errorEvents.id, tim.eventId));
     await db
       .update(schema.errorEvents)
@@ -698,6 +735,43 @@ describe("ingestException", () => {
       tags: { reporter: "support@example.com" },
       extra: { accountEmail: "customer@example.com" },
     });
+  });
+
+  it("does not expose private replay links through an org-shared issue", async () => {
+    await client.execute({
+      sql: `
+        INSERT INTO session_recordings
+          (id, client_recording_id, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: [
+        "sr_private",
+        "client-private",
+        "alice@example.com",
+        "org_1",
+        "private",
+      ],
+    });
+
+    const result = await ingestException(
+      { ownerEmail: "alice@example.com", orgId: "org_1" },
+      baseRaw({ clientRecordingId: "client-private" }),
+      derivedFor(),
+    );
+
+    const readerScope = { userEmail: "bob@example.com", orgId: "org_1" };
+    const [summary] = await listErrorIssues(readerScope);
+    expect(summary).toMatchObject({
+      id: result.issueId,
+      lastSessionRecordingId: null,
+      lastSessionRecordingPath: null,
+    });
+
+    const detail = await getErrorIssue(readerScope, result.issueId);
+    expect(detail.issue.lastSessionRecordingPath).toBeNull();
+    expect(detail.events[0].sessionRecordingId).toBeNull();
+    expect(detail.events[0].sessionRecordingPath).toBeNull();
+    expect(detail.sessions).toEqual([]);
   });
 });
 

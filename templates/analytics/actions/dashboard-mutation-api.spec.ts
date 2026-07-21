@@ -25,6 +25,18 @@ function config() {
   return {
     name: "Weekly",
     columns: 2,
+    filters: [
+      {
+        id: "emailFilter",
+        type: "select",
+        label: "Email filter",
+        default: "all",
+        options: [
+          { value: "all", label: "All users" },
+          { value: "exclude_builder", label: "Exclude @builder.io" },
+        ],
+      },
+    ],
     panels: [
       panel("a", "Alpha"),
       panel("b", "Signed-In Daily Active Visitors"),
@@ -134,6 +146,63 @@ describe("dashboard mutation api", () => {
     ]);
   });
 
+  it("sets one existing filter default without replacing the filters array", () => {
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.setFilterDefault("emailFilter","exclude_builder");',
+    );
+
+    expect(operations).toEqual([
+      {
+        op: "setFilterDefault",
+        filterId: "emailFilter",
+        value: "exclude_builder",
+      },
+    ]);
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(root.filters).toEqual([
+      {
+        id: "emailFilter",
+        type: "select",
+        label: "Email filter",
+        default: "exclude_builder",
+        options: [
+          { value: "all", label: "All users" },
+          { value: "exclude_builder", label: "Exclude @builder.io" },
+        ],
+      },
+    ]);
+    expect(result.dashboardFieldsChanged).toEqual([
+      "filters.emailFilter.default",
+    ]);
+    expect(result.commandLog).toEqual([
+      'setFilterDefault(emailFilter: "exclude_builder")',
+    ]);
+  });
+
+  it("rejects a missing filter or a default outside its options", () => {
+    const missingRoot = clone(config());
+    const missingOperations = parseDashboardMutationScript(
+      missingRoot,
+      'dashboard.setFilterDefault("missing","all");',
+    );
+    expect(() =>
+      applyDashboardMutationOperations(missingRoot, missingOperations),
+    ).toThrow(/filter "missing" was not found/);
+
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.setFilterDefault("emailFilter","unknown");',
+    );
+    expect(() => applyDashboardMutationOperations(root, operations)).toThrow(
+      /default "unknown" is not one of its option values/,
+    );
+  });
+
   it("can insert and duplicate panels with explicit placement", () => {
     const root = clone(config());
     const operations = parseDashboardMutationScript(
@@ -156,6 +225,66 @@ describe("dashboard mutation api", () => {
       "a-copy",
     ]);
     expect(result.insertedPanelIds).toEqual(["new", "a-copy"]);
+  });
+
+  it("duplicates a panel next to its source in one script statement", () => {
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.panel("b").duplicate("b-bar", {"title":"Signed-In Visitors (Bar)","chartType":"bar"}).nextTo("b");',
+    );
+
+    expect(operations).toEqual([
+      {
+        op: "duplicatePanel",
+        panelId: "b",
+        newPanelId: "b-bar",
+        patch: {
+          title: "Signed-In Visitors (Bar)",
+          chartType: "bar",
+        },
+        nextToPanelId: "b",
+      },
+    ]);
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(root.panels.map((p) => p.id)).toEqual([
+      "a",
+      "b",
+      "b-bar",
+      "c",
+      "section",
+      "d",
+    ]);
+    expect(root.columns).toBe(3);
+    expect(renderedRows(root)).toEqual([["a", "b", "b-bar"], ["c"], ["d"]]);
+    expect(result.commandLog).toEqual([
+      "duplicatePanel(b -> b-bar) -> index 2",
+    ]);
+  });
+
+  it("rejects duplicate chains with an invalid selection or placement", () => {
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        'dashboard.panels(["a","b"]).duplicate("copy");',
+      ),
+    ).toThrow(/duplicate requires exactly one selected panel/);
+
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        'dashboard.panel("a").duplicate("a-copy").nextTo("b").atTop();',
+      ),
+    ).toThrow(/duplicate accepts at most one placement method/);
+
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        'dashboard.panel("a").duplicate("a-copy").setTitle("Copy");',
+      ),
+    ).toThrow(/unsupported placement method "setTitle"/);
   });
 
   it("inserts next to a panel in the same rendered row", () => {

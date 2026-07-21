@@ -16,16 +16,16 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("z-[260] w-[440px]");
   });
 
-  it("keeps human and agent links visible for every visibility", () => {
+  it("does not show the same public URL twice", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain('label={t("shareDialog.shareLink")}');
+    expect(shareDialogSource).toContain(
+      'isPublic\n            ? t("shareDialog.shareLink")',
+    );
     expect(shareDialogSource).toContain(
       'label={t("shareDialog.shareWithAgents")}',
     );
-    expect(shareDialogSource).toContain(
-      "const agentLink = isPublic ? shareUrl : agentContextUrl",
-    );
+    expect(shareDialogSource).toContain("{!isPublic ? (");
     expect(shareDialogSource).toContain("if (!isPublic)");
     expect(shareDialogSource).not.toContain("Collapsible");
   });
@@ -36,5 +36,14 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("data?.role ?? initialRole");
     expect(shareDialogSource).toContain("initialVisibility ??");
     expect(shareDialogSource).not.toContain('?? "private"');
+  });
+
+  it("keeps private and org human links copyable after access loads", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain(
+      "disabled={visibilityPending || !sharesLoaded}",
+    );
+    expect(shareDialogSource).not.toContain("(!isPublic && canManage)");
   });
 });

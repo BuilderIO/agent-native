@@ -26,6 +26,21 @@ describe("review anchors", () => {
     ).toMatchObject({ source: "point", point });
   });
 
+  it("uses a structural selector when the clicked layer has no node id", () => {
+    expect(
+      resolveReviewAnchor(
+        { selector: "body > main > section", point },
+        () => null,
+        (selector) =>
+          selector === "body > main > section" ? { xPct: 55, yPct: 35 } : null,
+      ),
+    ).toMatchObject({
+      source: "selector",
+      anchor: { selector: "body > main > section" },
+      point: { xPct: 55, yPct: 35 },
+    });
+  });
+
   it("falls back to the stored point when node resolution leaves the canvas", () => {
     expect(
       resolveReviewAnchor({ nodeId: "oversized-section", point }, () => ({
@@ -62,6 +77,15 @@ describe("review anchors", () => {
       point: { xPct: 50, yPct: 50 },
     });
     expect(createElementReviewAnchor({})).toBeNull();
+  });
+
+  it("keeps a selector anchor when a stable node id is unavailable", () => {
+    expect(
+      createElementReviewAnchor({ selector: "body > main > section" }),
+    ).toEqual({
+      selector: "body > main > section",
+      point: { xPct: 50, yPct: 50 },
+    });
   });
 
   it("ignores zero-sized synthetic bounds when creating a fallback point", () => {

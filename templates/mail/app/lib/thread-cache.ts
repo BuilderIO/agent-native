@@ -4,7 +4,7 @@
 // "did this prefetch actually populate the cache?" at a glance; this gives
 // us a direct read/write store with transparent state.
 
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import type { EmailMessage } from "@shared/types";
 import { useEffect, useState } from "react";
 

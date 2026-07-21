@@ -39,6 +39,7 @@ const deDE = {
   theme: {
     light: "hell",
     dark: "dunkel",
+    toggle: "Design wechseln",
     label: "Design: {{theme}}",
   },
   docs: {
@@ -1478,6 +1479,8 @@ const deDE = {
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Überblick",
     toolkitUiPrimitives: "UI-Primitiven",
+    toolkitEditorsCanvases: "Editor und Arbeitsflächen",
+    toolkitContextKnowledge: "Kontext und Wissen",
     toolkitSharing: "Freigabe",
     toolkitCollaboration: "Zusammenarbeit",
     toolkitSettings: "Einstellungen",
@@ -1491,6 +1494,9 @@ const deDE = {
     toolkitObservability: "Observability",
     featureKits: "Feature-Kits",
     appChrome: "App-Rahmen",
+    capabilityPackages: "Capability-Pakete",
+    capabilityPackagesOverview: "Überblick",
+    packageLifecycle: "Paketlebenszyklus",
     templatesOverview: "Vorlagen",
     pureAgentApps: "Automatisierungsorientierte Apps",
     faq: "FAQ",

@@ -1,4 +1,5 @@
-import { AgentTabsPage, useT } from "@agent-native/core/client";
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { DispatchShell } from "@agent-native/dispatch/components";
 
 import { messagesByLocale } from "@/i18n-data";

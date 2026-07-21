@@ -1,9 +1,11 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPhoto,
   IconPhotoEdit,
   IconUpload,
   IconLoader2,
+  IconX,
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -55,6 +57,10 @@ export function ThumbnailPicker({
   const [gifDataUrl, setGifDataUrl] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const framePreviewRef = useRef<HTMLVideoElement | null>(null);
+  const gifVideoRef = useRef<HTMLVideoElement | null>(null);
+  const gifPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const mutation = useActionMutation("set-thumbnail");
 
@@ -65,6 +71,7 @@ export function ThumbnailPicker({
       setFrameDataUrl(null);
       setGifDataUrl(null);
       setGifProgress(null);
+      if (uploadInputRef.current) uploadInputRef.current.value = "";
     }
   }, [open]);
 
@@ -95,6 +102,18 @@ export function ThumbnailPicker({
     } catch (err) {
       console.error(err);
       toast.error(t("thumbnailPicker.failedCapture"));
+    }
+  };
+
+  const seekPreview = (video: HTMLVideoElement | null, timeMs: number) => {
+    if (!video || !Number.isFinite(timeMs)) return;
+    const apply = () => {
+      video.currentTime = Math.max(0, timeMs) / 1000;
+    };
+    if (video.readyState === HTMLMediaElement.HAVE_NOTHING) {
+      video.addEventListener("loadedmetadata", apply, { once: true });
+    } else {
+      apply();
     }
   };
 
@@ -187,6 +206,7 @@ export function ThumbnailPicker({
           <TabsContent value="upload" className="py-4 space-y-3">
             <Label>{t("thumbnailPicker.uploadImage")}</Label>
             <input
+              ref={uploadInputRef}
               type="file"
               accept="image/*"
               onChange={(e) => {
@@ -196,14 +216,39 @@ export function ThumbnailPicker({
                 reader.onload = () => setUploadDataUrl(reader.result as string);
                 reader.readAsDataURL(file);
               }}
-              className="text-sm"
+              className="sr-only"
             />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => uploadInputRef.current?.click()}
+            >
+              <IconUpload className="mr-1 h-4 w-4" />
+              {t("shareDialog.chooseFile")}
+            </Button>
             {uploadDataUrl ? (
-              <img
-                src={uploadDataUrl}
-                alt={t("thumbnailPicker.uploadedPreview")}
-                className="max-h-60 rounded border border-border"
-              />
+              <div className="relative w-fit">
+                <img
+                  src={uploadDataUrl}
+                  alt={t("thumbnailPicker.uploadedPreview")}
+                  className="max-h-60 rounded border border-border"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  className="absolute right-1 top-1 h-7 w-7"
+                  aria-label={t("shareDialog.remove")}
+                  onClick={() => {
+                    setUploadDataUrl(null);
+                    if (uploadInputRef.current)
+                      uploadInputRef.current.value = "";
+                  }}
+                >
+                  <IconX className="h-4 w-4" />
+                </Button>
+              </div>
             ) : currentThumbnailUrl ? (
               <img
                 src={currentThumbnailUrl}
@@ -235,7 +280,13 @@ export function ThumbnailPicker({
                     max={Math.max(1000, durationMs)}
                     step={100}
                     value={[frameTime]}
-                    onValueChange={([v]) => setFrameTime(v)}
+                    onValueChange={([v]) => {
+                      const next = v ?? 0;
+                      setFrameTime(next);
+                      setFrameDataUrl(null);
+                      seekPreview(videoRef.current, next);
+                      seekPreview(framePreviewRef.current, next);
+                    }}
                   />
                   <Button
                     size="sm"
@@ -256,6 +307,15 @@ export function ThumbnailPicker({
                     alt={t("thumbnailPicker.capturedFrame")}
                     className="w-full rounded border border-border mt-1"
                   />
+                ) : videoUrl ? (
+                  <video
+                    ref={framePreviewRef}
+                    src={videoUrl}
+                    className="w-full rounded border border-border bg-black mt-1"
+                    crossOrigin="anonymous"
+                    preload="auto"
+                    muted
+                  />
                 ) : (
                   <div className="w-full aspect-video rounded border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground mt-1">
                     {t("thumbnailPicker.capturePreview")}
@@ -269,6 +329,7 @@ export function ThumbnailPicker({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <video
+                  ref={gifVideoRef}
                   src={videoUrl ?? undefined}
                   className="w-full rounded border border-border bg-black"
                   crossOrigin="anonymous"
@@ -287,7 +348,13 @@ export function ThumbnailPicker({
                       max={Math.max(0, durationMs - gifDuration)}
                       step={100}
                       value={[gifStart]}
-                      onValueChange={([v]) => setGifStart(v)}
+                      onValueChange={([v]) => {
+                        const next = v ?? 0;
+                        setGifStart(next);
+                        setGifDataUrl(null);
+                        seekPreview(gifVideoRef.current, next);
+                        seekPreview(gifPreviewRef.current, next);
+                      }}
                     />
                   </div>
                   <div>
@@ -301,7 +368,10 @@ export function ThumbnailPicker({
                       max={10000}
                       step={100}
                       value={[gifDuration]}
-                      onValueChange={([v]) => setGifDuration(v)}
+                      onValueChange={([v]) => {
+                        setGifDuration(v ?? 500);
+                        setGifDataUrl(null);
+                      }}
                     />
                   </div>
                   <Button
@@ -330,6 +400,15 @@ export function ThumbnailPicker({
                     src={gifDataUrl}
                     alt={t("thumbnailPicker.animatedPreview")}
                     className="w-full rounded border border-border mt-1"
+                  />
+                ) : videoUrl ? (
+                  <video
+                    ref={gifPreviewRef}
+                    src={videoUrl}
+                    className="w-full rounded border border-border bg-black mt-1"
+                    crossOrigin="anonymous"
+                    preload="auto"
+                    muted
                   />
                 ) : (
                   <div className="w-full aspect-video rounded border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground mt-1">

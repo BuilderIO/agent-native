@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
 import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";

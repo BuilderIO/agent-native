@@ -64,6 +64,14 @@ function panelSummaries(config: Record<string, unknown>) {
         typeof panelConfig.description === "string"
           ? panelConfig.description
           : undefined,
+      extensionId:
+        typeof panelConfig.extensionId === "string"
+          ? panelConfig.extensionId
+          : undefined,
+      extensionSlotId:
+        typeof panelConfig.extensionSlotId === "string"
+          ? panelConfig.extensionSlotId
+          : undefined,
     };
   });
 }

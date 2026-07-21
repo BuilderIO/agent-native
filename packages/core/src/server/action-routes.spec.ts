@@ -8,6 +8,13 @@ const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
 const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
+const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
+
+function fakeUnsignedJwt(payload: Record<string, string>): string {
+  const encode = (value: Record<string, string>) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none" })}.${encode(payload)}.not-a-real-signature`;
+}
 
 vi.mock("h3", () => ({
   createError: (opts: any) =>
@@ -49,19 +56,142 @@ vi.mock("../org/context.js", () => ({
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
+vi.mock("../a2a-claims.js", () => ({
+  verifyA2ATokenWithClaims: (...args: unknown[]) =>
+    mockVerifyA2ATokenWithClaims(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
     delete process.env.AGENT_USER_TIMEZONE;
+    delete process.env.AGENT_NATIVE_BUILD_ID;
+    delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
     mockNotifyActionChange.mockReset();
     mockResolveOrgIdForEmail.mockReset();
     mockGetSession.mockReset();
     mockGetSession.mockResolvedValue(null);
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
+    mockVerifyA2ATokenWithClaims.mockReset();
     vi.restoreAllMocks();
+  });
+
+  it("rejects cached frontend clients before an action can read or write", async () => {
+    process.env.AGENT_NATIVE_BUILD_ID = "server-build";
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(nitroApp, { test: { run } as any });
+    const event = {
+      _method: "POST",
+      _headers: {
+        origin: "https://embedded.example.com",
+        "x-agent-native-frontend": "1",
+      },
+      req: { json: vi.fn(async () => ({})) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
+      code: "client_build_mismatch",
+      serverBuildId: "server-build",
+      requiredCompatibility: "spaces-v1",
+    });
+    expect(event).toMatchObject({
+      _status: 409,
+      _responseHeaders: {
+        "cache-control": "no-store",
+        "access-control-expose-headers":
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+        "x-agent-native-client-mismatch": "1",
+      },
+    });
+    expect(event.req.json).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows matching frontend clients and leaves non-frontend callers unaffected", async () => {
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      { test: { run } as any },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+      },
+    );
+    const matchingFrontend = {
+      _method: "POST",
+      _headers: {
+        "x-agent-native-frontend": "1",
+        "x-agent-native-client-compatibility": "spaces-v1",
+      },
+      req: { json: async () => ({}) },
+    };
+    const agentCaller = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(matchingFrontend)).resolves.toBeTruthy();
+    await expect(mounted[0]!.handler(agentCaller)).resolves.toBeTruthy();
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
+  it("mounts package actions registered through another core module instance", async () => {
+    const packageCore = await import("./action-discovery.js");
+    const packageRun = vi.fn(async () => ({ source: "package" }));
+    packageCore.registerPackageActions({
+      "cross-instance-package-action": {
+        tool: { description: "Package action", parameters: {} },
+        http: { method: "GET" },
+        readOnly: true,
+        requiresAuth: false,
+        run: packageRun,
+      } as ActionEntry,
+    });
+
+    vi.resetModules();
+    const hostCore = await import("./action-discovery.js");
+    expect(hostCore).not.toBe(packageCore);
+
+    const actions: Record<string, ActionEntry> = {};
+    hostCore.mergePackageActions(actions);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mountActionRoutes(nitroApp, actions);
+
+    const result = await mounted[0].handler({
+      _method: "GET",
+      req: {
+        url: "http://app.test/_agent-native/actions/cross-instance-package-action",
+      },
+    });
+
+    expect(result).toEqual({ source: "package" });
+    expect(packageRun).toHaveBeenCalledOnce();
   });
 
   it("uses action error statusCode for HTTP responses", async () => {
@@ -90,6 +220,58 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ error: "Forbidden" });
     expect(event._status).toBe(403);
+  });
+
+  it("captures uncategorized action failures with low-cardinality context", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const error = new Error("upstream failed");
+    const provider = vi.fn(() => "evt_action_failure");
+    const unregister = registerErrorCaptureProvider(
+      "action-routes-test",
+      provider,
+    );
+    const actions: Record<string, ActionEntry> = {
+      "resolve-notion-sync-conflict": {
+        run: vi.fn(async () => {
+          throw error;
+        }),
+      } as any,
+    };
+
+    try {
+      mountActionRoutes(nitroApp, actions);
+
+      const event = {
+        _method: "POST",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: {
+          url: "http://app.test/_agent-native/actions/resolve-notion-sync-conflict",
+          json: async () => ({}),
+        },
+      };
+      const result = await mounted[0].handler(event);
+
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(event._status).toBe(500);
+      expect(provider).toHaveBeenCalledWith(error, {
+        route: "/_agent-native/actions/resolve-notion-sync-conflict",
+        method: "POST",
+        tags: {
+          action: "resolve-notion-sync-conflict",
+          caller: "frontend",
+          status_code: "500",
+        },
+      });
+    } finally {
+      unregister();
+    }
   });
 
   it("serializes plain string action results as JSON strings", async () => {
@@ -592,7 +774,7 @@ describe("mountActionRoutes", () => {
   // Tools-bridge gating (audit H5)
   // ---------------------------------------------------------------------
 
-  it("refuses tools-bridge calls when toolCallable === false", async () => {
+  it("refuses extension tools-bridge calls to provider-api-request", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
@@ -601,7 +783,7 @@ describe("mountActionRoutes", () => {
       ),
     };
     const actions: Record<string, ActionEntry> = {
-      "share-resource": {
+      "provider-api-request": {
         toolCallable: false,
         run: vi.fn(async () => ({ ok: true })),
       } as any,
@@ -618,9 +800,9 @@ describe("mountActionRoutes", () => {
 
     expect(event._status).toBe(403);
     expect(result).toEqual({
-      error: "Action 'share-resource' is not callable from tools.",
+      error: "Action 'provider-api-request' is not callable from tools.",
     });
-    expect(actions["share-resource"].run).not.toHaveBeenCalled();
+    expect(actions["provider-api-request"].run).not.toHaveBeenCalled();
   });
 
   it("allows tools-bridge calls when toolCallable === true", async () => {
@@ -806,6 +988,231 @@ describe("mountActionRoutes", () => {
   // ---------------------------------------------------------------------
   // actionRouteAuth adapter (runs before getOwnerFromEvent / getSession)
   // ---------------------------------------------------------------------
+
+  it("accepts built-in feature flag delegation without template adapter", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "org-1",
+      jti: "request-1",
+      issuer: "https://analytics.example",
+      scope: ["flags:read"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-1",
+      scope: "flags:read",
+    });
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+      networkProtocol: "a2a",
+      networkId: "request-1",
+      networkPeer: "https://analytics.example",
+    });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("recognizes a scope-only delegation in a space-separated scope claim", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "org-1",
+      jti: "request-scope-only",
+      scope: ["other:read", "flags:read"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({ scope: "other:read flags:read" });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+    });
+    expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledOnce();
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("leaves ordinary bearer auth to legacy owner resolution", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "legacy@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: "Bearer opaque-legacy-token" },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "http",
+      userEmail: "legacy@example.com",
+    });
+    expect(context.networkProtocol).toBeUndefined();
+    expect(context.networkId).toBeUndefined();
+    expect(context.networkPeer).toBeUndefined();
+    expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
+  });
+
+  it("leaves ordinary JWTs with common identity claims to legacy auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "session@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "ordinary-session-token",
+      scope: "openid profile",
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(context).toMatchObject({
+      caller: "http",
+      userEmail: "session@example.com",
+    });
+    expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
+  });
+
+  it("falls back to built-in delegation after a custom adapter returns null", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "writer@example.com",
+      orgId: "org-2",
+      jti: "request-2",
+      scope: ["flags:write"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "set-feature-flag": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { actionRouteAuth: { resolveCaller: async () => null } },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-2",
+      jti: "request-2",
+      scope: "flags:write",
+    });
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "writer@example.com",
+      orgId: "org-2",
+    });
+  });
+
+  it("hard-rejects an invalid declared feature flag delegation", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": { run: async () => ({ ok: true }) } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-3",
+      scope: "flags:read",
+    });
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
 
   it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");

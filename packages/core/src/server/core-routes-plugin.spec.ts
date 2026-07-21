@@ -22,7 +22,33 @@ import {
   resolveAvatarEmailParam,
   getFrameworkRouteRequestUrl,
   getFrameworkEnvKeys,
+  readLegacyCoreRouteInitSettings,
 } from "./core-routes-plugin.js";
+
+describe("readLegacyCoreRouteInitSettings", () => {
+  it("starts independent setting reads in parallel and isolates failures", async () => {
+    let resolvePersisted: (
+      value: Record<string, unknown> | null,
+    ) => void = () => {};
+    const persisted = new Promise<Record<string, unknown> | null>((resolve) => {
+      resolvePersisted = resolve;
+    });
+    const calls: string[] = [];
+
+    const resultPromise = readLegacyCoreRouteInitSettings(async (key) => {
+      calls.push(key);
+      if (key === "persisted-env-vars") return persisted;
+      throw new Error("builder setting unavailable");
+    });
+
+    expect(calls).toEqual(["persisted-env-vars", "builder-disconnected"]);
+    resolvePersisted({ OTHER_KEY: "value" });
+    await expect(resultPromise).resolves.toEqual({
+      persistedEnvVars: { OTHER_KEY: "value" },
+      builderDisconnected: null,
+    });
+  });
+});
 
 function createMockEvent(url: string): H3Event {
   const parsed = new URL(url);

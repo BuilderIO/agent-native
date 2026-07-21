@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -57,10 +57,10 @@ const enUS = {
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     eyebrow: "Customize",
     title: "Customize Brain",
     description:
@@ -179,6 +179,34 @@ const enUS = {
     actionsUnavailableDetail:
       "This page is wired to get-brain-settings and update-brain-settings and is using defaults for now.",
     numberFieldRange: "Must be between {{min}} and {{max}} minutes.",
+    privacySensitivityTitle: "Privacy and sensitivity",
+    privacySensitivityDescription:
+      "Readiness for the classifier and the metadata-only quarantine boundary.",
+    privacyClassifier: "Privacy classifier",
+    privacyModel: "Classifier model",
+    quarantineRetention: "Quarantine retention",
+    tightenOnly:
+      "Sensitivity controls can only tighten retrieval and handling. Quarantined material is never available to source editors or search results.",
+    ready: "Ready",
+    readinessPending: "Readiness pending",
+    days: "{{count}} days",
+    privacyClassifierModel: "Classifier model",
+    privacyClassifierModelPlaceholder: "Default privacy classifier model",
+    privacyClassifierEngine: "Classifier engine",
+    privacyClassifierEnginePlaceholder: "Default classifier engine",
+    quarantineRetentionHours: "Quarantine retention hours",
+    quarantineRetentionHoursDescription:
+      "Metadata-only quarantine events are deleted after this period.",
+    sensitivityCustomInstructions: "Custom sensitivity instructions",
+    sensitivityCustomInstructionsPlaceholder:
+      "Add workspace-specific rules that make classification stricter.",
+    sensitivityCustomInstructionsDescription:
+      "These instructions can only tighten the base privacy policy.",
+    publicChannelExclusionPatterns: "Public Slack channel exclusions",
+    publicChannelExclusionPatternsPlaceholder:
+      "One channel name or pattern per line",
+    publicChannelExclusionPatternsDescription:
+      "Matching public channels stay excluded from discovery and ingestion.",
   },
   review: {
     eyebrow: "Review",
@@ -195,6 +223,12 @@ const enUS = {
     pending: "Pending",
     approved: "Approved",
     rejected: "Rejected",
+    quarantine: "Quarantine",
+    quarantineEvent: "Quarantine event",
+    metadataOnly: "Metadata only",
+    quarantineNoReason: "Suppressed by the sensitivity policy.",
+    quarantineId: "Event {{id}}",
+    quarantineSource: "Source {{source}}",
     cardAria:
       "{{title}}. Press A to approve, R to reject, or S to save wording changes.",
     reviewerQueue: "Reviewer queue",
@@ -391,6 +425,19 @@ const enUS = {
     allowedChannels: "Allowed channels",
     allowedChannelsDescription:
       "Brain verifies the allow-list, rejects DMs/MPIMs, and never stores credential values in source config.",
+    slackDiscoveryMode: "Discovery mode",
+    slackDiscoveryModeDescription:
+      "List channel metadata for allow-list selection; message history remains off until a channel is approved.",
+    slackExclusions:
+      "DMs, group DMs, archived channels, and channels without a manual app invite are excluded.",
+    slackManualInvite:
+      "Private channels require a manual Slack app invite before they can be validated.",
+    sensitivityPreview: "Sensitivity preview",
+    sensitivityPreviewDescription:
+      "Raw message content stays hidden here. Review classification metadata in Quarantine instead.",
+    includePublicChannels: "Include approved public channels",
+    includePublicChannelsDescription:
+      "Off by default. When enabled, discovery still honors the workspace exclusion patterns and channel allow-list.",
     messagesPerPage: "Messages per page",
     pollMinutes: "Poll minutes",
     pageSize: "Page size",
@@ -680,6 +727,8 @@ const enUS = {
     searchPlaceholder:
       "Search decisions, customer facts, source names, transcripts, or policy snippets...",
     type: "Type",
+    project: "Project",
+    allProjects: "All projects",
     source: "Source",
     status: "Status",
     limit: "Limit",
@@ -774,6 +823,14 @@ const enUS = {
     items: "items",
     retryError: "retry error",
     retryErrors: "retry errors",
+    semanticIndex: "Semantic index",
+    semanticIndexDescription:
+      "Administrator health signals for retrieval coverage and access-control propagation. Counts never expose protected content.",
+    indexCoverage: "Index coverage",
+    embeddingLag: "Embedding lag",
+    aclFreshness: "ACL freshness",
+    suppressed: "Suppressed",
+    adminOnly: "Admin signal",
   },
 };
 
@@ -854,10 +911,9 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "在 Brain 工作界面之间导航。",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       eyebrow: "自定义",
       title: "自定义 Brain",
       description:
@@ -1059,10 +1115,10 @@ const baseMessagesByLocale = {
         "Navega por las superficies de trabajo de Brain.",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       eyebrow: "Personalizar",
       title: "Personalizar Brain",
       description:
@@ -1275,10 +1331,10 @@ const baseMessagesByLocale = {
         "Naviguer entre les espaces de travail Brain.",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       eyebrow: "Personnaliser",
       title: "Personnaliser Brain",
       description:
@@ -1490,10 +1546,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Zwischen Brain-Arbeitsflächen wechseln.",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       eyebrow: "Anpassen",
       title: "Brain anpassen",
       description:
@@ -1700,10 +1756,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain の作業画面を移動します。",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       eyebrow: "カスタマイズ",
       title: "Brain をカスタマイズ",
       description:
@@ -1910,10 +1966,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain 작업 화면 사이를 이동합니다.",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       eyebrow: "사용자 지정",
       title: "Brain 사용자 지정",
       description:
@@ -2120,10 +2176,10 @@ const baseMessagesByLocale = {
         "Navegue entre as superfícies de trabalho do Brain.",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       eyebrow: "Personalizar",
       title: "Personalizar Brain",
       description:
@@ -2334,10 +2390,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "Brain कार्य सतहों के बीच जाएं।",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       eyebrow: "कस्टमाइज़",
       title: "Brain कस्टमाइज़ करें",
       description:
@@ -2543,10 +2599,10 @@ const baseMessagesByLocale = {
       brainNavigationDescription: "التنقل بين مساحات عمل Brain.",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       eyebrow: "تخصيص",
       title: "تخصيص Brain",
       description:
@@ -6329,6 +6385,675 @@ const exactEnglishDebtOverrides: Partial<
   },
 } satisfies Partial<Record<LocaleCode, DeepPartial<Messages>>>;
 
+const privacySearchLocalizationOverrides: Partial<
+  Record<LocaleCode, DeepPartial<Messages>>
+> = {
+  "ar-SA": {
+    settings: {
+      privacySensitivityTitle: "الخصوصية والحساسية",
+      privacySensitivityDescription:
+        "جاهزية المصنّف وحد العزل الذي يحتفظ بالبيانات الوصفية فقط.",
+      privacyClassifier: "مصنّف الخصوصية",
+      privacyModel: "نموذج المصنّف",
+      quarantineRetention: "مدة الاحتفاظ بالعزل",
+      tightenOnly:
+        "لا يمكن لضوابط الحساسية إلا تشديد الاسترجاع والمعالجة. المواد المعزولة لا تظهر لمحرري المصادر أو نتائج البحث.",
+      ready: "جاهز",
+      readinessPending: "الجاهزية قيد الانتظار",
+      days: "{{count}} يومًا",
+      privacyClassifierModel: "نموذج مصنّف الخصوصية",
+      privacyClassifierModelPlaceholder: "نموذج مصنّف الخصوصية الافتراضي",
+      privacyClassifierEngine: "محرك المصنّف",
+      privacyClassifierEnginePlaceholder: "محرك المصنّف الافتراضي",
+      quarantineRetentionHours: "ساعات الاحتفاظ بالعزل",
+      quarantineRetentionHoursDescription:
+        "تُحذف أحداث العزل الوصفية فقط بعد هذه المدة.",
+      sensitivityCustomInstructions: "تعليمات حساسية مخصصة",
+      sensitivityCustomInstructionsPlaceholder:
+        "أضف قواعد مساحة عمل أكثر صرامة.",
+      sensitivityCustomInstructionsDescription:
+        "لا يمكن لهذه التعليمات إلا تشديد سياسة الخصوصية الأساسية.",
+      publicChannelExclusionPatterns: "استثناءات قنوات Slack العامة",
+      publicChannelExclusionPatternsPlaceholder:
+        "اسم قناة أو نمط واحد في كل سطر",
+      publicChannelExclusionPatternsDescription:
+        "تبقى القنوات العامة المطابقة مستبعدة من الاكتشاف والاستيعاب.",
+    },
+    review: {
+      quarantine: "العزل",
+      quarantineEvent: "حدث عزل",
+      metadataOnly: "بيانات وصفية فقط",
+      quarantineNoReason: "تم الحجب بموجب سياسة الحساسية.",
+      quarantineId: "الحدث {{id}}",
+      quarantineSource: "المصدر {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "وضع الاكتشاف",
+      slackDiscoveryModeDescription:
+        "اكتشف القنوات العامة وفق قواعد المصدر؛ القنوات الخاصة تتطلب دعوة يدوية للتطبيق.",
+      slackExclusions:
+        "تُستبعد الرسائل المباشرة ورسائل المجموعات والقنوات المؤرشفة والقنوات من دون دعوة يدوية للتطبيق.",
+      slackManualInvite:
+        "تتطلب القنوات الخاصة دعوة يدوية لتطبيق Slack قبل التحقق منها.",
+      sensitivityPreview: "معاينة الحساسية",
+      sensitivityPreviewDescription:
+        "يبقى محتوى الرسالة الخام مخفيًا هنا. راجع بيانات التصنيف الوصفية في العزل بدلًا من ذلك.",
+      includePublicChannels: "تضمين القنوات العامة المعتمدة",
+      includePublicChannelsDescription:
+        "متوقف افتراضيًا. عند التمكين، يظل الاكتشاف ملتزمًا بالاستثناءات وقائمة السماح.",
+    },
+    searchPage: { project: "المشروع", allProjects: "كل المشاريع" },
+    ops: {
+      semanticIndex: "الفهرس الدلالي",
+      semanticIndexDescription:
+        "إشارات صحة للمسؤول حول تغطية الاسترجاع وانتشار التحكم بالوصول. لا تكشف الأعداد محتوى محميًا.",
+      indexCoverage: "تغطية الفهرس",
+      embeddingLag: "تأخر التضمين",
+      aclFreshness: "حداثة ACL",
+      suppressed: "محجوب",
+      adminOnly: "إشارة للمسؤول",
+    },
+  },
+  "de-DE": {
+    settings: {
+      privacySensitivityTitle: "Datenschutz und Sensibilität",
+      privacySensitivityDescription:
+        "Bereitschaft des Klassifikators und Grenze der reinen Metadaten-Quarantäne.",
+      privacyClassifier: "Datenschutzklassifikator",
+      privacyModel: "Klassifikatormodell",
+      quarantineRetention: "Quarantäne-Aufbewahrung",
+      tightenOnly:
+        "Sensibilitätskontrollen können Abruf und Verarbeitung nur verschärfen. Quarantänematerial ist nie für Quellenbearbeitung oder Suche verfügbar.",
+      ready: "Bereit",
+      readinessPending: "Bereitschaft ausstehend",
+      days: "{{count}} Tage",
+      privacyClassifierModel: "Modell des Datenschutzklassifikators",
+      privacyClassifierModelPlaceholder:
+        "Standardmodell für Datenschutzklassifizierung",
+      privacyClassifierEngine: "Klassifikator-Engine",
+      privacyClassifierEnginePlaceholder: "Standard-Engine für Klassifizierung",
+      quarantineRetentionHours: "Quarantäne-Aufbewahrung in Stunden",
+      quarantineRetentionHoursDescription:
+        "Reine Metadatenereignisse werden nach diesem Zeitraum gelöscht.",
+      sensitivityCustomInstructions:
+        "Benutzerdefinierte Sensibilitätsanweisungen",
+      sensitivityCustomInstructionsPlaceholder:
+        "Arbeitsbereichsregeln hinzufügen, die strenger klassifizieren.",
+      sensitivityCustomInstructionsDescription:
+        "Diese Anweisungen können die Basisrichtlinie nur verschärfen.",
+      publicChannelExclusionPatterns: "Ausschlüsse öffentlicher Slack-Kanäle",
+      publicChannelExclusionPatternsPlaceholder:
+        "Ein Kanalname oder Muster pro Zeile",
+      publicChannelExclusionPatternsDescription:
+        "Passende öffentliche Kanäle bleiben von Erkennung und Aufnahme ausgeschlossen.",
+    },
+    review: {
+      quarantine: "Quarantäne",
+      quarantineEvent: "Quarantäneereignis",
+      metadataOnly: "Nur Metadaten",
+      quarantineNoReason: "Durch die Sensibilitätsrichtlinie unterdrückt.",
+      quarantineId: "Ereignis {{id}}",
+      quarantineSource: "Quelle {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "Erkennungsmodus",
+      slackDiscoveryModeDescription:
+        "Öffentliche Kanäle nach Quellenregeln erkennen; private Kanäle brauchen eine manuelle App-Einladung.",
+      slackExclusions:
+        "DMs, Gruppen-DMs, archivierte Kanäle und Kanäle ohne manuelle App-Einladung sind ausgeschlossen.",
+      slackManualInvite:
+        "Private Kanäle benötigen vor der Validierung eine manuelle Slack-App-Einladung.",
+      sensitivityPreview: "Sensibilitätsvorschau",
+      sensitivityPreviewDescription:
+        "Rohe Nachrichteninhalte bleiben hier verborgen. Prüfe stattdessen Klassifizierungsmetadaten in Quarantäne.",
+      includePublicChannels: "Genehmigte öffentliche Kanäle einbeziehen",
+      includePublicChannelsDescription:
+        "Standardmäßig aus. Die Erkennung beachtet weiterhin Ausschlüsse und Zulassungsliste.",
+    },
+    searchPage: { project: "Projekt", allProjects: "Alle Projekte" },
+    ops: {
+      semanticIndex: "Semantischer Index",
+      semanticIndexDescription:
+        "Admin-Signale für Abrufabdeckung und Weitergabe der Zugriffskontrolle. Zählwerte zeigen keine geschützten Inhalte.",
+      indexCoverage: "Indexabdeckung",
+      embeddingLag: "Embedding-Verzögerung",
+      aclFreshness: "ACL-Aktualität",
+      suppressed: "Unterdrückt",
+      adminOnly: "Admin-Signal",
+    },
+  },
+  "es-ES": {
+    settings: {
+      privacySensitivityTitle: "Privacidad y sensibilidad",
+      privacySensitivityDescription:
+        "Disponibilidad del clasificador y límite de cuarentena solo con metadatos.",
+      privacyClassifier: "Clasificador de privacidad",
+      privacyModel: "Modelo de clasificador",
+      quarantineRetention: "Retención de cuarentena",
+      tightenOnly:
+        "Los controles de sensibilidad solo pueden reforzar la recuperación y el tratamiento. El material en cuarentena nunca está disponible para editores de fuentes ni resultados de búsqueda.",
+      ready: "Listo",
+      readinessPending: "Disponibilidad pendiente",
+      days: "{{count}} días",
+      privacyClassifierModel: "Modelo del clasificador de privacidad",
+      privacyClassifierModelPlaceholder:
+        "Modelo predeterminado del clasificador",
+      privacyClassifierEngine: "Motor del clasificador",
+      privacyClassifierEnginePlaceholder:
+        "Motor de clasificación predeterminado",
+      quarantineRetentionHours: "Horas de retención en cuarentena",
+      quarantineRetentionHoursDescription:
+        "Los eventos de cuarentena con solo metadatos se eliminan tras este periodo.",
+      sensitivityCustomInstructions:
+        "Instrucciones de sensibilidad personalizadas",
+      sensitivityCustomInstructionsPlaceholder:
+        "Añade reglas del espacio de trabajo más estrictas.",
+      sensitivityCustomInstructionsDescription:
+        "Estas instrucciones solo pueden reforzar la política de privacidad base.",
+      publicChannelExclusionPatterns:
+        "Exclusiones de canales públicos de Slack",
+      publicChannelExclusionPatternsPlaceholder:
+        "Un nombre de canal o patrón por línea",
+      publicChannelExclusionPatternsDescription:
+        "Los canales públicos coincidentes quedan fuera de la detección y la ingesta.",
+    },
+    review: {
+      quarantine: "Cuarentena",
+      quarantineEvent: "Evento de cuarentena",
+      metadataOnly: "Solo metadatos",
+      quarantineNoReason: "Suprimido por la política de sensibilidad.",
+      quarantineId: "Evento {{id}}",
+      quarantineSource: "Fuente {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "Modo de detección",
+      slackDiscoveryModeDescription:
+        "Descubre canales públicos según las reglas de la fuente; los privados requieren una invitación manual a la aplicación.",
+      slackExclusions:
+        "Se excluyen los MD, MD grupales, canales archivados y canales sin invitación manual a la aplicación.",
+      slackManualInvite:
+        "Los canales privados requieren una invitación manual a la aplicación de Slack antes de validarse.",
+      sensitivityPreview: "Vista previa de sensibilidad",
+      sensitivityPreviewDescription:
+        "El contenido bruto de mensajes permanece oculto aquí. Revisa los metadatos de clasificación en Cuarentena.",
+      includePublicChannels: "Incluir canales públicos aprobados",
+      includePublicChannelsDescription:
+        "Desactivado por defecto. La detección sigue respetando exclusiones y canales permitidos.",
+    },
+    searchPage: { project: "Proyecto", allProjects: "Todos los proyectos" },
+    ops: {
+      semanticIndex: "Índice semántico",
+      semanticIndexDescription:
+        "Señales administrativas sobre cobertura de recuperación y propagación del control de acceso. Los recuentos nunca muestran contenido protegido.",
+      indexCoverage: "Cobertura del índice",
+      embeddingLag: "Retraso de incrustaciones",
+      aclFreshness: "Actualidad de ACL",
+      suppressed: "Suprimido",
+      adminOnly: "Señal administrativa",
+    },
+  },
+  "fr-FR": {
+    settings: {
+      privacySensitivityTitle: "Confidentialité et sensibilité",
+      privacySensitivityDescription:
+        "État du classificateur et limite de quarantaine avec métadonnées seulement.",
+      privacyClassifier: "Classificateur de confidentialité",
+      privacyModel: "Modèle de classificateur",
+      quarantineRetention: "Conservation en quarantaine",
+      tightenOnly:
+        "Les contrôles de sensibilité ne peuvent que renforcer la recherche et le traitement. Le contenu en quarantaine n'est jamais disponible aux éditeurs de sources ni aux résultats de recherche.",
+      ready: "Prêt",
+      readinessPending: "État en attente",
+      days: "{{count}} jours",
+      privacyClassifierModel: "Modèle du classificateur de confidentialité",
+      privacyClassifierModelPlaceholder: "Modèle de classification par défaut",
+      privacyClassifierEngine: "Moteur du classificateur",
+      privacyClassifierEnginePlaceholder: "Moteur de classification par défaut",
+      quarantineRetentionHours: "Heures de conservation en quarantaine",
+      quarantineRetentionHoursDescription:
+        "Les événements de quarantaine limités aux métadonnées sont supprimés après ce délai.",
+      sensitivityCustomInstructions:
+        "Instructions de sensibilité personnalisées",
+      sensitivityCustomInstructionsPlaceholder:
+        "Ajoutez des règles d’espace de travail plus strictes.",
+      sensitivityCustomInstructionsDescription:
+        "Ces instructions peuvent uniquement renforcer la politique de confidentialité de base.",
+      publicChannelExclusionPatterns: "Exclusions des canaux Slack publics",
+      publicChannelExclusionPatternsPlaceholder:
+        "Un nom de canal ou motif par ligne",
+      publicChannelExclusionPatternsDescription:
+        "Les canaux publics correspondants restent exclus de la découverte et de l’ingestion.",
+    },
+    review: {
+      quarantine: "Quarantaine",
+      quarantineEvent: "Événement de quarantaine",
+      metadataOnly: "Métadonnées seules",
+      quarantineNoReason: "Supprimé par la politique de sensibilité.",
+      quarantineId: "Événement {{id}}",
+      quarantineSource: "Source {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "Mode de découverte",
+      slackDiscoveryModeDescription:
+        "Découvre les canaux publics selon les règles de la source ; les canaux privés exigent une invitation manuelle à l'application.",
+      slackExclusions:
+        "Les messages privés, messages de groupe, canaux archivés et canaux sans invitation manuelle à l'application sont exclus.",
+      slackManualInvite:
+        "Les canaux privés exigent une invitation manuelle à l'application Slack avant validation.",
+      sensitivityPreview: "Aperçu de sensibilité",
+      sensitivityPreviewDescription:
+        "Le contenu brut des messages reste masqué ici. Consultez plutôt les métadonnées de classification dans Quarantaine.",
+      includePublicChannels: "Inclure les canaux publics approuvés",
+      includePublicChannelsDescription:
+        "Désactivé par défaut. La découverte respecte toujours les exclusions et la liste autorisée.",
+    },
+    searchPage: { project: "Projet", allProjects: "Tous les projets" },
+    ops: {
+      semanticIndex: "Index sémantique",
+      semanticIndexDescription:
+        "Signaux administrateur sur la couverture de recherche et la propagation du contrôle d'accès. Les compteurs n'exposent jamais de contenu protégé.",
+      indexCoverage: "Couverture de l'index",
+      embeddingLag: "Retard d'intégration",
+      aclFreshness: "Actualité des ACL",
+      suppressed: "Supprimé",
+      adminOnly: "Signal administrateur",
+    },
+  },
+  "hi-IN": {
+    settings: {
+      privacySensitivityTitle: "गोपनीयता और संवेदनशीलता",
+      privacySensitivityDescription:
+        "क्लासिफ़ायर की तैयारी और केवल मेटाडेटा वाली क्वारंटीन सीमा।",
+      privacyClassifier: "गोपनीयता क्लासिफ़ायर",
+      privacyModel: "क्लासिफ़ायर मॉडल",
+      quarantineRetention: "क्वारंटीन अवधारण",
+      tightenOnly:
+        "संवेदनशीलता नियंत्रण केवल पुनर्प्राप्ति और हैंडलिंग को सख्त कर सकते हैं। क्वारंटीन सामग्री स्रोत संपादकों या खोज परिणामों को कभी उपलब्ध नहीं होती।",
+      ready: "तैयार",
+      readinessPending: "तैयारी लंबित है",
+      days: "{{count}} दिन",
+      privacyClassifierModel: "गोपनीयता क्लासिफ़ायर मॉडल",
+      privacyClassifierModelPlaceholder: "डिफ़ॉल्ट गोपनीयता क्लासिफ़ायर मॉडल",
+      privacyClassifierEngine: "क्लासिफ़ायर इंजन",
+      privacyClassifierEnginePlaceholder: "डिफ़ॉल्ट क्लासिफ़ायर इंजन",
+      quarantineRetentionHours: "क्वारंटीन अवधारण घंटे",
+      quarantineRetentionHoursDescription:
+        "केवल मेटाडेटा वाले क्वारंटीन इवेंट इस अवधि के बाद मिटा दिए जाते हैं।",
+      sensitivityCustomInstructions: "कस्टम संवेदनशीलता निर्देश",
+      sensitivityCustomInstructionsPlaceholder: "अधिक सख्त कार्यस्थान नियम जोड़ें।",
+      sensitivityCustomInstructionsDescription:
+        "ये निर्देश केवल मूल गोपनीयता नीति को सख्त कर सकते हैं।",
+      publicChannelExclusionPatterns: "सार्वजनिक Slack चैनल अपवर्जन",
+      publicChannelExclusionPatternsPlaceholder:
+        "हर पंक्ति पर एक चैनल नाम या पैटर्न",
+      publicChannelExclusionPatternsDescription:
+        "मेल खाने वाले सार्वजनिक चैनल खोज और अंतर्ग्रहण से बाहर रहते हैं।",
+    },
+    review: {
+      quarantine: "क्वारंटीन",
+      quarantineEvent: "क्वारंटीन घटना",
+      metadataOnly: "केवल मेटाडेटा",
+      quarantineNoReason: "संवेदनशीलता नीति द्वारा दबाया गया।",
+      quarantineId: "घटना {{id}}",
+      quarantineSource: "स्रोत {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "खोज मोड",
+      slackDiscoveryModeDescription:
+        "स्रोत नियमों के अनुसार सार्वजनिक चैनल खोजें; निजी चैनलों के लिए मैन्युअल ऐप आमंत्रण चाहिए।",
+      slackExclusions:
+        "DM, समूह DM, संग्रहित चैनल और मैन्युअल ऐप आमंत्रण के बिना चैनल बाहर रखे जाते हैं।",
+      slackManualInvite:
+        "निजी चैनलों को सत्यापन से पहले मैन्युअल Slack ऐप आमंत्रण चाहिए।",
+      sensitivityPreview: "संवेदनशीलता पूर्वावलोकन",
+      sensitivityPreviewDescription:
+        "कच्ची संदेश सामग्री यहां छिपी रहती है। इसके बजाय क्वारंटीन में वर्गीकरण मेटाडेटा देखें।",
+      includePublicChannels: "स्वीकृत सार्वजनिक चैनल शामिल करें",
+      includePublicChannelsDescription:
+        "डिफ़ॉल्ट रूप से बंद। खोज अभी भी अपवर्जन और अनुमति सूची का पालन करती है।",
+    },
+    searchPage: { project: "प्रोजेक्ट", allProjects: "सभी प्रोजेक्ट" },
+    ops: {
+      semanticIndex: "अर्थगत सूचकांक",
+      semanticIndexDescription:
+        "पुनर्प्राप्ति कवरेज और पहुंच नियंत्रण प्रसार के लिए व्यवस्थापक संकेत। गिनती संरक्षित सामग्री नहीं दिखाती।",
+      indexCoverage: "सूचकांक कवरेज",
+      embeddingLag: "एम्बेडिंग देरी",
+      aclFreshness: "ACL ताजगी",
+      suppressed: "दबाया गया",
+      adminOnly: "व्यवस्थापक संकेत",
+    },
+  },
+  "ja-JP": {
+    settings: {
+      privacySensitivityTitle: "プライバシーと機密性",
+      privacySensitivityDescription:
+        "分類器の準備状況とメタデータのみの隔離境界です。",
+      privacyClassifier: "プライバシー分類器",
+      privacyModel: "分類器モデル",
+      quarantineRetention: "隔離の保持期間",
+      tightenOnly:
+        "機密性コントロールは取得と処理を厳しくすることしかできません。隔離された資料はソース編集者や検索結果に提供されません。",
+      ready: "準備完了",
+      readinessPending: "準備中",
+      days: "{{count}} 日",
+      privacyClassifierModel: "プライバシー分類モデル",
+      privacyClassifierModelPlaceholder: "既定のプライバシー分類モデル",
+      privacyClassifierEngine: "分類エンジン",
+      privacyClassifierEnginePlaceholder: "既定の分類エンジン",
+      quarantineRetentionHours: "隔離の保持時間",
+      quarantineRetentionHoursDescription:
+        "メタデータのみの隔離イベントは、この期間後に削除されます。",
+      sensitivityCustomInstructions: "カスタム機密性指示",
+      sensitivityCustomInstructionsPlaceholder:
+        "分類を厳しくするワークスペース規則を追加します。",
+      sensitivityCustomInstructionsDescription:
+        "これらの指示は基本のプライバシーポリシーを厳しくする場合にのみ使えます。",
+      publicChannelExclusionPatterns: "公開 Slack チャンネルの除外",
+      publicChannelExclusionPatternsPlaceholder:
+        "1行に1つのチャンネル名またはパターン",
+      publicChannelExclusionPatternsDescription:
+        "一致する公開チャンネルは検出と取り込みから除外されます。",
+    },
+    review: {
+      quarantine: "隔離",
+      quarantineEvent: "隔離イベント",
+      metadataOnly: "メタデータのみ",
+      quarantineNoReason: "機密性ポリシーにより抑制されました。",
+      quarantineId: "イベント {{id}}",
+      quarantineSource: "ソース {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "検出モード",
+      slackDiscoveryModeDescription:
+        "ソース規則に従って公開チャンネルを検出します。非公開チャンネルには手動のアプリ招待が必要です。",
+      slackExclusions:
+        "DM、グループDM、アーカイブ済みチャンネル、手動アプリ招待のないチャンネルは除外されます。",
+      slackManualInvite:
+        "非公開チャンネルは検証前に手動でSlackアプリを招待する必要があります。",
+      sensitivityPreview: "機密性プレビュー",
+      sensitivityPreviewDescription:
+        "ここでは生のメッセージ内容は非表示です。代わりに隔離で分類メタデータを確認してください。",
+      includePublicChannels: "承認済み公開チャンネルを含める",
+      includePublicChannelsDescription:
+        "既定ではオフです。有効化後も除外規則と許可リストを尊重します。",
+    },
+    searchPage: {
+      project: "プロジェクト",
+      allProjects: "すべてのプロジェクト",
+    },
+    ops: {
+      semanticIndex: "セマンティックインデックス",
+      semanticIndexDescription:
+        "検索カバレッジとアクセス制御の伝播に関する管理者向けシグナルです。件数で保護された内容が公開されることはありません。",
+      indexCoverage: "インデックスのカバレッジ",
+      embeddingLag: "埋め込みの遅延",
+      aclFreshness: "ACL の鮮度",
+      suppressed: "抑制済み",
+      adminOnly: "管理者シグナル",
+    },
+  },
+  "ko-KR": {
+    settings: {
+      privacySensitivityTitle: "개인정보 및 민감도",
+      privacySensitivityDescription:
+        "분류기 준비 상태와 메타데이터 전용 격리 경계입니다.",
+      privacyClassifier: "개인정보 분류기",
+      privacyModel: "분류기 모델",
+      quarantineRetention: "격리 보존 기간",
+      tightenOnly:
+        "민감도 제어는 검색과 처리를 더 엄격하게만 만들 수 있습니다. 격리된 자료는 소스 편집자나 검색 결과에 절대 제공되지 않습니다.",
+      ready: "준비됨",
+      readinessPending: "준비 상태 대기 중",
+      days: "{{count}}일",
+      privacyClassifierModel: "개인정보 분류 모델",
+      privacyClassifierModelPlaceholder: "기본 개인정보 분류 모델",
+      privacyClassifierEngine: "분류 엔진",
+      privacyClassifierEnginePlaceholder: "기본 분류 엔진",
+      quarantineRetentionHours: "격리 보존 시간",
+      quarantineRetentionHoursDescription:
+        "메타데이터 전용 격리 이벤트는 이 기간 후 삭제됩니다.",
+      sensitivityCustomInstructions: "사용자 지정 민감도 지침",
+      sensitivityCustomInstructionsPlaceholder:
+        "분류를 더 엄격하게 하는 작업공간 규칙을 추가하세요.",
+      sensitivityCustomInstructionsDescription:
+        "이 지침은 기본 개인정보 정책을 강화하는 데만 사용할 수 있습니다.",
+      publicChannelExclusionPatterns: "공개 Slack 채널 제외",
+      publicChannelExclusionPatternsPlaceholder:
+        "줄마다 채널 이름 또는 패턴 하나",
+      publicChannelExclusionPatternsDescription:
+        "일치하는 공개 채널은 검색 및 수집에서 제외됩니다.",
+    },
+    review: {
+      quarantine: "격리",
+      quarantineEvent: "격리 이벤트",
+      metadataOnly: "메타데이터만",
+      quarantineNoReason: "민감도 정책에 의해 차단되었습니다.",
+      quarantineId: "이벤트 {{id}}",
+      quarantineSource: "소스 {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "검색 모드",
+      slackDiscoveryModeDescription:
+        "소스 규칙에 따라 공개 채널을 검색합니다. 비공개 채널에는 수동 앱 초대가 필요합니다.",
+      slackExclusions:
+        "DM, 그룹 DM, 보관된 채널 및 수동 앱 초대가 없는 채널은 제외됩니다.",
+      slackManualInvite:
+        "비공개 채널은 유효성 검사 전에 Slack 앱을 수동으로 초대해야 합니다.",
+      sensitivityPreview: "민감도 미리보기",
+      sensitivityPreviewDescription:
+        "원시 메시지 콘텐츠는 여기에서 숨겨집니다. 대신 격리에서 분류 메타데이터를 검토하세요.",
+      includePublicChannels: "승인된 공개 채널 포함",
+      includePublicChannelsDescription:
+        "기본적으로 꺼져 있습니다. 검색은 계속 제외 패턴과 허용 목록을 따릅니다.",
+    },
+    searchPage: { project: "프로젝트", allProjects: "모든 프로젝트" },
+    ops: {
+      semanticIndex: "시맨틱 인덱스",
+      semanticIndexDescription:
+        "검색 범위와 접근 제어 전파를 위한 관리자 신호입니다. 개수는 보호된 콘텐츠를 노출하지 않습니다.",
+      indexCoverage: "인덱스 범위",
+      embeddingLag: "임베딩 지연",
+      aclFreshness: "ACL 최신성",
+      suppressed: "차단됨",
+      adminOnly: "관리자 신호",
+    },
+  },
+  "pt-BR": {
+    settings: {
+      privacySensitivityTitle: "Privacidade e sensibilidade",
+      privacySensitivityDescription:
+        "Prontidão do classificador e limite de quarentena somente com metadados.",
+      privacyClassifier: "Classificador de privacidade",
+      privacyModel: "Modelo do classificador",
+      quarantineRetention: "Retenção da quarentena",
+      tightenOnly:
+        "Os controles de sensibilidade só podem reforçar a recuperação e o tratamento. Material em quarentena nunca fica disponível para editores de fontes ou resultados de busca.",
+      ready: "Pronto",
+      readinessPending: "Prontidão pendente",
+      days: "{{count}} dias",
+      privacyClassifierModel: "Modelo do classificador de privacidade",
+      privacyClassifierModelPlaceholder: "Modelo padrão do classificador",
+      privacyClassifierEngine: "Mecanismo do classificador",
+      privacyClassifierEnginePlaceholder: "Mecanismo de classificação padrão",
+      quarantineRetentionHours: "Horas de retenção da quarentena",
+      quarantineRetentionHoursDescription:
+        "Eventos de quarentena somente com metadados são excluídos após este período.",
+      sensitivityCustomInstructions:
+        "Instruções personalizadas de sensibilidade",
+      sensitivityCustomInstructionsPlaceholder:
+        "Adicione regras de espaço de trabalho mais rigorosas.",
+      sensitivityCustomInstructionsDescription:
+        "Estas instruções só podem reforçar a política de privacidade base.",
+      publicChannelExclusionPatterns: "Exclusões de canais públicos do Slack",
+      publicChannelExclusionPatternsPlaceholder:
+        "Um nome de canal ou padrão por linha",
+      publicChannelExclusionPatternsDescription:
+        "Canais públicos correspondentes ficam fora da descoberta e ingestão.",
+    },
+    review: {
+      quarantine: "Quarentena",
+      quarantineEvent: "Evento de quarentena",
+      metadataOnly: "Somente metadados",
+      quarantineNoReason: "Suprimido pela política de sensibilidade.",
+      quarantineId: "Evento {{id}}",
+      quarantineSource: "Fonte {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "Modo de descoberta",
+      slackDiscoveryModeDescription:
+        "Descubra canais públicos pelas regras da fonte; canais privados exigem convite manual ao aplicativo.",
+      slackExclusions:
+        "DMs, DMs em grupo, canais arquivados e canais sem convite manual ao aplicativo são excluídos.",
+      slackManualInvite:
+        "Canais privados exigem convite manual ao aplicativo Slack antes da validação.",
+      sensitivityPreview: "Prévia de sensibilidade",
+      sensitivityPreviewDescription:
+        "O conteúdo bruto das mensagens fica oculto aqui. Revise os metadados de classificação em Quarentena.",
+      includePublicChannels: "Incluir canais públicos aprovados",
+      includePublicChannelsDescription:
+        "Desativado por padrão. A descoberta continua respeitando exclusões e a lista permitida.",
+    },
+    searchPage: { project: "Projeto", allProjects: "Todos os projetos" },
+    ops: {
+      semanticIndex: "Índice semântico",
+      semanticIndexDescription:
+        "Sinais administrativos para cobertura de recuperação e propagação de controle de acesso. Contagens nunca expõem conteúdo protegido.",
+      indexCoverage: "Cobertura do índice",
+      embeddingLag: "Atraso de embeddings",
+      aclFreshness: "Atualidade da ACL",
+      suppressed: "Suprimido",
+      adminOnly: "Sinal administrativo",
+    },
+  },
+  "zh-CN": {
+    settings: {
+      privacySensitivityTitle: "隐私与敏感性",
+      privacySensitivityDescription:
+        "分类器就绪状态以及仅保留元数据的隔离边界。",
+      privacyClassifier: "隐私分类器",
+      privacyModel: "分类器模型",
+      quarantineRetention: "隔离保留期",
+      tightenOnly:
+        "敏感性控制只能收紧检索和处理。隔离材料绝不会提供给来源编辑者或搜索结果。",
+      ready: "已就绪",
+      readinessPending: "就绪状态待定",
+      days: "{{count}} 天",
+      privacyClassifierModel: "隐私分类器模型",
+      privacyClassifierModelPlaceholder: "默认隐私分类器模型",
+      privacyClassifierEngine: "分类器引擎",
+      privacyClassifierEnginePlaceholder: "默认分类器引擎",
+      quarantineRetentionHours: "隔离保留小时数",
+      quarantineRetentionHoursDescription:
+        "仅含元数据的隔离事件将在此期限后删除。",
+      sensitivityCustomInstructions: "自定义敏感性说明",
+      sensitivityCustomInstructionsPlaceholder: "添加更严格的工作区分类规则。",
+      sensitivityCustomInstructionsDescription:
+        "这些说明只能收紧基础隐私策略。",
+      publicChannelExclusionPatterns: "公开 Slack 频道排除项",
+      publicChannelExclusionPatternsPlaceholder: "每行一个频道名称或模式",
+      publicChannelExclusionPatternsDescription:
+        "匹配的公开频道将保持在发现和摄取范围之外。",
+    },
+    review: {
+      quarantine: "隔离",
+      quarantineEvent: "隔离事件",
+      metadataOnly: "仅元数据",
+      quarantineNoReason: "已根据敏感性策略抑制。",
+      quarantineId: "事件 {{id}}",
+      quarantineSource: "来源 {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "发现模式",
+      slackDiscoveryModeDescription:
+        "按来源规则发现公开频道；私密频道需要手动邀请应用。",
+      slackExclusions:
+        "会排除私信、群组私信、已归档频道以及未手动邀请应用的频道。",
+      slackManualInvite: "私密频道必须先手动邀请 Slack 应用才能验证。",
+      sensitivityPreview: "敏感性预览",
+      sensitivityPreviewDescription:
+        "原始消息内容在此处保持隐藏。请改在隔离中查看分类元数据。",
+      includePublicChannels: "包含已批准的公开频道",
+      includePublicChannelsDescription:
+        "默认关闭。启用后，发现仍会遵守排除模式和频道允许列表。",
+    },
+    searchPage: { project: "项目", allProjects: "所有项目" },
+    ops: {
+      semanticIndex: "语义索引",
+      semanticIndexDescription:
+        "用于检索覆盖率和访问控制传播的管理员运行状况信号。计数绝不会暴露受保护内容。",
+      indexCoverage: "索引覆盖率",
+      embeddingLag: "嵌入延迟",
+      aclFreshness: "ACL 新鲜度",
+      suppressed: "已抑制",
+      adminOnly: "管理员信号",
+    },
+  },
+  "zh-TW": {
+    settings: {
+      privacySensitivityTitle: "隱私與敏感性",
+      privacySensitivityDescription:
+        "分類器整備狀態與僅保留中繼資料的隔離邊界。",
+      privacyClassifier: "隱私分類器",
+      privacyModel: "分類器模型",
+      quarantineRetention: "隔離保留期",
+      tightenOnly:
+        "敏感性控制只能收緊擷取和處理。隔離材料絕不會提供給來源編輯者或搜尋結果。",
+      ready: "已就緒",
+      readinessPending: "整備狀態待定",
+      days: "{{count}} 天",
+      privacyClassifierModel: "隱私分類器模型",
+      privacyClassifierModelPlaceholder: "預設隱私分類器模型",
+      privacyClassifierEngine: "分類器引擎",
+      privacyClassifierEnginePlaceholder: "預設分類器引擎",
+      quarantineRetentionHours: "隔離保留時數",
+      quarantineRetentionHoursDescription:
+        "僅含中繼資料的隔離事件將在此期限後刪除。",
+      sensitivityCustomInstructions: "自訂敏感性指示",
+      sensitivityCustomInstructionsPlaceholder: "新增更嚴格的工作區分類規則。",
+      sensitivityCustomInstructionsDescription:
+        "這些指示只能收緊基礎隱私政策。",
+      publicChannelExclusionPatterns: "公開 Slack 頻道排除項目",
+      publicChannelExclusionPatternsPlaceholder: "每行一個頻道名稱或模式",
+      publicChannelExclusionPatternsDescription:
+        "符合的公開頻道會排除於探索和擷取之外。",
+    },
+    review: {
+      quarantine: "隔離",
+      quarantineEvent: "隔離事件",
+      metadataOnly: "僅中繼資料",
+      quarantineNoReason: "已依敏感性政策抑制。",
+      quarantineId: "事件 {{id}}",
+      quarantineSource: "來源 {{source}}",
+    },
+    sources: {
+      slackDiscoveryMode: "探索模式",
+      slackDiscoveryModeDescription:
+        "依來源規則探索公開頻道；私人頻道需要手動邀請應用程式。",
+      slackExclusions:
+        "會排除私訊、群組私訊、已封存頻道，以及未手動邀請應用程式的頻道。",
+      slackManualInvite: "私人頻道必須先手動邀請 Slack 應用程式才能驗證。",
+      sensitivityPreview: "敏感性預覽",
+      sensitivityPreviewDescription:
+        "原始訊息內容在此處保持隱藏。請改在隔離中檢閱分類中繼資料。",
+      includePublicChannels: "包含已核准的公開頻道",
+      includePublicChannelsDescription:
+        "預設關閉。啟用後，探索仍會遵循排除模式與頻道允許清單。",
+    },
+    searchPage: { project: "專案", allProjects: "所有專案" },
+    ops: {
+      semanticIndex: "語意索引",
+      semanticIndexDescription:
+        "用於擷取涵蓋率與存取控制傳播的管理員健康訊號。計數絕不會暴露受保護內容。",
+      indexCoverage: "索引涵蓋率",
+      embeddingLag: "嵌入延遲",
+      aclFreshness: "ACL 新鮮度",
+      suppressed: "已抑制",
+      adminOnly: "管理員訊號",
+    },
+  },
+};
+
 function deepMergeMessages<T extends Record<string, unknown>>(
   base: T,
   overrides: DeepPartial<T> | undefined,
@@ -6361,8 +7086,11 @@ export const messagesByLocale = Object.fromEntries(
     locale === "en-US"
       ? messages
       : deepMergeMessages(
-          messages,
-          exactEnglishDebtOverrides[locale as LocaleCode],
+          deepMergeMessages(
+            messages,
+            exactEnglishDebtOverrides[locale as LocaleCode],
+          ),
+          privacySearchLocalizationOverrides[locale as LocaleCode],
         ),
   ]),
 ) as Record<LocaleCode, Messages>;

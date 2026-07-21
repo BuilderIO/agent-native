@@ -1,14 +1,12 @@
 /**
  * Thin Brain re-export of staged dataset deletion, pre-bound to appId="brain".
  */
-import { defineAction } from "@agent-native/core";
-import { deleteStagedDataset } from "@agent-native/core/provider-api/staged-datasets-store";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { createDeleteStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 
 import { BRAIN_APP_ID } from "../server/lib/provider-api.js";
 
-export default defineAction({
+export default createDeleteStagedDatasetAction({
   description:
     "Delete a staged dataset by id, freeing its scratch storage. Use after analysis is complete or before re-staging under the same name. Only the owner who staged the dataset can delete it.",
   schema: z.object({
@@ -20,24 +18,5 @@ export default defineAction({
       ),
   }),
   http: false,
-  run: async (args) => {
-    const ctx = getCredentialContext();
-    if (!ctx) {
-      throw new Error("No authenticated context for delete-staged-dataset.");
-    }
-
-    const deleted = await deleteStagedDataset({
-      id: args.datasetId,
-      appId: BRAIN_APP_ID,
-      ownerEmail: ctx.userEmail,
-    });
-
-    if (!deleted) {
-      throw new Error(
-        `Dataset ${args.datasetId} not found (or belongs to a different owner/app).`,
-      );
-    }
-
-    return { deleted: true, datasetId: args.datasetId };
-  },
+  appId: BRAIN_APP_ID,
 });

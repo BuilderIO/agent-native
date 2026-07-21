@@ -1,20 +1,26 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AgentSidebar,
   AppProviders,
-  appPath,
-  CommandMenu,
   createAgentNativeQueryClient,
-  ErrorReportActions,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   getLocaleInitScript,
-  getThemeInitScript,
   type LocaleCode,
   type LocaleMessages,
   type LocalizationPreference,
-  useActionQuery,
-  useCommandMenuShortcut,
   useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import type { ListContentDatabasesResponse } from "@shared/api";
 import {
@@ -479,15 +485,6 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    if (!window.matchMedia("(min-width: 768px)").matches) return;
-    const id = window.setTimeout(() => {
-      window.dispatchEvent(new Event("agent-panel:open"));
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [mounted]);
-
   const content = <>{children}</>;
 
   if (!mounted) {
@@ -503,7 +500,7 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen
+      defaultOpen={false}
       defaultSidebarWidth={420}
       emptyStateText={t("chat.publicEmptyState")}
       suggestions={[

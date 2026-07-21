@@ -8,7 +8,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import { isAgentActionStopError } from "../action.js";
+import { isAgentActionStopError, type ActionCaller } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
@@ -136,6 +136,8 @@ import {
   readLedgerEntry,
   clearLedgerForThread,
   insertRun,
+  isTurnAborted,
+  markRunAborted,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   setRunError,
@@ -2477,6 +2479,11 @@ export interface ExecuteAgentToolCallOptions {
   signal?: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Audit/action attribution for this externally selected call. */
+  caller?: ActionCaller;
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
@@ -2571,6 +2578,10 @@ export async function executeAgentToolCall(
       signal,
       ownerEmail: options.ownerEmail,
       orgId: options.orgId,
+      actionCaller: options.caller,
+      networkProtocol: options.networkProtocol,
+      networkId: options.networkId,
+      networkPeer: options.networkPeer,
       executionMode: "act",
       maxIterations: 2,
       threadId: options.threadId,
@@ -3150,6 +3161,14 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Action invocation attribution. Defaults to the normal agent tool loop. */
+  actionCaller?: ActionCaller;
+  /** Concrete execution id used for cross-app trace correlation. */
+  runId?: string;
+  /** Verified/telemetry-only delegated lineage supplied by the transport. */
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   /**
    * Attachments submitted with this turn (pasted text, files, images), passed
    * through to each tool's `ActionRunContext.attachments` so actions can
@@ -3772,6 +3791,20 @@ export async function runAgentLoop(opts: {
           return usage;
         }
 
+        // A provider can close cleanly after streaming only a partial tool
+        // input. Do not treat that as a completed turn or execute guessed args.
+        const hasEmptyAssistantContent =
+          assistantContent === undefined || assistantContent.length === 0;
+        const hasUnfinishedToolInput =
+          activeToolInputs.size > 0 &&
+          hasEmptyAssistantContent &&
+          streamedAssistantToolCalls.length === 0 &&
+          toolCallErrors.size === 0;
+        if (hasUnfinishedToolInput) {
+          send({ type: "auto_continue", reason: "stream_ended" });
+          return usage;
+        }
+
         break;
       } catch (err: unknown) {
         if (signal.aborted) throw err;
@@ -4086,6 +4119,7 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message:
             `Stopped because ${toolCall.name} failed ${count} times with the same arguments and error. ` +
+            `Last error: ${sanitizedResult} ` +
             "Fix the underlying issue or change the arguments before retrying.",
           errorCode: "repeated_identical_tool_error",
         };
@@ -4192,7 +4226,10 @@ export async function runAgentLoop(opts: {
                   await actionEntry.needsApproval(toolCall.input, {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
-                    caller: "tool",
+                    caller: opts.actionCaller ?? "tool",
+                    networkProtocol: opts.networkProtocol,
+                    networkId: opts.networkId,
+                    networkPeer: opts.networkPeer,
                   }),
                 )
               : actionEntry.needsApproval === true;
@@ -4226,7 +4263,10 @@ export async function runAgentLoop(opts: {
               args: toolCall.input,
               ctx: {
                 actionName: toolCall.name,
-                caller: "tool",
+                caller: opts.actionCaller ?? "tool",
+                networkProtocol: opts.networkProtocol,
+                networkId: opts.networkId,
+                networkPeer: opts.networkPeer,
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
                 ...(opts.threadId ? { threadId: opts.threadId } : {}),
@@ -4622,13 +4662,17 @@ export async function runAgentLoop(opts: {
           send,
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
-          caller: "tool" as const,
+          caller: opts.actionCaller ?? "tool",
+          networkProtocol: opts.networkProtocol,
+          networkId: opts.networkId,
+          networkPeer: opts.networkPeer,
           attachments: opts.attachments,
           signal,
           // Audit attribution: the action name + the agent thread/turn that
           // triggered this call, so a mutation can be traced to its run.
           actionName: toolCall.name,
           ...(opts.threadId ? { threadId: opts.threadId } : {}),
+          ...(opts.runId ? { runId: opts.runId } : {}),
           ...(opts.turnId ? { turnId: opts.turnId } : {}),
         };
         const requestContext = getRequestContext();
@@ -6527,6 +6571,22 @@ export function createProductionAgentHandler(
             modelSelectionSource = "experiment";
           }
         }
+
+        if (modelSelectionSource === "default") {
+          const { resolveHostedDefaultModelExperiment } =
+            await import("../observability/hosted-model-experiment.js");
+          const hostedExperiment = resolveHostedDefaultModelExperiment({
+            userId: ownerEmail,
+            engineName: engine.name,
+            isDefaultModelSelection: true,
+            supportedModels: engine.supportedModels,
+          });
+          if (hostedExperiment) {
+            effectiveModel = hostedExperiment.model;
+            experimentAssignments.push(hostedExperiment.assignment);
+            modelSelectionSource = "experiment";
+          }
+        }
       }
     } catch {
       // Experiments are best-effort. Model resolution must keep working if the
@@ -7028,6 +7088,13 @@ export function createProductionAgentHandler(
     // slot and inserted the run row before dispatching, so re-claiming here
     // would falsely 409 against the row the foreground holds.
     if (threadId && !isBackgroundWorker) {
+      if (
+        typeof requestTurnId === "string" &&
+        requestTurnId &&
+        (await isTurnAborted(threadId, requestTurnId))
+      ) {
+        return { ok: true, stopped: true };
+      }
       const slot = await tryClaimRunSlot(threadId);
       if (!slot.claimed) {
         setResponseStatus(event, 409);
@@ -7154,6 +7221,16 @@ export function createProductionAgentHandler(
           "[agent-chat] background insertRun failed; falling back to inline:",
           err instanceof Error ? err.message : err,
         );
+      }
+
+      // Stop may land after the pre-claim check but before the durable row was
+      // inserted. Terminalize that row before it can be handed to a worker.
+      if (
+        backgroundRowInserted &&
+        (await isTurnAborted(effectiveThreadId, effectiveTurnId))
+      ) {
+        await markRunAborted(runId, "user");
+        return { ok: true, stopped: true };
       }
 
       let dispatched = false;
@@ -7949,6 +8026,7 @@ export function createProductionAgentHandler(
         const agentLoopOpts = {
           engine,
           model: effectiveModel,
+          runId,
           systemPrompt: requestSystemPrompt,
           tools: requestTools,
           availableTools: availableRequestTools,

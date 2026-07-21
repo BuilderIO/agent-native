@@ -1,12 +1,9 @@
-import { defineAction } from "@agent-native/core";
-import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
 import {
   CONTENT_APP_ID,
   CONTENT_PROVIDER_API_IDS,
-  executeProviderApiRequest,
   getContentProviderApiRuntime,
 } from "../server/lib/provider-api.js";
 
@@ -68,7 +65,7 @@ const PaginationSchema = z
   })
   .optional();
 
-export default defineAction({
+export default createProviderApiRequestAction(getContentProviderApiRuntime(), {
   description:
     "Make an arbitrary authenticated HTTP request to a Content-connected provider API. " +
     "Use this as the flexible escape hatch when a convenience action cannot express the needed Notion endpoint, page/database/comment object, filter, request body, pagination mode, markdown endpoint, payload shape, or API version. " +
@@ -202,36 +199,6 @@ export default defineAction({
       ),
   }),
   http: false,
-  run: async (args) => {
-    if (args.stageAs) {
-      const ctx = getCredentialContext();
-      if (!ctx) {
-        throw new Error("No authenticated context for provider API staging.");
-      }
-      const providerRuntime = getContentProviderApiRuntime();
-      return stagingExecuteRequest(
-        {
-          provider: args.provider,
-          method: args.method,
-          path: args.path,
-          query: args.query,
-          headers: args.headers,
-          body: args.body,
-          auth: args.auth,
-          connectionId: args.connectionId,
-          accountId: args.accountId,
-          timeoutMs: args.timeoutMs,
-          maxBytes: args.maxBytes,
-          stageAs: args.stageAs,
-          itemsPath: args.itemsPath,
-          pagination: args.pagination,
-        },
-        (reqArgs) => providerRuntime.executeRequest(reqArgs),
-        { appId: CONTENT_APP_ID, ownerEmail: ctx.userEmail },
-      );
-    }
-    return executeProviderApiRequest(
-      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
-    );
-  },
+  toolCallable: false,
+  appId: CONTENT_APP_ID,
 });

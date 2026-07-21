@@ -363,8 +363,9 @@ interface AuthSession {
 Verwenden Sie auf dem Client den Hook `useSession()`:
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;

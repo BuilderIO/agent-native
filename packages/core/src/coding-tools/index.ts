@@ -451,7 +451,11 @@ export async function runCodingCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
-  options: { stdin?: string; onChunk?: BashOutputChunkCallback } = {},
+  options: {
+    stdin?: string;
+    onChunk?: BashOutputChunkCallback;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<CodingCommandResult> {
   const child = spawn(command, {
     cwd,
@@ -463,9 +467,10 @@ export async function runCodingCommand(
   let stderr = "";
   let timedOut = false;
   const startMs = Date.now();
+  const abort = () => child.kill("SIGTERM");
   const timer = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
+    abort();
   }, timeoutMs);
   child.stdout?.on("data", (chunk: Buffer) => {
     const text = chunk.toString();
@@ -479,12 +484,26 @@ export async function runCodingCommand(
   });
   if (options.stdin) child.stdin?.end(options.stdin);
   else child.stdin?.end();
-  const code = await new Promise<number | null>((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", resolve);
-  });
-  clearTimeout(timer);
-  return { code, stdout, stderr, timedOut, durationMs: Date.now() - startMs };
+  if (options.signal) {
+    if (options.signal.aborted) abort();
+    else options.signal.addEventListener("abort", abort, { once: true });
+  }
+  try {
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    return {
+      code,
+      stdout,
+      stderr,
+      timedOut,
+      durationMs: Date.now() - startMs,
+    };
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
+  }
 }
 
 /**

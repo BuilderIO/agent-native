@@ -35,7 +35,7 @@ export interface UseAgentChatHomeHandoffLinksOptions {
   enabled?: boolean;
   /** How long the handoff marker remains valid. Defaults to 6 hours. */
   ttlMs?: number;
-  /** Only intercept links if a recent handoff marker already exists. */
+  /** Only intercept links if a recent handoff marker already exists. Defaults to true. */
   requireActiveHandoff?: boolean;
 }
 
@@ -148,7 +148,7 @@ export function useAgentChatHomeHandoffLinks({
   isChatPath,
   enabled = true,
   ttlMs,
-  requireActiveHandoff = false,
+  requireActiveHandoff = true,
 }: UseAgentChatHomeHandoffLinksOptions): void {
   const location = useLocation();
   const navigate = useNavigate();

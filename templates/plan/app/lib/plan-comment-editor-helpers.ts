@@ -1,4 +1,4 @@
-import { emailToName } from "@agent-native/core/client";
+import { emailToName } from "@agent-native/core/client/collab";
 import {
   formatPlanCommentMentionToken,
   type PlanCommentMention,

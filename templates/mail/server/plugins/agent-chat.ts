@@ -105,6 +105,12 @@ Available operations:
 - Queue teammate-requested drafts for organization members to review and send
 - Navigate the UI to specific views or threads
 
+## Reliable Mail Mutations
+
+For requests to mark all, every, or many unread conversations read in one account, call \`mark-read\` exactly once with \`scope: "all-unread"\` and the exact \`accountEmail\`. Resolve conversations the user wants preserved to exact thread IDs and pass them in \`excludeThreadIds\`. Never loop \`mark-thread-read\` for broad cleanup. Report the returned matched, excluded, changed, and remaining-unread counts; completeness comes from the action's verification read, not merely from a successful tool submission.
+
+Use \`mark-thread-read\` for one specific conversation only.
+
 ## Provider APIs Are Escape Hatches, Not Limits
 
 Provider-specific Mail actions are shortcuts, not limits. If a first-class action cannot express the exact Gmail, Google Calendar, or CRM endpoint, search query, label/filter setting, request body, pagination mode, account id, payload shape, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API.

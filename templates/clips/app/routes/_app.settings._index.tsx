@@ -1,18 +1,18 @@
 import {
-  useSession,
   agentNativePath,
   appApiPath,
-  LanguagePicker,
-  useActionQuery,
+} from "@agent-native/core/client/api-path";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useSession, useActionQuery } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage, useOrg, useSwitchOrg } from "@agent-native/core/client/org";
+import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  ChangelogSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
   type SettingsSearchEntry,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -30,6 +30,7 @@ import {
   IconServer,
   IconTrash,
   IconUser,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -394,6 +395,8 @@ export default function SettingsIndexRoute() {
   const { session } = useSession();
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
+  const { data: org } = useOrg();
+  const switchOrg = useSwitchOrg();
   const email = session?.email ?? "";
   const storageStatus = useVideoStorageStatus();
   const builderStatus = useBuilderStatus();
@@ -504,6 +507,22 @@ export default function SettingsIndexRoute() {
   useEffect(() => {
     void refreshApiKeyStatus();
   }, [refreshApiKeyStatus]);
+
+  const orgs = org?.orgs ?? [];
+
+  async function handleUploadWorkspaceChange(organizationId: string) {
+    if (!organizationId || organizationId === org?.orgId) return;
+    try {
+      await switchOrg.mutateAsync(organizationId);
+      toast.success(t("settings.uploadWorkspaceSaved"));
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("settings.uploadWorkspaceSaveFailed"),
+      );
+    }
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -762,6 +781,13 @@ export default function SettingsIndexRoute() {
         hash: "video-storage",
       },
       {
+        id: "clips-upload-workspace",
+        label: t("settings.uploadWorkspaceTitle"),
+        keywords:
+          "upload recordings desktop destination organization workspace",
+        hash: "upload-workspace",
+      },
+      {
         id: "clips-slack",
         label: t("settings.slackTitle"),
         keywords: "slack integration notifications workspace",
@@ -834,6 +860,51 @@ export default function SettingsIndexRoute() {
                   <LanguagePicker label={t("settings.languageLabel")} />
                 </CardContent>
               </Card>
+
+              {orgs.length > 0 ? (
+                <Card id="upload-workspace" className="scroll-mt-16">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <IconUsersGroup className="size-4 text-primary" />
+                      {t("settings.uploadWorkspaceTitle")}
+                    </CardTitle>
+                    <CardDescription>
+                      {t("settings.uploadWorkspaceDescription")}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="max-w-md space-y-1.5">
+                    <Label htmlFor="upload-workspace-select">
+                      {t("settings.uploadWorkspaceLabel")}
+                    </Label>
+                    <Select
+                      value={org?.orgId ?? undefined}
+                      onValueChange={handleUploadWorkspaceChange}
+                      disabled={switchOrg.isPending || orgs.length < 2}
+                    >
+                      <SelectTrigger id="upload-workspace-select">
+                        <SelectValue
+                          placeholder={t("settings.uploadWorkspacePlaceholder")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {orgs.map((workspace) => (
+                          <SelectItem
+                            key={workspace.orgId}
+                            value={workspace.orgId}
+                          >
+                            {workspace.orgName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {switchOrg.isPending
+                        ? t("settings.uploadWorkspaceSaving")
+                        : t("settings.uploadWorkspaceHint")}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : null}
 
               <Card id="video-storage" className="scroll-mt-16">
                 <CardHeader>
@@ -1187,7 +1258,7 @@ export default function SettingsIndexRoute() {
                     className={cn(
                       "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
                       builderConnected
-                        ? "border-primary/35 bg-primary/5"
+                        ? "border-border bg-muted/20"
                         : "border-border bg-accent/30",
                     )}
                   >
@@ -1201,20 +1272,16 @@ export default function SettingsIndexRoute() {
                         {builderStatusLoading
                           ? t("settings.checkingBuilder")
                           : builderConnected
-                            ? t("settings.builderConnected")
+                            ? t("settings.builderAiAvailable")
                             : t("settings.builderEasySetup")}
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {builderConnected
-                          ? t("settings.builderAiAvailable")
+                          ? t("settings.apiSetupDescription")
                           : t("settings.builderAiDescription")}
                       </p>
                     </div>
-                    {builderConnected ? (
-                      <Badge variant="secondary" className="shrink-0">
-                        {t("common.connected")}
-                      </Badge>
-                    ) : (
+                    {!builderConnected ? (
                       <Button
                         type="button"
                         variant="outline"
@@ -1237,7 +1304,7 @@ export default function SettingsIndexRoute() {
                         )}
                         {t("settings.connectBuilder")}
                       </Button>
-                    )}
+                    ) : null}
                   </div>
 
                   {builderCreditsPaused ? (

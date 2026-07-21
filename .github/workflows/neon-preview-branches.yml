@@ -8,13 +8,17 @@ on:
 permissions:
   contents: read
 
-# Map each Netlify site to its Neon project. When a PR opens, we create a
-# Neon branch per project and inject NETLIFY_DATABASE_URL into the Netlify
-# site's deploy-preview context. Netlify's auto-deploy picks it up via the
-# shell expansion in each template's netlify.toml:
-#   export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}
+# Map each Netlify site to its Neon project. When a PR opens, we create a Neon
+# branch per project and set the site's NETLIFY_DATABASE_URL(_UNPOOLED) as a
+# BRANCH-scoped value for the PR's head branch (context: branch). Netlify uses a
+# branch-specific value for that branch's deploy previews and it takes
+# precedence over the shared deploy-preview context value, so concurrent PRs on
+# different branches never clobber each other. The framework reads
+# NETLIFY_DATABASE_URL unchanged; the branch value is snapshotted into the
+# deploy at build time and available to the function at runtime.
 #
-# On PR close we delete the branches and remove the env overrides.
+# On PR close we delete only this branch's value (not the whole variable, which
+# other branches and production still use) and this PR's Neon branch.
 
 env:
   NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
@@ -68,26 +72,45 @@ jobs:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NEON_DB_URL_POOLED: ${{ steps.neon.outputs.db_url_pooled }}
           NEON_DB_URL_UNPOOLED: ${{ steps.neon.outputs.db_url }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           SITE="${{ matrix.netlify_site }}"
           ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
           BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
           AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
 
-          for pair in "NETLIFY_DATABASE_URL:$NEON_DB_URL_POOLED" "NETLIFY_DATABASE_URL_UNPOOLED:$NEON_DB_URL_UNPOOLED"; do
-            KEY="${pair%%:*}"
-            VAL="${pair#*:}"
-            # Try POST (create); if it already exists, PATCH (update)
-            curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
-              "$BASE?site_id=$SITE" \
-              -d '[{"key":"'"$KEY"'","scopes":["builds","functions","runtime"],"values":[{"value":"'"$VAL"'","context":"deploy-preview"}]}]' \
-              -o /dev/null -w '' \
-              || curl -s -X PATCH -H "$AUTH" -H "Content-Type: application/json" \
-                "$BASE/$KEY?site_id=$SITE" \
-                -d '{"value":"'"$VAL"'","context":"deploy-preview"}' \
-                -o /dev/null -w '' \
-              || true
-          done
+          # Set the value for THIS PR's head branch (context: branch). Netlify
+          # uses a branch-specific value for that branch's deploy previews and it
+          # takes precedence over the shared deploy-preview context, so PRs on
+          # different branches never overwrite each other. Connection strings are
+          # credentials, so the vars are marked is_secret. curl returns 000 for
+          # DNS/TLS/connectivity failures, so we treat only an explicit 2xx as
+          # success — anything else (000 included) fails the step rather than
+          # silently leaving the branch value unset.
+          set_netlify_branch_env() {
+            local key="$1" val="$2"
+            local body patch_body http
+            body=$(jq -n --arg k "$key" --arg v "$val" --arg br "$HEAD_BRANCH" \
+              '[{"key":$k,"scopes":["builds","functions","runtime"],"is_secret":true,"values":[{"value":$v,"context":"branch","context_parameter":$br}]}]')
+            patch_body=$(jq -n --arg v "$val" --arg br "$HEAD_BRANCH" \
+              '{"value":$v,"context":"branch","context_parameter":$br}')
+
+            http=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+              -H "$AUTH" -H "Content-Type: application/json" \
+              "$BASE?site_id=$SITE" -d "$body")
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              http=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
+                -H "$AUTH" -H "Content-Type: application/json" \
+                "$BASE/$key?site_id=$SITE" -d "$patch_body")
+            fi
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to set Netlify env $key (branch $HEAD_BRANCH) for site $SITE (HTTP $http)"
+              exit 1
+            fi
+          }
+
+          set_netlify_branch_env "NETLIFY_DATABASE_URL" "$NEON_DB_URL_POOLED"
+          set_netlify_branch_env "NETLIFY_DATABASE_URL_UNPOOLED" "$NEON_DB_URL_UNPOOLED"
 
   delete-branches:
     if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
@@ -131,15 +154,41 @@ jobs:
           branch: preview/pr-${{ github.event.number }}
           api_key: ${{ secrets.NEON_API_KEY }}
 
-      - name: Remove preview DB URL overrides
+      - name: Remove preview DB URL branch overrides
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           SITE="${{ matrix.netlify_site }}"
           ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
+          BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
           AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
-          for KEY in NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED; do
-            curl -s -X DELETE -H "$AUTH" \
-              "https://api.netlify.com/api/v1/accounts/$ACCT/env/$KEY?site_id=$SITE" \
-              || true
-          done
+
+          # Delete only THIS branch's value, never the whole variable (other
+          # branches and production still use it). Look up the branch-scoped
+          # value's id, then delete that single value. curl's 000
+          # transport-failure code and any non-2xx/404 fail the step.
+          delete_netlify_branch_value() {
+            local key="$1"
+            local resp http body id
+            resp=$(curl -s -w $'\n%{http_code}' -H "$AUTH" "$BASE/$key?site_id=$SITE")
+            http=$(printf '%s' "$resp" | tail -n1)
+            body=$(printf '%s' "$resp" | sed '$d')
+            if [[ "$http" == "404" ]]; then return 0; fi
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
+              echo "::error::Failed to read Netlify env $key for site $SITE (HTTP $http)"
+              exit 1
+            fi
+            id=$(printf '%s' "$body" | jq -r --arg br "$HEAD_BRANCH" \
+              'first(.values[]? | select(.context=="branch" and .context_parameter==$br) | .id) // empty')
+            if [[ -z "$id" ]]; then return 0; fi
+            http=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+              -H "$AUTH" "$BASE/$key/value/$id?site_id=$SITE")
+            if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
+              echo "::error::Failed to delete Netlify env $key branch value (branch $HEAD_BRANCH) for site $SITE (HTTP $http)"
+              exit 1
+            fi
+          }
+
+          delete_netlify_branch_value "NETLIFY_DATABASE_URL"
+          delete_netlify_branch_value "NETLIFY_DATABASE_URL_UNPOOLED"

@@ -74,6 +74,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -98,7 +99,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["pinpoint", "creative-context"],
     core: true,
   },
   {
@@ -197,7 +198,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint", "embedding"],
+    requiredPackages: ["pinpoint", "embedding", "creative-context"],
     core: true,
   },
   {
@@ -211,8 +212,21 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
     defaultAgent: true,
-    requiredPackages: ["embedding"],
+    requiredPackages: ["embedding", "creative-context"],
     core: true,
+  },
+  {
+    name: "tasks",
+    label: "Tasks",
+    hint: "Task-list-first workspace — inbox capture, custom fields, and drag-and-drop ordering",
+    icon: "ListCheck",
+    color: "#6366F1",
+    colorRgb: "99 102 241",
+    devPort: 8091,
+    prodUrl: "https://tasks.agent-native.com",
+    defaultMode: "prod",
+    hidden: true,
+    core: false,
   },
   {
     name: "macros",

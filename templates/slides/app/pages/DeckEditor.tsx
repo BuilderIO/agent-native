@@ -1,13 +1,12 @@
+import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
-  useSession,
   emailToColor,
   emailToName,
-  appBasePath,
-  callAction,
-  useGuidedQuestionFlow,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { useSession, callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import type { PinpointProps } from "@agent-native/pinpoint/react";
 import {
@@ -875,7 +874,7 @@ export default function DeckEditor() {
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute z-40 h-full min-h-0 md:relative">
+            <div className="absolute z-[70] h-full min-h-0 md:relative">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}

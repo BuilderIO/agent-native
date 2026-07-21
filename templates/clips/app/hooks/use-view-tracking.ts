@@ -1,5 +1,7 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
 import { useEffect, useRef } from "react";
+
+import { clampCompletionPct } from "../../shared/view-analytics";
 
 const SESSION_KEY = "clips-view-session-id";
 
@@ -107,7 +109,10 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       if (!v) return;
       const completedPct =
         durationMs > 0 ? (watchMsRef.current / durationMs) * 100 : 0;
-      maxPctRef.current = Math.max(maxPctRef.current, completedPct);
+      maxPctRef.current = Math.max(
+        maxPctRef.current,
+        clampCompletionPct(completedPct),
+      );
       fetch(`${appBasePath()}/api/view-event`, {
         method: "POST",
         keepalive: kind === "watch-progress" || kind === "pause",

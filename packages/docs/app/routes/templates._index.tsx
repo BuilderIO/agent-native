@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
 import { featuredTemplates, TemplateCard } from "../components/TemplateCard";

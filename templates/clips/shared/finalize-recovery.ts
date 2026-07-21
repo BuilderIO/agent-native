@@ -18,8 +18,24 @@ export type RecoveredReadyRecording = {
   hasCamera?: boolean;
 };
 
+export type RecoveredProcessingRecording = {
+  ok: true;
+  finalized: false;
+  recoveredAfterFinalizeError: true;
+  id: string;
+  recordingId: string;
+  status: "processing";
+  verificationPending: true;
+  videoUrl?: string;
+};
+
+export type RecoveredFinalizeRecording =
+  | RecoveredReadyRecording
+  | RecoveredProcessingRecording;
+
 type ProbeResult =
   | { ready: true; result: RecoveredReadyRecording }
+  | { ready: false; accepted: true; result: RecoveredProcessingRecording }
   | { ready: false; terminal: boolean; status?: string };
 
 const DEFAULT_READY_RECOVERY_TIMEOUT_MS = 90_000;
@@ -114,6 +130,7 @@ function optionalBoolean(value: unknown): boolean | undefined {
 export function readyRecordingFromPublicPayload(
   payload: unknown,
   fallbackRecordingId: string,
+  options: { acceptPendingVerification?: boolean } = {},
 ): ProbeResult {
   const root =
     payload && typeof payload === "object"
@@ -128,6 +145,34 @@ export function readyRecordingFromPublicPayload(
 
   if (!recording) return { ready: false, terminal: false };
   if (status === "failed") return { ready: false, terminal: true, status };
+
+  if (
+    options.acceptPendingVerification &&
+    status === "processing" &&
+    recording.verificationPending === true
+  ) {
+    const id =
+      typeof recording.id === "string" && recording.id
+        ? recording.id
+        : fallbackRecordingId;
+    return {
+      ready: false,
+      accepted: true,
+      result: {
+        ok: true,
+        finalized: false,
+        recoveredAfterFinalizeError: true,
+        id,
+        recordingId: id,
+        status: "processing",
+        verificationPending: true,
+        videoUrl:
+          typeof recording.videoUrl === "string"
+            ? recording.videoUrl
+            : undefined,
+      },
+    };
+  }
 
   const videoUrl =
     typeof recording.videoUrl === "string" ? recording.videoUrl : "";
@@ -187,8 +232,9 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   timeoutMs?: number;
   intervalMs?: number;
   fetchTimeoutMs?: number;
+  acceptPendingVerification?: boolean;
   signal?: AbortSignal;
-}): Promise<RecoveredReadyRecording | null> {
+}): Promise<RecoveredFinalizeRecording | null> {
   const fetchImpl = args.fetchImpl ?? fetch;
   const sleepImpl = args.sleepImpl ?? ((ms) => sleep(ms, args.signal));
   const timeoutMs = Math.max(
@@ -248,9 +294,13 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
           const probe = readyRecordingFromPublicPayload(
             payload,
             args.recordingId,
+            {
+              acceptPendingVerification: args.acceptPendingVerification,
+            },
           );
           if (probe.ready) return probe.result;
-          if (probe.terminal) return null;
+          if ("accepted" in probe && probe.accepted) return probe.result;
+          if ("terminal" in probe && probe.terminal) return null;
           break;
         }
 
@@ -271,4 +321,13 @@ export async function waitForReadyRecordingAfterFinalizeError(args: {
   }
 
   return null;
+}
+
+export function waitForAcceptedRecordingAfterFinalizeError(
+  args: Parameters<typeof waitForReadyRecordingAfterFinalizeError>[0],
+): Promise<RecoveredFinalizeRecording | null> {
+  return waitForReadyRecordingAfterFinalizeError({
+    ...args,
+    acceptPendingVerification: true,
+  });
 }

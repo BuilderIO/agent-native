@@ -80,6 +80,7 @@ export const DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS = 180_000;
 export const DEFAULT_LIVE_BACKGROUND_STUCK_THRESHOLD_MS = 13 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
+const MAX_POLL_ERROR_BACKOFF_MS = 30_000;
 const FRESH_BACKGROUND_HEARTBEAT_MS = 30_000;
 
 interface ActiveRunResponse {
@@ -129,6 +130,22 @@ export function useRunStuckDetection({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let snapshotTransitionTimer: ReturnType<typeof setTimeout> | null = null;
     let snapshotVersion = 0;
+    let consecutivePollFailures = 0;
+
+    const pollFailureDelay = () => {
+      consecutivePollFailures += 1;
+      return Math.min(
+        Math.max(pollIntervalMs, 1) * 2 ** consecutivePollFailures,
+        MAX_POLL_ERROR_BACKOFF_MS,
+      );
+    };
+
+    const clearObservedRun = () => {
+      snapshotVersion += 1;
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      snapshotTransitionTimer = null;
+      setState(EMPTY_STATE);
+    };
 
     type RunHealthSnapshot = {
       active: boolean;
@@ -269,6 +286,7 @@ export function useRunStuckDetection({
         );
         if (cancelled) return;
         if (res.ok) {
+          consecutivePollFailures = 0;
           const data = (await res.json()) as ActiveRunResponse;
           const lastProgressAt = data.lastProgressAt ?? null;
           // Measure elapsed against the SERVER clock (serverNow) rather than the
@@ -336,9 +354,17 @@ export function useRunStuckDetection({
           if (!data.active || data.status !== "running") {
             nextDelay = IDLE_BACKOFF_INTERVAL_MS;
           }
+        } else if (res.status === 429 || res.status >= 500) {
+          nextDelay = pollFailureDelay();
+        } else {
+          consecutivePollFailures = 0;
+          clearObservedRun();
+          nextDelay = MAX_POLL_ERROR_BACKOFF_MS;
         }
       } catch {
-        // Network blip — leave previous state. Next tick will retry.
+        // Network/503 blip — leave previous state and ease polling pressure
+        // while the server or database recovers.
+        nextDelay = pollFailureDelay();
       }
       if (!cancelled) {
         timer = setTimeout(poll, nextDelay);

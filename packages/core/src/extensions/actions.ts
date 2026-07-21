@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../action-ui.js";
-import type { ActionRunContext } from "../action.js";
+import { AgentActionStopError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
@@ -17,6 +17,7 @@ import {
   readWorkspaceFile,
   type WorkspaceFilesScope,
 } from "../workspace-files/store.js";
+import { ExtensionContentEditError } from "./content-patch.js";
 import type {
   ExtensionContentEdit,
   ExtensionLegacyPatch,
@@ -622,7 +623,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          'Update an existing sandboxed Alpine.js mini-app extension. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly; do not list extensions first just to find the current id. Prefer granular edits for surgical changes; use full content replacement only for broad rewrites. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML. To replace the whole body with a large pasted file, pass contentFromAttachment (the attachment name, or "latest") instead of copying the file into `content` — that avoids re-emitting thousands of tokens.',
+          'Update an existing sandboxed Alpine.js mini-app extension. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly; do not list extensions first just to find the current id. Prefer granular edits for surgical changes; full-body replacement is blocked by default to preserve existing layout, CSS, copy, and interactions during data-only fixes. Use `patches` or `edits` for targeted changes; set `allowFullReplacement=true` only when the user explicitly asks for a visual rewrite or supplies a complete replacement body. Supported edits include literal replace, insert-before/after marker, replace-between markers, replace-section/wrap-section/remove-section for <!-- agent-native:section name --> blocks, and regex-replace. Pass format=true to run Prettier on the final HTML. To replace the whole body with a large pasted file, pass contentFromAttachment (the attachment name, or "latest") instead of copying the file into `content` — that avoids re-emitting thousands of tokens.',
         parameters: {
           type: "object",
           properties: {
@@ -654,15 +655,26 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description:
                 'Optional full replacement sourced from a workspace/shared resource file, by resource path (e.g. "intuit-analytics-extension.html"). The server reads the full file and uses it as the replacement body. Use instead of `content` when replacing the whole body with a large file that exists as a workspace resource. Ignored when `content` is provided.',
             },
-            patches: {
-              type: "string",
+            allowFullReplacement: {
+              type: "boolean",
               description:
-                'Legacy optional JSON array of { "find": "...", "replace": "...", "all"?: true, "expectedMatches"?: 1, "required"?: true } patches. Missing required targets fail instead of silently no-oping.',
+                "Explicitly allow replacing the entire existing body. Omit or set false for data-only repairs so the existing visual design is protected. Use true only when the user explicitly requested a broad visual rewrite or supplied a complete replacement body.",
+            },
+            patches: {
+              anyOf: [
+                { type: "string" },
+                { type: "array", items: { type: "object" } },
+              ],
+              description:
+                'Optional patches as a JSON-encoded string or native array of { "find": "...", "replace": "...", "all"?: true, "expectedMatches"?: 1, "required"?: true } objects. Missing required targets fail instead of silently no-oping.',
             },
             edits: {
-              type: "string",
+              anyOf: [
+                { type: "string" },
+                { type: "array", items: { type: "object" } },
+              ],
               description:
-                'Preferred optional JSON array of granular edit operations. Examples: { "op": "insert-after", "marker": "<!-- section:metrics -->", "content": "..." }, { "op": "replace-section", "section": "npm-chart", "content": "..." }, { "op": "wrap-section", "section": "charts", "before": "<div>", "after": "</div>" }, { "op": "regex-replace", "pattern": "...", "replace": "...", "expectedMatches": 1 }.',
+                'Preferred optional granular edit operations as a JSON-encoded string or native array. Examples: { "op": "insert-after", "marker": "<!-- section:metrics -->", "content": "..." }, { "op": "replace-section", "section": "npm-chart", "content": "..." }, { "op": "wrap-section", "section": "charts", "before": "<div>", "after": "</div>" }, { "op": "regex-replace", "pattern": "...", "replace": "...", "expectedMatches": 1 }.',
             },
             format: {
               type: "boolean",
@@ -675,8 +687,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             },
             visibility: {
               type: "string",
-              description: "Optional sharing visibility.",
-              enum: ["private", "org", "public"],
+              description:
+                "Optional sharing visibility. Public extension sharing is not supported; use private or org.",
+              enum: ["private", "org"],
             },
           },
           required: ["id"],
@@ -687,6 +700,41 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (!id) return "Error: id is required.";
         const localMessage = await localExtensionEditMessage(id);
         if (localMessage) return localMessage;
+
+        if (
+          typeof args?.visibility === "string" &&
+          args.visibility.trim().toLowerCase() === "public"
+        ) {
+          const message =
+            "Public extension sharing is not supported. Use visibility=private or visibility=org. No content changes were applied; do not retry visibility=public.";
+          throw new AgentActionStopError(message, {
+            errorCode: "extension_public_visibility_unsupported",
+            toolResult: JSON.stringify(
+              {
+                error: "extension_public_visibility_unsupported",
+                message,
+                recoverable: false,
+                next: "Retry only with visibility=private or visibility=org.",
+              },
+              null,
+              2,
+            ),
+          });
+        }
+
+        const fullReplacementRequested =
+          (typeof args?.content === "string" &&
+            args.content.trim().length > 0) ||
+          args?.contentFromAttachment !== undefined ||
+          args?.contentFromWorkspaceFile !== undefined;
+        if (
+          fullReplacementRequested &&
+          !coerceBoolean(args?.allowFullReplacement)
+        ) {
+          const message =
+            "Full extension-body replacement requires allowFullReplacement=true. No changes were applied. If the user's request includes a broad visual rewrite such as changing layout, compactness, visible sections, naming, or padding, retry once with allowFullReplacement=true; otherwise read the current extension and use focused patches/edits for a data-only repair. Do not retry unchanged arguments.";
+          throw new ExtensionContentEditError(message);
+        }
 
         // Full-replacement content can come inline (`content`) or by reference
         // (`contentFromAttachment`) so the model never has to re-type a large
@@ -723,12 +771,33 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           if (args?.edits !== undefined && !edits) {
             return "Error: edits must be a JSON array of supported extension edit operations.";
           }
-          result = await updateExtensionContent(id, {
-            content: replacementContent,
-            patches,
-            edits,
-            format: coerceBoolean(args?.format),
-          });
+          try {
+            result = await updateExtensionContent(id, {
+              content: replacementContent,
+              allowFullReplacement: coerceBoolean(args?.allowFullReplacement),
+              patches,
+              edits,
+              format: coerceBoolean(args?.format),
+            });
+          } catch (error) {
+            if (!(error instanceof ExtensionContentEditError)) throw error;
+            const message =
+              `The extension edit was not applied: ${error.message} ` +
+              "Do not retry the same arguments. Read the current extension and submit one focused patch or edit with an exact target.";
+            throw new AgentActionStopError(message, {
+              errorCode: "extension_content_edit_failed",
+              toolResult: JSON.stringify(
+                {
+                  error: "extension_content_edit_failed",
+                  message: error.message,
+                  recoverable: false,
+                  next: "Read the current extension with get-extension, then make one focused update-extension patches/edits call. Do not retry unchanged arguments.",
+                },
+                null,
+                2,
+              ),
+            });
+          }
         }
 
         const meta: Record<string, string> = {};
@@ -1711,7 +1780,7 @@ function coerceLimit(value: unknown): number {
 
 function parsePatches(value: unknown): ExtensionLegacyPatch[] | undefined {
   if (value === undefined) return undefined;
-  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  const parsed = parseJsonArray(value);
   if (!Array.isArray(parsed)) return undefined;
   if (
     parsed.some(
@@ -1728,11 +1797,20 @@ function parsePatches(value: unknown): ExtensionLegacyPatch[] | undefined {
 
 function parseEdits(value: unknown): ExtensionContentEdit[] | undefined {
   if (value === undefined) return undefined;
-  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  const parsed = parseJsonArray(value);
   if (!Array.isArray(parsed)) return undefined;
   return parsed.every(isValidContentEdit)
     ? (parsed as ExtensionContentEdit[])
     : undefined;
+}
+
+function parseJsonArray(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function isValidContentEdit(value: unknown): boolean {

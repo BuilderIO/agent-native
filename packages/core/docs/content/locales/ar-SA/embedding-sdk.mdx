@@ -116,8 +116,7 @@ export default createAgentNativeEmbeddedPlugin({
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -295,8 +294,10 @@ for await (const chunk of sendMessage(
 بالنسبة للتطبيقات الجانبية المستقلة أو إطارات iframe المشتركة الأصل، استخدم `<AgentNative />` ذات المستوى الأدنى. فهو يعرض سياق صفحة iframe الجانبية وwires، والعميل المباشر actions، وأوامر التحديث/التنقل للمضيف في مكان واحد:
 
 ```tsx
-import { AgentNative, defineClientAction } from "@agent-native/core/client";
-
+import {
+  AgentNative,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -383,8 +384,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -459,8 +459,7 @@ const hostTools = createAgentNativeHostTools({
 
 ```tsx
 import { useEffect } from "react";
-import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
-
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -512,8 +511,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

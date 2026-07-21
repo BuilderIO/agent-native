@@ -37,6 +37,7 @@ const enUS = {
   theme: {
     light: "light",
     dark: "dark",
+    toggle: "Toggle theme",
     label: "Theme: {{theme}}",
   },
   docs: {
@@ -1468,6 +1469,8 @@ const enUS = {
     agentNativeToolkit: "Toolkit",
     toolkitOverview: "Overview",
     toolkitUiPrimitives: "UI Primitives",
+    toolkitEditorsCanvases: "Editors & Canvases",
+    toolkitContextKnowledge: "Context & Knowledge",
     toolkitSharing: "Sharing",
     toolkitCollaboration: "Collaboration",
     toolkitSettings: "Settings",
@@ -1481,6 +1484,9 @@ const enUS = {
     toolkitObservability: "Observability",
     featureKits: "Feature Kits",
     appChrome: "App Chrome",
+    capabilityPackages: "Capability Packages",
+    capabilityPackagesOverview: "Overview",
+    packageLifecycle: "Package Lifecycle",
     templatesOverview: "Templates",
     pureAgentApps: "Automation-First Apps",
     faq: "FAQ",

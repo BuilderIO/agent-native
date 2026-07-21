@@ -1,10 +1,17 @@
 import crypto from "crypto";
 
 import { getDbExec, intType, isPostgres } from "../db/client.js";
-import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
+import {
+  ensureTableExists,
+  ensureColumnExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
 import type { Task, Message, TaskState, Artifact } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
+export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
+const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
+export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -20,10 +27,16 @@ async function ensureTable(): Promise<void> {
           history TEXT NOT NULL DEFAULT '[]',
           artifacts TEXT NOT NULL DEFAULT '[]',
           metadata TEXT,
+          owner_email TEXT,
+          owner_scope TEXT NOT NULL DEFAULT '',
+          idempotency_key TEXT,
           created_at ${intType()} NOT NULL,
           updated_at ${intType()} NOT NULL
         )
       `;
+      const createIdempotencyIndexSql =
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${A2A_IDEMPOTENCY_INDEX} ` +
+        `ON a2a_tasks(owner_email, owner_scope, idempotency_key)`;
       const createApprovalsSql = `
         CREATE TABLE IF NOT EXISTS a2a_approvals (
           id TEXT PRIMARY KEY,
@@ -57,6 +70,20 @@ async function ensureTable(): Promise<void> {
           "owner_email",
           `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
         );
+        await ensureColumnExists(
+          "a2a_tasks",
+          "owner_scope",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_scope TEXT NOT NULL DEFAULT ''`,
+        );
+        await ensureColumnExists(
+          "a2a_tasks",
+          "idempotency_key",
+          `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS idempotency_key TEXT`,
+        );
+        await ensureIndexExists(
+          A2A_IDEMPOTENCY_INDEX,
+          createIdempotencyIndexSql,
+        );
         await ensureTableExists("a2a_approvals", createApprovalsSql);
         return;
       }
@@ -71,11 +98,26 @@ async function ensureTable(): Promise<void> {
       // forward.
       try {
         await client.execute(
+          `ALTER TABLE a2a_tasks ADD COLUMN owner_scope TEXT NOT NULL DEFAULT ''`,
+        );
+      } catch {
+        // Column already exists — expected on every restart after first run.
+      }
+      try {
+        await client.execute(
           `ALTER TABLE a2a_tasks ADD COLUMN owner_email TEXT`,
         );
       } catch {
         // Column already exists — expected on every restart after first run.
       }
+      try {
+        await client.execute(
+          `ALTER TABLE a2a_tasks ADD COLUMN idempotency_key TEXT`,
+        );
+      } catch {
+        // Column already exists — expected on every restart after first run.
+      }
+      await client.execute(createIdempotencyIndexSql);
       await client.execute(createApprovalsSql);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
@@ -320,7 +362,10 @@ export async function pauseProcessingA2ATask(
   return task;
 }
 
-function taskFromRow(row: any): Task & { ownerEmail?: string | null } {
+function taskFromRow(row: any): Task & {
+  ownerEmail?: string | null;
+  ownerScope?: string | null;
+} {
   return {
     id: row.id as string,
     contextId: (row.context_id as string) || undefined,
@@ -335,6 +380,7 @@ function taskFromRow(row: any): Task & { ownerEmail?: string | null } {
     artifacts: JSON.parse(row.artifacts as string),
     metadata: row.metadata ? JSON.parse(row.metadata as string) : undefined,
     ownerEmail: (row.owner_email as string | null) ?? null,
+    ownerScope: (row.owner_scope as string | null) ?? null,
   };
 }
 
@@ -356,6 +402,7 @@ export async function createTask(
   contextId?: string,
   metadata?: Record<string, unknown>,
   ownerEmail?: string | null,
+  ownerScope?: string | null,
 ): Promise<Task> {
   await ensureTable();
   const client = getDbExec();
@@ -373,7 +420,7 @@ export async function createTask(
   };
 
   await client.execute({
-    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       contextId ?? null,
@@ -383,12 +430,95 @@ export async function createTask(
       "[]",
       metadata ? JSON.stringify(metadata) : null,
       ownerEmail ?? null,
+      ownerScope ?? "",
+      null,
       now,
       now,
     ],
   });
 
   return task;
+}
+
+export async function createOrReuseTask(
+  message: Message,
+  contextId: string | undefined,
+  metadata: Record<string, unknown> | undefined,
+  ownerEmail: string | null,
+  ownerScope: string | null,
+  idempotencyKey: string | undefined,
+): Promise<{ task: Task; reused: boolean }> {
+  if (!ownerEmail || !idempotencyKey) {
+    return {
+      task: await createTask(
+        message,
+        contextId,
+        metadata,
+        ownerEmail,
+        ownerScope,
+      ),
+      reused: false,
+    };
+  }
+  if (idempotencyKey.length > MAX_A2A_IDEMPOTENCY_KEY_CHARS) {
+    throw new Error("A2A idempotency key is too long");
+  }
+
+  await ensureTable();
+  const client = getDbExec();
+  const normalizedOwner = ownerEmail.trim().toLowerCase();
+  const normalizedScope =
+    ownerScope?.trim().toLowerCase() || A2A_PERSONAL_OWNER_SCOPE;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+    const timestamp = new Date().toISOString();
+    await client.execute({
+      sql: `INSERT INTO a2a_tasks (id, context_id, status_state, status_timestamp, history, artifacts, metadata, owner_email, owner_scope, idempotency_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(owner_email, owner_scope, idempotency_key) DO NOTHING`,
+      args: [
+        id,
+        contextId ?? null,
+        "submitted",
+        timestamp,
+        JSON.stringify([message]),
+        "[]",
+        metadata ? JSON.stringify(metadata) : null,
+        normalizedOwner,
+        normalizedScope,
+        idempotencyKey,
+        now,
+        now,
+      ],
+    });
+
+    const { rows } = await client.execute({
+      sql: `SELECT * FROM a2a_tasks WHERE owner_email = ? AND owner_scope = ? AND idempotency_key = ?`,
+      args: [normalizedOwner, normalizedScope, idempotencyKey],
+    });
+    if (rows.length === 0) {
+      throw new Error("A2A idempotent task insert could not be verified");
+    }
+    const task = taskFromRow(rows[0]);
+    const reused = task.id !== id;
+    if (
+      reused &&
+      (task.status.state === "failed" || task.status.state === "canceled")
+    ) {
+      await client.execute({
+        sql: `UPDATE a2a_tasks SET idempotency_key = NULL, updated_at = ? WHERE id = ? AND idempotency_key = ? AND status_state IN ('failed', 'canceled')`,
+        args: [Date.now(), task.id, idempotencyKey],
+      });
+      continue;
+    }
+    return { task, reused };
+  }
+  throw new Error("A2A terminal task idempotency key could not be released");
+}
+
+export interface A2ATaskOwnership {
+  ownerEmail: string | null;
+  ownerScope: string | null;
 }
 
 /**
@@ -400,15 +530,25 @@ export async function createTask(
  * verified caller's email must match `owner_email` to read or cancel.
  */
 export async function getTaskOwner(id: string): Promise<string | null> {
+  return (await getTaskOwnership(id)).ownerEmail;
+}
+
+export async function getTaskOwnership(id: string): Promise<A2ATaskOwnership> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT owner_email FROM a2a_tasks WHERE id = ?`,
+    sql: `SELECT owner_email, owner_scope FROM a2a_tasks WHERE id = ?`,
     args: [id],
   });
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return { ownerEmail: null, ownerScope: null };
   const ownerEmail = (rows[0] as any).owner_email;
-  return typeof ownerEmail === "string" && ownerEmail ? ownerEmail : null;
+  const ownerScope = (rows[0] as any).owner_scope;
+  return {
+    ownerEmail:
+      typeof ownerEmail === "string" && ownerEmail ? ownerEmail : null,
+    ownerScope:
+      typeof ownerScope === "string" && ownerScope ? ownerScope : null,
+  };
 }
 
 /**

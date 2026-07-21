@@ -15,6 +15,7 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
@@ -42,6 +43,7 @@ import {
 } from "./mcp-config-writers.js";
 
 const SERVER_NAME_PREFIX = "agent-native";
+const SCREEN_MEMORY_SERVER_NAME = "clips-screen-memory";
 
 interface ParsedArgs {
   _: string[];
@@ -81,6 +83,58 @@ function logErr(msg: string): void {
 }
 function logOut(msg: string): void {
   process.stdout.write(`${msg}\n`);
+}
+
+export interface ScreenMemoryStoreResolutionOptions {
+  explicitDir?: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  homeDir?: string;
+}
+
+/**
+ * Resolve the active Clips store without asking people to find an app-data
+ * path. Environment overrides remain the unambiguous escape hatch; otherwise
+ * the most recently touched installed Clips/Clips Alpha store wins.
+ */
+export function resolveScreenMemoryStoreDir(
+  options: ScreenMemoryStoreResolutionOptions = {},
+): string | undefined {
+  if (options.explicitDir) return path.resolve(options.explicitDir);
+  const env = options.env ?? process.env;
+  const override =
+    env.CLIPS_SCREEN_MEMORY_DIR || env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+  if (override) return path.resolve(override);
+
+  const platform = options.platform ?? process.platform;
+  const home = options.homeDir ?? os.homedir();
+  const appDataRoot =
+    platform === "darwin"
+      ? path.join(home, "Library", "Application Support")
+      : platform === "win32"
+        ? env.APPDATA || path.join(home, "AppData", "Roaming")
+        : env.XDG_DATA_HOME || path.join(home, ".local", "share");
+  return ["com.clips.tray", "com.clips.tray.alpha"]
+    .map((bundleId) => path.join(appDataRoot, bundleId, "screen-memory"))
+    .filter((candidate) => fs.existsSync(candidate))
+    .map((candidate) => ({
+      candidate,
+      modifiedAt: Math.max(
+        fs.statSync(candidate).mtimeMs,
+        ...["feature-config.json", "chapters.json"]
+          .map((name) =>
+            name === "feature-config.json"
+              ? path.join(path.dirname(candidate), name)
+              : path.join(candidate, name),
+          )
+          .filter((file) => fs.existsSync(file))
+          .map((file) => fs.statSync(file).mtimeMs),
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        b.modifiedAt - a.modifiedAt || a.candidate.localeCompare(b.candidate),
+    )[0]?.candidate;
 }
 
 // ---------------------------------------------------------------------------
@@ -343,6 +397,38 @@ function installForClient(
   return file;
 }
 
+export function installScreenMemoryForClient(
+  client: ClientId,
+  storeDir: string,
+  cwd: string,
+  scope: string | undefined,
+): string {
+  const file = configPathFor(client, cwd, scope);
+  const args = [
+    "-y",
+    "@agent-native/core@latest",
+    "mcp",
+    "screen-memory",
+    "--dir",
+    path.resolve(storeDir),
+  ];
+  if (client === "codex") {
+    writeCodexBlock(
+      file,
+      SCREEN_MEMORY_SERVER_NAME,
+      buildCodexLocalBlock(SCREEN_MEMORY_SERVER_NAME, args, {}, "npx"),
+    );
+  } else {
+    writeJsonMcpEntryForClient(
+      client,
+      file,
+      SCREEN_MEMORY_SERVER_NAME,
+      buildLocalMcpEntryForClient(client, args, {}, "npx"),
+    );
+  }
+  return file;
+}
+
 function uninstallForClient(
   client: ClientId,
   appId: string,
@@ -454,6 +540,36 @@ async function cmdInstall(p: ParsedArgs): Promise<void> {
   logOut(`  Restart ${client} to pick up the new MCP server.`);
 }
 
+function cmdInstallScreenMemory(p: ParsedArgs): void {
+  const client = normalizeClientId(p.client);
+  if (!client) {
+    logErr(
+      `Usage: npx @agent-native/core@latest mcp install-screen-memory --client ${SELECTABLE_CLIENTS.join("|")} [--dir <path>] [--scope user|project]`,
+    );
+    process.exit(1);
+  }
+  const screenMemoryDir = resolveScreenMemoryStoreDir({
+    explicitDir: p.screenMemoryDir,
+  });
+  if (!screenMemoryDir) {
+    logErr(
+      "No local Clips Screen Memory store was found. Turn Rewind on in Clips, or pass --dir <path>.",
+    );
+    process.exit(1);
+  }
+  const file = installScreenMemoryForClient(
+    client,
+    screenMemoryDir,
+    process.cwd(),
+    p.scope,
+  );
+  logOut(`Installed \"${SCREEN_MEMORY_SERVER_NAME}\" for ${client} → ${file}`);
+  logOut("  Store: current local Clips Rewind memory");
+  logOut(
+    `  Restart ${client} to pick up the repaired Screen Memory MCP server.`,
+  );
+}
+
 function cmdUninstall(p: ParsedArgs): void {
   const client = normalizeClientId(p.client);
   if (!client) {
@@ -544,6 +660,11 @@ Usage:
       Run the local Clips Screen Memory stdio server.
       Defaults to the Clips app-data screen-memory folder.
 
+  npx @agent-native/core@latest mcp install-screen-memory --client <c> [--dir <path>] [--scope user|project]
+      Install or repair the dedicated local Screen Memory MCP. The active Clips
+      or Clips Alpha store is discovered automatically; --dir is an override.
+      Clients: claude-code, codex, cowork, cursor, opencode, github-copilot
+
   npx @agent-native/core@latest mcp install --client <c> [--app <id>] [--scope user|project]
       Provision a token and write the client's MCP config (idempotent).
       Clients: claude-code, codex, cowork, cursor, opencode, github-copilot
@@ -570,6 +691,9 @@ export async function runMcp(args: string[]): Promise<void> {
       return;
     case "install":
       await cmdInstall(p);
+      return;
+    case "install-screen-memory":
+      cmdInstallScreenMemory(p);
       return;
     case "uninstall":
       cmdUninstall(p);

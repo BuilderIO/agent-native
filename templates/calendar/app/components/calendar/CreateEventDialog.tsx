@@ -1,8 +1,6 @@
-import {
-  agentNativePath,
-  sendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEventDraft } from "@shared/api";
 import {
   IconCalendarTime,

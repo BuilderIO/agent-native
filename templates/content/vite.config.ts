@@ -429,6 +429,7 @@ export default defineConfig({
     contentLocalComponentsPlugin(),
     ...reactRouterPlugins(),
     ...agentNativePlugins({
+      clientCompatibilityVersion: "content-spaces-v1",
       fsAllow: [
         ...(localWorkspaceRoot ? [localWorkspaceRoot] : []),
         ...dynamicLocalComponentDirs,

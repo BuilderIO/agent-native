@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
 
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";

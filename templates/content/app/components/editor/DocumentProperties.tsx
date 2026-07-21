@@ -1,9 +1,6 @@
-import {
-  emailToName,
-  useActionMutation,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+import { emailToName } from "@agent-native/core/client/collab";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   BindContentDatabaseSourceFieldRequest,
@@ -919,7 +916,7 @@ function PropertyRow({
 
   return (
     <div className="grid min-h-8 grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
-      {canEdit ? (
+      {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}

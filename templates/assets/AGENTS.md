@@ -8,6 +8,11 @@ SQL state.
 Detailed library, generation, image, embed, and engine rules live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -39,6 +44,18 @@ Detailed library, generation, image, embed, and engine rules live in
 - Use framework sharing/collaboration primitives for ownable assets.
 
 ## Application State
+
+- Before generation, follow the creative-context reuse ladder in
+  `.agents/skills/creative-context/SKILL.md`: explicit request and current
+  asset/kit first, then a pinned/current pack, then narrow library search.
+  Respect `creative-context.contextMode: "off"` without silently restoring a
+  pack. This shared Agent-page Library does not replace Assets' existing
+  `/library` media workflow.
+- To submit an asset to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it pins immutable media bytes and metadata.
+  Reuse only its opaque native clone reference through the Assets action path.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
   context. Human Library state uses
@@ -109,6 +126,9 @@ prompt, aspectRatio }`.
   surfaces.
 
 ## Skills
+
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.
 
 Read the relevant skill before deeper work:
 

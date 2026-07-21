@@ -9,15 +9,17 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 
 import { sendToAgentChat } from "../agent-chat.js";
+import { AgentEmptyState } from "../agent-page/AgentEmptyState.js";
 import {
   useAutomations,
   useManageAutomation,
   type Automation,
   type JobsScope,
 } from "../agent-page/use-jobs.js";
+import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Dialog,
@@ -32,13 +34,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { useFormatters, useT } from "../i18n.js";
 
 export interface AutomationsListProps {
   scope?: JobsScope;
   compact?: boolean;
   emptyMessage?: string;
+  emptyState?: ReactNode;
 }
 
 export const AUTOMATION_CREATION_SCOPE = "personal" as const;
@@ -51,6 +54,7 @@ export function AutomationsList({
   scope = "user",
   compact = false,
   emptyMessage,
+  emptyState,
 }: AutomationsListProps) {
   const t = useT();
   const { formatDate } = useFormatters();
@@ -93,14 +97,31 @@ export function AutomationsList({
 
   const automations = query.data ?? [];
   if (automations.length === 0) {
+    if (emptyState) return emptyState;
     return (
-      <p className="text-sm text-muted-foreground">
-        {emptyMessage ??
-          t("jobs.automationsEmpty", {
-            defaultValue:
-              "No automations yet. Ask the agent to set up an event-triggered or scheduled task.",
-          })}
-      </p>
+      <AgentEmptyState
+        icon={IconBolt}
+        title={t("jobs.automationsEmptyTitle", {
+          defaultValue: "No automations yet",
+        })}
+        description={
+          emptyMessage ??
+          t("jobs.automationsEmptyDescription", {
+            defaultValue: "Describe what should happen and when.",
+          })
+        }
+        action={
+          <AgentAskPopover
+            context={automationCreationContext()}
+            prompt={t("jobs.automationPrompt", {
+              defaultValue: "Create an automation that does this: ",
+            })}
+            title={t("jobs.automationsCreateTitle", {
+              defaultValue: "Create an automation",
+            })}
+          />
+        }
+      />
     );
   }
 
@@ -487,8 +508,7 @@ export function AutomationsSection() {
         scope="user"
         compact
         emptyMessage={t("jobs.automationsEmptySettings", {
-          defaultValue:
-            'No automations yet. Click "New automation" or ask the agent to set one up.',
+          defaultValue: "Describe what should happen and when.",
         })}
       />
     </div>

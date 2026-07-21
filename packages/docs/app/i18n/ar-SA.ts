@@ -39,6 +39,7 @@ const arSA = {
   theme: {
     light: "فاتح",
     dark: "داكن",
+    toggle: "تبديل السمة",
     label: "السمة: {{theme}}",
   },
   docs: {
@@ -1466,6 +1467,8 @@ const arSA = {
     agentNativeToolkit: "مجموعة الأدوات",
     toolkitOverview: "نظرة عامة",
     toolkitUiPrimitives: "بدائيات الواجهة",
+    toolkitEditorsCanvases: "المحررات واللوحات",
+    toolkitContextKnowledge: "السياق والمعرفة",
     toolkitSharing: "المشاركة",
     toolkitCollaboration: "التعاون",
     toolkitSettings: "الإعدادات",
@@ -1479,6 +1482,9 @@ const arSA = {
     toolkitObservability: "قابلية المراقبة",
     featureKits: "مجموعات الميزات",
     appChrome: "هيكل التطبيق",
+    capabilityPackages: "حزم القدرات",
+    capabilityPackagesOverview: "نظرة عامة",
+    packageLifecycle: "دورة حياة الحزمة",
     templatesOverview: "القوالب",
     pureAgentApps: "تطبيقات الأتمتة أولاً",
     faq: "FAQ",

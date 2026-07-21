@@ -95,8 +95,8 @@ describe("AgentConversationMessageView", () => {
     expect(container.textContent).not.toContain("generate-design");
   });
 
-  it("renders native inline extension tool UI", () => {
-    act(() => {
+  it("renders native inline extension tool UI", async () => {
+    await act(async () => {
       root.render(
         <AgentConversationMessageView
           message={{
@@ -126,6 +126,9 @@ describe("AgentConversationMessageView", () => {
           }}
         />,
       );
+    });
+    await act(async () => {
+      await vi.dynamicImportSettled();
     });
 
     expect(

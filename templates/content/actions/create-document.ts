@@ -6,6 +6,10 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,10 +18,9 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  createLocalFileDocument,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { provisionContentSpaces } from "./_content-spaces.js";
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 function nanoid(size = 12): string {
@@ -29,12 +32,33 @@ function nanoid(size = 12): string {
   return id;
 }
 
-function assertCanWriteAppState() {
-  if (getRequestUserEmail() || process.env.AGENT_USER_EMAIL) return;
-  throw new Error(
-    "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
-  );
-}
+const reuseLabelSchema = z
+  .object({
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    label: z.string().min(1),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
+  })
+  .superRefine((label, context) => {
+    const influence = label.influence ?? "reference-conditioned";
+    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
+      context.addIssue({
+        code: "custom",
+        message: "itemId and itemVersionId must be provided together",
+      });
+    }
+    if (influence !== "generated" && !label.itemId) {
+      context.addIssue({
+        code: "custom",
+        message: "Only generated labels may omit context item ids",
+      });
+    }
+  });
 
 export default defineAction({
   description: "Create a new document.",
@@ -43,6 +67,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Pre-generated document ID (for optimistic UI)"),
+    spaceId: z
+      .string()
+      .optional()
+      .describe("Content space for a new top-level document"),
     title: z.string().describe("Document title"),
     content: z.string().optional().describe("Markdown content"),
     description: z
@@ -53,6 +81,21 @@ export default defineAction({
       ),
     parentId: z.string().nullish().describe("Parent document ID for nesting"),
     icon: z.string().optional().describe("Emoji icon"),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Immutable pack returned by pre-generation context search"),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this document generation only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(reuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Exact context item versions used to draft this document"),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -66,21 +109,43 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    if (await isContentLocalFileMode()) {
-      assertCanWriteAppState();
-      const doc = await createLocalFileDocument(args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-        deepLink: buildDeepLink({
-          app: "content",
-          view: "editor",
-          params: { documentId: doc.id },
-        }),
-      };
-    }
-
+    const hasCreativeContextInput = Boolean(
+      args.contextPackId ||
+      args.contextModeOverride ||
+      args.reuseLabels.length > 0,
+    );
+    const validatedCreativeContext = hasCreativeContextInput
+      ? await validateGenerationCreativeContext({
+          contextPackId: args.contextPackId,
+          contextModeOverride: args.contextModeOverride,
+          reuseLabels: args.reuseLabels,
+        })
+      : null;
+    const creativeContextProvenance = validatedCreativeContext
+      ? {
+          contextMode: validatedCreativeContext.contextMode,
+          contextPackId: validatedCreativeContext.contextPackId,
+          reuseLabels: validatedCreativeContext.reuseLabels,
+        }
+      : null;
+    const elementProvenanceFor = (documentId: string) =>
+      creativeContextProvenance?.reuseLabels.length
+        ? creativeContextProvenance.reuseLabels.map((label) => ({
+            elementId: label.elementId ?? documentId,
+            influence: label.influence ?? ("reference-conditioned" as const),
+            ...(label.itemId ? { itemId: label.itemId } : {}),
+            ...(label.itemVersionId
+              ? { itemVersionId: label.itemVersionId }
+              : {}),
+            label: label.label,
+          }))
+        : [
+            {
+              elementId: documentId,
+              influence: "generated" as const,
+              label: "Net-new document",
+            },
+          ];
     const title = args.title;
 
     let content = args.content || "";
@@ -130,6 +195,31 @@ export default defineAction({
         .where(eq(schema.documentShares.resourceId, parentId));
     }
 
+    let spaceId: string;
+    if (parentId) {
+      const [parent] = await db
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, parentId));
+      if (!parent?.spaceId) {
+        throw new Error(`Parent document "${parentId}" has no Content space`);
+      }
+      if (args.spaceId && args.spaceId !== parent.spaceId) {
+        throw new Error("Nested documents must use their parent Content space");
+      }
+      spaceId = parent.spaceId;
+    } else {
+      const provisioned = await provisionContentSpaces(db, currentUserEmail);
+      spaceId = args.spaceId ?? provisioned.personalSpaceId;
+      const spaceAccess = await resolveContentSpaceAccess(
+        spaceId,
+        "contributor",
+      );
+      ownerEmail = currentUserEmail;
+      orgId = spaceAccess.space.orgId;
+      visibility = orgId ? "org" : "private";
+    }
+
     const now = new Date().toISOString();
     const id = args.id || nanoid();
 
@@ -154,38 +244,45 @@ export default defineAction({
 
         const position = (maxPos[0]?.max ?? -1) + 1;
 
-        await db.insert(schema.documents).values({
-          id,
-          ownerEmail,
-          orgId,
-          parentId,
-          title,
-          content,
-          description,
-          icon,
-          position,
-          isFavorite: 0,
-          hideFromSearch,
-          visibility,
-          createdAt: now,
-          updatedAt: now,
+        await db.transaction(async (tx) => {
+          await tx.insert(schema.documents).values({
+            id,
+            spaceId,
+            ownerEmail,
+            orgId,
+            parentId,
+            title,
+            content,
+            description,
+            icon,
+            position,
+            isFavorite: 0,
+            hideFromSearch,
+            visibility,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          if (inheritedShares.length > 0) {
+            await tx.insert(schema.documentShares).values(
+              inheritedShares.map((share) => ({
+                id: nanoid(),
+                resourceId: id,
+                principalType: share.principalType,
+                principalId: share.principalId,
+                role: share.role,
+                createdBy: currentUserEmail,
+                createdAt: now,
+              })),
+            );
+          }
+          await ensureDocumentFilesMembership(tx, id, now, {
+            userEmail: currentUserEmail,
+            orgId: orgId ?? undefined,
+          });
         });
       },
     );
-
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: id,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: currentUserEmail,
-          createdAt: now,
-        })),
-      );
-    }
 
     const [doc] = await db
       .select()
@@ -198,6 +295,15 @@ export default defineAction({
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+    if (creativeContextProvenance) {
+      await recordGenerationCreativeContext({
+        appId: "content",
+        artifactType: "document",
+        artifactId: doc.id,
+        ...creativeContextProvenance,
+        elementProvenance: elementProvenanceFor(doc.id),
+      });
+    }
 
     return {
       id: doc.id,
@@ -221,6 +327,7 @@ export default defineAction({
       canManage: inheritedRole === "owner" || inheritedRole === "admin",
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+      ...(creativeContextProvenance ?? {}),
     };
   },
   link: ({ result }) => {

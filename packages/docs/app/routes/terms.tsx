@@ -1,5 +1,5 @@
-import { useLocale } from "@agent-native/core/client";
-import { useT } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import type { ReactNode } from "react";
 
 import { sitePathForLocale } from "../components/docs-locale";

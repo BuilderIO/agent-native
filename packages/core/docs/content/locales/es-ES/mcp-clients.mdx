@@ -247,7 +247,29 @@ Esto significa que los usuarios que han instalado la extensión claude-in-chrome
 Los servidores MCP (Protocolo de contexto modelo) le brindan a su agente nuevas capacidades, como conectarse a Zapier, Cloudflare, Composio o las herramientas internas de su empresa. Una vez conectado, el agente puede utilizar esas herramientas al igual que las integradas.
 
 Los identificadores de los ajustes preestablecidos son `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`atlassian`, `supabase`, `neon` y `stripe`.
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`, `webflow`, `paypal`, `box`, `netlify` y `zapier`.
+
+El directorio distingue los puntos de conexión que admiten el flujo OAuth
+genérico de los proveedores que requieren un cliente aprobado por el proveedor
+o una aplicación OAuth registrada previamente. Estos últimos siguen visibles
+para su descubrimiento y enlazan a las instrucciones oficiales, pero no muestran
+un botón de conexión de un clic que pueda resultar engañoso. Las extensiones
+aisladas usan `agentNative.mcp.listTools`, `agentNative.mcp.callTool` y
+`agentNative.providerApi.catalog(...)`/`agentNative.providerApi.docs(...)` a
+través de las acciones del host para descubrir datos conectados; nunca reciben
+URL de conexión, tokens de acceso ni tokens de actualización. La llamada
+directa `provider-api-request` se reserva intencionadamente al host y al
+agente: exponer solicitudes arbitrarias de método/ruta a extensiones
+compartidas convertiría a una extensión en un proxy de escritura autenticado.
+En su lugar, las extensiones deben usar `agentNative.mcp.callTool(...)` o una
+acción de la aplicación creada para ese fin, limitada a operaciones concretas
+del proveedor.
+
+Las extensiones locales deben permitir explícitamente `list-mcp-tools`,
+`call-mcp-tool` y cualquier acción de proveedor compatible que utilicen en
+`extension.json`. Los helpers de descubrimiento también están disponibles en
+`agentNative.connectors.mcp` y `agentNative.connectors.providerApi`.
 
 ### Atlassian / Jira
 

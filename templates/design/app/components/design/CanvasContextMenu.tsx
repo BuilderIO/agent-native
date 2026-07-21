@@ -92,6 +92,7 @@ export type CanvasContextMenuAction =
   | "add-auto-layout"
   | "suggest-auto-layout"
   | "create-component"
+  | "reprompt"
   | "go-to-main-component"
   | "swap-instance"
   | "detach-instance"
@@ -135,6 +136,7 @@ export type CanvasContextMenuActionHandler = (
 
 export interface CanvasContextMenuLabels {
   selectLayer: string;
+  reprompt: string;
   pasteHere: string;
   selectAll: string;
   zoomToFit: string;
@@ -231,6 +233,10 @@ export interface CanvasContextMenuProps {
   selectedCount?: number;
   layerCandidates?: readonly CanvasLayerHitCandidate[];
   onSelectLayer?: (candidate: CanvasLayerHitCandidate) => void;
+  onRepromptLayer?: (
+    candidate: CanvasLayerHitCandidate,
+    details: CanvasContextMenuActionDetails,
+  ) => void;
   hasClipboard?: boolean;
   hasPropsClipboard?: boolean;
   hasAnimationClipboard?: boolean;
@@ -261,6 +267,7 @@ export interface CanvasContextMenuProps {
   canAddAutoLayout?: boolean;
   canSuggestAutoLayout?: boolean;
   canCreateComponent?: boolean;
+  canReprompt?: boolean;
   // Whether the current selection IS a component instance — gates the
   // whole Go to main component / Swap instance / Detach instance cluster on
   // (rather than showing them permanently disabled for non-instance
@@ -330,6 +337,7 @@ export interface CanvasContextMenuProps {
   onAddAutoLayout?: CanvasContextMenuActionHandler;
   onSuggestAutoLayout?: CanvasContextMenuActionHandler;
   onCreateComponent?: CanvasContextMenuActionHandler;
+  onReprompt?: CanvasContextMenuActionHandler;
   onGoToMainComponent?: CanvasContextMenuActionHandler;
   onSwapInstance?: CanvasContextMenuActionHandler;
   onDetachInstance?: CanvasContextMenuActionHandler;
@@ -361,6 +369,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
+  reprompt: "Regenerate…",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
@@ -481,6 +490,7 @@ export const CanvasContextMenu = forwardRef<
     selectedCount = 0,
     layerCandidates = [],
     onSelectLayer,
+    onRepromptLayer,
     hasClipboard = false,
     hasPropsClipboard = false,
     hasAnimationClipboard = false,
@@ -500,6 +510,7 @@ export const CanvasContextMenu = forwardRef<
     canAddAutoLayout = selectedCount > 0,
     canSuggestAutoLayout = false,
     canCreateComponent = selectedCount > 0,
+    canReprompt = selectedCount > 0 || layerCandidates.length > 0,
     isComponentInstance = false,
     canGoToMainComponent = isComponentInstance,
     canSwapInstance = isComponentInstance,
@@ -540,6 +551,7 @@ export const CanvasContextMenu = forwardRef<
     onAddAutoLayout,
     onSuggestAutoLayout,
     onCreateComponent,
+    onReprompt,
     onGoToMainComponent,
     onSwapInstance,
     onDetachInstance,
@@ -624,6 +636,7 @@ export const CanvasContextMenu = forwardRef<
       "add-auto-layout": onAddAutoLayout,
       "suggest-auto-layout": onSuggestAutoLayout,
       "create-component": onCreateComponent,
+      reprompt: onReprompt,
       "go-to-main-component": onGoToMainComponent,
       "swap-instance": onSwapInstance,
       "detach-instance": onDetachInstance,
@@ -654,6 +667,7 @@ export const CanvasContextMenu = forwardRef<
       onCopyAsSvg,
       onCopyProps,
       onCreateComponent,
+      onReprompt,
       onDetachInstance,
       onFlipHorizontal,
       onFlipVertical,
@@ -768,6 +782,62 @@ export const CanvasContextMenu = forwardRef<
                   ))}
                 </ContextMenuSubContent>
               </ContextMenuSub>
+            </ContextMenuGroup>
+            <CanvasMenuSeparator />
+          </>
+        ) : null}
+        {canReprompt && (onReprompt || onRepromptLayer) ? (
+          <>
+            <ContextMenuGroup>
+              {layerCandidates.length > 1 && onRepromptLayer ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                    {labels.reprompt}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    className={cn(MENU_CONTENT_CLASS, "w-56")}
+                  >
+                    {layerCandidates.map((candidate) => (
+                      <CanvasLayerCandidateItem
+                        key={`reprompt:${candidate.key}`}
+                        candidate={candidate}
+                        onSelect={(event) => {
+                          onRepromptLayer(candidate, {
+                            action: "reprompt",
+                            point,
+                            selectedCount,
+                            originalEvent: event,
+                          });
+                          handleOpenChange(false);
+                        }}
+                      />
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : (
+                <CanvasMenuItem
+                  hidden={isHiddenAction("reprompt")}
+                  disabled={
+                    !canReprompt ||
+                    (!onReprompt &&
+                      !(onRepromptLayer && layerCandidates.length === 1))
+                  }
+                  label={labels.reprompt}
+                  onSelect={(event) => {
+                    const candidate = layerCandidates[0];
+                    if (!onReprompt && onRepromptLayer && candidate) {
+                      onRepromptLayer(candidate, {
+                        action: "reprompt",
+                        point,
+                        selectedCount,
+                        originalEvent: event,
+                      });
+                      return;
+                    }
+                    runAction("reprompt", event);
+                  }}
+                />
+              )}
             </ContextMenuGroup>
             <CanvasMenuSeparator />
           </>
@@ -1083,7 +1153,7 @@ function CanvasLayerCandidateItem({
   onSelect,
 }: {
   candidate: CanvasLayerHitCandidate;
-  onSelect: () => void;
+  onSelect: (event: Event) => void;
 }) {
   const tag = candidate.info.tagName.toLowerCase();
   const Icon = candidate.info.componentName

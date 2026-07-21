@@ -1,20 +1,28 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { View, ActivityIndicator, Linking, AppState } from "react-native";
+import type { WebView as WebViewRef } from "react-native-webview";
+
+import { WebView } from "@/components/uniwind-interop";
+import { clipsSessionOwnerKey } from "@/lib/clips-session";
 import {
-  View,
-  StyleSheet,
-  ActivityIndicator,
-  Linking,
-  AppState,
-} from "react-native";
-import { WebView } from "react-native-webview";
+  clearSessionToken,
+  getSessionToken,
+  saveSessionToken,
+  SESSION_TOKEN_KEY,
+} from "@/lib/session-token-store";
+import {
+  isTrustedWebViewUrl,
+  parseTrustedOrigin,
+} from "@/lib/webview-security";
 
 interface AppWebViewProps {
   url: string;
   captureSessionToken?: boolean;
+  sessionTokenKey?: string;
+  sessionOwnerKey?: string;
 }
 
-const SESSION_TOKEN_KEY = "agent-native:session-token";
 const OAUTH_STATE_KEY = "agent-native:oauth-state";
 
 // Google blocks OAuth in embedded WebViews. Open Google auth URLs in the
@@ -31,10 +39,22 @@ const SESSION_BRIDGE_SCRIPT = `
       })
         .then(function (response) { return response.json(); })
         .then(function (data) {
-          if (data && typeof data.token === 'string' && data.token.length > 0) {
+          if (
+            data &&
+            typeof data.token === 'string' &&
+            data.token.length > 0 &&
+            typeof data.email === 'string' &&
+            data.email.length > 0
+          ) {
             window.ReactNativeWebView.postMessage(JSON.stringify({
               type: 'agent-native-session',
-              token: data.token
+              token: data.token,
+              email: data.email,
+              orgId: typeof data.orgId === 'string' ? data.orgId : null
+            }));
+          } else {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'agent-native-session-cleared'
             }));
           }
         })
@@ -42,6 +62,8 @@ const SESSION_BRIDGE_SCRIPT = `
     };
     postToken();
     setTimeout(postToken, 1000);
+    setInterval(postToken, 5000);
+    window.addEventListener('focus', postToken);
     return true;
   })();
   true;
@@ -59,71 +81,109 @@ function rememberOAuthState(url: string) {
 export default function AppWebView({
   url,
   captureSessionToken = false,
+  sessionTokenKey = SESSION_TOKEN_KEY,
+  sessionOwnerKey,
 }: AppWebViewProps) {
-  const webviewRef = useRef<WebView>(null);
+  const webviewRef = useRef<WebViewRef>(null);
   const [loading, setLoading] = useState(true);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const lastTokenRef = useRef<string | null>(null);
+  const trustedOrigin = useMemo(() => parseTrustedOrigin(url), [url]);
 
-  // Load stored session token on mount
+  // Load stored session token on mount.
   useEffect(() => {
-    AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-      lastTokenRef.current = t;
-      setSessionToken(t);
+    void getSessionToken(sessionTokenKey).then((token) => {
+      lastTokenRef.current = token;
+      setSessionToken(token);
     });
-  }, []);
+  }, [sessionTokenKey]);
 
   // When the app returns to foreground, check if the session token was updated
   // (e.g. by the oauth-complete deep link handler storing a new token in
-  // AsyncStorage). If it changed, update state — the resulting URL change
+  // SecureStore). If it changed, update state — the resulting URL change
   // causes the WebView to navigate to the new URL with ?_session automatically.
   // No explicit reload() needed; changing source.uri triggers navigation.
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         setTimeout(() => {
-          AsyncStorage.getItem(SESSION_TOKEN_KEY).then((t) => {
-            if (t && t !== lastTokenRef.current) {
-              lastTokenRef.current = t;
-              setSessionToken(t);
+          void getSessionToken(sessionTokenKey).then((token) => {
+            if (token !== lastTokenRef.current) {
+              lastTokenRef.current = token;
+              setSessionToken(token);
             }
           });
         }, 1000);
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [sessionTokenKey]);
 
-  const handleShouldStartLoad = useCallback((event: { url: string }) => {
-    try {
-      const parsed = new URL(event.url);
-      if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
-        rememberOAuthState(event.url);
-        Linking.openURL(event.url);
-        return false;
+  const handleShouldStartLoad = useCallback(
+    (event: { url: string }) => {
+      if (isTrustedWebViewUrl(event.url, trustedOrigin)) return true;
+      try {
+        const parsed = new URL(event.url);
+        if (parsed.protocol === "about:") return true;
+        parsed.searchParams.delete("_session");
+        if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
+          rememberOAuthState(parsed.toString());
+        }
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          void Linking.openURL(parsed.toString());
+        }
+      } catch {
+        // Invalid and non-web URLs do not belong in the authenticated WebView.
       }
-    } catch {
-      // Invalid URL — let WebView handle it
-    }
-    return true;
-  }, []);
+      return false;
+    },
+    [trustedOrigin],
+  );
 
   // Handle messages from the web app (e.g. open a URL in the system browser)
   const handleMessage = useCallback(
-    (event: { nativeEvent: { data: string } }) => {
+    (event: { nativeEvent: { data: string; url: string } }) => {
+      if (!isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)) return;
       try {
         const msg = JSON.parse(event.nativeEvent.data);
         if (
           captureSessionToken &&
           msg.type === "agent-native-session" &&
           typeof msg.token === "string" &&
-          msg.token.length > 0
+          msg.token.length > 0 &&
+          (!sessionOwnerKey ||
+            (typeof msg.email === "string" && msg.email.trim().length > 0))
         ) {
-          void AsyncStorage.setItem(SESSION_TOKEN_KEY, msg.token);
-          if (msg.token !== lastTokenRef.current) {
-            lastTokenRef.current = msg.token;
-            setSessionToken(msg.token);
-          }
+          void (async () => {
+            await saveSessionToken(msg.token, sessionTokenKey);
+            if (sessionOwnerKey) {
+              await AsyncStorage.setItem(
+                sessionOwnerKey,
+                clipsSessionOwnerKey(
+                  msg.email,
+                  typeof msg.orgId === "string" ? msg.orgId : undefined,
+                ),
+              );
+            }
+            if (msg.token !== lastTokenRef.current) {
+              lastTokenRef.current = msg.token;
+              setSessionToken(msg.token);
+            }
+          })().catch(() => {});
+          return;
+        }
+        if (
+          captureSessionToken &&
+          msg.type === "agent-native-session-cleared"
+        ) {
+          void (async () => {
+            await clearSessionToken(sessionTokenKey);
+            if (sessionOwnerKey) {
+              await AsyncStorage.removeItem(sessionOwnerKey);
+            }
+            lastTokenRef.current = null;
+            setSessionToken(null);
+          })().catch(() => {});
           return;
         }
         if (msg.type === "openUrl" && typeof msg.url === "string") {
@@ -131,42 +191,52 @@ export default function AppWebView({
           // Only open external hosts in Safari — anything else is ignored
           if (EXTERNAL_HOSTS.includes(parsed.hostname)) {
             rememberOAuthState(msg.url);
-            Linking.openURL(msg.url);
+            void Linking.openURL(msg.url);
           }
         }
       } catch {
         // Ignore malformed messages
       }
     },
-    [captureSessionToken],
+    [captureSessionToken, sessionOwnerKey, sessionTokenKey, trustedOrigin],
   );
 
-  const handleLoadEnd = useCallback(() => {
-    setLoading(false);
-    if (captureSessionToken) {
-      webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
-    }
-  }, [captureSessionToken]);
+  const handleLoadEnd = useCallback(
+    (event: { nativeEvent: { url: string } }) => {
+      setLoading(false);
+      if (
+        captureSessionToken &&
+        isTrustedWebViewUrl(event.nativeEvent.url, trustedOrigin)
+      ) {
+        webviewRef.current?.injectJavaScript(SESSION_BRIDGE_SCRIPT);
+      }
+    },
+    [captureSessionToken, trustedOrigin],
+  );
 
   // Append the session token as a query param so the server can promote it to
   // an httpOnly cookie. This bridges the Safari/WKWebView cookie jar gap.
-  const webviewUrl = sessionToken
-    ? `${url}${url.includes("?") ? "&" : "?"}_session=${sessionToken}`
-    : url;
+  const webviewUrl = useMemo(() => {
+    if (!sessionToken) return url;
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set("_session", sessionToken);
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }, [sessionToken, url]);
 
   return (
-    <View style={styles.container}>
+    <View className="flex-1 bg-background-pure">
       <WebView
         ref={webviewRef}
         source={{ uri: webviewUrl }}
-        style={styles.webview}
+        className="flex-1 bg-background-pure"
         onLoadStart={() => setLoading(true)}
         onLoadEnd={handleLoadEnd}
         onShouldStartLoadWithRequest={handleShouldStartLoad}
         onMessage={handleMessage}
-        injectedJavaScript={
-          captureSessionToken ? SESSION_BRIDGE_SCRIPT : undefined
-        }
         javaScriptEnabled
         domStorageEnabled
         sharedCookiesEnabled
@@ -176,31 +246,10 @@ export default function AppWebView({
         pullToRefreshEnabled
       />
       {loading && (
-        <View style={styles.loadingOverlay}>
+        <View className="absolute inset-0 justify-center items-center bg-background-pure">
           <ActivityIndicator size="large" color="#ffffff" />
         </View>
       )}
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  webview: {
-    flex: 1,
-    backgroundColor: "#111111",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#111111",
-  },
-});

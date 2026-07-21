@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommandPalette, type QuickCreateEvent } from "./CommandPalette";
 
-vi.mock("@agent-native/core/client", async () => {
+vi.mock("@agent-native/core/client/navigation", async () => {
   const React = await import("react");
 
   const CommandMenu = Object.assign(
@@ -57,14 +57,15 @@ vi.mock("@agent-native/core/client", async () => {
     },
   );
 
-  return {
-    CommandMenu,
-    useT:
-      () =>
-      (key: string, values?: Record<string, unknown>): string =>
-        values?.title ? `${key}: ${String(values.title)}` : key,
-  };
+  return { CommandMenu };
 });
+
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT:
+    () =>
+    (key: string, values?: Record<string, unknown>): string =>
+      values?.title ? `${key}: ${String(values.title)}` : key,
+}));
 
 describe("CommandPalette quick create", () => {
   let container: HTMLDivElement;

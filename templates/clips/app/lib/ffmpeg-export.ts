@@ -164,15 +164,17 @@ export async function exportMp4(
   onProgress?.({ progress: 0, stage: "loading-ffmpeg" });
   // Stable reference so we can remove it in `finally` — without this the
   // listener piles up across exports and ffmpeg log lines fan out N×.
+  let lastProgress = 0;
   const onLog = (msg: string) => {
-    onProgress?.({ progress: -1, stage: "encoding", message: msg });
+    onProgress?.({ progress: lastProgress, stage: "encoding", message: msg });
   };
   const ffmpeg = await loadFfmpeg(onLog);
 
   // Hook ffmpeg progress events — they fire per frame written.
   const handleProgress = ({ progress }: { progress: number }) => {
+    lastProgress = Math.max(0, Math.min(1, progress));
     onProgress?.({
-      progress: Math.max(0, Math.min(1, progress)),
+      progress: lastProgress,
       stage: "encoding",
     });
   };
@@ -347,7 +349,11 @@ export async function exportGif(
  * before calling the `stitch-recordings` action with the uploaded URL.
  */
 export async function exportConcat(
-  sources: Array<{ url: string; format?: "webm" | "mp4" }>,
+  sources: Array<{
+    url: string;
+    format?: "webm" | "mp4";
+    hasAudio?: boolean;
+  }>,
   onProgress?: (p: ExportProgress) => void,
 ): Promise<Blob> {
   if (sources.length < 2) {
@@ -375,38 +381,41 @@ export async function exportConcat(
       "-i",
       `src${i}.${s.format ?? "webm"}`,
     ]);
+    const includesAudio = sources.every((source) => source.hasAudio !== false);
     const filterParts: string[] = [];
     const concatInputs: string[] = [];
     for (let i = 0; i < sources.length; i++) {
       filterParts.push(`[${i}:v]setpts=PTS-STARTPTS[v${i}]`);
-      filterParts.push(`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`);
-      concatInputs.push(`[v${i}][a${i}]`);
+      if (includesAudio) {
+        filterParts.push(`[${i}:a]asetpts=PTS-STARTPTS[a${i}]`);
+        concatInputs.push(`[v${i}][a${i}]`);
+      } else {
+        concatInputs.push(`[v${i}]`);
+      }
     }
     filterParts.push(
-      `${concatInputs.join("")}concat=n=${sources.length}:v=1:a=1[outv][outa]`,
+      `${concatInputs.join("")}concat=n=${sources.length}:v=1:a=${includesAudio ? 1 : 0}[outv]${includesAudio ? "[outa]" : ""}`,
     );
-    await ffmpeg.exec([
+    const outputArgs = [
       ...inputArgs,
       "-filter_complex",
       filterParts.join(";"),
       "-map",
       "[outv]",
-      "-map",
-      "[outa]",
       "-c:v",
       "libx264",
       "-preset",
       "veryfast",
       "-crf",
       "22",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
+      ...(includesAudio
+        ? ["-map", "[outa]", "-c:a", "aac", "-b:a", "128k"]
+        : []),
       "-movflags",
       "+faststart",
       "stitched.mp4",
-    ]);
+    ];
+    await ffmpeg.exec(outputArgs);
 
     const data = (await ffmpeg.readFile("stitched.mp4")) as Uint8Array;
     const blob = new Blob([data as BlobPart], { type: "video/mp4" });

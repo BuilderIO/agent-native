@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasUnresolvedTool,
+  getAssistantToolSummaryInfo,
+  isCollapsibleAssistantWorkPart,
+  messageTextFromContent,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   ThinkingIndicator,
@@ -93,7 +96,7 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("hides completed historical assistant controls while any chat work is running", () => {
+  it("keeps completed historical assistant controls visible while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -101,7 +104,28 @@ describe("shouldShowAssistantMessageFooter", () => {
         hasRenderableContent: true,
         statusIsTerminal: true,
       }),
-    ).toBe(false);
+    ).toBe(true);
+  });
+});
+
+describe("messageTextFromContent", () => {
+  it("uses visible text only so tool payloads cannot trigger provider suggestions", () => {
+    expect(
+      messageTextFromContent([
+        {
+          type: "tool-call",
+          result: "GitHub read repositories and code context",
+        },
+        {
+          type: "reasoning",
+          text: "Connect GitHub before reading the repository",
+        },
+        {
+          type: "text",
+          text: "Stopped because manage-progress failed 3 times.",
+        },
+      ]),
+    ).toBe("Stopped because manage-progress failed 3 times.");
   });
 });
 
@@ -137,6 +161,52 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("isCollapsibleAssistantWorkPart", () => {
+  it("keeps the Builder handoff card outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "connect-builder",
+      }),
+    ).toBe(false);
+  });
+
+  it("still groups ordinary work and reasoning", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "read-file",
+      }),
+    ).toBe(true);
+    expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
+  });
+});
+
+describe("getAssistantToolSummaryInfo", () => {
+  it("keeps the newest three tool calls visible", () => {
+    expect(
+      getAssistantToolSummaryInfo([
+        { type: "reasoning" },
+        { type: "tool-call", toolName: "read-file" },
+        { type: "tool-call", toolName: "read-file" },
+        { type: "tool-call", toolName: "read-file" },
+        { type: "tool-call", toolName: "read-file" },
+        { type: "tool-call", toolName: "read-file" },
+      ]),
+    ).toEqual({ startIndex: 3, hiddenToolCount: 2 });
+  });
+
+  it("does not summarize three or fewer tool calls", () => {
+    expect(
+      getAssistantToolSummaryInfo([
+        { type: "tool-call", toolName: "read-file" },
+        { type: "tool-call", toolName: "read-file" },
+        { type: "tool-call", toolName: "read-file" },
+      ]),
+    ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
   });
 });
 

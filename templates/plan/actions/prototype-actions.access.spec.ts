@@ -47,6 +47,9 @@ import {
 
 import * as planSchema from "../server/db/schema.js";
 
+// Real libSQL access matrices run alongside every workspace suite in CI.
+vi.setConfig({ testTimeout: 60_000 });
+
 let client: Client;
 let db: LibSQLDatabase<typeof planSchema>;
 let dbDir: string;

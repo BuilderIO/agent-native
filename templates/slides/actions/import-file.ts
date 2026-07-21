@@ -211,11 +211,16 @@ export default defineAction({
     }
 
     if (detectedFormat === "pdf") {
+      const { CanvasFactory, getData } = await import("pdf-parse/worker");
       const { PDFParse } = await import("pdf-parse");
+      PDFParse.setWorker(getData());
       const { convertSectionsToSlides } =
         await import("../server/handlers/import/html-converter.js");
-      const pdf = new PDFParse(new Uint8Array(fileBuffer));
-      const result = await pdf.getText();
+      const pdf = new PDFParse({
+        data: new Uint8Array(fileBuffer),
+        CanvasFactory,
+      });
+      const result = await pdf.getText().finally(() => pdf.destroy());
       const pages = normalizePdfPages(result);
       const textPages = pages.filter((p) => p.text.trim());
       const title = titleFromPath(filename);

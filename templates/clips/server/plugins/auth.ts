@@ -30,6 +30,7 @@ export default createAuthPlugin({
     "/__manifest",
     "/api/view-event",
     "/api/public-recording",
+    "/api/public-meeting",
     "/api/slack",
     "/api/agent-context.json",
     "/api/agent-transcript.json",
@@ -37,12 +38,12 @@ export default createAuthPlugin({
     "/api/media",
     "/api/clips-latest.json",
     "/api/clips-updater.json",
-    // Blob-serving for the dev-fallback (no provider) path.
-    // The route itself enforces resolveAccess + password/expiry checks;
-    // we add it to publicPaths so anonymous viewers on /share/:id can
-    // actually fetch the <video> bytes for public recordings. The chunk
-    // upload POSTs stay behind auth under /api/uploads/*.
+    // Public media-serving routes enforce resolveAccess + password/expiry
+    // checks themselves. They need to bypass the app auth shell so anonymous
+    // viewers and crawlers can fetch public share media. Chunk upload POSTs
+    // stay behind auth under /api/uploads/*.
     "/api/video",
+    "/api/thumbnail",
     "/api/auth/google-calendar",
     "/_agent-native/google/auth-url",
     "/_agent-native/google/callback",

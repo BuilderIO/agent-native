@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { getDbExec } from "@agent-native/core/db";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,6 +12,8 @@ import {
   serializeDistillationQueue,
   stableJson,
 } from "../server/lib/brain.js";
+
+const LEASE_MS = 15 * 60 * 1000;
 
 export default defineAction({
   description:
@@ -41,45 +44,39 @@ export default defineAction({
 
     const now = nowIso();
     const claimToken = nanoid(16);
+    const leaseExpiresAt = new Date(Date.parse(now) + LEASE_MS).toISOString();
     const payload = parseJson<Record<string, unknown>>(queue.payloadJson, {});
-    await db
-      .update(schema.brainIngestQueue)
-      .set({
-        status: "processing",
-        attempts: queue.attempts + 1,
-        payloadJson: stableJson({
-          ...payload,
-          claimToken,
-          claimedAt: now,
-          claimedBy: "brain-agent",
-        }),
-        error: null,
-        runAfter: null,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.brainIngestQueue.id, queue.id),
-          eq(schema.brainIngestQueue.status, "queued"),
-        ),
-      );
+    const result = await getDbExec().execute({
+      sql: `UPDATE brain_ingest_queue
+        SET status = ?, attempts = ?, payload_json = ?, error = NULL,
+            run_after = NULL, lease_token = ?, lease_expires_at = ?, updated_at = ?
+        WHERE id = ? AND status = ? AND updated_at = ?`,
+      args: [
+        "processing",
+        queue.attempts + 1,
+        stableJson({ ...payload, claimedAt: now, claimedBy: "brain-agent" }),
+        claimToken,
+        leaseExpiresAt,
+        now,
+        queue.id,
+        "queued",
+        queue.updatedAt,
+      ],
+    });
+    if (result.rowsAffected === 0) return { claimed: false, queueItem: null };
 
     const [updated] = await db
       .select()
       .from(schema.brainIngestQueue)
       .where(eq(schema.brainIngestQueue.id, queue.id))
       .limit(1);
-    const updatedPayload = parseJson<Record<string, unknown>>(
-      updated?.payloadJson,
-      {},
-    );
     const claimed =
-      updated?.status === "processing" &&
-      updatedPayload.claimToken === claimToken;
+      updated?.status === "processing" && updated?.leaseToken === claimToken;
 
     return {
       claimed,
       queueItem: updated ? serializeDistillationQueue(updated) : null,
+      claimToken: claimed ? claimToken : null,
     };
   },
 });

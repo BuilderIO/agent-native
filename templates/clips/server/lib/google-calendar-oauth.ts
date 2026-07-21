@@ -12,7 +12,11 @@ import { and, eq } from "drizzle-orm";
 import { getQuery, type H3Event } from "h3";
 
 import { getDb, schema } from "../db/index.js";
-import { exchangeCode, getUserInfo } from "./google-calendar-client.js";
+import {
+  exchangeCode,
+  getUserInfo,
+  resolveGoogleOAuthCredentialCandidates,
+} from "./google-calendar-client.js";
 import {
   getActiveOrganizationId,
   normalizeOwnerEmail,
@@ -60,9 +64,8 @@ export async function handleGoogleCalendarCallback(
   }
   const ownerEmail = normalizeOwnerEmail(userEmail);
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const [credentials] = await resolveGoogleOAuthCredentialCandidates();
+  if (!credentials) {
     return oauthErrorPage(
       "Google Calendar OAuth is not configured (missing client id/secret).",
     );
@@ -74,8 +77,8 @@ export async function handleGoogleCalendarCallback(
     // 1. Exchange code -> tokens.
     const tokens = await exchangeCode({
       code,
-      clientId,
-      clientSecret,
+      clientId: credentials.clientId,
+      clientSecret: credentials.clientSecret,
       redirectUri,
     });
     if (!tokens.access_token) {

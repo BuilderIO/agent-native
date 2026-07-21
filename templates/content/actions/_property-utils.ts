@@ -159,6 +159,7 @@ export function serializeDatabase(
     id: database.id,
     documentId: database.documentId,
     title: database.title,
+    systemRole: database.systemRole,
     description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,
@@ -184,8 +185,10 @@ export function serializeDatabaseViewConfig(
   return JSON.stringify(normalizeDatabaseViewConfig(value));
 }
 
-function defaultDatabaseViewConfig(): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView();
+export function defaultDatabaseViewConfig(
+  type: ContentDatabaseView["type"] = "table",
+): ContentDatabaseViewConfig {
+  const view = defaultDatabaseView({}, type);
   return {
     activeViewId: view.id,
     views: [view],
@@ -259,7 +262,7 @@ function defaultDatabaseView(
                 : type === "form"
                   ? "Form"
                   : "Table",
-    type,
+    type: type === "sidebar" ? "table" : type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -283,6 +286,7 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
   if (!value || typeof value !== "object") return null;
   const view = value as Partial<ContentDatabaseView>;
   if (typeof view.id !== "string" || !view.id.trim()) return null;
+  const retiredSidebar = view.type === "sidebar";
   const type =
     view.type === "board" ||
     view.type === "list" ||
@@ -296,7 +300,9 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     id: view.id,
     name:
       typeof view.name === "string" && view.name.trim()
-        ? view.name.trim()
+        ? retiredSidebar && view.name.trim() === "Sidebar"
+          ? "Table"
+          : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
@@ -502,6 +508,9 @@ export async function listPropertiesForDatabase(
       definition: {
         id: definition.id,
         databaseId: definition.databaseId,
+        systemRole: definition.systemRole as
+          | import("../shared/api.js").DocumentPropertySystemRole
+          | null,
         name: definition.name,
         type,
         description: definition.description,
@@ -525,7 +534,7 @@ export async function listPropertiesForDatabase(
                 blockFieldContent: blockContentByPropertyId.get(definition.id),
               })
             : parsePropertyValue(storedValue?.valueJson),
-      editable: !isComputedPropertyType(type),
+      editable: !definition.systemRole && !isComputedPropertyType(type),
     };
   });
 
@@ -571,6 +580,9 @@ function serializePropertyDefinition(
   return {
     id: definition.id,
     databaseId: definition.databaseId,
+    systemRole: definition.systemRole as
+      | import("../shared/api.js").DocumentPropertySystemRole
+      | null,
     name: definition.name,
     type,
     description: definition.description,
@@ -695,7 +707,9 @@ export async function listPropertiesForDatabaseDocuments(
                   ),
                 })
               : parsePropertyValue(storedValue?.valueJson),
-        editable: !isComputedPropertyType(propertyDefinition.type),
+        editable:
+          !definition.systemRole &&
+          !isComputedPropertyType(propertyDefinition.type),
       };
     });
 

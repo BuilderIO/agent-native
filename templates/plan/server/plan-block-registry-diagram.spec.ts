@@ -30,6 +30,7 @@ const htmlDiagramData = {
   css: ".diagram-panel { padding: 12px; }",
   caption: "The policy module owns the unstable branch.",
   frame: "hide" as const,
+  renderMode: "design" as const,
 };
 
 function diagramContent(): PlanContent {
@@ -121,6 +122,7 @@ describe("plan block registry — diagram", () => {
 
     expect(folder["plan.mdx"]).toContain("<Diagram");
     expect(folder["plan.mdx"]).toContain('frame="hide"');
+    expect(folder["plan.mdx"]).toContain('renderMode="design"');
     expect(folder["plan.mdx"]).toContain("diagram-panel");
     expect(folder["plan.mdx"]).toContain("<svg");
 

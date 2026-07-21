@@ -82,7 +82,7 @@ Exactly ONE connected client applies the authoritative snapshot; the rest
 receive it through Yjs sync:
 
 ```ts
-import { isReconcileLeadClient } from "@agent-native/core/client";
+import { isReconcileLeadClient } from "@agent-native/core/client/collab";
 
 if (
   loaded.updatedAt > lastAppliedUpdatedAt.current &&
@@ -161,7 +161,7 @@ export default createCollabPlugin({
 ### 3. Use the client hook
 
 ```ts
-import { useCollaborativeDoc, emailToColor, emailToName } from "@agent-native/core/client";
+import { useCollaborativeDoc, emailToColor, emailToName } from "@agent-native/core/client/collab";
 
 const { ydoc, awareness, activeUsers, agentActive, agentPresent } =
   useCollaborativeDoc({
@@ -278,7 +278,7 @@ Client rendering:
 import {
   usePresence, useRecentEdits, RecentEditHighlights,
   PresenceBar, LiveCursorOverlay, RemoteSelectionRings,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
 
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 const recentEdits = useRecentEdits(others); // non-expired, ~6s TTL
@@ -303,7 +303,7 @@ Core ships two primitives:
 **Yjs surfaces — `useCollabUndo`** (wraps `Y.UndoManager` lifecycle):
 
 ```ts
-import { useCollabUndo } from "@agent-native/core/client";
+import { useCollabUndo } from "@agent-native/core/client/collab";
 
 const { undo, redo, canUndo, canRedo, transactLocal, localOrigin } =
   useCollabUndo({

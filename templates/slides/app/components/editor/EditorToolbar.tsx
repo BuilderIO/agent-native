@@ -1,16 +1,15 @@
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
   appPath,
-  useT,
-} from "@agent-native/core/client";
-import {
-  AgentToggleButton,
-  ShareButton,
-  PresenceBar,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { type CollabUser } from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   IconArrowLeft,
   IconPlayerPlay,
@@ -955,6 +954,26 @@ graph TD
           secondaryShareUrlDescription={t(
             "editorToolbar.presentationLinkDescription",
           )}
+          shareTabs={{
+            tabs: [
+              {
+                value: "context",
+                label: "Context",
+                content: (
+                  <CreativeContextShareTab
+                    resource={{
+                      appId: "slides",
+                      resourceType: "deck",
+                      resourceId: deckId,
+                      title: deckTitle,
+                      updatedAt: deck.updatedAt,
+                      preview: { kind: "document", label: "Deck" },
+                    }}
+                  />
+                ),
+              },
+            ],
+          }}
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}

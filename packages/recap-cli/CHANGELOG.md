@@ -1,5 +1,41 @@
 # @agent-native/recap-cli
 
+## 0.4.7
+
+### Patch Changes
+
+- 687fefc: Bundle the visual recap workflow as a package asset instead of an escaped source string.
+
+## 0.4.6
+
+### Patch Changes
+
+- fb32d85: Run configurable PR Visual Recap jobs with Bash on every runner platform.
+
+## 0.4.5
+
+### Patch Changes
+
+- 570be31: Skip visual recap publishing when the authoring agent does not produce recap source.
+
+## 0.4.4
+
+### Patch Changes
+
+- a485fbe: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
+
+## 0.4.3
+
+### Patch Changes
+
+- 9f2f7a7: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
+
+## 0.4.2
+
+### Patch Changes
+
+- 2625de5: Refuse to capture PR recap screenshots until the rendered document is ready, preventing loading skeletons from being posted as previews.
+
 ## 0.4.1
 
 ### Patch Changes

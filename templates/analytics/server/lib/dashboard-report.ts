@@ -361,7 +361,7 @@ function positiveIntEnv(name: string): number | null {
 async function waitForDashboardReportReady(
   page: any,
   timeout: number,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await page.waitForFunction(
       `(() => {
@@ -379,6 +379,7 @@ async function waitForDashboardReportReady(
       await document.fonts?.ready;
     })()`);
     await page.waitForTimeout(750);
+    return true;
   } catch (err: any) {
     const detail = await page
       .evaluate(`(() => {
@@ -391,6 +392,12 @@ async function waitForDashboardReportReady(
         };
       })()`)
       .catch(() => null);
+    if (detail?.ready === "true") {
+      console.warn(
+        "[dashboard-report] Dashboard surface stayed partially loaded; capturing the available panels.",
+      );
+      return false;
+    }
     const message = detail
       ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify(detail)}`
       : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
@@ -788,6 +795,7 @@ async function captureDashboardPngWithFallback(
       captureScale: 0.85,
       ...(serverless
         ? {
+            readyTimeout: 45_000,
             secondReadyTimeout: 25_000,
             totalTimeout: SERVERLESS_FULL_ATTEMPT_TIMEOUT_MS,
           }
@@ -799,7 +807,7 @@ async function captureDashboardPngWithFallback(
       captureScale: 0.7,
       ...(serverless
         ? {
-            readyTimeout: 55_000,
+            readyTimeout: 35_000,
             secondReadyTimeout: 15_000,
             totalTimeout: SERVERLESS_LIGHTWEIGHT_ATTEMPT_TIMEOUT_MS,
           }
@@ -818,7 +826,7 @@ async function captureDashboardPngWithFallback(
       reportPanelLimit: 8,
       ...(serverless
         ? {
-            readyTimeout: 40_000,
+            readyTimeout: 25_000,
             secondReadyTimeout: 10_000,
             totalTimeout: 45_000,
           }

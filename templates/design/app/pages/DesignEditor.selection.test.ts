@@ -2546,6 +2546,54 @@ describe("U3: local content history fallback mirror", () => {
       }),
     ).toBe(stack);
   });
+
+  it("does NOT coalesce a user-edit mirror across an agent checkpoint (isCheckpoint guard)", () => {
+    // Repro for: AI creates design → user edits → Cmd+Z wipes all AI work.
+    // The agent checkpoint must remain as a distinct undo entry so the first
+    // Cmd+Z reverts only the user edit and a second Cmd+Z reverts the AI work.
+    const checkpoint = {
+      fileId: "a",
+      before: "",
+      after: "<ai-design/>",
+      isCheckpoint: true,
+    };
+    const stack = [checkpoint];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "a",
+      before: "<ai-design/>",
+      after: "<ai-design/><user-edit/>",
+    });
+    expect(next).toEqual([
+      checkpoint,
+      {
+        fileId: "a",
+        before: "<ai-design/>",
+        after: "<ai-design/><user-edit/>",
+      },
+    ]);
+  });
+
+  it("does NOT coalesce an incoming agent checkpoint into a preceding user edit (reverse ordering)", () => {
+    // Mirror of the case above: a user edit is already on the stack when the
+    // agent edits the same file. The incoming checkpoint is contiguous
+    // (agent.before === user.after) so the one-sided guard used to merge it
+    // backward and drop isCheckpoint — one Cmd+Z then wiped both.
+    const userEdit = {
+      fileId: "a",
+      before: "<design/>",
+      after: "<design/><user-edit/>",
+    };
+    const stack = [userEdit];
+    const checkpoint = {
+      fileId: "a",
+      before: "<design/><user-edit/>",
+      after: "<design/><user-edit/><ai-edit/>",
+      isCheckpoint: true,
+    };
+    const next = mergeLocalContentHistoryFallback(stack, checkpoint);
+    expect(next).toEqual([userEdit, checkpoint]);
+    expect(next[next.length - 1]?.isCheckpoint).toBe(true);
+  });
 });
 
 // L11: screen rename must preserve the file extension instead of writing the

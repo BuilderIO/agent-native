@@ -116,8 +116,7 @@ export default createAgentNativeEmbeddedPlugin({
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -295,8 +294,10 @@ for await (const chunk of sendMessage(
 スタンドアロンのサイドカー アプリまたはクロスオリジン iframe の場合は、下位レベルの `<AgentNative />` を使用します。 iframe サイドカーをレンダリングし、ページ コンテキスト、ライブ クライアント actions、およびホストの更新/ナビゲーション コマンドを 1 か所で接続します。
 
 ```tsx
-import { AgentNative, defineClientAction } from "@agent-native/core/client";
-
+import {
+  AgentNative,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -383,8 +384,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -461,8 +461,7 @@ CLAW スタイルの同僚の場合、iframe はライブ ブラウザ タブを
 
 ```tsx
 import { useEffect } from "react";
-import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
-
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -514,8 +513,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

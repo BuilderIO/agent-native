@@ -1,45 +1,57 @@
 import {
+  generateTabId,
+  AgentChatSurface,
+  setAgentChatContextItem,
+  removeAgentChatContextItem,
+  useAgentChatContext,
+} from "@agent-native/core/client/agent-chat";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
+import {
+  useCollaborativeDoc,
+  isReconcileLeadClient,
+  dedupeCollabUsersByEmail,
+  emailToColor,
+  emailToName,
+  usePresence,
+  useFollowUser,
+  useRecentEdits,
+  type CollabUser,
+  type AttributedRecentEdit,
+  type OtherPresence,
+} from "@agent-native/core/client/collab";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
+import {
   useActionQuery,
   useActionMutation,
   callAction,
   tryCallActionKeepalive,
   useSession,
-  useCollaborativeDoc,
-  isReconcileLeadClient,
-  generateTabId,
-  dedupeCollabUsersByEmail,
-  emailToColor,
-  emailToName,
-  AgentChatSurface,
-  ShareButton,
-  agentNativePath,
-  appBasePath,
-  isEmbedAuthActive,
   getBrowserTabId,
   readClientAppState,
   setClientAppState,
   useReconciledState,
-  usePresence,
-  useFollowUser,
+  useChangeVersion,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import {
   useReviewComments,
   useSendReviewThreadToAgent,
+  type ReviewThread,
+} from "@agent-native/core/client/review";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import type { ReviewComment } from "@agent-native/core/review";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
   LiveCursorOverlay,
   RemoteSelectionRings,
   RecentEditHighlights,
-  useRecentEdits,
-  useT,
-  useChangeVersion,
-  setAgentChatContextItem,
-  removeAgentChatContextItem,
-  useAgentChatContext,
-  useAvatarUrl,
-  type CollabUser,
-  type AttributedRecentEdit,
-  type OtherPresence,
-  type PromptComposerSubmitOptions,
-  type ReviewThread,
-} from "@agent-native/core/client";
-import type { ReviewComment } from "@agent-native/core/review";
+} from "@agent-native/toolkit/collab-ui";
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
@@ -76,7 +88,7 @@ import {
   DESIGN_CAPABILITY_NAMES,
   hasCapability,
 } from "@shared/design-source-capabilities";
-import { FULL_APP_BUILDING_ENABLED, readFusionApp } from "@shared/full-app";
+import { FULL_APP_BUILDING, readFusionApp } from "@shared/full-app";
 import { shouldUseLiveFileContent } from "@shared/html-content";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
@@ -94,6 +106,13 @@ import {
   sortMotionKeyframes,
   upsertMotionKeyframeAtTime,
 } from "@shared/motion-timeline";
+import {
+  designRepromptPendingStateKey,
+  designRepromptProposalStateKey,
+  isNodeRewriteProposal,
+  isPendingDesignReprompt,
+  type NodeRewriteProposal,
+} from "@shared/node-rewrite";
 import {
   getPenPathGeometry,
   parsePenNodes,
@@ -222,6 +241,7 @@ import {
   type DesignExtensionSlotContext,
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
+import { dndHostLog } from "@/components/design/dnd-debug";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
   EditPanel,
@@ -365,10 +385,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type { RepromptDraftRequest } from "@/components/visual-editor";
 import {
   DrawOverlay as SharedDrawOverlay,
   type DrawAnnotation,
 } from "@/components/visual-editor/DrawOverlay";
+import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import {
@@ -3169,7 +3191,10 @@ function DesignEditor() {
         return;
       }
       undoManagerRef.current?.clear(true, false);
-      recordLocalContentHistoryChangeFallback(change);
+      recordLocalContentHistoryChangeFallback({
+        ...change,
+        isCheckpoint: true,
+      });
       clearRedoStacks();
       syncUndoRedoState();
     },
@@ -3268,6 +3293,8 @@ function DesignEditor() {
   // into the same agent submission.
   const [drawMode, setDrawMode] = useState(false);
   const [pinMode, setPinMode] = useState(false);
+  const [repromptDraftRequest, setRepromptDraftRequest] =
+    useState<RepromptDraftRequest | null>(null);
   // Overview and focused canvases retain separate annotation batches. Each
   // counter is bumped only for a deliberate close or a confirmed send; they
   // must not share a signal, or closing a focused-screen batch would also
@@ -3962,6 +3989,12 @@ function DesignEditor() {
     });
   }, [t]);
 
+  const warnChangesDiscarded = useCallback(() => {
+    toast.error(t("visualEditor.changesDiscarded"), {
+      id: "design-save-outbox-discarded",
+    });
+  }, [t]);
+
   const journalOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
       try {
@@ -4005,12 +4038,21 @@ function DesignEditor() {
       if (result.failed.length > 0 && navigator.onLine === false) {
         warnChangesWillRetry();
       }
+      if (result.dropped.length > 0) {
+        warnChangesDiscarded();
+      }
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
       }
     }
-  }, [designSaveActorScope, id, queryClient, warnChangesWillRetry]);
+  }, [
+    designSaveActorScope,
+    id,
+    queryClient,
+    warnChangesWillRetry,
+    warnChangesDiscarded,
+  ]);
 
   useEffect(() => {
     const handleRetryOpportunity = () => void retryDesignSaveOutbox();
@@ -4851,6 +4893,65 @@ function DesignEditor() {
       return pending ? { ...file, content: pending.content } : file;
     });
   }, [pendingLocalFileContentsSnapshot, serverFiles]);
+  const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
+    useState<NodeRewriteProposal[]>([]);
+  const proposalFileIds = useMemo(() => files.map((file) => file.id), [files]);
+  useEffect(() => {
+    if (!id || proposalFileIds.length === 0) {
+      setPendingNodeRewriteProposals([]);
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      proposalFileIds.map(async (fileId) => {
+        const pending = await readClientAppState(
+          designRepromptPendingStateKey(id, fileId),
+        ).catch(() => null);
+        if (!isPendingDesignReprompt(pending)) return null;
+        const current = await readClientAppState(
+          designRepromptProposalStateKey(id, fileId, pending.repromptId),
+        ).catch(() => null);
+        if (isNodeRewriteProposal(current)) return current;
+        if (!pending.priorProposalId || !pending.priorRepromptId) return null;
+        const prior = await readClientAppState(
+          designRepromptProposalStateKey(id, fileId, pending.priorRepromptId),
+        ).catch(() => null);
+        return isNodeRewriteProposal(prior) &&
+          prior.proposalId === pending.priorProposalId
+          ? prior
+          : null;
+      }),
+    ).then((values) => {
+      if (cancelled) return;
+      setPendingNodeRewriteProposals(
+        values
+          .filter(isNodeRewriteProposal)
+          .filter(
+            (proposal) =>
+              proposal.designId === id &&
+              proposalFileIds.includes(proposal.fileId),
+          )
+          .sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [appStateVersion, id, proposalFileIds]);
+  const pendingNodeRewriteByFile = useMemo(
+    () =>
+      new Map(
+        pendingNodeRewriteProposals.map((proposal) => [
+          proposal.fileId,
+          proposal,
+        ]),
+      ),
+    [pendingNodeRewriteProposals],
+  );
+  const pendingNodeRewriteScreenIds = useMemo(
+    () => new Set(pendingNodeRewriteByFile.keys()),
+    [pendingNodeRewriteByFile],
+  );
   // Document-wide color palette source for EditPanel's Fill section — every
   // file's id/content in the current design, not just the active one. Kept
   // as its own memo (rather than passing `files` directly) so EditPanel
@@ -5840,6 +5941,9 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const activeNodeRewriteProposal = activeFile
+    ? (pendingNodeRewriteByFile.get(activeFile.id) ?? null)
+    : null;
   const designBottomToolbarMode = getDesignBottomToolbarMode({
     isSignedIn,
     canEditDesign,
@@ -8958,6 +9062,7 @@ function DesignEditor() {
     () => readFusionApp(designDataJson),
     [designDataJson],
   );
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat
   // `fusionUrl` written by the "Make it real" migration; falls back to the
@@ -10511,6 +10616,7 @@ function DesignEditor() {
       null;
     const anchor = createElementReviewAnchor({
       nodeId,
+      selector: selectedElement.selector,
       rect: selectedElement.boundingRect,
       viewportWidth:
         activeBreakpointWidthState ??
@@ -12623,6 +12729,79 @@ function DesignEditor() {
     ],
   );
 
+  const handleRepromptDraftConsumed = useCallback((nonce: number) => {
+    setRepromptDraftRequest((current) =>
+      current?.nonce === nonce ? null : current,
+    );
+  }, []);
+
+  const openRepromptComposer = useCallback(
+    (screenId: string, info: ElementInfo) => {
+      if (!id || !canEditDesign) return;
+      const screen = overviewScreens.find(
+        (candidate) => candidate.id === screenId,
+      );
+      if (
+        !screen ||
+        resolveOverviewScreenSourceType(screen, designSourceType) !== "inline"
+      ) {
+        return;
+      }
+      const projection = getCodeLayerProjectionForScreen(screenId);
+      const node = projection
+        ? resolveCodeLayerNodeFromElementInfo(projection, info)
+        : null;
+      const stableNodeId =
+        node?.dataAttributes["data-agent-native-node-id"]?.trim() ?? node?.id;
+      const selector = node?.selector ?? info.selector;
+      if (!stableNodeId && !selector) return;
+
+      handleScreenElementSelect(screenId, info, undefined, {
+        persistPendingNodeId: false,
+      });
+      setCommentsHidden(false);
+      viewModeRef.current = "single";
+      setActiveFileId(screenId);
+      setScreenZoom(FOCUSED_SCREEN_ZOOM);
+      setViewMode("single");
+      setActiveTool("comment");
+      setMode("annotate");
+      setPinMode(true);
+      setDrawMode(false);
+      setRepromptDraftRequest({
+        nonce: Date.now() + Math.random(),
+        fileId: screenId,
+        target: {
+          ...(stableNodeId ? { nodeId: stableNodeId } : {}),
+          ...(selector ? { selector } : {}),
+        },
+      });
+    },
+    [
+      canEditDesign,
+      designSourceType,
+      getCodeLayerProjectionForScreen,
+      handleScreenElementSelect,
+      id,
+      overviewScreens,
+    ],
+  );
+
+  const handleContextMenuReprompt = useCallback(() => {
+    const screenId = activeFile?.id ?? activeFileId;
+    if (!screenId || !selectedElement) return;
+    openRepromptComposer(screenId, selectedElement);
+  }, [activeFile?.id, activeFileId, openRepromptComposer, selectedElement]);
+
+  const handleContextMenuRepromptLayer = useCallback(
+    (candidate: CanvasLayerHitCandidate) => {
+      const screenId = candidate.screenId ?? activeFile?.id ?? activeFileId;
+      if (!screenId) return;
+      openRepromptComposer(screenId, candidate.info);
+    },
+    [activeFile?.id, activeFileId, openRepromptComposer],
+  );
+
   const commitVisualStyles = useCallback(
     (
       selector: string,
@@ -13947,6 +14126,13 @@ function DesignEditor() {
         anchorRect?: { x: number; y: number; width: number; height: number };
       },
     ) => {
+      dndHostLog("persist:begin", {
+        selector,
+        anchorSelector,
+        placement,
+        dropMode: details?.dropMode,
+        source: activeCanvasSourceType,
+      });
       if (!canEditDesign) return false;
       if (!activeFile) return false;
       if (activeCanvasSourceType === "localhost") {
@@ -13985,6 +14171,10 @@ function DesignEditor() {
           ? { nodeId: anchorNode.id }
           : { selector: anchorSelector },
         placement,
+      });
+      dndHostLog("persist:rewrite", {
+        status: patch.result.status,
+        message: patch.result.message,
       });
       if (patch.result.status !== "applied") {
         toast.error(
@@ -14490,6 +14680,10 @@ function DesignEditor() {
           ? { nodeId: anchorNode.id }
           : { selector: anchorSelector },
         placement,
+      });
+      dndHostLog("persist:rewrite", {
+        status: patch.result.status,
+        message: patch.result.message,
       });
       if (patch.result.status !== "applied") {
         toast.error(
@@ -18200,6 +18394,12 @@ function DesignEditor() {
       sourcePointerOffset?: { x: number; y: number };
       styleSnapshot?: PortableStyleSnapshot;
     }) => {
+      dndHostLog("persist:cross-screen", {
+        sourceScreenId,
+        targetScreenId,
+        targetAnchorPlacement,
+        targetDropMode,
+      });
       if (!canEditDesign) return;
       if (sourceScreenId === targetScreenId) return;
 
@@ -20934,6 +21134,68 @@ function DesignEditor() {
     ],
   );
 
+  const handleReviewNodeRewrite = useCallback(
+    (proposal: NodeRewriteProposal) => {
+      if (viewModeRef.current === "overview") {
+        pendingOverviewScreenSelectionRef.current = null;
+        pendingOverviewLayerSelectionRef.current = null;
+        clearPendingOverviewLayerSelectionTimer();
+        setCreatedOverviewLayerSelection(null);
+        setActiveFileId(proposal.fileId);
+        setOverviewSelectedScreenIds([proposal.fileId]);
+        setSelectedLayerIdsState([proposal.fileId]);
+        setSelectedElement(null);
+        setHoveredElement(null);
+        setActiveTool("move");
+        setMode("edit");
+        setPinMode(false);
+        setDrawMode(false);
+        if (activeBreakpointWidthStateRef.current !== undefined) {
+          handleBreakpointBarSelect(undefined);
+        }
+        const reviewFrame = getAllScreenFrameEntries({
+          overviewScreens,
+          canvasFrameGeometryById,
+          boardContentBounds,
+          boardFileId,
+        }).find((frame) => frame.id === proposal.fileId);
+        const reviewBounds = reviewFrame
+          ? getFrameGroupBounds([reviewFrame])
+          : null;
+        if (reviewBounds) {
+          cameraCommandNonceRef.current += 1;
+          setCameraCommand({
+            fitBounds: reviewBounds,
+            nonce: cameraCommandNonceRef.current,
+            paddingScreenPx: 96,
+          });
+        }
+        return;
+      }
+      handleSidebarScreenSelect(proposal.fileId);
+      setActiveTool("move");
+      setMode("edit");
+      setPinMode(false);
+      setDrawMode(false);
+    },
+    [
+      clearPendingOverviewLayerSelectionTimer,
+      boardContentBounds,
+      boardFileId,
+      canvasFrameGeometryById,
+      handleBreakpointBarSelect,
+      handleSidebarScreenSelect,
+      overviewScreens,
+    ],
+  );
+  const handleReviewPendingScreen = useCallback(
+    (screenId: string) => {
+      const proposal = pendingNodeRewriteByFile.get(screenId);
+      if (proposal) handleReviewNodeRewrite(proposal);
+    },
+    [handleReviewNodeRewrite, pendingNodeRewriteByFile],
+  );
+
   const handleSidebarScreenOverview = useCallback(() => {
     const restoredOverviewSelection = getRestoredOverviewSelection();
     pendingOverviewScreenSelectionRef.current = null;
@@ -23488,6 +23750,22 @@ function DesignEditor() {
           </span>
         ),
         content: shareSendToTab,
+      },
+      {
+        value: "context",
+        label: <span className={designShareTabLabelClassName}>Context</span>,
+        content: (
+          <CreativeContextShareTab
+            resource={{
+              appId: "design",
+              resourceType: "design",
+              resourceId: id ?? "",
+              title: design?.title ?? "Untitled design",
+              updatedAt: design?.updatedAt ?? undefined,
+              preview: { kind: "document", label: "Design project" }, // i18n-ignore share-tab preview descriptor, template pages are raw-English
+            }}
+          />
+        ),
       },
     ],
   };
@@ -27032,7 +27310,10 @@ function DesignEditor() {
             details,
           ) => {
             activateResponsiveScope();
-            handleScreenVisualStructureChange(
+            // Return the result so the bridge gets a real applied/false/pending
+            // ack; without it a rejected drop could never roll back (undefined
+            // !== false read as applied).
+            return handleScreenVisualStructureChange(
               screen.id,
               selector,
               anchorSelector,
@@ -27075,6 +27356,15 @@ function DesignEditor() {
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
           commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(screen.filename)}`}
+          repromptDraftRequest={
+            repromptDraftRequest?.fileId === screen.id
+              ? repromptDraftRequest
+              : null
+          }
+          nodeRewriteCanvasTarget={
+            screenIsActive && breakpointWidthPx === undefined
+          }
+          onRepromptDraftConsumed={handleRepromptDraftConsumed}
         />
       );
     },
@@ -27136,6 +27426,8 @@ function DesignEditor() {
       cssVarValues,
       id,
       design?.title,
+      repromptDraftRequest,
+      handleRepromptDraftConsumed,
       t,
     ],
   );
@@ -28024,6 +28316,98 @@ function DesignEditor() {
     </>
   );
 
+  const pendingNodeRewriteCompact = rightSidebarWidth < 320;
+  const pendingNodeRewriteLabel = t("designEditor.nodeRewrite.pendingReview", {
+    count: pendingNodeRewriteProposals.length,
+  });
+  const pendingNodeRewriteButtonContent = (
+    <>
+      {!pendingNodeRewriteCompact ? (
+        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+      ) : null}
+      <IconFileStack className="size-3.5 shrink-0" />
+      {pendingNodeRewriteCompact ? (
+        <span className="min-w-4 rounded bg-primary/10 px-1 text-center text-[10px] font-semibold tabular-nums text-primary">
+          {pendingNodeRewriteProposals.length}
+        </span>
+      ) : (
+        <span className="truncate">{pendingNodeRewriteLabel}</span>
+      )}
+    </>
+  );
+  const pendingNodeRewriteButtonClassName = cn(
+    "h-8 rounded-md border-primary/30 bg-primary/5 text-xs hover:bg-primary/10",
+    pendingNodeRewriteCompact
+      ? "min-w-10 gap-1 px-1.5"
+      : "max-w-44 gap-1.5 px-2",
+  );
+  const pendingNodeRewriteControl =
+    pendingNodeRewriteProposals.length ===
+    0 ? null : pendingNodeRewriteProposals.length === 1 ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={pendingNodeRewriteButtonClassName}
+            aria-label={pendingNodeRewriteLabel}
+            onClick={() =>
+              handleReviewNodeRewrite(pendingNodeRewriteProposals[0]!)
+            }
+          >
+            {pendingNodeRewriteButtonContent}
+          </Button>
+        </TooltipTrigger>
+        {pendingNodeRewriteCompact ? (
+          <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
+        ) : null}
+      </Tooltip>
+    ) : (
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={pendingNodeRewriteButtonClassName}
+                aria-label={pendingNodeRewriteLabel}
+              >
+                {pendingNodeRewriteButtonContent}
+                {!pendingNodeRewriteCompact ? (
+                  <IconChevronDown className="size-3 shrink-0 opacity-70" />
+                ) : null}
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          {pendingNodeRewriteCompact ? (
+            <TooltipContent>{pendingNodeRewriteLabel}</TooltipContent>
+          ) : null}
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel className="text-xs text-muted-foreground">
+            {t("designEditor.nodeRewrite.pendingReviewMenu")}
+          </DropdownMenuLabel>
+          {pendingNodeRewriteProposals.map((proposal) => (
+            <DropdownMenuItem
+              key={proposal.proposalId}
+              onClick={() => handleReviewNodeRewrite(proposal)}
+            >
+              <IconFileStack className="size-4" />
+              <span className="min-w-0 flex-1 truncate">
+                {prettyScreenName(proposal.filename)}
+              </span>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {proposal.variants.length}
+              </span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+
   const rightSidebarActions = (
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
       <div className="flex min-h-8 items-center gap-1">
@@ -28037,6 +28421,7 @@ function DesignEditor() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {pendingNodeRewriteControl}
           {canEditDesign && reviewAgentQueueCount > 0 ? (
             <Button
               type="button"
@@ -28440,6 +28825,8 @@ function DesignEditor() {
                     ]}
                     scope={designChatScope}
                     showScopeBadge={false}
+                    showHeader={false}
+                    showTabBar={false}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
                     composerSlot={
@@ -28650,6 +29037,7 @@ function DesignEditor() {
               suggestAutoLayout: t(
                 "designEditor.autoLayoutSuggestion.menuLabel",
               ),
+              reprompt: t("designEditor.nodeRewrite.regenerate"),
             }}
             // U4/U8: hasCanvasClipboard only reflects copies made in THIS
             // tab/window. Peek the live system clipboard right as the menu
@@ -28749,6 +29137,25 @@ function DesignEditor() {
               Boolean(selectedElement) &&
               !selectedElementAlreadyComponent
             }
+            canReprompt={
+              canEditDesign &&
+              ((Boolean(selectedElement) &&
+                activeCanvasSourceType === "inline") ||
+                canvasLayerHitCandidates.some((candidate) => {
+                  const screen = overviewScreens.find(
+                    (item) =>
+                      item.id ===
+                      (candidate.screenId ?? activeFile?.id ?? activeFileId),
+                  );
+                  return (
+                    Boolean(screen) &&
+                    resolveOverviewScreenSourceType(
+                      screen!,
+                      designSourceType,
+                    ) === "inline"
+                  );
+                }))
+            }
             // Figma instance-only cluster: only meaningful when the current
             // selection IS a recognised component instance.
             isComponentInstance={
@@ -28829,6 +29236,8 @@ function DesignEditor() {
             onCreateComponent={
               canEditDesign ? handleCreateComponentHotkey : undefined
             }
+            onReprompt={handleContextMenuReprompt}
+            onRepromptLayer={handleContextMenuRepromptLayer}
             onGoToMainComponent={
               canEditDesign ? handleGoToMainComponentMenuAction : undefined
             }
@@ -28896,7 +29305,7 @@ function DesignEditor() {
                       only while the flag is on — the fusion actions the
                       banner calls are gated on the same flag, so rendering it
                       with the flag off would show controls that all error. */}
-                  {FULL_APP_BUILDING_ENABLED && id && fusionApp && (
+                  {fullAppBuildingEnabled && id && fusionApp && (
                     <FusionAppBanner
                       designId={id}
                       status={fusionApp.status}
@@ -28981,6 +29390,8 @@ function DesignEditor() {
                         hiddenScreenIds={hiddenLayerIds}
                         lockedScreenIds={lockedLayerIds}
                         fullViewScreenIds={fullViewScreenIds}
+                        pendingReviewScreenIds={pendingNodeRewriteScreenIds}
+                        onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
@@ -29349,6 +29760,13 @@ function DesignEditor() {
                         designTitle={design?.title}
                         commentContextId={`${id}:${activeFile.id}`}
                         commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(activeFile.filename)}`}
+                        repromptDraftRequest={
+                          repromptDraftRequest?.fileId === activeFile.id
+                            ? repromptDraftRequest
+                            : null
+                        }
+                        nodeRewriteCanvasTarget
+                        onRepromptDraftConsumed={handleRepromptDraftConsumed}
                         onPrototypeNavigate={(screen) => {
                           if (!screen) return;
                           const norm = (s: string) =>
@@ -30080,6 +30498,15 @@ function DesignEditor() {
           }
         }}
       />
+
+      {id && activeNodeRewriteProposal ? (
+        <NodeRewriteProposalPanel
+          designId={id}
+          fileId={activeNodeRewriteProposal.fileId}
+          canvasSelector='[data-node-rewrite-canvas-target="true"]'
+          proposalSnapshot={activeNodeRewriteProposal}
+        />
+      ) : null}
 
       {/* Localhost write-consent dialog: shown when the agent or editor wants to
           persist an edit to a local HTML/CSS source file and no valid grant

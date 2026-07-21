@@ -5,7 +5,7 @@ import { test, expect, type Page, type APIResponse } from "@playwright/test";
  *
  * Area under test: the NEW left-margin drag-grip block menu in the shared
  * RichMarkdownEditor's `DragHandle` ProseMirror plugin
- * (packages/core/src/client/rich-markdown-editor/DragHandle.ts), driven inside the
+ * (packages/toolkit/src/editor/DragHandle.ts), driven inside the
  * single-document plan editor (PlanDocumentEditor / SharedRichEditor). The whole
  * plan body is ONE ProseMirror doc; its editable surface is `.an-rich-md-prose`
  * inside `.plan-document-editor-surface`, and that surface lives inside the

@@ -1,9 +1,6 @@
-import {
-  callAction,
-  useSendToAgentChat,
-  useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconFlask, IconClock, IconSearch } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";

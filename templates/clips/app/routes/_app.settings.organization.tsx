@@ -1,4 +1,5 @@
-import { useActionQuery, useSession, useT } from "@agent-native/core/client";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMailFast, IconUsers } from "@tabler/icons-react";
 import { useMemo } from "react";
 
@@ -14,7 +15,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { BrandingEditor } from "@/components/workspace/branding-editor";
+import {
+  BrandingEditor,
+  type RecordingVisibility,
+} from "@/components/workspace/branding-editor";
 import { InviteDialog } from "@/components/workspace/invite-dialog";
 import {
   MembersList,
@@ -32,7 +36,7 @@ interface OrganizationStateResponse {
     name: string;
     brandColor: string;
     brandLogoUrl: string | null;
-    defaultVisibility: string;
+    defaultVisibility: RecordingVisibility;
     ownerEmail?: string;
   } | null;
   members: {
@@ -130,6 +134,7 @@ export default function OrganizationSettingsRoute() {
             initialName={organization.name}
             initialBrandColor={organization.brandColor}
             initialBrandLogoUrl={organization.brandLogoUrl}
+            initialDefaultVisibility={organization.defaultVisibility}
           />
         ) : (
           <Card>

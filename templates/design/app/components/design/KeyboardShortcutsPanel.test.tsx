@@ -23,7 +23,7 @@ const messages: Record<string, string> = {
     "Restore the design change you just undid",
 };
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     messages[key] ?? key.split(".").slice(-1)[0] ?? key,
 }));

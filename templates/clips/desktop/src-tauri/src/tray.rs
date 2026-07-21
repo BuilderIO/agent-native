@@ -227,7 +227,10 @@ pub fn build_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     meeting_active
                 );
                 if active && !meeting_active {
-                    let _ = app.emit("clips:recorder-stop", ());
+                    // Opening Clips must never double as an implicit Stop.
+                    // Keep the recording alive and restore the parked popover;
+                    // its active-recording view exposes an explicit Stop button.
+                    force_show_popover(app);
                 } else {
                     toggle_popover(app);
                 }

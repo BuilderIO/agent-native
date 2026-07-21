@@ -39,6 +39,7 @@ describe("CommandMenu docs group", () => {
     act(() => root.unmount());
     container.remove();
     document.body.innerHTML = "";
+    window.history.replaceState(null, "", "/");
     vi.unstubAllGlobals();
   });
 
@@ -95,6 +96,12 @@ describe("CommandMenu docs group", () => {
     expect(events).toEqual(["open", "settings:voice"]);
     window.removeEventListener("agent-panel:open-settings", onSettings);
     window.removeEventListener("agent-panel:open", onOpen);
+  });
+
+  it("deep-links to a requested secret when opening settings", () => {
+    openAgentSettings("secrets:FIGMA_ACCESS_TOKEN");
+
+    expect(window.location.hash).toBe("#secrets:FIGMA_ACCESS_TOKEN");
   });
 
   it("filters app docs entries through the shared search field", () => {

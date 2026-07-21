@@ -98,6 +98,7 @@ function dashboard() {
 function createBrowser(
   options: {
     waitForFails?: boolean;
+    readyWaitFails?: boolean;
     gotoError?: Error;
     captureBox?: { width: number; height: number };
     /** The diagnostics responsiveness probe (`page.evaluate("1")`) never resolves. */
@@ -125,9 +126,24 @@ function createBrowser(
       if (options.gotoError) throw options.gotoError;
     }),
     locator: vi.fn(() => locator),
-    waitForFunction: vi.fn(async () => {}),
+    waitForFunction: vi.fn(async (script: string) => {
+      if (options.readyWaitFails && script.includes("data-dashboard-report")) {
+        throw new Error("dashboard panels did not finish loading");
+      }
+    }),
     evaluate: vi.fn(async (script: string) => {
       if (options.unresponsive) return new Promise(() => {});
+      if (
+        typeof script === "string" &&
+        script.includes("data-dashboard-report-ready")
+      ) {
+        return {
+          ready: "true",
+          loadingCount: 1,
+          text: "Dashboard content",
+          url: "https://analytics.example.test/dashboards/example",
+        };
+      }
       if (typeof script === "string" && script.includes("document.title")) {
         return { title: "Mock Dashboard", bodyText: "Loading forever" };
       }
@@ -366,6 +382,22 @@ describe("dashboard report email", () => {
     });
   });
 
+  it("captures available panels when a dashboard panel remains loading", async () => {
+    const partiallyLoaded = createBrowser({ readyWaitFails: true });
+    mocks.launch.mockResolvedValueOnce(partiallyLoaded.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full",
+    });
+    expect(partiallyLoaded.locator.screenshot).toHaveBeenCalledOnce();
+    expect(console.warn).toHaveBeenCalledWith(
+      "[dashboard-report] Dashboard surface stayed partially loaded; capturing the available panels.",
+    );
+  });
+
   it("only expands wide captures while preserving the bounded viewport height", async () => {
     const wide = createBrowser({ captureBox: { width: 1600, height: 8200 } });
     mocks.launch.mockResolvedValueOnce(wide.browser);
@@ -433,7 +465,7 @@ describe("dashboard report email", () => {
     expect(serverless.page.waitForFunction).toHaveBeenCalledWith(
       expect.any(String),
       undefined,
-      { timeout: 90_000 },
+      { timeout: 45_000 },
     );
     expect(mocks.chromiumExecutablePath).toHaveBeenCalledWith(
       "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar",

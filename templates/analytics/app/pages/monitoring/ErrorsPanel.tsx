@@ -1,19 +1,9 @@
-/**
- * Error capture panel — OWNED BY THE ERROR CAPTURE FEATURE.
- *
- * Sentry-style exception triage below the Monitoring tab bar. The issue list
- * and per-issue detail are switched via the `?issue=<id>` query param (shareable
- * + agent-deep-linkable) and the selection is mirrored into `application_state`
- * so the agent knows which error the user is looking at. Data flows through the
- * error-capture actions; `useChangeVersions(["error-issues"])` keeps the UI
- * fresh as new captures and agent edits land.
- */
 import {
   setClientAppState,
   useActionMutation,
   useActionQuery,
   useChangeVersions,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";

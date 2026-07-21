@@ -72,6 +72,11 @@ export function openAgentSettings(
   const normalizedSection =
     typeof section === "string" ? section : section?.section;
 
+  const secretHash = normalizedSection?.replace(/^#/, "");
+  if (secretHash?.toLowerCase().startsWith("secrets:")) {
+    window.location.hash = `#${secretHash}`;
+  }
+
   openAgentSidebar();
   // Voice mode unmounts the chat surface while its dock is collapsed, so its
   // settings listener does not exist until opening the sidebar remounts it.

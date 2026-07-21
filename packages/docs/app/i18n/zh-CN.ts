@@ -39,6 +39,7 @@ const zhCN = {
   theme: {
     light: "浅色",
     dark: "深色",
+    toggle: "切换主题",
     label: "主题：{{theme}}",
   },
   docs: {
@@ -1451,6 +1452,8 @@ const zhCN = {
     agentNativeToolkit: "工具包",
     toolkitOverview: "概览",
     toolkitUiPrimitives: "UI 原语",
+    toolkitEditorsCanvases: "编辑器与画布",
+    toolkitContextKnowledge: "上下文与知识",
     toolkitSharing: "共享",
     toolkitCollaboration: "协作",
     toolkitSettings: "设置",
@@ -1464,6 +1467,9 @@ const zhCN = {
     toolkitObservability: "可观测性",
     featureKits: "功能套件",
     appChrome: "应用外壳",
+    capabilityPackages: "能力包",
+    capabilityPackagesOverview: "概览",
+    packageLifecycle: "包生命周期",
     templatesOverview: "模板",
     pureAgentApps: "自动化优先应用",
     faq: "常见问题",

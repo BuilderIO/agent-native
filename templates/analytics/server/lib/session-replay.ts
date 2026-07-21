@@ -48,6 +48,12 @@ export interface ReplayScope {
   orgId: string | null;
 }
 
+export interface SessionReplayLinkResolution {
+  recordingId: string;
+  offsetMs: number;
+  path: string;
+}
+
 function rangeStartIso(range: ReplayRange): string | null {
   if (range === "all") return null;
   const hours =
@@ -1681,6 +1687,68 @@ export async function getSessionReplaySummary(
     throw replayError("Session recording not found", 404);
   }
   return rowToSessionRecordingSummary(access.resource, access.role);
+}
+
+export async function resolveSessionReplayLink(
+  input: {
+    sessionId: string;
+    clientRecordingId: string;
+    at?: string | null;
+  },
+  scope: SessionReplayScope,
+): Promise<SessionReplayLinkResolution | null> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select({
+      id: schema.sessionRecordings.id,
+      startedAt: schema.sessionRecordings.startedAt,
+      endedAt: schema.sessionRecordings.endedAt,
+      durationMs: schema.sessionRecordings.durationMs,
+      ownerEmail: schema.sessionRecordings.ownerEmail,
+      orgId: schema.sessionRecordings.orgId,
+      visibility: schema.sessionRecordings.visibility,
+      chunkCount: schema.sessionRecordings.chunkCount,
+      eventCount: schema.sessionRecordings.eventCount,
+      userId: schema.sessionRecordings.userId,
+      userKey: schema.sessionRecordings.userKey,
+    })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.sessionId, input.sessionId),
+        eq(schema.sessionRecordings.clientRecordingId, input.clientRecordingId),
+        eq(schema.sessionRecordings.ownerEmail, scope.userEmail),
+        scope.orgId
+          ? eq(schema.sessionRecordings.orgId, scope.orgId)
+          : isNull(schema.sessionRecordings.orgId),
+      ),
+    )
+    .limit(1);
+
+  if (!row || !isVisibleSessionRecording(row)) return null;
+
+  const startedAtMs = Date.parse(row.startedAt);
+  if (!Number.isFinite(startedAtMs)) return null;
+  const requestedAtMs = input.at ? Date.parse(input.at) : Date.now();
+  const safeRequestedAtMs = Number.isFinite(requestedAtMs)
+    ? requestedAtMs
+    : startedAtMs;
+  const inferredDurationMs = row.endedAt
+    ? Math.max(0, Date.parse(row.endedAt) - startedAtMs)
+    : 0;
+  const durationMs =
+    typeof row.durationMs === "number" && Number.isFinite(row.durationMs)
+      ? Math.max(0, row.durationMs)
+      : inferredDurationMs;
+  const offsetMs = Math.max(
+    0,
+    Math.min(Math.max(0, safeRequestedAtMs - startedAtMs), durationMs),
+  );
+  return {
+    recordingId: row.id,
+    offsetMs,
+    path: `/sessions/${encodeURIComponent(row.id)}?atMs=${Math.round(offsetMs)}`,
+  };
 }
 
 export async function getSessionReplayTokenizedSummary(

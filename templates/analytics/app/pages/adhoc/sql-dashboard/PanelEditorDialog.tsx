@@ -1,9 +1,7 @@
-import {
-  PromptComposer,
-  useActionQuery,
-  useSendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconAlignLeft } from "@tabler/icons-react";
 import {
   useEffect,
@@ -41,6 +39,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
 
+import { dashboardExtensionSlotId } from "./extension-slot";
 import {
   clampDashboardColumns,
   clampPanelWidth,
@@ -58,6 +57,7 @@ const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
   { value: "pie", labelKey: "panelEditor.chartTypePie" },
   { value: "metric", labelKey: "panelEditor.chartTypeMetric" },
   { value: "table", labelKey: "panelEditor.chartTypeTable" },
+  { value: "extension", labelKey: "panelEditor.chartTypeExtension" },
 ];
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
@@ -76,6 +76,22 @@ interface DataProgramSummary {
   title: string;
   description: string;
   archivedAt: string | null;
+}
+
+export interface ExtensionSummary {
+  id: string;
+  name: string;
+}
+
+export function extensionOptionsWithSelectedFallback(
+  extensions: ExtensionSummary[],
+  selectedId: string,
+): ExtensionSummary[] {
+  const id = selectedId.trim();
+  if (!id || extensions.some((extension) => extension.id === id)) {
+    return extensions;
+  }
+  return [{ id, name: id }, ...extensions];
 }
 
 /** Parsed shape of a `program` panel's `sql` field: {programId, params?}. */
@@ -136,9 +152,12 @@ export interface PanelFormValues {
   columns: number;
   sql: string;
   description: string;
+  extensionMode: "shared" | "slot";
+  extensionId: string;
+  extensionSlotId: string;
 }
 
-function panelToForm(panel: SqlPanel | null): PanelFormValues {
+export function panelToForm(panel: SqlPanel | null): PanelFormValues {
   if (!panel) {
     return {
       title: "",
@@ -148,6 +167,9 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
       columns: DEFAULT_DASHBOARD_COLUMNS,
       sql: "",
       description: "",
+      extensionMode: "shared",
+      extensionId: "",
+      extensionSlotId: "",
     };
   }
   return {
@@ -158,13 +180,17 @@ function panelToForm(panel: SqlPanel | null): PanelFormValues {
     columns: clampDashboardColumns(panel.columns ?? DEFAULT_DASHBOARD_COLUMNS),
     sql: panel.sql,
     description: panel.config?.description ?? "",
+    extensionMode: panel.config?.extensionSlotId ? "slot" : "shared",
+    extensionId: panel.config?.extensionId ?? "",
+    extensionSlotId: panel.config?.extensionSlotId ?? "",
   };
 }
 
-function formToPanel(
+export function formToPanel(
   form: PanelFormValues,
   existing: SqlPanel | null,
   untitledPanel: string,
+  dashboardId: string,
 ): SqlPanel {
   const id = existing?.id ?? generatePanelId(form.title);
   const description = form.description.trim();
@@ -175,11 +201,23 @@ function formToPanel(
   } else {
     delete config.description;
   }
+  const isExtension = form.chartType === "extension";
+  if (isExtension && form.extensionMode === "slot") {
+    delete config.extensionId;
+    config.extensionSlotId =
+      form.extensionSlotId.trim() || dashboardExtensionSlotId(dashboardId, id);
+  } else if (isExtension) {
+    config.extensionId = form.extensionId.trim();
+    delete config.extensionSlotId;
+  } else {
+    delete config.extensionId;
+    delete config.extensionSlotId;
+  }
   const isSection = form.chartType === "section";
   return {
     id,
     title: form.title.trim() || untitledPanel,
-    sql: form.sql,
+    sql: isExtension ? "" : form.sql,
     source: form.source,
     chartType: form.chartType,
     width: clampPanelWidth(form.width, MAX_DASHBOARD_COLUMNS),
@@ -249,6 +287,7 @@ function PanelEditorContent({
   }, [open, panel]);
 
   const isEdit = !!panel;
+  const isExtensionPanel = form.chartType === "extension";
   const isProgramSource = form.source === "program";
   const { programId, paramsText: initialParamsText } = useMemo(
     () =>
@@ -276,11 +315,25 @@ function PanelEditorContent({
   const availablePrograms = (programsData?.programs ?? []).filter(
     (p) => !p.archivedAt,
   );
+  const { data: extensionsData, isLoading: extensionsLoading } =
+    useActionQuery<{
+      ok: boolean;
+      count: number;
+      extensions: ExtensionSummary[];
+    }>("list-extensions", { limit: 100 }, { enabled: isExtensionPanel });
+  const availableExtensions = extensionsData?.extensions ?? [];
+  const extensionOptions = extensionOptionsWithSelectedFallback(
+    availableExtensions,
+    form.extensionId,
+  );
 
-  const canSave = isProgramSource
-    ? form.title.trim().length > 0 && selectedProgramId.trim().length > 0
-    : form.title.trim().length > 0 && form.sql.trim().length > 0;
-  const canFormat = canFormatPanelSql(form.source);
+  const canSave = isExtensionPanel
+    ? form.title.trim().length > 0 &&
+      (form.extensionMode === "slot" || form.extensionId.trim().length > 0)
+    : isProgramSource
+      ? form.title.trim().length > 0 && selectedProgramId.trim().length > 0
+      : form.title.trim().length > 0 && form.sql.trim().length > 0;
+  const canFormat = !isExtensionPanel && canFormatPanelSql(form.source);
 
   const handleSubmit = async () => {
     if (!canSave || saving) return;
@@ -305,6 +358,7 @@ function PanelEditorContent({
           { ...form, sql: sqlForSave },
           panel,
           t("panelEditor.untitledPanel"),
+          dashboardId,
         ),
       );
       onOpenChange(false);
@@ -327,18 +381,19 @@ function PanelEditorContent({
       message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
-        `REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, \`mutate-dashboard\`, and dry-run validation do not count as data queries. ` +
+        `REAL_DATA_REQUIRED: before saving or answering with a data panel, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, \`mutate-dashboard\`, and dry-run validation do not count as data queries. Embedding an existing extension without presenting new data does not require a data-source query. ` +
         `The \`demo\` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. ` +
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
         `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
         `to append, or \`.nextTo("panel-id")\`, \`.atRow(2)\`, \`.atRowStart(2)\`, \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. Prefer \`.nextTo("panel-id")\` or \`.atRow(rowNumber)\` for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +
         `For demo panels, sql uses the same Prometheus JSON descriptor shape as source 'prometheus': {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. ` +
         `For prometheus panels, sql is a JSON descriptor: {"promql":"rate(http_requests_total[5m])","mode":"range","range":"1h","step":"30s"}. mode defaults to "range"; range defaults to "1h"; step is auto if omitted. Returned rows have shape {timestamp, series, value} — set config.xKey="timestamp", config.yKey="value", and a single series in config.yKeys for clean charting. ` +
         `For program panels (arbitrary provider data joins/cohorts not expressible in the other sources), first save-data-program (or reuse an existing one via list-data-programs), then set sql to a JSON descriptor: {"programId":"<id>","params":{...}}. See the data-programs skill for the emit(rows, schema) contract and the Risk Meeting worked example. ` +
+        `For extension panels, use config.extensionId by default so every dashboard viewer and scheduled report renders the author-selected shared extension. Use config.extensionSlotId only when the user explicitly asks for a personal/per-viewer slot; slot installs are per-user and automated report identities may have no install. ` +
         `Config is optional: { xKey, yKey, yKeys, yFormatter ('number'|'currency'|'percent'), description, columns, pivot, limit, color, colors, stacked, legend, valueLabels }. ` +
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Use \`get-sql-dashboard.layout.groups[].rows[].rowNumber/panelIds\` to identify and verify visible rows. ` +
@@ -397,26 +452,28 @@ function PanelEditorContent({
           </Select>
         </div>
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="panel-source">{t("panelEditor.source")}</Label>
-          <Select
-            value={form.source}
-            onValueChange={(v: DataSourceType) =>
-              setForm((f) => ({ ...f, source: v }))
-            }
-          >
-            <SelectTrigger id="panel-source" className="h-9 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SOURCES.map((s) => (
-                <SelectItem key={s.value} value={s.value}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {!isExtensionPanel ? (
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-source">{t("panelEditor.source")}</Label>
+            <Select
+              value={form.source}
+              onValueChange={(v: DataSourceType) =>
+                setForm((f) => ({ ...f, source: v }))
+              }
+            >
+              <SelectTrigger id="panel-source" className="h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SOURCES.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
 
         {form.chartType === "section" ? (
           <div className="grid gap-1.5">
@@ -448,7 +505,99 @@ function PanelEditorContent({
         ) : null}
       </div>
 
-      {isProgramSource ? (
+      {isExtensionPanel ? (
+        <div className="grid gap-4 rounded-lg border p-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="panel-extension-mode">
+              {t("panelEditor.extensionDisplay")}
+            </Label>
+            <Select
+              value={form.extensionMode}
+              onValueChange={(value: "shared" | "slot") =>
+                setForm((current) => ({
+                  ...current,
+                  extensionMode: value,
+                }))
+              }
+            >
+              <SelectTrigger id="panel-extension-mode" className="h-9 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="shared">
+                  {t("panelEditor.sharedExtension")}
+                </SelectItem>
+                <SelectItem value="slot">
+                  {t("panelEditor.perViewerSlot")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {form.extensionMode === "shared" ? (
+            <div className="grid gap-1.5">
+              <Label htmlFor="panel-extension">
+                {t("panelEditor.extension")}
+              </Label>
+              <Select
+                value={form.extensionId || undefined}
+                onValueChange={(extensionId) =>
+                  setForm((current) => ({ ...current, extensionId }))
+                }
+              >
+                <SelectTrigger id="panel-extension" className="h-9 text-sm">
+                  <SelectValue
+                    placeholder={
+                      extensionsLoading
+                        ? t("panelEditor.loadingExtensions")
+                        : t("panelEditor.selectExtension")
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {extensionOptions.map((extension) => (
+                    <SelectItem key={extension.id} value={extension.id}>
+                      {extension.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!extensionsLoading && availableExtensions.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("panelEditor.noExtensions")}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                {t("panelEditor.sharedExtensionHelp")}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-1.5">
+              <Label htmlFor="panel-extension-slot">
+                {t("panelEditor.slotIdOptional")}
+              </Label>
+              <Input
+                id="panel-extension-slot"
+                value={form.extensionSlotId}
+                onChange={(event) =>
+                  setForm((current) => ({
+                    ...current,
+                    extensionSlotId: event.target.value,
+                  }))
+                }
+                placeholder={dashboardExtensionSlotId(
+                  dashboardId,
+                  panel?.id ?? "generated-panel-id",
+                )}
+                className="font-mono text-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t("panelEditor.perViewerSlotHelp")}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : isProgramSource ? (
         <div className="grid gap-4">
           <div className="grid gap-1.5">
             <Label htmlFor="panel-program">

@@ -403,8 +403,8 @@ function rootTsx(): string {
   return `import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { ClientOnly, DefaultSpinner } from "@agent-native/core/client";
-import { AgentSidebar } from "@agent-native/core/client";
+import { ClientOnly, DefaultSpinner } from "@agent-native/core/client/ui";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import stylesheet from "./global.css?url";
 import type { ReactNode } from "react";
 import type { LinksFunction } from "react-router";

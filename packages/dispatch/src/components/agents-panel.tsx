@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { IconExternalLink, IconTrash } from "@tabler/icons-react";
 import { useRef, useState, type FormEvent } from "react";
 

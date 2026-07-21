@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";

@@ -83,7 +83,7 @@ When the user asks for a dashboard:
 2. If a metric definition, date range, or grain is ambiguous and the choice would change the panel's numbers, use the `ask-question` clarifying tool once before building. Skip it when the dictionary or the user already settled it.
 3. If a metric is not documented, do not guess column names. Ask for the table/columns or introspect the provider schema, then propose a dictionary entry with `save-data-dictionary-entry`.
 4. Build a complete `SqlDashboardConfig` with `name` and `panels`. Optionally set top-level `columns` (1–6, default 2) to control how many grid columns the panels before any section use.
-5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; instead they require `config.extensionId` (see "Embedding An Extension As A Panel").
+5. Every panel needs `id`, `title`, `source`, `chartType`, `width`, and `sql`. `width` is the number of grid columns the panel spans (1..6, clamped to the active section's column count). Section panels skip `source` and `sql` and may set their own `columns` (1–6) to override the dashboard default for the panels following the section. Extension panels (`chartType: "extension"`) also skip `source` and `sql`; use `config.extensionId` for ordinary author-selected shared embeds. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot (see "Embedding An Extension As A Panel").
 6. Persist with `update-dashboard`, not raw SQL or settings writes.
 7. Navigate to it with `pnpm action navigate --view=adhoc --dashboardId=<id>`.
 
@@ -114,14 +114,11 @@ rather than forcing it into a native dashboard config.
 
 ## Embedding An Extension As A Panel
 
-Use `chartType: "extension"` to embed an existing extension as a dashboard
-panel. This is different from the section above: there you replace the whole
-dashboard with an extension; here you drop a single extension widget into one
-panel slot alongside normal SQL charts. The panel renders the extension's
-sandboxed iframe instead of running a query, so it skips `source` and `sql` and
-instead requires `config.extensionId` (the id of an extension that already
-exists — create it first with `create-extension`). Validation rejects an
-extension panel without a non-empty `config.extensionId`.
+Use `chartType: "extension"` to add an extension box alongside normal SQL
+charts. The panel skips `source` and `sql`. For ordinary requests such as "put
+X in this dashboard," save the author-selected extension id in
+`config.extensionId`. This makes the selection part of the shared dashboard and
+keeps the widget present in scheduled report captures:
 
 ```jsonc
 {
@@ -129,21 +126,48 @@ extension panel without a non-empty `config.extensionId`.
   "title": "Pipeline Widget",
   "chartType": "extension",
   "width": 3,
-  "config": { "extensionId": "<existing-extension-id>" },
+  "config": { "extensionId": "extension-123" },
+}
+```
+
+Direct embeds receive the dashboard id, name, description, current filters,
+and panel context. Embedding does not grant extension access, so share the
+extension with the dashboard audience.
+
+Use a stable `config.extensionSlotId` only when the user explicitly wants each
+viewer to choose or install their own widget:
+
+```text
+analytics.dashboard.<dashboard-id>.panel.<panel-id>
+```
+
+Create or choose the extension, call `add-extension-slot-target` with the
+extension id and slot id, then call `install-extension` with the same values.
+The dashboard panel is shared, while the installed extension is per-user.
+Empty slots show the normal install affordance instead of a broken iframe.
+
+```jsonc
+{
+  "id": "pipeline-widget",
+  "title": "Pipeline Widget",
+  "chartType": "extension",
+  "width": 3,
+  "config": {
+    "extensionSlotId": "analytics.dashboard.weekly-metrics.panel.pipeline-widget",
+  },
 }
 ```
 
 Notes:
 
-- The panel renders full-bleed (no card chrome/title) and does not receive the
-  dashboard's filters/variables/date range — it's a standalone widget for now.
-- Access is scoped per viewer: embedding does NOT grant access to the extension
-  (same model as ExtensionSlots). If you share a dashboard more broadly than the
-  embedded extension, viewers without access to that extension see an
-  "extension unavailable" message instead of the content. Share the extension to
-  the same audience as the dashboard so all viewers can see it.
+- Both direct and slot-backed extensions receive dashboard and panel context.
+- Installs and extension access are per viewer. Sharing the dashboard does not
+  automatically install or grant access to its extension for other viewers.
+- Slot installs are per-user preferences. Different viewers can see different
+  widgets, and scheduled reports running as a service identity may show an
+  empty slot. This is why slots are opt-in rather than the default.
 
-## Cloning An Extension-Backed Dashboard (e.g. per-customer copies)
+## Cloning A Direct-Extension Dashboard (e.g. per-customer copies)
 
 When the user asks for a copy of an existing extension-backed dashboard for a
 different customer/org (for example "make an Intuit version of the Roku usage
@@ -154,8 +178,11 @@ from that written file — never by pulling the body into chat context first or
 re-typing it as a `content` argument.
 
 1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
-   confirm the target panel is `chartType: "extension"`; grab its
-   `config.extensionId`.
+   confirm the target panel is a `chartType: "extension"` panel with
+   `config.extensionId`; grab that extension id. For a slot-backed panel, clone
+   the dashboard panel with a new stable `extensionSlotId`, then target and
+   install the desired extension into that slot instead of using this body-copy
+   playbook.
 2. `get-extension` for that id with `forceContent: true` **exactly once**. Reuse
    that body for the rest of the turn — a second same-run read intentionally
    omits `content` and returns `contentOmitted` instead. That is not the content
@@ -191,6 +218,20 @@ re-typing it as a `content` argument.
 6. Finally `update-dashboard` to save a new dashboard embedding the new
    extension panel (`chartType: "extension"`, `config.extensionId`), then
    `navigate` to it.
+
+## Repairing An Existing Extension-Backed Dashboard
+
+When the user asks to fix data loading in an existing or migrated
+extension-backed dashboard, treat the current extension body as user-authored
+design. Read the dashboard config and extension once, identify the smallest
+data-loading seam, and call `update-extension` with focused `patches` or
+`edits`. Preserve the existing layout, CSS, copy, and interactions. Do not
+send a reconstructed full `content` body for a data-only repair;
+`update-extension` blocks full-body replacement unless
+`allowFullReplacement: true` is explicitly supplied. Use that flag only for a
+user-requested broad visual rewrite or a complete replacement body supplied by
+the user. If a focused edit fails, inspect the current body and change the
+target rather than retrying the same arguments.
 
 ### Display truncation is cosmetic — do not chase the "missing" tail
 
@@ -315,6 +356,10 @@ calling other actions from the script are not available.
 type DashboardMutationApi = {
   dashboard: {
     set(patch: DashboardPatch): void;
+    setFilterDefault(
+      filterId: string,
+      value: string | number | boolean | null,
+    ): void;
     panel(id: string): PanelSelection;
     section(id: string): SectionSelection;
     panels(ids: string[]): PanelSelection;
@@ -329,6 +374,7 @@ type DashboardPatch = {
   columns?: number;
   filters?: unknown[];
   variables?: Record<string, string>;
+  parentId?: string;
 };
 
 type PanelTimeScope =
@@ -340,6 +386,7 @@ type PanelTimeScope =
 type PanelConfig = Record<string, unknown> & {
   // Use "dashboard" for AI-generated first-party panels by default.
   timeScope?: PanelTimeScope;
+  // Fixed bar width in pixels for bar charts.
 };
 
 type PanelPatch = {
@@ -351,7 +398,8 @@ type PanelPatch = {
     | "amplitude"
     | "first-party"
     | "demo"
-    | "prometheus";
+    | "prometheus"
+    | "program";
   chartType?:
     | "line"
     | "area"
@@ -376,7 +424,7 @@ type PanelInput = PanelPatch & {
   chartType: NonNullable<PanelPatch["chartType"]>;
   source?: PanelPatch["source"]; // required for non-section / non-extension panels
   sql?: string; // required for non-section / non-extension panels
-  // For chartType "extension": config.extensionId is required (the extension to embed).
+  // For chartType "extension": use config.extensionId by default; extensionSlotId is opt-in per-viewer content.
 };
 
 type PanelFilter = {
@@ -397,6 +445,14 @@ type PanelSelection = {
   moveBefore(panelId: string): void;
   moveAfter(panelId: string): void;
   moveToIndex(index: number): void;
+  moveNextTo(panelId: string): void;
+  nextTo(panelId: string): void;
+  moveToRow(rowNumber: number): void;
+  moveToRowStart(rowNumber: number): void;
+  moveToRowEnd(rowNumber: number): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
   remove(): void;
   set(patch: PanelPatch): void;
   setTitle(title: string): void;
@@ -404,26 +460,40 @@ type PanelSelection = {
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
   setConfigPath(path: string, value: unknown): void;
-  duplicate(newPanelId: string, patch?: PanelPatch): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): PanelPlacement;
 };
 
 type SectionSelection = PanelSelection & {
   append(panelIds: string[]): void;
 };
 
-type InsertedPanel = {
+type PanelPlacement = {
   atTop(): void;
   atBottom(): void;
   before(panelId: string): void;
   after(panelId: string): void;
   atIndex(index: number): void;
+  nextTo(panelId: string): void;
+  atRow(rowNumber: number): void;
+  atRowStart(rowNumber: number): void;
+  atRowEnd(rowNumber: number): void;
 };
+
+type InsertedPanel = PanelPlacement;
 ```
 
 Examples:
 
 ```ts
 dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
+dashboard
+  .panel("recurring-users-by-template")
+  .duplicate("recurring-users-by-template-bar", {
+    title: "Recurring Signed-In Users by Template (Bar)",
+    chartType: "bar",
+  })
+  .nextTo("recurring-users-by-template");
+dashboard.setFilterDefault("emailFilter", "exclude_builder");
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
   width: 2,

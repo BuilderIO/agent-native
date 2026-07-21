@@ -165,7 +165,6 @@ import {
   DEFAULT_UPLOAD_MAX_FILE_BYTES,
   isAllowedUploadMimeType,
 } from "./h3-helpers.js";
-import { createHttpResponseTelemetryMiddleware } from "./http-response-telemetry.js";
 import { isIdentitySsoEnabled } from "./identity-sso-store.js";
 import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
@@ -180,6 +179,7 @@ import {
 } from "./scoped-key-storage.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
+import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -1068,6 +1068,35 @@ export interface CoreRoutesPluginOptions {
   anonymousOwner?: BuilderAnonymousOwnerResolver;
 }
 
+interface LegacyCoreRouteInitSettings {
+  persistedEnvVars: Record<string, string> | null;
+  builderDisconnected: { at?: number } | null;
+}
+
+type CoreRouteSettingReader = (
+  key: string,
+) => Promise<Record<string, unknown> | null>;
+
+export async function readLegacyCoreRouteInitSettings(
+  readSetting: CoreRouteSettingReader = getSetting,
+): Promise<LegacyCoreRouteInitSettings> {
+  const readOrNull = async (key: string) => {
+    try {
+      return await readSetting(key);
+    } catch {
+      return null;
+    }
+  };
+  const [persistedEnvVars, builderDisconnected] = await Promise.all([
+    readOrNull("persisted-env-vars"),
+    readOrNull("builder-disconnected"),
+  ]);
+  return {
+    persistedEnvVars: persistedEnvVars as Record<string, string> | null,
+    builderDisconnected: builderDisconnected as { at?: number } | null,
+  };
+}
+
 /**
  * Creates a Nitro plugin that mounts all standard agent-native framework routes.
  *
@@ -1109,18 +1138,17 @@ export function createCoreRoutesPlugin(
     try {
       await awaitBootstrap(nitroApp);
 
+      const { persistedEnvVars, builderDisconnected } =
+        await readLegacyCoreRouteInitSettings();
+
       // Legacy cleanup: key saves now go to scoped app_secrets rows. Do not
       // rehydrate the old deployment-global `persisted-env-vars` row into
       // process.env; keep only the Builder scrub so stale leaked keys self-heal.
       try {
-        const persisted = (await getSetting("persisted-env-vars")) as Record<
-          string,
-          string
-        > | null;
-        if (persisted) {
+        if (persistedEnvVars) {
           const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
           let scrubbed = 0;
-          for (const k of Object.keys(persisted)) {
+          for (const k of Object.keys(persistedEnvVars)) {
             if (builderKeys.has(k)) {
               scrubbed++;
             }
@@ -1128,7 +1156,7 @@ export function createCoreRoutesPlugin(
           if (scrubbed > 0) {
             try {
               const cleaned: Record<string, string> = {};
-              for (const [k, v] of Object.entries(persisted)) {
+              for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
               await putSetting("persisted-env-vars", cleaned);
@@ -1153,10 +1181,7 @@ export function createCoreRoutesPlugin(
       // plugin init while the flag is set. The flag is cleared by the
       // Builder cli-auth callback when the user re-connects.
       try {
-        const disconnected = (await getSetting("builder-disconnected")) as {
-          at?: number;
-        } | null;
-        if (disconnected) {
+        if (builderDisconnected) {
           for (const key of BUILDER_ENV_KEYS) {
             delete process.env[key];
           }
@@ -1203,7 +1228,24 @@ export function createCoreRoutesPlugin(
 
       const P = FRAMEWORK_ROUTE_PREFIX;
 
-      getH3App(nitroApp).use(createHttpResponseTelemetryMiddleware());
+      for (const provider of [
+        "figma",
+        "google_drive",
+        "github",
+        "hubspot",
+        "jira",
+        "sentry",
+        "notion",
+      ] as const) {
+        getH3App(nitroApp).use(
+          `${P}/connections/oauth/${provider}/start`,
+          createWorkspaceProviderOAuthHandler(provider, "start"),
+        );
+        getH3App(nitroApp).use(
+          `${P}/connections/oauth/${provider}/callback`,
+          createWorkspaceProviderOAuthHandler(provider, "callback"),
+        );
+      }
 
       // Security response headers — emitted on every framework response.
       // Mounted before route handlers so 4xx/5xx error pages also carry the

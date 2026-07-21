@@ -6,6 +6,7 @@
  */
 
 import {
+  deleteAppState,
   readAppState,
   writeAppState,
   deleteAppStateByPrefix,
@@ -22,6 +23,7 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
+import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -75,6 +77,25 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
+    const existingUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const existingUploadState =
+      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
+        ? (existingUploadStateRaw as Record<string, unknown>)
+        : {};
+    if (
+      existing.status === "processing" &&
+      existingUploadState.pendingMediaVerification === true
+    ) {
+      return {
+        ok: true,
+        recordingId,
+        verificationPending: true,
+        chunksCleared: 0,
+      };
+    }
+
     const preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
       isStoredButUnservableFinalizeError(existing.failureReason);
@@ -104,13 +125,6 @@ export default defineEventHandler(async (event: H3Event) => {
       })
       .where(eq(schema.recordings.id, recordingId));
 
-    const existingUploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    ).catch(() => null);
-    const existingUploadState =
-      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
-        ? (existingUploadStateRaw as Record<string, unknown>)
-        : {};
     await writeAppState(`recording-upload-${recordingId}`, {
       ...existingUploadState,
       recordingId,
@@ -118,6 +132,9 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason,
       updatedAt: now,
     });
+    await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
+      () => {},
+    );
 
     const cleared = preserveRecoveryState
       ? 0

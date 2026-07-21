@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { DEFAULT_STYLE_REFERENCE_URLS } from "@shared/api";
 import { IconX } from "@tabler/icons-react";
 import { IconLoader2 } from "@tabler/icons-react";
@@ -69,7 +69,7 @@ export default function ImageGenPanel({
     const contextParts: string[] = [];
 
     contextParts.push(
-      "Generate 3 image variations using our image generation action (`pnpm action generate-image`).",
+      "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt.",
     );
     contextParts.push(
       "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",

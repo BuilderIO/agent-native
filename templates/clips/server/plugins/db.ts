@@ -64,6 +64,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["recording_viewers", "counted_view", false],
     ["recording_viewers", "cta_clicked", false],
     ["meeting_participants", "is_organizer", false],
+    ["clips_meetings", "share_transcript", false],
   ];
   for (const [table, column, defaultTrue] of alters) {
     try {
@@ -104,7 +105,7 @@ const migrations = runMigrations(
       slug TEXT NOT NULL,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -348,7 +349,7 @@ const migrations = runMigrations(
       organization_id TEXT PRIMARY KEY,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -832,6 +833,11 @@ const migrations = runMigrations(
         `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers (recording_id, viewer_key)`,
       ].join("; "),
+    },
+    {
+      version: 49,
+      name: "clips-meetings-share-transcript",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS share_transcript INTEGER NOT NULL DEFAULT 0`,
     },
   ],
   { table: "clips_migrations" },

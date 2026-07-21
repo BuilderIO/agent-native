@@ -231,6 +231,15 @@ Der Agent führt die gleiche Schleife aus wie der interaktive Chat – er kann m
 
 Rufen Sie `ask_app_status` mit diesen Argumenten auf, bis die Aufgabe einen Endzustand erreicht. Das app-eigene `ask_app` von Dispatch verwendet denselben Vertrag für dauerhafte Aufgaben und Status, wobei die Berechtigung für die ausgewählte App sowohl bei der Übermittlung als auch beim Polling geprüft wird.
 
+Ist ein begrenzter, vorübergehender Statusabruf nicht verfügbar, kann
+`ask_app_status` `status: "unknown"`, `statusRead: "unavailable"` und
+`retryable: true` sowie das ursprüngliche `app`, `taskId` und `pollAfterMs` /
+`poll` zurückgeben. Das bedeutet, dass der Statusabruf nicht verfügbar ist –
+nicht, dass die dauerhafte Aufgabe fehlgeschlagen ist. Wiederholen Sie
+`ask_app_status` mit genau demselben `app` und `taskId`; reichen Sie zur
+Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
+Dauerhafte Authentifizierungs-, Nicht-gefunden- und Protokollfehler bleiben Fehler.
+
 ## Authentifizierung {#authentication}
 
 Der MCP-Endpunkt unterstützt den Standard-Remote-MCP OAuth sowie den vorhandenen Bearer-Token-Fallback:

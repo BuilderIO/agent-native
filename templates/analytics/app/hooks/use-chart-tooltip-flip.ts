@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-const RIGHT_GUTTER_PADDING = 12;
+const VIEWPORT_GUTTER_PADDING = 12;
 const FLIP_CURSOR_OFFSET = 24;
 
 /**
@@ -10,10 +10,11 @@ const FLIP_CURSOR_OFFSET = 24;
  * `transform` (cursor moves) and translate the content left when its right
  * edge would land inside `.agent-sidebar-panel`.
  */
-export function useChartTooltipFlip<T extends HTMLElement>() {
+export function useChartTooltipFlip<T extends HTMLElement>(active = true) {
   const ref = useRef<T | null>(null);
 
   useEffect(() => {
+    if (!active) return;
     const el = ref.current;
     if (!el) return;
     const wrapper = el.parentElement;
@@ -32,11 +33,25 @@ export function useChartTooltipFlip<T extends HTMLElement>() {
         sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
           ? sidebarRect.left
           : window.innerWidth;
-      const limit = gutterLeft - RIGHT_GUTTER_PADDING;
+      const rightLimit = gutterLeft - VIEWPORT_GUTTER_PADDING;
+      const bottomLimit = window.innerHeight - VIEWPORT_GUTTER_PADDING;
+      let translateX = 0;
+      let translateY = 0;
 
-      if (rect.right > limit) {
-        node.style.transform = `translateX(-${rect.width + FLIP_CURSOR_OFFSET}px)`;
+      if (rect.right > rightLimit) {
+        translateX = -(rect.width + FLIP_CURSOR_OFFSET);
       }
+      if (rect.bottom > bottomLimit) {
+        translateY = bottomLimit - rect.bottom;
+      } else if (rect.top < VIEWPORT_GUTTER_PADDING) {
+        translateY = VIEWPORT_GUTTER_PADDING - rect.top;
+      }
+
+      const transforms = [
+        translateX ? `translateX(${translateX}px)` : "",
+        translateY ? `translateY(${translateY}px)` : "",
+      ].filter(Boolean);
+      node.style.transform = transforms.join(" ");
     };
 
     apply();
@@ -46,7 +61,7 @@ export function useChartTooltipFlip<T extends HTMLElement>() {
       attributeFilter: ["style"],
     });
     return () => observer.disconnect();
-  }, []);
+  }, [active]);
 
   return ref;
 }

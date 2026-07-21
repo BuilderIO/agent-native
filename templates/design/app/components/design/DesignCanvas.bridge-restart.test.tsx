@@ -16,14 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 const BRIDGE_URL = "http://127.0.0.1:7331";
 const PREVIEW_TOKEN = "preview-token";

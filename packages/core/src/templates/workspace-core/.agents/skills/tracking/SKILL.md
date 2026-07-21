@@ -138,10 +138,29 @@ Attribution parsing is fully defensive and never blocks signup — a missing/mal
 Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
+- `action.response` from the browser action transport, with action name,
+  browser-perceived duration and TTFB, response status/outcome, response size
+  when known, and parsed `Server-Timing` phases for framework readiness and
+  database work. Its `request_id` joins the exact browser and server events.
+  This separates server time from CDN/network/body overhead.
+- `http.response` from Nitro request/response hooks, with normalized path,
+  status, request duration, first-request-in-isolate cold marker, process age,
+  framework readiness wait, deploy/runtime fingerprint, database
+  connection/query counts and timings, retries, timeouts, and failures. It also
+  emits `Server-Timing` for `app`, `startup`, `db`, `db-connect`, and
+  `db-slowest` plus an `X-Agent-Native-Request-Id` correlation header where
+  applicable. Query text and parameters are never captured.
+  Database activity that begins during the first two minutes of process/plugin
+  initialization is reported separately as `startup_db_*` on the first
+  framework request that passes the readiness gate.
+  Slow, cold-isolate, server failures, and 4xx action routes are always
+  retained; fast successful requests default to 10% sampling. Override with
+  `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
+  `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
 - `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
-- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. Prompt, tool argument, and output content is not included by default.
+- `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 
 For new lifecycle events, call `track()` server-side when the server is the source of truth, and `trackEvent()` client-side only for browser interactions.
 

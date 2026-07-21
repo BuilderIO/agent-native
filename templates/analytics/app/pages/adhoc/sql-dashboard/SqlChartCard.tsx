@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
@@ -67,6 +67,7 @@ interface SqlChartCardProps {
   isDragSource?: boolean;
   selectedForChat?: boolean;
   onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
+  extensionContext?: Record<string, unknown> | null;
 }
 
 const PanelDragHandle = memo(function PanelDragHandle({
@@ -122,6 +123,7 @@ export function SqlChartCard({
   isDragSource = false,
   selectedForChat = false,
   onSelectForChat,
+  extensionContext,
 }: SqlChartCardProps) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -346,6 +348,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            extensionContext={extensionContext}
           />
         )}
         <div className="absolute right-1 top-1 flex items-center gap-1 opacity-0 group-hover:opacity-100">
@@ -401,6 +404,12 @@ export function SqlChartCard({
               {editable ? (
                 <>
                   <DropdownMenuSeparator />
+                  {onEdit ? (
+                    <DropdownMenuItem onSelect={() => onEdit()}>
+                      <IconPencil className="h-4 w-4 mr-2" />
+                      {t("sidebar.edit")}
+                    </DropdownMenuItem>
+                  ) : null}
                   <DropdownMenuItem
                     onSelect={(e) => {
                       e.preventDefault();
@@ -435,6 +444,7 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  extensionContext={extensionContext}
                 />
               </ChartFillHeight>
             </div>
@@ -616,6 +626,7 @@ export function SqlChartCard({
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
             onExportCsvChange={handleExportCsvChange}
+            extensionContext={extensionContext}
           />
         </CardContent>
       </Card>
@@ -627,7 +638,12 @@ export function SqlChartCard({
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col overflow-auto">
             <ChartFillHeight>
-              <SqlChart panel={panel} resolvedSql={resolvedSql} loadData />
+              <SqlChart
+                panel={panel}
+                resolvedSql={resolvedSql}
+                loadData
+                extensionContext={extensionContext}
+              />
             </ChartFillHeight>
           </div>
         </DialogContent>

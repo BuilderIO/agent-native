@@ -8,12 +8,15 @@ import {
 import {
   isOAuthConnected,
   getOAuthAccounts,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveSecret,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { decodeCommonHtmlEntities } from "@shared/markdown.js";
 
+import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   createOAuth2Client,
   gmailGetProfile,
@@ -31,6 +34,7 @@ import {
   peopleGetProfile,
 } from "./google-api.js";
 import { resolveGoogleSenderIdentity } from "./sender-identity.js";
+import { invalidateThreadCache } from "./thread-cache.js";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -56,25 +60,20 @@ export async function getOAuth2Credentials(owner?: string): Promise<{
   clientId: string;
   clientSecret: string;
 }> {
-  const resolve = async () => {
-    const [clientId, clientSecret] = await Promise.all([
-      resolveSecret("GOOGLE_CLIENT_ID"),
-      resolveSecret("GOOGLE_CLIENT_SECRET"),
-    ]);
-    if (!clientId || !clientSecret) return null;
-    return { clientId, clientSecret };
-  };
-  const credentials = owner
+  const resolve = () =>
+    resolveGoogleProviderCredentialCandidatesWithReader({
+      readCredential: resolveSecret,
+      credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+    });
+  const [credentials] = owner
     ? await runWithRequestContext({ userEmail: owner }, resolve)
     : await resolve();
-  const clientId = credentials?.clientId;
-  const clientSecret = credentials?.clientSecret;
-  if (!clientId || !clientSecret) {
+  if (!credentials) {
     throw new Error(
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
     );
   }
-  return { clientId, clientSecret };
+  return credentials;
 }
 
 /**
@@ -1776,25 +1775,44 @@ export async function fetchGmailLabelMap(
 // instead of one per message.
 const GMAIL_BATCH_MODIFY_MAX_IDS = 1000;
 
+interface GmailBatchModifyResult {
+  succeeded: string[];
+  failed: Array<{ id: string; error: string }>;
+  batchCount: number;
+}
+
 async function gmailBatchModify(
   accessToken: string,
   ids: string[],
   addLabelIds?: string[],
   removeLabelIds?: string[],
-): Promise<void> {
-  if (ids.length === 0) return;
+): Promise<GmailBatchModifyResult> {
+  const result: GmailBatchModifyResult = {
+    succeeded: [],
+    failed: [],
+    batchCount: 0,
+  };
+  if (ids.length === 0) return result;
   for (let i = 0; i < ids.length; i += GMAIL_BATCH_MODIFY_MAX_IDS) {
     const chunk = ids.slice(i, i + GMAIL_BATCH_MODIFY_MAX_IDS);
-    await googleFetch(
-      "https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify",
-      accessToken,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: chunk, addLabelIds, removeLabelIds }),
-      },
-    );
+    result.batchCount += 1;
+    try {
+      await googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify",
+        accessToken,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: chunk, addLabelIds, removeLabelIds }),
+        },
+      );
+      result.succeeded.push(...chunk);
+    } catch (err: any) {
+      const error = err?.message ?? "batchModify failed";
+      result.failed.push(...chunk.map((id) => ({ id, error })));
+    }
   }
+  return result;
 }
 
 export interface BatchModifyTarget {
@@ -1826,7 +1844,7 @@ export async function gmailBatchModifyByAccount(
 ): Promise<BatchModifyByAccountResult> {
   const byAccount = new Map<string, BatchModifyTarget[]>();
   for (const target of targets) {
-    const key = target.accountEmail || ownerEmail;
+    const key = target.accountEmail || "";
     const list = byAccount.get(key);
     if (list) list.push(target);
     else byAccount.set(key, [target]);
@@ -1836,24 +1854,18 @@ export async function gmailBatchModifyByAccount(
   const failed: Array<{ id: string; error: string }> = [];
 
   for (const [accountEmail, accountTargets] of byAccount) {
-    const client = await getClient(accountEmail);
-    if (!client) {
-      for (const t of accountTargets) {
-        failed.push({
-          id: t.id,
-          error: `Account ${accountEmail} not connected`,
-        });
-      }
-      continue;
-    }
     try {
-      await gmailBatchModify(
-        client.accessToken,
+      const accessToken = accountEmail
+        ? await getOwnedAccountAccessToken(ownerEmail, accountEmail)
+        : await getDefaultOwnedAccountAccessToken(ownerEmail);
+      const result = await gmailBatchModify(
+        accessToken,
         accountTargets.map((t) => t.id),
         addLabelIds,
         removeLabelIds,
       );
-      for (const t of accountTargets) succeeded.push(t.id);
+      succeeded.push(...result.succeeded);
+      failed.push(...result.failed);
     } catch (err: any) {
       const message = err?.message ?? "batchModify failed";
       for (const t of accountTargets) failed.push({ id: t.id, error: message });
@@ -1861,6 +1873,184 @@ export async function gmailBatchModifyByAccount(
   }
 
   return { succeeded, failed };
+}
+
+interface GmailMessageReference {
+  id: string;
+  threadId: string;
+}
+
+async function getDefaultOwnedAccountAccessToken(
+  ownerEmail: string,
+): Promise<string> {
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const account =
+    accounts.find(
+      (candidate) =>
+        candidate.accountId.toLowerCase() === ownerEmail.toLowerCase(),
+    ) ?? accounts[0];
+  if (!account) throw new Error("No Google account connected");
+  const tokens = account.tokens as unknown as GoogleTokens;
+  if (!tokens?.access_token && !tokens?.refresh_token) {
+    throw new Error(`No valid access token for ${account.accountId}`);
+  }
+  return getValidAccessToken(account.accountId, tokens, ownerEmail);
+}
+
+async function getOwnedAccountAccessToken(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<string> {
+  const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
+  const account = accounts.find(
+    (candidate) =>
+      candidate.accountId.toLowerCase() === accountEmail.toLowerCase(),
+  );
+  if (!account) {
+    throw new Error(`Account ${accountEmail} is not connected for this user`);
+  }
+  const tokens = account.tokens as unknown as GoogleTokens;
+  if (!tokens?.access_token && !tokens?.refresh_token) {
+    throw new Error(`No valid access token for ${account.accountId}`);
+  }
+  return getValidAccessToken(account.accountId, tokens, ownerEmail);
+}
+
+async function listGmailMessageReferences(
+  accessToken: string,
+  query: string,
+): Promise<GmailMessageReference[]> {
+  const references = new Map<string, GmailMessageReference>();
+  const seenPageTokens = new Set<string>();
+  let pageToken: string | undefined;
+
+  do {
+    const response = await gmailListMessages(accessToken, {
+      q: query,
+      maxResults: 500,
+      pageToken,
+    });
+    for (const message of response.messages ?? []) {
+      if (
+        typeof message.id !== "string" ||
+        typeof message.threadId !== "string"
+      )
+        continue;
+      references.set(message.id, {
+        id: message.id,
+        threadId: message.threadId,
+      });
+    }
+
+    const nextPageToken = response.nextPageToken;
+    if (typeof nextPageToken !== "string" || !nextPageToken) break;
+    if (seenPageTokens.has(nextPageToken)) {
+      throw new Error(
+        "Gmail repeated a pagination token while listing unread mail",
+      );
+    }
+    seenPageTokens.add(nextPageToken);
+    pageToken = nextPageToken;
+  } while (pageToken);
+
+  return [...references.values()];
+}
+
+export async function markAllUnreadReadForAccount(input: {
+  ownerEmail: string;
+  accountEmail: string;
+  excludeThreadIds: string[];
+}): Promise<BulkMarkReadResult> {
+  const { ownerEmail, accountEmail } = input;
+  const excludedThreadIds = new Set(input.excludeThreadIds.filter(Boolean));
+  const accessToken = await getOwnedAccountAccessToken(
+    ownerEmail,
+    accountEmail,
+  );
+  const matched = await listGmailMessageReferences(accessToken, "is:unread");
+  const excluded = matched.filter((message) =>
+    excludedThreadIds.has(message.threadId),
+  );
+  const selected = matched.filter(
+    (message) => !excludedThreadIds.has(message.threadId),
+  );
+
+  const mutation = await gmailBatchModify(
+    accessToken,
+    selected.map((message) => message.id),
+    undefined,
+    ["UNREAD"],
+  );
+  for (const threadId of new Set(selected.map((message) => message.threadId))) {
+    invalidateThreadCache(ownerEmail, threadId);
+  }
+  invalidateListCacheForOwner(ownerEmail);
+
+  let remaining: GmailMessageReference[];
+  try {
+    remaining = await listGmailMessageReferences(accessToken, "is:unread");
+  } catch (err: any) {
+    return {
+      mode: "all-unread",
+      accountEmail,
+      matchedMessages: matched.length,
+      matchedThreads: new Set(matched.map((message) => message.threadId)).size,
+      excludedMessages: excluded.length,
+      excludedThreads: new Set(excluded.map((message) => message.threadId))
+        .size,
+      changedMessages: mutation.succeeded.length,
+      batchCount: mutation.batchCount,
+      failures: mutation.failed,
+      remainingUnreadMessages: null,
+      remainingUnreadThreads: null,
+      remainingProtectedMessages: null,
+      remainingProtectedThreads: null,
+      unexpectedUnreadMessages: null,
+      unexpectedUnreadThreads: null,
+      newUnreadMessages: null,
+      newUnreadThreads: null,
+      verificationComplete: false,
+      verificationError: err?.message ?? "Unread verification failed",
+    };
+  }
+  const matchedIds = new Set(matched.map((message) => message.id));
+  const selectedIds = new Set(selected.map((message) => message.id));
+  const remainingProtected = remaining.filter((message) =>
+    excludedThreadIds.has(message.threadId),
+  );
+  const unexpectedRemaining = remaining.filter((message) =>
+    selectedIds.has(message.id),
+  );
+  const newUnread = remaining.filter((message) => !matchedIds.has(message.id));
+
+  return {
+    mode: "all-unread",
+    accountEmail,
+    matchedMessages: matched.length,
+    matchedThreads: new Set(matched.map((message) => message.threadId)).size,
+    excludedMessages: excluded.length,
+    excludedThreads: new Set(excluded.map((message) => message.threadId)).size,
+    changedMessages: mutation.succeeded.length,
+    batchCount: mutation.batchCount,
+    failures: mutation.failed,
+    remainingUnreadMessages: remaining.length,
+    remainingUnreadThreads: new Set(
+      remaining.map((message) => message.threadId),
+    ).size,
+    remainingProtectedMessages: remainingProtected.length,
+    remainingProtectedThreads: new Set(
+      remainingProtected.map((message) => message.threadId),
+    ).size,
+    unexpectedUnreadMessages: unexpectedRemaining.length,
+    unexpectedUnreadThreads: new Set(
+      unexpectedRemaining.map((message) => message.threadId),
+    ).size,
+    newUnreadMessages: newUnread.length,
+    newUnreadThreads: new Set(newUnread.map((message) => message.threadId))
+      .size,
+    verificationComplete:
+      mutation.failed.length === 0 && unexpectedRemaining.length === 0,
+  };
 }
 
 /** Extract regular (non-inline) attachments from a Gmail message payload */

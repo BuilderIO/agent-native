@@ -1,6 +1,5 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -17,6 +16,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  agentRecordingAccessFilter,
+  isAgentRecordingCaller,
+} from "../server/lib/agent-recording-access.js";
+import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import {
   getActiveOrganizationId,
   ownerEmailMatches,
   parseSpaceIds,
@@ -26,9 +30,42 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+type RecordingMediaFields = {
+  id: string;
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
+  videoUrl?: string | null;
+  videoFormat?: string | null;
+};
+
+export function resolveListRecordingMedia(
+  recording: RecordingMediaFields,
+  includeMedia: boolean,
+): { videoUrl: string | null; videoFormat: "webm" | "mp4" | null } {
+  if (!includeMedia) {
+    return { videoUrl: null, videoFormat: null };
+  }
+
+  return {
+    videoUrl: resolvePlayerVideoUrl(
+      {
+        id: recording.id,
+        sourceAppName: recording.sourceAppName,
+        sourceWindowTitle: recording.sourceWindowTitle,
+        videoUrl: recording.videoUrl,
+      },
+      { proxyRemoteMedia: true },
+    ),
+    videoFormat:
+      recording.videoFormat === "webm" || recording.videoFormat === "mp4"
+        ? recording.videoFormat
+        : null,
+  };
+}
+
 export default defineAction({
   description:
-    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. The shared view returns accessible recordings owned by someone else.",
+    "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else.",
   schema: z.object({
     view: z
       .enum(["library", "shared", "space", "archive", "trash", "all"])
@@ -67,13 +104,28 @@ export default defineAction({
       )
       .default(false)
       .describe("Return only the total count, skipping the row payload"),
+    includeMedia: z
+      .preprocess(
+        (v) => (typeof v === "string" ? v === "true" : v),
+        z.boolean(),
+      )
+      .default(false)
+      .describe("Include playable media fields for editor workflows"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
 
     const whereClauses = [
-      accessFilter(schema.recordings, schema.recordingShares),
+      agentRecordingAccessFilter(
+        schema.recordings,
+        schema.recordingShares,
+        schema.recordingViewers,
+        {
+          agentOnly: isAgentRecordingCaller(ctx?.caller),
+          userEmail: ctx?.userEmail,
+        },
+      ),
     ];
 
     const orgId = await getActiveOrganizationId();
@@ -225,6 +277,12 @@ export default defineAction({
           hasCamera: schema.recordings.hasCamera,
           width: schema.recordings.width,
           height: schema.recordings.height,
+          videoUrl: args.includeMedia
+            ? schema.recordings.videoUrl
+            : sql<string | null>`NULL`,
+          videoFormat: args.includeMedia
+            ? schema.recordings.videoFormat
+            : sql<string | null>`NULL`,
         },
         transcriptStatus: schema.recordingTranscripts.status,
         // Compute the has-text signal in SQL instead of shipping the full
@@ -313,6 +371,7 @@ export default defineAction({
         hasCamera: Boolean(r.hasCamera),
         width: r.width,
         height: r.height,
+        ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
       };

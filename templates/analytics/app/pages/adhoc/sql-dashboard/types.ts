@@ -88,6 +88,7 @@ export interface SqlPanelConfig {
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
   stacked?: boolean;
+  /** Fixed bar width in pixels for bar charts. Values are clamped by the renderer. */
   /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
   /** Optional display labels for exact metric values, e.g. {"0":"normal"}. */
@@ -98,8 +99,15 @@ export interface SqlPanelConfig {
   /**
    * Extension panels only (`chartType: "extension"`): id of the extension to
    * render inline as a sandboxed iframe instead of running the SQL pipeline.
+   * This is the default for author-selected dashboard content because the
+   * selection is shared with the dashboard and available to report captures.
    */
   extensionId?: string;
+  /**
+   * Extension panels only: an opt-in named extension-point slot. Each viewer's
+   * personal installs render in the box and receive dashboard context.
+   */
+  extensionSlotId?: string;
 }
 
 export interface SqlPanel {

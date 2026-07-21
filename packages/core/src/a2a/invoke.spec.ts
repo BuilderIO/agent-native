@@ -4,6 +4,7 @@ import {
   AgentInvocationError,
   buildAgentInvocationPrompt,
   invokeAgent,
+  invokeAgentAction,
   resolveAgentInvocationTarget,
   type AgentInvocationRuntime,
 } from "./invoke.js";
@@ -15,6 +16,11 @@ function runtime(
     findAgent: vi.fn(),
     discoverAgents: vi.fn(async () => []),
     callAgent: vi.fn(async () => "ok"),
+    callAction: vi.fn(async (_url, action) => ({
+      action,
+      status: "completed" as const,
+      output: "ok",
+    })),
     ...overrides,
   } as AgentInvocationRuntime;
 }
@@ -81,6 +87,35 @@ describe("invokeAgent", () => {
       id: "mail",
       name: "Mail",
       url: "https://mail.agent-native.test",
+    });
+  });
+
+  it("invokes one direct read-only action without a delegated prompt", async () => {
+    const callAction = vi.fn(async (_url, action) => ({
+      action,
+      status: "completed" as const,
+      output: '{"calls":13}',
+    }));
+    const rt = runtime({ callAction });
+
+    const result = await invokeAgentAction({
+      target: "https://analytics.agent-native.test/",
+      action: "gong-calls",
+      input: { company: "Edmunds" },
+      userEmail: "alice@example.test",
+      runtime: rt,
+    });
+
+    expect(callAction).toHaveBeenCalledWith(
+      "https://analytics.agent-native.test",
+      "gong-calls",
+      { company: "Edmunds" },
+      expect.objectContaining({ userEmail: "alice@example.test" }),
+    );
+    expect(rt.callAgent).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      action: "gong-calls",
+      result: { status: "completed", output: '{"calls":13}' },
     });
   });
 

@@ -1,25 +1,35 @@
-import {
-  appBasePath,
-  useActionMutation,
-  useT,
-} from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPalette, IconPhoto } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+export type RecordingVisibility = "private" | "org" | "public";
 
 interface BrandingEditorProps {
   organizationId: string;
   initialName: string;
   initialBrandColor: string;
   initialBrandLogoUrl: string | null;
+  initialDefaultVisibility?: RecordingVisibility;
   disabled?: boolean;
 }
+
+const DEFAULT_VISIBILITY: RecordingVisibility = "public";
 
 const PRESETS = [
   "#18181B",
@@ -54,6 +64,7 @@ export function BrandingEditor({
   initialName,
   initialBrandColor,
   initialBrandLogoUrl,
+  initialDefaultVisibility = DEFAULT_VISIBILITY,
   disabled,
 }: BrandingEditorProps) {
   const t = useT();
@@ -62,8 +73,14 @@ export function BrandingEditor({
   const [brandLogoUrl, setBrandLogoUrl] = useState<string | null>(
     initialBrandLogoUrl,
   );
+  const [defaultVisibility, setDefaultVisibility] =
+    useState<RecordingVisibility>(initialDefaultVisibility);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    setDefaultVisibility(initialDefaultVisibility);
+  }, [initialDefaultVisibility]);
 
   const qc = useQueryClient();
   const save = useActionMutation<
@@ -73,6 +90,7 @@ export function BrandingEditor({
       name?: string;
       brandColor?: string;
       brandLogoUrl?: string | null;
+      defaultVisibility?: RecordingVisibility;
     }
   >("set-organization-branding");
 
@@ -103,6 +121,7 @@ export function BrandingEditor({
         name: name.trim() || undefined,
         brandColor,
         brandLogoUrl,
+        defaultVisibility,
       });
       toast.success(t("brandingEditor.brandingUpdated"));
       qc.invalidateQueries({
@@ -244,6 +263,37 @@ export function BrandingEditor({
                 </div>
               </div>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="default-visibility">
+              {t("brandingEditor.defaultVisibility")}
+            </Label>
+            <Select
+              value={defaultVisibility}
+              onValueChange={(value) =>
+                setDefaultVisibility(value as RecordingVisibility)
+              }
+              disabled={disabled}
+            >
+              <SelectTrigger id="default-visibility">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="public">
+                  {t("playerSettings.visibilityPublic")}
+                </SelectItem>
+                <SelectItem value="org">
+                  {t("playerSettings.visibilityOrg")}
+                </SelectItem>
+                <SelectItem value="private">
+                  {t("playerSettings.visibilityPrivate")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t("brandingEditor.defaultVisibilityDescription")}
+            </p>
           </div>
 
           <div className="rounded-md border p-4">

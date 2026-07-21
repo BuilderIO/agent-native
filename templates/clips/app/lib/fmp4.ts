@@ -208,14 +208,36 @@ export function findMoofOffset(bytes: Uint8Array): number {
  * True when the head of an MP4 shows the fragmented shape: the `hlsf` brand in
  * `ftyp`, or an `mvex` box inside `moov` (present only in fragmented files).
  * `headBytes` should be the first few KB of the file.
+ *
+ * Both checks walk the ISO BMFF box structure rather than scanning raw bytes.
+ * Numeric fields inside moov children (timestamps, matrix values, codec config)
+ * can accidentally contain the byte sequences "mvex" or "hlsf", producing false
+ * positives if we just scan the whole buffer.
  */
 export function isFragmentedMp4Head(headBytes: Uint8Array): boolean {
   if (headBytes.byteLength < 8) return false;
-  // Must look like an MP4 at all.
+
   if (indexOfAscii(headBytes, "ftyp") !== 4) return false;
-  if (indexOfAscii(headBytes, "hlsf") !== -1) return true;
-  if (indexOfAscii(headBytes, "mvex") !== -1) return true;
-  return false;
+
+  const ftypSize = readU32(headBytes, 0);
+  if (ftypSize < 12) return false;
+  const ftypEnd = Math.min(ftypSize, headBytes.byteLength);
+
+  // Offset 12 is minor_version (uint32), not a brand — start compatible brands at 16.
+  if (ftypEnd >= 12 && readType(headBytes, 8) === "hlsf") return true;
+  for (let i = 16; i + 4 <= ftypEnd; i += 4) {
+    if (readType(headBytes, i) === "hlsf") return true;
+  }
+
+  const boxes = readTopLevelBoxes(headBytes);
+  const moov = boxes.find((b) => b.type === "moov");
+  if (!moov || moov.size === 0) return false;
+  const moovPayloadEnd = Math.min(moov.start + moov.size, headBytes.byteLength);
+  const moovPayload = headBytes.subarray(
+    moov.start + moov.headerSize,
+    moovPayloadEnd,
+  );
+  return readTopLevelBoxes(moovPayload).some((b) => b.type === "mvex");
 }
 
 /** Cache detection by URL identity so we sniff each asset only once. */

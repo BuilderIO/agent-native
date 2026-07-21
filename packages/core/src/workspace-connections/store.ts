@@ -24,6 +24,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import { notifyWorkspaceConnectionLifecycle } from "./lifecycle.js";
 
 export type WorkspaceConnectionStatus =
   | "connected"
@@ -1903,6 +1904,15 @@ export async function revokeWorkspaceConnectionGrant(
     sql: `DELETE FROM ${table} WHERE connection_id = ? AND app_id = ? AND ${where.sql}`,
     args: [normalizedConnectionId, normalizedAppId, ...where.args],
   });
+  if (result.rowsAffected > 0) {
+    await notifyWorkspaceConnectionLifecycle({
+      type: "grant-revoked",
+      connectionId: normalizedConnectionId,
+      appId: normalizedAppId,
+      ownerEmail: scope.ownerEmail,
+      orgId: scope.orgId,
+    });
+  }
   return result.rowsAffected > 0;
 }
 
@@ -1921,6 +1931,12 @@ export async function deleteWorkspaceConnection(id: string): Promise<boolean> {
     await client.execute({
       sql: `DELETE FROM ${grantsTable} WHERE connection_id = ? AND ${where.sql}`,
       args: [id, ...where.args],
+    });
+    await notifyWorkspaceConnectionLifecycle({
+      type: "connection-deleted",
+      connectionId: id,
+      ownerEmail: scope.ownerEmail,
+      orgId: scope.orgId,
     });
   }
   return result.rowsAffected > 0;

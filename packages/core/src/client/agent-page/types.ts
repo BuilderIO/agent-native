@@ -11,7 +11,7 @@ export type AgentPageScope = "user" | "org";
 
 /** Props every Agent page tab receives from the page shell. */
 export interface AgentPageTabProps {
-  /** Current scope selected by the page-level Personal/Organization toggle. */
+  /** Current scope selected by the Manage agent page Personal/Organization control. */
   scope: AgentPageScope;
   /** Whether the current user can administer org-scoped agent config. */
   canManageOrg?: boolean;

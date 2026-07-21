@@ -35,7 +35,13 @@ export type {
   SessionReplayNetworkOptions,
   SessionReplayOptions,
   SessionReplayStartResult,
+  SessionReplayContext,
+  SessionReplayLinkOptions,
   SessionReplayUrlMatcher,
+} from "./session-replay.js";
+export {
+  getSessionReplayContext,
+  getSessionReplayUrl,
 } from "./session-replay.js";
 
 declare global {
@@ -56,6 +62,10 @@ type GetDefaultProps = (
 type PageviewTrackingState = {
   installed: boolean;
   lastPageviewKey: string | null;
+};
+
+type AgentChatTrackingState = {
+  seen: Map<string, number>;
 };
 
 /**
@@ -101,6 +111,10 @@ export type ConfigureTrackingOptions = {
    * Disable this on anonymous/public routes to avoid an expected 401 request.
    */
   llmConnectionStatus?: boolean;
+  /** Disable framework auth refresh when the host owns identity/session state. */
+  authSessionRefresh?: boolean;
+  /** Disable automatic history/pageview events when the host emits its own. */
+  pageviewTracking?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   /**
    * First-party, Sentry-style error capture. Auto-captures uncaught errors
@@ -110,7 +124,7 @@ export type ConfigureTrackingOptions = {
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
 
-type SentryUser = {
+export type TrackingIdentityUser = {
   id?: string;
   email?: string;
   username?: string;
@@ -148,7 +162,7 @@ let _trackingContentCaptureEnabled = true;
 let _contentCaptureForPath: ((pathname: string) => boolean) | null = null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
-let _pendingSentryUser: SentryUser | null | undefined = undefined;
+let _pendingSentryUser: TrackingIdentityUser | null | undefined = undefined;
 let _pendingSentryOrgId: string | null | undefined = undefined;
 
 const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
@@ -163,6 +177,11 @@ export const AGENT_NATIVE_EXCEPTION_EVENT_NAME = "$exception";
 const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
 );
+const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
+  "agent-native.client.agentChatTracking",
+);
+const AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS = 10 * 60 * 1_000;
+const MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS = 1_000;
 
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -905,7 +924,7 @@ function ensureSentry(): void {
  * for filtering Sentry by tenant.
  */
 export function setSentryUser(
-  user: SentryUser | null,
+  user: TrackingIdentityUser | null,
   orgId?: string | null,
 ): void {
   let shouldRetryReplay = false;
@@ -944,6 +963,14 @@ export function setSentryUser(
   if (orgId !== undefined) {
     _pendingSentryOrgId = orgId ?? null;
   }
+}
+
+/** Neutral alias for hosts that own identity outside Sentry. */
+export function setTrackingIdentity(
+  user: TrackingIdentityUser | null,
+  orgId?: string | null,
+): void {
+  setSentryUser(user, orgId);
 }
 
 export interface ClientCaptureContext {
@@ -1027,6 +1054,81 @@ function getPageviewTrackingState(): PageviewTrackingState {
   return g[PAGEVIEW_TRACKING_STATE_KEY];
 }
 
+function getAgentChatTrackingState(): AgentChatTrackingState {
+  const g = globalThis as typeof globalThis & {
+    [AGENT_CHAT_TRACKING_STATE_KEY]?: AgentChatTrackingState;
+  };
+  if (!g[AGENT_CHAT_TRACKING_STATE_KEY]) {
+    g[AGENT_CHAT_TRACKING_STATE_KEY] = { seen: new Map() };
+  }
+  return g[AGENT_CHAT_TRACKING_STATE_KEY];
+}
+
+export type AgentChatLifecycleEvent = {
+  phase: "surface-mounted" | "run-observed" | "run-stopped";
+  surface?: string;
+  threadId?: string;
+  runId?: string;
+  tabId?: string;
+};
+
+/**
+ * Record a content-free, browser-session-linked chat lifecycle marker and add
+ * the same marker to session replay when replay is configured. The bounded
+ * global de-dupe survives React Strict Mode remounts without retaining keys
+ * forever.
+ */
+export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
+  if (typeof window === "undefined") return;
+  const surface = input.surface?.trim() || "app";
+  const dedupeKey = [
+    input.phase,
+    surface,
+    input.threadId ?? "",
+    input.runId ?? "",
+    input.tabId ?? "",
+  ].join(":");
+  const state = getAgentChatTrackingState();
+  const now = Date.now();
+  for (const [key, seenAt] of state.seen) {
+    if (now - seenAt >= AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS) {
+      state.seen.delete(key);
+    }
+  }
+  if (state.seen.has(dedupeKey)) return;
+  state.seen.set(dedupeKey, now);
+  while (state.seen.size > MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS) {
+    const oldestKey = state.seen.keys().next().value;
+    if (oldestKey === undefined) break;
+    state.seen.delete(oldestKey);
+  }
+
+  void (async () => {
+    const replayResult =
+      _sessionReplayOptions && _trackingContentCaptureEnabled
+        ? await startConfiguredSessionReplay(_sessionReplayOptions)
+        : null;
+    const properties = {
+      phase: input.phase,
+      chat_surface: surface,
+      ...(input.threadId ? { thread_id: input.threadId } : {}),
+      ...(input.runId ? { run_id: input.runId } : {}),
+      ...(input.tabId ? { chat_tab_id: input.tabId } : {}),
+      replay_status: replayResult?.started
+        ? "active"
+        : (replayResult?.reason ?? "not-configured"),
+    };
+    trackEvent("agent_chat_lifecycle", properties);
+    _sessionReplayModuleForCapture?.emitSessionReplayAgentChatEvent?.({
+      phase: input.phase,
+      surface,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.runId ? { runId: input.runId } : {}),
+      ...(input.tabId ? { tabId: input.tabId } : {}),
+    });
+  })();
+}
+
 export function configureTracking(options: ConfigureTrackingOptions): void {
   const publicKey = options.key || options.publicKey;
   if (publicKey) {
@@ -1050,8 +1152,12 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     if (options.llmConnectionStatus !== false) {
       installLlmConnectionRefresh();
     }
-    installTrackingAuthSessionRefresh();
-    installPageviewTracking();
+    if (options.authSessionRefresh !== false) {
+      installTrackingAuthSessionRefresh();
+    }
+    if (options.pageviewTracking !== false) {
+      installPageviewTracking();
+    }
     maybeInstallSessionReplay(
       options.sessionReplay,
       {
@@ -1371,6 +1477,7 @@ async function startConfiguredSessionReplay(
       return { started: false, reason: "disabled" as const };
     }
     const mod = await import("./session-replay.js");
+    _sessionReplayModuleForCapture = mod;
     if (!_trackingContentCaptureEnabled) {
       return { started: false, reason: "disabled" as const };
     }
@@ -1398,6 +1505,7 @@ export async function startSessionReplay(
     return { started: false, reason: "missing-user-id" };
   }
   const mod = await import("./session-replay.js");
+  _sessionReplayModuleForCapture = mod;
   return mod.startSessionReplay({
     ...configured,
     shouldStart: () =>
@@ -1466,7 +1574,29 @@ function resolveProps(
   for (const [key, value] of Object.entries(llmProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
+  const replayProps = sessionReplayTrackingProperties();
+  for (const [key, value] of Object.entries(replayProps)) {
+    if (enriched[key] === undefined) enriched[key] = value;
+  }
   return applyTrackingIdentity(enriched);
+}
+
+function sessionReplayTrackingProperties(): Record<string, unknown> {
+  const module = _sessionReplayModuleForCapture;
+  if (!module) return {};
+  const context = module.getSessionReplayContext?.();
+  if (!context?.active) return {};
+  const occurredAt = new Date().toISOString();
+  return {
+    sessionReplayId: context.replayId,
+    sessionReplayStartedAt: context.startedAt,
+    sessionReplayAt: occurredAt,
+    ...(module.getSessionReplayUrl
+      ? {
+          sessionReplayUrl: module.getSessionReplayUrl({ at: occurredAt }),
+        }
+      : {}),
+  };
 }
 
 function pageviewKey(): string {

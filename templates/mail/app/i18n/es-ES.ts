@@ -442,10 +442,10 @@ const messages = {
     suggestionWidget: "Crea un widget personalizado para mi bandeja",
   },
   settings: {
-    openAgentSettings: "Abrir ajustes del agente",
+    openAgentSettings: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    agentTitle: "Ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Gestionar agente",
     aliasName: "Nombre del alias",
     aliasNamePlaceholder: "p. ej., equipo de diseño",
     recipientsOnePerLine: "Destinatarios (un correo por línea)",

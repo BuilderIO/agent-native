@@ -29,6 +29,7 @@ export const DATA_QUERY_ACTIONS = new Set([
   "match-error-issues",
   "gcloud",
   "gong-calls",
+  "gong-native-insights",
   "grafana",
   "hubspot-deals",
   "hubspot-metrics",
@@ -76,6 +77,20 @@ export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-extension",
 ]);
 
+// Dashboard authoring/save actions. Unlike the read actions above, running one
+// of these is proof the turn actually edited or built a dashboard/extension —
+// which is a legitimate non-query completion. A saved SQL panel the user runs
+// themselves is not a fabricated metric, so the guard only needs to keep
+// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
+export const DASHBOARD_MUTATION_ACTIONS = new Set([
+  "mutate-dashboard",
+  "update-dashboard",
+  "compose-dashboard",
+  "install-dashboard-template",
+  "create-extension",
+  "update-extension",
+]);
+
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
@@ -120,11 +135,15 @@ function isDashboardConstructionActionName(name: string): boolean {
   return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
 }
 
+function isDashboardMutationActionName(name: string): boolean {
+  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
+}
+
 // "Build/clone/template" language targeting a dashboard/extension/panel is
 // dashboard construction, distinct from an analytics-result question. Turns
 // like this may inspect and clone a template without running a metric query.
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
-  /\b(build|create|make|clone|copy|duplicate|adapt|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
 
 const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
   /\b(dashboard|extension|panel|widget)\b/i;
@@ -148,6 +167,17 @@ export function hasDashboardConstructionAttempt(
   return (toolResults ?? []).some((result) => {
     if (result.isError) return false;
     return isDashboardConstructionActionName(String(result.name ?? ""));
+  });
+}
+
+export function hasDashboardMutationAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardMutationActionName(String(result.name ?? ""));
   });
 }
 
@@ -769,6 +799,9 @@ function actionEvidenceTextForSourceRecords(result: {
       transcriptSearch: record.transcriptSearch,
       transcripts: record.transcripts,
     });
+  }
+  if (normalizedName === "gong-native-insights") {
+    return "";
   }
   if (normalizedName === "run-code") {
     return content;

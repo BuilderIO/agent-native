@@ -1522,7 +1522,7 @@ function slugify(value: string): string {
     .slice(0, 64);
 }
 
-function isLocalAppCreationRuntime(): boolean {
+export function isLocalAppCreationRuntime(): boolean {
   if (process.env.NODE_ENV === "production") return false;
   if (
     process.env.NETLIFY ||

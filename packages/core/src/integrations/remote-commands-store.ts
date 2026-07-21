@@ -368,7 +368,7 @@ export async function listRemoteCommandsForOwner(input: {
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_remote_commands
           WHERE owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
           ORDER BY updated_at DESC
           LIMIT ?`,
     args: [input.ownerEmail, input.orgId ?? null, input.orgId ?? null, limit],
@@ -435,7 +435,7 @@ export async function claimNextComputerCommand(input: {
   const { rows } = await client.execute({
     sql: `SELECT * FROM integration_remote_commands
           WHERE device_id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND kind = 'computer-operation' AND status = 'pending'
             AND next_check_at <= ?${operationClassClause}
           ORDER BY computer_sequence ASC, created_at ASC
@@ -477,7 +477,7 @@ export async function claimNextComputerCommand(input: {
       sql: `UPDATE integration_remote_commands
             SET status = 'failed', error_message = ?, completed_at = ?, updated_at = ?
             WHERE id = ? AND device_id = ? AND owner_email = ?
-              AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+              AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
               AND status = 'pending'`,
       args: [
         error instanceof Error
@@ -500,13 +500,13 @@ export async function claimNextComputerCommand(input: {
       ? `UPDATE integration_remote_commands
           SET status = 'claimed', attempts = attempts + 1, claimed_at = ?, updated_at = ?
           WHERE id = ? AND device_id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND status = 'pending' AND lease_expires_at > ?
           RETURNING *`
       : `UPDATE integration_remote_commands
           SET status = 'claimed', attempts = attempts + 1, claimed_at = ?, updated_at = ?
           WHERE id = ? AND device_id = ? AND owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND status = 'pending' AND lease_expires_at > ?`,
     args: [
       now,

@@ -1,10 +1,10 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  appPath,
   useActionMutation,
   useActionQuery,
   useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCode,
   IconExternalLink,
@@ -380,49 +380,53 @@ function LinkTab({
       )}
 
       <CopyField
-        label={t("shareDialog.shareLink")}
-        value={shareUrl}
-        disabled={
-          visibilityPending || !sharesLoaded || (!isPublic && canManage)
+        label={
+          isPublic
+            ? t("shareDialog.shareLink")
+            : t("shareDialog.shareWithHumans")
         }
+        value={shareUrl}
+        disabled={visibilityPending || !sharesLoaded}
       />
 
-      <div className="space-y-2">
-        <CopyField
-          label={t("shareDialog.shareWithAgents")}
-          value={agentLink}
-          disabled={agentShareDisabled}
-        />
-        {sharesLoaded && !isPublic ? (
-          <>
-            <p className="text-xs text-muted-foreground">
-              {t("shareDialog.agentTokenDescription")}
-            </p>
-            {agentLinkError ? (
-              <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                <p className="text-xs text-muted-foreground">
-                  {t("shareDialog.agentLinkUnavailable")}
-                </p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7"
-                  onClick={() => void loadAgentContextUrl()}
-                  disabled={createAgentLink.isPending}
-                >
-                  {t("shareDialog.retryAgentLink")}
-                </Button>
-              </div>
-            ) : null}
-            <CopyField
-              label={t("shareDialog.copyAgentPrompt")}
-              value={agentPrompt}
-              disabled={agentShareDisabled}
-            />
-          </>
-        ) : null}
-      </div>
+      {!isPublic ? (
+        <div className="space-y-2">
+          <CopyField
+            label={t("shareDialog.shareWithAgents")}
+            value={agentLink}
+            disabled={agentShareDisabled}
+          />
+          {sharesLoaded ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("shareDialog.agentTokenDescription")}
+              </p>
+              {agentLinkError ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    {t("shareDialog.agentLinkUnavailable")}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void loadAgentContextUrl()}
+                    disabled={createAgentLink.isPending}
+                  >
+                    {t("shareDialog.retryAgentLink")}
+                  </Button>
+                </div>
+              ) : null}
+              <CopyField
+                label={t("shareDialog.copyAgentPrompt")}
+                value={agentPrompt}
+                disabled={agentShareDisabled}
+              />
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {sharesLoaded && !isPublic && canManage ? (
         <MakePublicCard

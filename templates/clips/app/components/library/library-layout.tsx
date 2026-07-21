@@ -1,18 +1,18 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  getBrowserTabId,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   InvitationBanner,
   OrgSwitcher,
   useOrgRole,
 } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconInbox,
   IconArchive,
@@ -384,12 +384,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           ) : (
             <>
               <div className="px-3 py-3">
-                <Button
-                  className="w-full gap-1.5"
-                  variant="outline"
-                  size="sm"
-                  asChild
-                >
+                <Button className="w-full gap-1.5" size="sm" asChild>
                   <NavLink to="/record">
                     <IconPlayerRecord className="h-4 w-4" />
                     {t("navigation.newRecording")}
@@ -528,7 +523,15 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           <>
             <div className="shrink-0 space-y-1.5 px-2 py-1.5">
               {shouldShowSidebarLink && (
-                <CaptureInstallInlineLink className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60">
+                <CaptureInstallInlineLink
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60"
+                  downloadedChildren={
+                    <>
+                      <IconAppWindow className="h-4 w-4" />
+                      {t("captureInstall.openDesktopApp")}
+                    </>
+                  }
+                >
                   <IconAppWindow className="h-4 w-4" />
                   {t("navigation.desktopCta")}
                 </CaptureInstallInlineLink>
@@ -551,7 +554,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
 
       <AgentSidebar
         position="right"
-        defaultOpen={!isMobile}
+        defaultOpen={false}
         emptyStateText={t("navigation.agentEmptyState")}
         suggestions={[
           t("navigation.agentSuggestionSummary"),

@@ -454,6 +454,18 @@ function fullTextSegmentJson(
   return JSON.stringify(buildCaptionSegmentsFromText(text, durationMs));
 }
 
+export function isSafeTranscriptCleanupReplacement(
+  sourceText: string,
+  cleanedText: string,
+): boolean {
+  const sourceLength = sourceText.trim().length;
+  const cleanedLength = cleanedText.trim().length;
+  if (!sourceLength || !cleanedLength) return false;
+  if (sourceLength < 200) return true;
+  const retention = cleanedLength / sourceLength;
+  return retention >= 0.6 && retention <= 1.25;
+}
+
 async function failEmptyProviderTranscript({
   db,
   recordingId,
@@ -719,19 +731,49 @@ async function cleanupNativeTranscript({
       });
       return { cleaned: false, provider: result.provider };
     }
+    if (!isSafeTranscriptCleanupReplacement(sourceText, cleanedText)) {
+      await writeTranscriptCleanupState(recordingId, {
+        status: "failed",
+        provider: result.provider,
+        failureReason:
+          "Cleanup output was incomplete; the original transcript was kept.",
+        sourceChars: sourceText.length,
+        cleanedChars: cleanedText.length,
+      });
+      return { cleaned: false, provider: result.provider };
+    }
 
     const now = new Date().toISOString();
     const language = await resolveStoredLanguage(db, recordingId);
-    await upsertTranscriptRow(db, {
-      recordingId,
-      ownerEmail,
-      status: "ready",
-      failureReason: null,
-      language,
-      segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
-      fullText: cleanedText,
-      now,
-    });
+    const updated = await db
+      .update(schema.recordingTranscripts)
+      .set({
+        ownerEmail,
+        status: "ready",
+        failureReason: null,
+        language,
+        segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
+        fullText: cleanedText,
+        retryCount: 0,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.recordingTranscripts.recordingId, recordingId),
+          eq(schema.recordingTranscripts.status, "ready"),
+          eq(schema.recordingTranscripts.fullText, sourceText),
+        ),
+      )
+      .returning({ recordingId: schema.recordingTranscripts.recordingId });
+    if (!updated.length) {
+      await writeTranscriptCleanupState(recordingId, {
+        status: "failed",
+        provider: result.provider,
+        failureReason:
+          "Transcript changed during cleanup; the newer transcript was kept.",
+      });
+      return { cleaned: false, provider: result.provider };
+    }
     await writeTranscriptCleanupState(recordingId, {
       status: "ready",
       provider: result.provider,
@@ -1060,7 +1102,7 @@ const requestTranscriptAction = defineAction({
 
     const db = getDb();
 
-    if (context?.caller === "tool") {
+    if (context?.caller === "tool" || context?.caller === "frontend") {
       const [existingTranscript] = await db
         .select({
           status: schema.recordingTranscripts.status,

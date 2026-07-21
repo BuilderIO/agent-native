@@ -173,7 +173,7 @@ const messages = {
       "La grabadora de escritorio terminó y guardó una copia local, pero Clips no pudo cargarla. Puedes volver a intentarlo desde el menú Clips sin volver a grabar.",
     retryLibrary: "Puedes volver a intentarlo desde la biblioteca.",
     processingStuck:
-      "El procesamiento no se ha completado después de 30 segundos (estado={{status}}). Es posible que el clip no haya terminado de cargarse; verifique los registros del servidor para ver si hay mensajes fragmentados/finalizados.",
+      "El guardado está tardando más de lo esperado (estado={{status}}). Si grabaste con la aplicación de escritorio, abre Clips desde la barra de menús para reintentar la carga o descargar una copia local guardada y vuelve a comprobarlo.",
     uploadingAssembling:
       "Cargar y ensamblar su video; esto generalmente toma solo unos segundos.",
     connectStorageImportLoom:
@@ -224,6 +224,9 @@ const messages = {
     autoChapters: "capítulos automáticos",
     removeFillerWords: "Eliminar palabras de relleno",
     removeSilences: "Eliminar silencios (>1,2s)",
+    silenceWorking: "Eliminando silencios…",
+    silenceCompleted: "Eliminación de silencios completada",
+    silenceFailed: "No se pudieron eliminar los silencios",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -454,6 +457,7 @@ const messages = {
     invite: "Invitar",
     embed: "Insertar",
     shareLink: "Enlace para compartir",
+    shareWithHumans: "Compartir con personas",
     shareWithAgents: "Compartir con agentes",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
@@ -464,6 +468,8 @@ const messages = {
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
     openPlayer: "jugador abierto",
+    chooseFile: "Elige el archivo",
+    remove: "Eliminar",
     downloadMp4: "Descargar MP4",
     embedsNeedPublic: "Los elementos insertados necesitan un clip público",
     embedPublicDescription:
@@ -549,6 +555,9 @@ const messages = {
     brandingUpdated: "Marca actualizada",
     saveFailed: "No se pudo guardar",
     organizationName: "Nombre de la organización",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a las nuevas grabaciones, a menos que elijas otra visibilidad.",
     brandColor: "Color de la marca",
     brandColorPicker: "Selector de color de marca",
     useColor: "Utilice {{color}}",
@@ -616,10 +625,10 @@ const messages = {
     pageTitle: "Unirse al equipo · Clips",
   },
   settings: {
-    openAgentSettings: "Abrir ajustes del agente",
+    openAgentSettings: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    agentTitle: "Ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
@@ -627,6 +636,16 @@ const messages = {
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
     languageLabel: "Idioma de la interfaz",
+    uploadWorkspaceTitle: "Espacio activo",
+    uploadWorkspaceDescription:
+      "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",
+    uploadWorkspaceLabel: "Espacio actual",
+    uploadWorkspacePlaceholder: "Elige un espacio",
+    uploadWorkspaceHint:
+      "Al cambiarlo también se actualizan las vistas de Clips vinculadas al espacio.",
+    uploadWorkspaceSaving: "Guardando espacio…",
+    uploadWorkspaceSaved: "Espacio activo actualizado",
+    uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
     viewAllUpdates: "Ver todas las actualizaciones",
@@ -930,6 +949,18 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     summary: "Resumen",
     keyPoints: "Puntos clave",
     actionItems: "Elementos de acción",
+    sharedContent: "Contenido compartido",
+    summaryIncluded: "Resumen, puntos clave y elementos de acción",
+    includeTranscript: "Incluir la transcripción completa",
+    includeTranscriptDescription:
+      "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
+    transcriptUnavailable: "La transcripción aún no está lista.",
+    transcript: "Transcripción",
+    copyTranscript: "Copiar transcripción",
+    transcriptCopied: "Transcripción copiada",
+    copyTranscriptFailed: "No se pudo copiar la transcripción",
+    updateTranscriptSharingFailed:
+      "No se pudo actualizar el uso compartido de la transcripción",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip movido a la papelera",
@@ -1116,6 +1147,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     desktopTitle: "Desktop app (Localizado)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localizado)",
+    openDesktopApp: "Open desktop app (Localizado)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localizado)",
@@ -1243,9 +1275,11 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     visibilityOrg: "Organization (Localizado)",
     visibilityPublic: "Public (Localizado)",
     passwordProtection: "Password protection (Localizado)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Localizado)",
+    passwordSetPlaceholder: "Password is set — type to replace (Localizado)",
     noPasswordPlaceholder: "No password (Localizado)",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (Localizado)",
+    removePassword: "Remove (Localizado)",
     expiry: "Expiry (Localizado)",
     viewerOptions: "Viewer options (Localizado)",
     comments: "Comments (Localizado)",
@@ -1378,7 +1412,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     connectStorageToFinish:
       "Ábrelo para conectar almacenamiento y terminar de guardar.",
     retryFromClipsMenu:
-      "Reintenta desde el menú de Clips; no hace falta grabar de nuevo.",
+      "Abre Clips desde la barra de menús para reintentar esta carga guardada; no hace falta grabar de nuevo.",
     removeFailedClip: "Eliminar este clip fallido.",
     remove: "Eliminar",
     viewsCount: "{{count}} visualizaciones",
@@ -1493,6 +1527,23 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localizado)",
   },
+  rewindExtension: {
+    title: "Añadir lo que ocurrió antes",
+    description:
+      "Elige un intervalo del Rewind local y añádelo al inicio de este clip. No se añade nada automáticamente.",
+    progressLabel: "Progreso del procesamiento del historial de Rewind",
+    privateFirstTitle: "Haz privado este clip primero",
+    privateFirstDescription:
+      "El historial local de Rewind puede incluir contexto anterior al inicio de la grabación. Esto hará privado el clip. Si alguien aún tiene acceso directo, Clips se detendrá para que lo elimines primero en Compartir.",
+    makePrivateContinue: "Hacer privado y continuar",
+    add30Seconds: "Añadir los 30 segundos anteriores",
+    add5Minutes: "Añadir los 5 minutos anteriores",
+    add5MinutesDescription:
+      "Útil para recuperar el inicio de una explicación más larga.",
+    privateReady:
+      "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
+  },
+  timeline: { clipStartedHere: "El clip empezó aquí" },
 };
 
 export default messages;

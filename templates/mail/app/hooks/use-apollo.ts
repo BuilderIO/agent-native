@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import type { ApolloPersonResult } from "@shared/types";
 import { useQuery } from "@tanstack/react-query";
 

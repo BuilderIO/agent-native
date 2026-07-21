@@ -1,4 +1,5 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowBackUp,
   IconChevronDown,
@@ -15,6 +16,7 @@ import {
   IconDownload,
   IconLoader2,
   IconTrash,
+  IconHistory,
 } from "@tabler/icons-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -83,6 +85,10 @@ export interface EditorToolbarProps {
   onOpenThumbnailPicker: () => void;
   onOpenChapters: () => void;
   onOpenStitch: () => void;
+  onOpenRewind: () => void;
+  rewindAlreadyAdded?: boolean;
+  rewindAvailable?: boolean;
+  rewindRequiresPrivate?: boolean;
   chaptersOpen?: boolean;
 }
 
@@ -102,6 +108,10 @@ export function EditorToolbar({
   onOpenThumbnailPicker,
   onOpenChapters,
   onOpenStitch,
+  onOpenRewind,
+  rewindAlreadyAdded,
+  rewindAvailable = true,
+  rewindRequiresPrivate = false,
   chaptersOpen,
 }: EditorToolbarProps) {
   const t = useT();
@@ -481,6 +491,19 @@ export function EditorToolbar({
             <IconPuzzle className="mr-2 h-4 w-4" />
             {t("editorToolbar.stitchClips")}
           </DropdownMenuItem>
+          {rewindAvailable ? (
+            <DropdownMenuItem
+              disabled={rewindAlreadyAdded}
+              onSelect={onOpenRewind}
+            >
+              <IconHistory className="mr-2 h-4 w-4" />
+              {rewindAlreadyAdded
+                ? "Rewind history added"
+                : rewindRequiresPrivate
+                  ? "Make private and add Rewind history…"
+                  : "Add what happened before…"}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setClearOpen(true)}>
             <IconTrash className="mr-2 h-4 w-4" />
@@ -488,6 +511,20 @@ export function EditorToolbar({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {rewindAvailable && !rewindAlreadyAdded ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="hidden shrink-0 gap-1.5 xl:inline-flex"
+          onClick={onOpenRewind}
+        >
+          <IconHistory className="h-4 w-4" />
+          {rewindRequiresPrivate
+            ? "Make private + add earlier"
+            : "Add earlier…"}
+        </Button>
+      ) : null}
 
       <div className="min-w-3 flex-1" />
 

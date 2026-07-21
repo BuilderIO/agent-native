@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
@@ -63,6 +63,17 @@ export function designSystemGenerationDirectives(
     `Use design system id "${designSystemId}" for this generation.`,
     "Use the selected design system context in this message as mandatory generation input. If details are missing or conflict, call `get-design-system` for that id before writing visual code.",
     `When calling \`generate-design\`, pass \`designSystemId: "${designSystemId}"\` so the design remains linked.`,
+  ];
+}
+
+export function designSystemTemplateEditDirectives(
+  designSystemId?: string | null,
+): string[] {
+  if (!designSystemId) return [];
+  return [
+    `Use design system id "${designSystemId}" while adapting the copied template.`,
+    "Use the selected design system context in this message as mandatory edit input. If details are missing or conflict, call `get-design-system` for that id before editing.",
+    "Apply the system through `edit-design` while preserving the copied structure and every locked subtree. Do not call `generate-design`.",
   ];
 }
 
@@ -169,7 +180,7 @@ export function designTemplateRefinementDirectives(
 ): string[] {
   return [
     `This design was copied from template "${templateId}". Its files, canvas dimensions, defaults, and locked layers already exist.`,
-    ...designSystemGenerationDirectives(designSystemId),
+    ...designSystemTemplateEditDirectives(designSystemId),
     `Call \`get-design-snapshot --designId="${designId}"\` exactly once before editing.`,
     "Refine the existing template with `edit-design`; do not call `generate-design`, `delete-file`, or create a replacement screen.",
     'Layers marked `data-agent-native-locked="true"` and everything inside them must remain byte-for-byte unchanged. The server rejects changes to locked backgrounds, logos, and other fixed template layers.',

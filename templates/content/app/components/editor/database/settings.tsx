@@ -1,8 +1,8 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
@@ -768,20 +768,19 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onAddDetails={() =>
-          secondary
-            ? onNavPush({
-                kind: "keyConfirm",
-                candidate: {
-                  sourceType: secondary.sourceType,
-                  sourceName: secondary.sourceName,
-                  sourceTable: secondary.sourceTable,
-                  displayName: secondary.sourceName,
-                  existingSourceId: secondary.id,
-                },
-              })
-            : undefined
-        }
+        onAddDetails={() => {
+          if (!secondary || secondary.sourceType === "local-folder") return;
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: secondary.sourceType,
+              sourceName: secondary.sourceName,
+              sourceTable: secondary.sourceTable,
+              displayName: secondary.sourceName,
+              existingSourceId: secondary.id,
+            },
+          });
+        }}
         onAddItems={async () => {
           if (!secondary) return;
           await onChangeSourceRole(secondary.id, "items");
@@ -1142,12 +1141,16 @@ function DatabaseSettingsSourcePanel({
 
         <SourceRoleCard
           source={source}
-          canAddDetails={sources.some(
-            (item) => item.id !== source.id && !sourceAddsDetails(item),
-          )}
+          canAddDetails={
+            source.sourceType !== "local-folder" &&
+            sources.some(
+              (item) => item.id !== source.id && !sourceAddsDetails(item),
+            )
+          }
           canEdit={canEdit}
           pending={sourceActionPending}
-          onAddDetails={() =>
+          onAddDetails={() => {
+            if (source.sourceType === "local-folder") return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -1157,8 +1160,8 @@ function DatabaseSettingsSourcePanel({
                 displayName: source.sourceName,
                 existingSourceId: source.id,
               },
-            })
-          }
+            });
+          }}
           onAddItems={async () => {
             await onChangeSourceRole(source.id, "items");
             onNavReplace([]);

@@ -618,6 +618,13 @@ export default defineAction({
         .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
         .optional()
         .describe("Optional bounded set of Builder change-set IDs to prepare"),
+      documentIds: z
+        .array(z.string())
+        .max(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT)
+        .optional()
+        .describe(
+          "Optional document IDs that bound heavy Builder snapshot loading",
+        ),
       pushModeConfirmation: z
         .enum(["autosave", "draft", "publish"])
         .optional()
@@ -663,6 +670,7 @@ export default defineAction({
           const snapshot = await getContentDatabaseSourceSnapshotForWrite(
             database,
             args.sourceId,
+            args.documentIds,
           );
           return { database, snapshot };
         },
@@ -765,6 +773,7 @@ export default defineAction({
           reviewedSnapshot: await getContentDatabaseSourceSnapshotForWrite(
             database,
             args.sourceId,
+            args.documentIds,
           ),
           response: await getContentDatabaseResponse(database.id),
         }),

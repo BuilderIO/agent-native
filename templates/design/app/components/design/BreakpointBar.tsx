@@ -1,33 +1,4 @@
-/**
- * BreakpointDeviceControl (§6.4, BP-DEEP v2) — the single, unified breakpoint
- * targeting control for the design editor.
- *
- * History: breakpoint targeting used to be a floating "BreakpointBar" overlay
- * above the canvas (and briefly a reserved chrome row above it). Both cost
- * canvas space or covered the top of the screen being edited, and the editor
- * ALSO had a separate device-preview dropdown in the right-inspector header —
- * two similar-but-different width controls. BP-DEEP v2 folds all of that into
- * this ONE segmented control that lives in the right-inspector header:
- *
- *   [ Base ] [ 810 ] [ 390 ] [ + ]
- *
- * - Clicking a segment switches BOTH the editing viewport width (single-screen
- *   mode renders the iframe at that width, centered) AND the active edit
- *   scope: edits made while a narrower segment is active persist as
- *   width-scoped overrides that cascade down, while Base edits cascade to
- *   every breakpoint unless overridden.
- * - Each breakpoint segment carries a "…" menu (shadcn DropdownMenu) with a
- *   width input (Enter commits) and a destructive "Remove breakpoint" item —
- *   replaces the old dead hover-"X".
- * - "+" offers Framer's default widths (Desktop 1200 / Tablet 810 / Phone
- *   390) or a custom width, plus the overview "show all breakpoints" toggle.
- *
- * The overview canvas keeps its own frame-attached labels (see
- * BreakpointPreviewRow in MultiScreenCanvas) — this control is the only other
- * breakpoint surface.
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconDeviceDesktop,
   IconDeviceMobile,

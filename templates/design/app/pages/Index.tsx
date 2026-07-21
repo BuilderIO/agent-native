@@ -1,18 +1,20 @@
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   useActionQuery,
   useActionMutation,
-  useT,
-} from "@agent-native/core/client";
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
-import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
+import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconChecks,
@@ -27,12 +29,15 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
-import type { UploadedFile } from "@/components/editor/PromptDialog";
+import type {
+  PromptTemplateOption,
+  UploadedFile,
+} from "@/components/editor/PromptDialog";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
@@ -83,6 +88,7 @@ interface Design {
 export default function Index() {
   const t = useT();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -91,12 +97,14 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
+  const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
-  // cloud container). Only reachable behind FULL_APP_BUILDING_ENABLED — the
+  // cloud container). Only reachable behind the full-app-building flag — the
   // popover renders no mode control at all when the flag is off, so this
   // state is always "design" in that case.
   const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
@@ -104,10 +112,12 @@ export default function Index() {
   );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
 
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
   const skipToEditorPendingRef = useRef(false);
+  const newDesignSystemWasChosenRef = useRef(false);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
@@ -117,14 +127,18 @@ export default function Index() {
     isError,
     isFetching,
     refetch,
-  } = useActionQuery<{
-    count: number;
-    designs: Design[];
-  }>("list-designs", { includePreview: "true" });
+  } = useActionQuery("list-designs", { includePreview: "true" });
+  const { data: templatesData, isLoading: templatesLoading } = useActionQuery(
+    "list-design-templates",
+    { includePreview: "true" },
+  );
 
   const createMutation = useActionMutation("create-design");
+  const createFromTemplateMutation = useActionMutation(
+    "create-design-from-template",
+  );
   // Fires the fusion-backed cloud container build; only ever called when
-  // FULL_APP_BUILDING_ENABLED is true and the user picked "Full app".
+  // runtime flag is true and the user picked "Full app".
   const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
@@ -139,7 +153,24 @@ export default function Index() {
     isLoading: designSystemsLoading,
   } = useDesignSystems();
 
-  const designs = designsData?.designs ?? [];
+  const designs = (designsData?.designs ?? []) as Design[];
+  const templateOptions = useMemo<PromptTemplateOption[]>(
+    () =>
+      (templatesData?.templates ?? []).map((template) => ({
+        id: template.id,
+        title: template.title,
+        description: template.description,
+        category: template.category,
+        width: template.width,
+        height: template.height,
+        previewHtml: template.previewHtml,
+        designSystemId: template.designSystemId,
+        isBuiltIn: template.isBuiltIn,
+      })),
+    [templatesData?.templates],
+  );
+  const selectedTemplate =
+    templateOptions.find((template) => template.id === newTemplateId) ?? null;
 
   const filtered = search
     ? designs.filter((d) =>
@@ -157,24 +188,42 @@ export default function Index() {
     [defaultSystem?.id, designSystems],
   );
 
+  const syncSelectedTemplate = useCallback(
+    (templateId: string | null) => {
+      setNewTemplateId(templateId);
+      const next = new URLSearchParams(searchParams);
+      if (templateId) next.set("templateId", templateId);
+      else next.delete("templateId");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
+      newDesignSystemWasChosenRef.current = false;
+      syncSelectedTemplate(null);
       setNewDesignSystemId(
         designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
       );
       setShowNewPrompt(true);
     },
-    [designSystemsLoading, resolveDefaultDesignSystemId],
+    [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
   );
 
-  const handleNewPromptOpenChange = useCallback((open: boolean) => {
-    setShowNewPrompt(open);
-    if (!open) {
-      setNewDesignSystemId(undefined);
-      setNewDesignMode("design");
-    }
-  }, []);
+  const handleNewPromptOpenChange = useCallback(
+    (open: boolean) => {
+      setShowNewPrompt(open);
+      if (!open) {
+        newDesignSystemWasChosenRef.current = false;
+        syncSelectedTemplate(null);
+        setNewDesignSystemId(undefined);
+        setNewDesignMode("design");
+      }
+    },
+    [syncSelectedTemplate],
+  );
 
   useEffect(() => {
     if (
@@ -190,6 +239,40 @@ export default function Index() {
     resolveDefaultDesignSystemId,
     showNewPrompt,
   ]);
+
+  const handleTemplateChange = useCallback(
+    (templateId: string | null) => {
+      syncSelectedTemplate(templateId);
+      const template = templateOptions.find(
+        (candidate) => candidate.id === templateId,
+      );
+      if (newDesignSystemWasChosenRef.current) return;
+      const linkedSystemId =
+        template?.designSystemId &&
+        designSystems.some((system) => system.id === template.designSystemId)
+          ? template.designSystemId
+          : null;
+      setNewDesignSystemId(
+        linkedSystemId ??
+          (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
+      );
+    },
+    [
+      designSystems,
+      designSystemsLoading,
+      resolveDefaultDesignSystemId,
+      syncSelectedTemplate,
+      templateOptions,
+    ],
+  );
+
+  const handleNewDesignSystemChange = useCallback(
+    (designSystemId: string | null) => {
+      newDesignSystemWasChosenRef.current = true;
+      setNewDesignSystemId(designSystemId);
+    },
+    [],
+  );
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -318,25 +401,90 @@ export default function Index() {
   );
 
   const handleSubmitPrompt = useCallback(
-    (
+    async (
       prompt: string,
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
-      // Derive a short title from the prompt — first line, ~40 chars max,
-      // word-boundary truncated. The full prompt still drives generation;
-      // the title is just a label, so longer is worse.
-      const derivedTitle = derivePromptTitle(prompt);
+      const trimmedPrompt = prompt.trim();
       const designSystemId =
         newDesignSystemId === undefined
           ? resolveDefaultDesignSystemId()
           : newDesignSystemId;
 
+      if (selectedTemplate && newDesignMode === "design") {
+        setNewDesignHandoffPending(true);
+        const title = trimmedPrompt
+          ? derivePromptTitle(trimmedPrompt)
+          : selectedTemplate.title;
+        try {
+          const result = await createFromTemplateMutation.mutateAsync({
+            templateId: selectedTemplate.id,
+            title,
+            designSystemId,
+            ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
+          });
+          if (!result.id) {
+            throw new Error("Template copy did not return a design ID");
+          }
+          const effectiveDesignSystemId = result.designSystemId ?? null;
+          if (result.adaptationPending) {
+            const effectiveSystemTitle =
+              designSystems.find(
+                (system) => system.id === effectiveDesignSystemId,
+              )?.title ?? t("promptDialog.designSystem");
+            writePendingGeneration(result.id, {
+              prompt:
+                trimmedPrompt ||
+                t("promptDialog.reskinTemplatePrompt", {
+                  title: selectedTemplate.title,
+                  system: effectiveSystemTitle,
+                }),
+              files,
+              title: result.title ?? title,
+              source: selectedTemplate.title,
+              templateId: selectedTemplate.id,
+              templateBaselineFiles: result.templateBaselineFiles,
+              designSystemId: effectiveDesignSystemId,
+              skipQuestions: true,
+              ...options,
+            });
+          }
+          if (trimmedPrompt) {
+            handleGenerateDesignTitle(
+              result.id,
+              trimmedPrompt,
+              result.title ?? title,
+            );
+          }
+          void queryClient
+            .invalidateQueries({
+              queryKey: ["action", "list-designs"],
+            })
+            .catch(() => {});
+          navigate(`/design/${result.id}`);
+          return;
+        } catch (error) {
+          setNewDesignHandoffPending(false);
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("templatesPage.createFailed"),
+          );
+          throw error;
+        }
+      }
+
+      // Derive a short title from the prompt — first line, ~40 chars max,
+      // word-boundary truncated. The full prompt still drives generation;
+      // the title is just a label, so longer is worse.
+      const derivedTitle = derivePromptTitle(prompt);
+
       const { id, title, ready } = createDesign(derivedTitle, designSystemId);
       handleGenerateDesignTitle(id, prompt, title);
 
-      if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
+      if (fullAppBuildingEnabled && newDesignMode === "app") {
         // Full-app designs are backed by a real running container, not a
         // queued inline generation — skip writePendingGeneration and let the
         // fusion app mutation (and its own status/progress banner in the
@@ -394,16 +542,25 @@ export default function Index() {
     },
     [
       createDesign,
+      createFromTemplateMutation,
       createFusionAppMutation,
+      designSystems,
       handleGenerateDesignTitle,
       navigate,
       newDesignMode,
       newDesignSystemId,
+      queryClient,
       resolveDefaultDesignSystemId,
+      selectedTemplate,
+      t,
     ],
   );
 
   const handleSkipToEditor = useCallback(async () => {
+    if (selectedTemplate && newDesignMode === "design") {
+      await handleSubmitPrompt("", [], {});
+      return false;
+    }
     if (skipToEditorPendingRef.current) return;
     skipToEditorPendingRef.current = true;
     setNewDesignHandoffPending(true);
@@ -423,6 +580,7 @@ export default function Index() {
       // row to persist so the first get-design read cannot briefly return 404.
       await ready;
       navigate(`/design/${id}`);
+      return false;
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
@@ -431,9 +589,12 @@ export default function Index() {
     }
   }, [
     createDesign,
+    handleSubmitPrompt,
     navigate,
+    newDesignMode,
     newDesignSystemId,
     resolveDefaultDesignSystemId,
+    selectedTemplate,
     t,
   ]);
 
@@ -653,6 +814,21 @@ export default function Index() {
                     <TooltipContent>{t("home.clearSelection")}</TooltipContent>
                   </Tooltip>
                   <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setContextDesigns(
+                        designs.filter((design) =>
+                          selectedDesignIds.has(design.id),
+                        ),
+                      )
+                    }
+                    className="cursor-pointer"
+                  >
+                    <IconPlus className="w-3.5 h-3.5" />
+                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                  </Button>
+                  <Button
                     variant="destructive"
                     size="sm"
                     onClick={() => setBulkDeleteOpen(true)}
@@ -780,6 +956,18 @@ export default function Index() {
                             {t("home.duplicate")}
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setContextDesigns([design]);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <IconPlus className="w-3.5 h-3.5 me-2" />
+                            {t(
+                              "creativeContext.addToContext" /* i18n-key-ignore */,
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => setDeleteId(design.id)}
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
@@ -797,27 +985,56 @@ export default function Index() {
         )}
       </main>
 
+      <CreativeContextShareSheet
+        open={contextDesigns.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setContextDesigns([]);
+        }}
+        resources={contextDesigns.map((design) => ({
+          appId: "design",
+          resourceType: "design",
+          resourceId: design.id,
+          title: design.title,
+          updatedAt: design.updatedAt ?? design.createdAt,
+          preview: { kind: "document", label: "Design" },
+        }))}
+      />
+
       <PromptPopover
         open={showNewPrompt}
         onOpenChange={handleNewPromptOpenChange}
         title={t("home.newDesignLower")}
-        placeholder={t("home.describeBuild")}
+        placeholder={
+          selectedTemplate
+            ? t("promptDialog.templatePromptPlaceholder", {
+                title: selectedTemplate.title,
+              })
+            : t("home.describeBuild")
+        }
         onSkip={handleSkipToEditor}
-        skipLabel={t("home.skipToEditor")}
+        skipLabel={
+          selectedTemplate
+            ? t("templatesPage.useTemplate")
+            : t("home.skipToEditor")
+        }
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
+        templateOptions={templateOptions}
+        templatesLoading={templatesLoading}
+        selectedTemplateId={newTemplateId}
+        onTemplateChange={handleTemplateChange}
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
-        onDesignSystemChange={setNewDesignSystemId}
+        onDesignSystemChange={handleNewDesignSystemChange}
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
         }}
-        creationMode={FULL_APP_BUILDING_ENABLED ? newDesignMode : undefined}
+        creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
         onCreationModeChange={
-          FULL_APP_BUILDING_ENABLED ? setNewDesignMode : undefined
+          fullAppBuildingEnabled ? setNewDesignMode : undefined
         }
       />
 

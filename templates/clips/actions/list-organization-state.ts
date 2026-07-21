@@ -143,7 +143,7 @@ export default defineAction({
         name: org.name,
         brandColor: settings?.brandColor ?? "#18181B",
         brandLogoUrl: settings?.brandLogoUrl ?? null,
-        defaultVisibility: settings?.defaultVisibility ?? "private",
+        defaultVisibility: settings?.defaultVisibility ?? "public",
         createdAt: Number(org.createdAt),
       },
       members,

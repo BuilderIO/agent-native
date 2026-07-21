@@ -153,6 +153,34 @@ const mocks = vi.hoisted(() => {
     isNull: vi.fn((value) => ({ isNull: value })),
     readAppState: vi.fn().mockResolvedValue(null),
     writeAppState: vi.fn().mockResolvedValue(undefined),
+    getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
+    recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
+    resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
+      contextMode: "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      results: [],
+    }),
+    validateGenerationCreativeContext: vi.fn(
+      async (input: {
+        contextPackId?: string | null;
+        contextModeOverride?: "off";
+        reuseLabels?: Array<Record<string, unknown>>;
+      }) => ({
+        contextMode:
+          input.contextModeOverride === "off"
+            ? "off"
+            : input.contextPackId
+              ? "pinned"
+              : "auto",
+        contextPackId:
+          input.contextModeOverride === "off"
+            ? null
+            : (input.contextPackId ?? null),
+        reuseLabels: input.reuseLabels ?? [],
+        results: [],
+      }),
+    ),
   };
 });
 
@@ -214,6 +242,30 @@ vi.mock("../server/db/index.js", () => {
 
 vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
+}));
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  getGenerationCreativeContext: mocks.getGenerationCreativeContext,
+  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
+  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
+  validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
+  validateCreativeContextReuseLabels: (
+    labels: Array<Record<string, unknown>>,
+  ) => labels,
+  mergeCreativeContextReuseLabels: (
+    previous: Array<Record<string, unknown>>,
+    next: Array<Record<string, unknown>>,
+  ) => [...previous, ...next],
+  replaceCreativeContextElementProvenance: (
+    previous: Array<{ elementId: string }>,
+    next: Array<{ elementId: string }>,
+  ) => {
+    const replaced = new Set(next.map((entry) => entry.elementId));
+    return [
+      ...previous.filter((entry) => !replaced.has(entry.elementId)),
+      ...next,
+    ];
+  },
 }));
 
 import action from "./generate-design.js";
@@ -281,6 +333,8 @@ describe("generate-design action tool schema", () => {
     ]);
     expect(parameters.properties?.tweaks?.type).toBe("string");
     expect(parameters.properties?.canvasFrames?.type).toBe("string");
+    expect(parameters.properties?.reuseLabels?.type).toBe("string");
+    expect(parameters.properties?.contextModeOverride?.type).toBe("string");
 
     const parsed = (action as any).schema.safeParse({
       designId: "design_123",
@@ -690,5 +744,117 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       data.canvasFrames as Record<string, Record<string, unknown>>,
     );
     expect(frame).toMatchObject({ width: 390, height: 844 });
+  });
+
+  it("pins session evidence to the saved frame and preserves exact versions", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [evidence],
+      },
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "index.html",
+          agentId: "agent-1",
+          agentName: "Atlas",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 1024 },
+          role: "screen",
+          status: "queued",
+        },
+      ],
+      startedAt: "2026-07-16T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: "pack-1",
+      contextPackSource: "inherited",
+      reuseLabels: [evidence],
+      reuseLabelsSource: "inherited",
+    });
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "design",
+        artifactType: "design",
+        artifactId: "design-1",
+        contextPackId: "pack-1",
+        elementProvenance: [
+          expect.objectContaining({
+            elementId: "frame-1",
+            influence: "reference-conditioned",
+            itemId: "item-1",
+            itemVersionId: "version-1",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("makes a one-generation off override structural even with a pinned session", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design-1",
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [],
+      },
+      frames: [],
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Unbranded concept",
+      contextModeOverride: "off",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Concept</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: undefined,
+      contextModeOverride: "off",
+      reuseLabels: [],
+    });
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        elementProvenance: [
+          expect.objectContaining({ influence: "generated" }),
+        ],
+      }),
+    );
   });
 });

@@ -44,10 +44,10 @@ tabs; framework tabs should not be hidden in a second settings universe.
 ```tsx
 import {
   LanguagePicker,
+} from "@agent-native/core/client/i18n"import {
   SettingsTabsPage,
   useAgentSettingsTabs,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/settings"
 export default function SettingsRoute() {
   const agentSettingsTabs = useAgentSettingsTabs();
   return (
