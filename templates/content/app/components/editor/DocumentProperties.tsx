@@ -49,7 +49,6 @@ import {
   IconNumber,
   IconNumber123,
   IconPaperclip,
-  IconPalette,
   IconPhone,
   IconPlus,
   IconSearch,
@@ -1307,7 +1306,7 @@ export function PropertyManagementPopover({
               placeholder={t("editor.properties.addPropertyDescription")}
               onChange={(event) => setDescription(event.target.value)}
               onBlur={() => void updateDescription()}
-              className="block min-h-0 w-full resize-y rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
+              className="block min-h-0 w-full resize-none rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:resize-y focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
             />
           </div>
 
@@ -1636,41 +1635,16 @@ function PropertyOptionSettingsRow({
   return (
     <div className="grid gap-1 rounded px-2 py-1 hover:bg-muted/50">
       <div className="flex items-center gap-2">
-        <span
-          aria-hidden
-          className={cn("size-3 shrink-0 rounded-full", optionClass(option))}
-        />
-        <Input
-          value={draftName}
-          disabled={disabled}
-          aria-label={t("editor.properties.renameOption", {
-            name: option.name,
-          })}
-          onChange={(event) => setDraftName(event.target.value)}
-          onBlur={submitRename}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "Enter") {
-              event.preventDefault();
-              submitRename();
-              event.currentTarget.blur();
-            }
-            if (event.key === "Escape") {
-              setDraftName(option.name);
-              event.currentTarget.blur();
-            }
-          }}
-          className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:bg-background focus-visible:ring-1"
-        />
-      </div>
-      <div className="flex items-center justify-between gap-2 pl-5">
         <DropdownMenuSub>
           <DropdownMenuSubTrigger
             disabled={disabled}
-            className="h-7 rounded px-1.5 text-xs text-muted-foreground"
+            aria-label={t("editor.properties.color")}
+            className="size-5 shrink-0 justify-center rounded-full p-0 [&_svg]:hidden"
           >
-            <IconPalette className="mr-1.5 size-3.5" />
-            {t("editor.properties.color")}
+            <span
+              aria-hidden
+              className={cn("block size-3 rounded-full", optionClass(option))}
+            />
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-44">
             {OPTION_COLORS.map((color) => (
@@ -1698,16 +1672,38 @@ function PropertyOptionSettingsRow({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <Input
+          value={draftName}
+          disabled={disabled}
+          aria-label={t("editor.properties.renameOption", {
+            name: option.name,
+          })}
+          onChange={(event) => setDraftName(event.target.value)}
+          onBlur={submitRename}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submitRename();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              setDraftName(option.name);
+              event.currentTarget.blur();
+            }
+          }}
+          className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:bg-background focus-visible:ring-1"
+        />
         <button
           type="button"
           aria-label={t("editor.properties.removeOption", {
             name: option.name,
           })}
           disabled={disabled}
-          className="h-7 rounded px-1.5 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
+          className="h-7 shrink-0 rounded px-1.5 text-muted-foreground hover:text-destructive disabled:opacity-50"
           onClick={onRemove}
         >
-          {t("editor.properties.remove")}
+          <IconX className="size-3.5" />
         </button>
       </div>
       <Textarea
@@ -1723,7 +1719,7 @@ function PropertyOptionSettingsRow({
             onDescriptionChange(nextDescription);
           }
         }}
-        className="ml-5 block min-h-0 w-[calc(100%-1.25rem)] resize-y rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:bg-background focus:ring-1 focus:ring-ring"
+        className="ml-7 block min-h-0 w-[calc(100%-1.75rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:resize-y focus:bg-background focus:ring-1 focus:ring-ring"
       />
     </div>
   );
