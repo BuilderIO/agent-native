@@ -634,7 +634,6 @@ export function FormBuilderPage() {
                   size="icon"
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
-                  disabled={form.status !== "published"}
                   aria-label={
                     form.status === "published"
                       ? t("builder.copyPublicFormLink")
