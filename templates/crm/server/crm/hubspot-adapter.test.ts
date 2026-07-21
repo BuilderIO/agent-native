@@ -134,6 +134,10 @@ describe("HubSpotCrmAdapter", () => {
       vi
         .fn()
         .mockResolvedValueOnce({
+          status: 200,
+          body: { id: "deal-1", updatedAt: "revision-1", properties: {} },
+        })
+        .mockResolvedValueOnce({
           status: 429,
           headers: { "retry-after": "0.1" },
         })
@@ -153,6 +157,7 @@ describe("HubSpotCrmAdapter", () => {
       operation: "update",
       record,
       fields: { dealname: "Changed" },
+      expectedRemoteRevision: "revision-1",
       idempotencyKey: "mutation-rate-limit",
     });
     await vi.advanceTimersByTimeAsync(100);
@@ -161,10 +166,18 @@ describe("HubSpotCrmAdapter", () => {
       status: "applied",
       remoteRevision: "revision-2",
     });
-    expect(rateLimitedTransport.request).toHaveBeenCalledTimes(2);
+    expect(rateLimitedTransport.request).toHaveBeenCalledTimes(3);
     vi.useRealTimers();
 
-    const mockTransport = transport(() => ({ status: 503 }));
+    const mockTransport = transport(
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 200,
+          body: { id: "deal-1", updatedAt: "revision-1", properties: {} },
+        })
+        .mockResolvedValueOnce({ status: 503 }),
+    );
     const crm = adapter(mockTransport);
 
     await expect(
@@ -172,10 +185,11 @@ describe("HubSpotCrmAdapter", () => {
         operation: "update",
         record,
         fields: { dealname: "Changed" },
+        expectedRemoteRevision: "revision-1",
         idempotencyKey: "mutation-no-retry",
       }),
     ).resolves.toMatchObject({ status: "rejected" });
-    expect(mockTransport.request).toHaveBeenCalledTimes(1);
+    expect(mockTransport.request).toHaveBeenCalledTimes(2);
   });
 
   it("projects only the requested fields and preserves opaque ids, cursors, and tombstones", async () => {
@@ -312,7 +326,7 @@ describe("HubSpotCrmAdapter", () => {
     ]);
   });
 
-  it("returns conflicts for stale revisions and rejects destructive writes", async () => {
+  it("requires a revision, returns conflicts for stale revisions, and rejects destructive writes", async () => {
     const mockTransport = transport((input) => {
       expect(input.method).toBeUndefined();
       return {
@@ -340,6 +354,17 @@ describe("HubSpotCrmAdapter", () => {
     ).resolves.toMatchObject({
       status: "conflict",
       remoteRevision: "new-revision",
+    });
+    await expect(
+      crm.applyMutation({
+        operation: "update",
+        record,
+        fields: { dealname: "Changed" },
+        idempotencyKey: "mutation-missing-revision",
+      }),
+    ).resolves.toMatchObject({
+      status: "rejected",
+      message: expect.stringContaining("current remote revision"),
     });
     await expect(
       crm.applyMutation({

@@ -131,7 +131,7 @@ describe("update-crm-record", () => {
       recordId: record.id,
       target: "provider",
       patchJson: JSON.stringify({ fields: { customField: "value" } }),
-      expectedRemoteRevision: null,
+      expectedRemoteRevision: "revision-1",
       status: "pending",
       policyDecision: "propose",
     };
@@ -142,6 +142,7 @@ describe("update-crm-record", () => {
         recordId: record.id,
         target: "provider",
         fields: { customField: "value" },
+        expectedRemoteRevision: record.remoteRevision,
         idempotencyKey: "same-request",
       },
       { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
@@ -163,5 +164,51 @@ describe("update-crm-record", () => {
       fieldPatchSchema.safeParse({ note: "data:text/plain;base64,AAAA" })
         .success,
     ).toBe(false);
+  });
+
+  it("derives the provider revision from the mirrored record", async () => {
+    state.selectRows = [[record], [policy("mirrored")], []];
+
+    await expect(
+      action.run(
+        {
+          recordId: record.id,
+          target: "provider",
+          fields: { customField: "value" },
+        },
+        {
+          caller: "tool",
+          userEmail: record.ownerEmail,
+          orgId: record.orgId,
+        },
+      ),
+    ).resolves.toMatchObject({ status: "pending" });
+
+    expect(state.inserted).toEqual([
+      expect.objectContaining({ expectedRemoteRevision: "revision-1" }),
+    ]);
+  });
+
+  it("fails closed when the mirrored record has no provider revision", async () => {
+    state.selectRows = [
+      [{ ...record, remoteRevision: null }],
+      [policy("mirrored")],
+    ];
+
+    await expect(
+      action.run(
+        {
+          recordId: record.id,
+          target: "provider",
+          fields: { customField: "value" },
+        },
+        {
+          caller: "tool",
+          userEmail: record.ownerEmail,
+          orgId: record.orgId,
+        },
+      ),
+    ).rejects.toThrow("require a current remote revision");
+    expect(state.inserted).toEqual([]);
   });
 });

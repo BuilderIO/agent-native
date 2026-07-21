@@ -18,6 +18,25 @@ function providerMutationMessage(status: "failed" | "conflict" | "rejected") {
   return "CRM provider mutation could not be completed.";
 }
 
+function updateAffectedRows(result: unknown): number {
+  if (!result || typeof result !== "object") return 0;
+  const value = result as {
+    rowsAffected?: unknown;
+    rowCount?: unknown;
+    changes?: unknown;
+    meta?: { changes?: unknown };
+  };
+  for (const count of [
+    value.rowsAffected,
+    value.rowCount,
+    value.changes,
+    value.meta?.changes,
+  ]) {
+    if (typeof count === "number") return count;
+  }
+  return 0;
+}
+
 export default defineAction({
   description:
     "Apply one approved CRM provider mutation proposal. This deliberately accepts one proposal because the phase-one adapter exposes one logical mutation at a time; provider batch transport can be added without changing proposal semantics.",
@@ -68,9 +87,11 @@ export default defineAction({
         "Only pending provider update proposals can be applied in this phase.",
       );
     }
-    if (proposal.status !== "pending" && proposal.status !== "approved") {
+    if (proposal.status !== "pending") {
       throw new Error(
-        `CRM proposal is ${proposal.status} and cannot be applied.`,
+        proposal.status === "executing"
+          ? "CRM proposal is already being applied."
+          : `CRM proposal is ${proposal.status} and cannot be applied.`,
       );
     }
     if (!proposal.recordId || !proposal.connectionId) {
@@ -127,6 +148,11 @@ export default defineAction({
         "CRM connection is missing its workspace connection reference.",
       );
     }
+    if (!proposal.expectedRemoteRevision) {
+      throw new Error(
+        "CRM proposal has no remote revision and must be recreated from a refreshed record.",
+      );
+    }
     const patch = parseJsonRecord(proposal.patchJson);
     const fields = patch.fields;
     if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
@@ -139,15 +165,31 @@ export default defineAction({
 
     const scope = requireCrmScope(ctx);
     const now = new Date().toISOString();
-    await db
+    const claim = await db
       .update(schema.crmMutations)
       .set({
-        status: "approved",
+        status: "executing",
         approvedBy: scope.ownerEmail,
         approvedAt: now,
         updatedAt: now,
       })
-      .where(eq(schema.crmMutations.id, proposal.id));
+      .where(
+        and(
+          eq(schema.crmMutations.id, proposal.id),
+          eq(schema.crmMutations.status, "pending"),
+          accessFilter(
+            schema.crmMutations,
+            schema.crmMutationShares,
+            undefined,
+            "editor",
+          ),
+        ),
+      );
+    if (updateAffectedRows(claim) !== 1) {
+      throw new Error(
+        "CRM proposal was already claimed by another application attempt.",
+      );
+    }
 
     let result: Awaited<
       ReturnType<
@@ -182,7 +224,18 @@ export default defineAction({
           error: message.slice(0, 1_000),
           updatedAt: new Date().toISOString(),
         })
-        .where(eq(schema.crmMutations.id, proposal.id));
+        .where(
+          and(
+            eq(schema.crmMutations.id, proposal.id),
+            eq(schema.crmMutations.status, "executing"),
+            accessFilter(
+              schema.crmMutations,
+              schema.crmMutationShares,
+              undefined,
+              "editor",
+            ),
+          ),
+        );
       return {
         proposalId: proposal.id,
         recordId: record.id,
@@ -200,6 +253,8 @@ export default defineAction({
         : result.status === "conflict"
           ? "conflict"
           : "rejected";
+    const remoteRevision =
+      result.status === "rejected" ? undefined : result.remoteRevision;
     const appliedAt = status === "applied" ? new Date().toISOString() : null;
     const message =
       status === "applied" ? undefined : providerMutationMessage(status);
@@ -207,17 +262,28 @@ export default defineAction({
       .update(schema.crmMutations)
       .set({
         status,
-        providerRemoteRevision: result.remoteRevision ?? null,
+        providerRemoteRevision: remoteRevision ?? null,
         ...(status === "applied" ? { appliedAt } : {}),
         ...(message ? { error: message } : {}),
         updatedAt: new Date().toISOString(),
       })
-      .where(eq(schema.crmMutations.id, proposal.id));
+      .where(
+        and(
+          eq(schema.crmMutations.id, proposal.id),
+          eq(schema.crmMutations.status, "executing"),
+          accessFilter(
+            schema.crmMutations,
+            schema.crmMutationShares,
+            undefined,
+            "editor",
+          ),
+        ),
+      );
     return {
       proposalId: proposal.id,
       recordId: record.id,
       status,
-      remoteRevision: result.remoteRevision,
+      remoteRevision,
       message,
       ownerEmail: record.ownerEmail,
       orgId: record.orgId,

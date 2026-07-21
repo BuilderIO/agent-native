@@ -310,7 +310,15 @@ export default defineAction({
       visibility: record.visibility,
     };
     const patchJson = toJson({ fields }, 12_000);
-    const expectedRemoteRevision = args.expectedRemoteRevision ?? null;
+    const expectedRemoteRevision =
+      args.target === "provider"
+        ? (args.expectedRemoteRevision ?? record.remoteRevision)
+        : (args.expectedRemoteRevision ?? null);
+    if (args.target === "provider" && !expectedRemoteRevision) {
+      throw new Error(
+        "CRM provider updates require a current remote revision. Refresh the record before proposing a change.",
+      );
+    }
     const idempotencyKey = await scopedCrmIdempotencyKey({
       ...ownership,
       recordId: record.id,

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   selectRows: [] as unknown[][],
   updates: [] as unknown[],
+  updateResults: [] as unknown[],
   applyMutation: vi.fn(),
 }));
 
@@ -32,7 +33,13 @@ vi.mock("../server/db/index.js", () => ({
     update: () => ({
       set: (value: unknown) => {
         state.updates.push(value);
-        return { where: vi.fn().mockResolvedValue(undefined) };
+        return {
+          where: vi
+            .fn()
+            .mockImplementation(
+              async () => state.updateResults.shift() ?? { rowsAffected: 1 },
+            ),
+        };
       },
     }),
   }),
@@ -59,6 +66,7 @@ const record = {
   objectType: "deals",
   kind: "opportunity",
   remoteId: "deal-1",
+  remoteRevision: "revision-1",
   ownerEmail: "owner@example.test",
   orgId: "org-1",
   visibility: "org",
@@ -69,7 +77,10 @@ const connection = {
   workspaceConnectionId: "workspace-1",
 };
 
-function proposal(fields: Record<string, unknown>) {
+function proposal(
+  fields: Record<string, unknown>,
+  expectedRemoteRevision: string | null = "revision-1",
+) {
   return {
     id: "proposal-1",
     recordId: record.id,
@@ -78,7 +89,7 @@ function proposal(fields: Record<string, unknown>) {
     operation: "update",
     status: "pending",
     patchJson: JSON.stringify({ fields }),
-    expectedRemoteRevision: null,
+    expectedRemoteRevision,
     idempotencyKey: "proposal-key",
   };
 }
@@ -87,6 +98,7 @@ describe("apply-crm-proposals", () => {
   beforeEach(() => {
     state.selectRows = [];
     state.updates = [];
+    state.updateResults = [];
     state.applyMutation.mockReset();
   });
 
@@ -113,7 +125,7 @@ describe("apply-crm-proposals", () => {
     expect(result).toMatchObject({ status: "applied", remoteRevision: "r2" });
     expect(state.updates).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ status: "approved" }),
+        expect.objectContaining({ status: "executing" }),
         expect.objectContaining({
           status: "applied",
           providerRemoteRevision: "r2",
@@ -172,6 +184,39 @@ describe("apply-crm-proposals", () => {
         { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
       ),
     ).rejects.toThrow("unsafe field patch");
+    expect(state.applyMutation).not.toHaveBeenCalled();
+  });
+
+  it("does not call HubSpot when another request already claimed the proposal", async () => {
+    state.selectRows = [
+      [proposal({ dealname: "Renewal" })],
+      [record],
+      [connection],
+    ];
+    state.updateResults = [{ rowsAffected: 0 }];
+
+    await expect(
+      action.run(
+        { proposalId: "proposal-1" },
+        { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
+      ),
+    ).rejects.toThrow("already claimed");
+    expect(state.applyMutation).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a legacy proposal has no expected remote revision", async () => {
+    state.selectRows = [
+      [proposal({ dealname: "Renewal" }, null)],
+      [record],
+      [connection],
+    ];
+
+    await expect(
+      action.run(
+        { proposalId: "proposal-1" },
+        { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
+      ),
+    ).rejects.toThrow("no remote revision");
     expect(state.applyMutation).not.toHaveBeenCalled();
   });
 });

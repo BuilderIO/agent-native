@@ -1023,6 +1023,12 @@ export class HubSpotCrmAdapter implements CrmAdapter {
         message: "At least one field is required.",
       };
     }
+    if (mutation.operation === "update" && !mutation.expectedRemoteRevision) {
+      return {
+        status: "rejected" as const,
+        message: "HubSpot updates require a current remote revision.",
+      };
+    }
     if (mutation.expectedRemoteRevision) {
       const current = await this.getRecord({
         record: mutation.record,
@@ -1041,12 +1047,6 @@ export class HubSpotCrmAdapter implements CrmAdapter {
             "The HubSpot record changed before this mutation could be applied.",
         };
       }
-      return {
-        status: "rejected" as const,
-        remoteRevision: current.remoteRevision,
-        message:
-          "HubSpot does not provide an atomic conditional update; retry without an expected revision only after explicit review.",
-      };
     }
     try {
       const objectType = encodeURIComponent(mutation.record.objectType);

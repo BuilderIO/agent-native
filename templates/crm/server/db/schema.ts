@@ -305,7 +305,15 @@ export const crmMutations = table("crm_mutations", {
   }).notNull(),
   risk: text("risk").notNull().default("routine"),
   status: text("status", {
-    enum: ["pending", "approved", "applied", "rejected", "conflict", "failed"],
+    enum: [
+      "pending",
+      "executing",
+      "approved",
+      "applied",
+      "rejected",
+      "conflict",
+      "failed",
+    ],
   })
     .notNull()
     .default("pending"),
