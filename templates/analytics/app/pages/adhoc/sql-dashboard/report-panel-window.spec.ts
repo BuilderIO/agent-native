@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   countReportablePanels,
+  listReportablePanelIds,
   parseReportPanelWindow,
   windowReportPanels,
 } from "./report-panel-window";
@@ -34,6 +35,7 @@ describe("report panel windows", () => {
 
   it("uses non-section panels for offsets and repeats the applicable section", () => {
     expect(countReportablePanels(panels)).toBe(5);
+    expect(listReportablePanelIds(panels)).toEqual(["a", "b", "c", "d", "e"]);
     expect(
       windowReportPanels(panels, { offset: 2, limit: 2 }).map((p) => p.id),
     ).toEqual(["details", "c", "d"]);

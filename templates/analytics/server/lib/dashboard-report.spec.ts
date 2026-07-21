@@ -342,6 +342,34 @@ describe("dashboard report email", () => {
     expect(failed.page.close).toHaveBeenCalledOnce();
   });
 
+  it("rejects a chunk whose rendered panel ids no longer match the initial dashboard snapshot", async () => {
+    mocks.getReportDashboard.mockResolvedValue(dashboard(9));
+    const first = createPage({
+      renderedPanelIds: Array.from(
+        { length: 8 },
+        (_, index) => `panel-${index}`,
+      ),
+    });
+    const changed = createPage({ renderedPanelIds: [] });
+    const { browser } = createBrowser([first, changed]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      emailsSent: false,
+      screenshotError: expect.stringContaining(
+        'report chunk panel mismatch; expected=["panel-8"] actual=[]',
+      ),
+    });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(first.page.close).toHaveBeenCalledOnce();
+    expect(changed.page.close).toHaveBeenCalledOnce();
+  });
+
   it("sends the link-only email only when the caller permits it after the complete attempt fails", async () => {
     const failed = createPage({ waitForFails: true });
     const { browser } = createBrowser([failed]);
@@ -384,6 +412,37 @@ describe("dashboard report email", () => {
     }
   });
 
+  it("continues when pre-seeding the signed embed cookie fails", async () => {
+    const page = createPage({ cookieError: new Error("context closed") });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full",
+    });
+    expect(console.warn).toHaveBeenCalledWith(
+      "[dashboard-report] Failed to pre-seed embed session cookie:",
+      "context closed",
+    );
+  });
+
+  it("expands wide captures while preserving the bounded viewport height", async () => {
+    const page = createPage({ captureBox: { width: 1600, height: 8200 } });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(page.page.setViewportSize).toHaveBeenCalledWith({
+      width: 1664,
+      height: 1400,
+    });
+    expect(page.locator.screenshot).toHaveBeenCalledOnce();
+  });
+
   it("redacts embed tokens from complete-capture failures", async () => {
     const page = createPage();
     page.page.goto.mockRejectedValueOnce(
@@ -419,6 +478,43 @@ describe("dashboard report email", () => {
     expect(result.screenshotError).not.toContain("secret-token");
   });
 
+  it("reports a renderer hang when the diagnostics probe cannot respond", async () => {
+    vi.useFakeTimers();
+    try {
+      const page = createPage({ waitForFails: true, unresponsive: true });
+      const { browser } = createBrowser([page]);
+      mocks.launch.mockResolvedValue(browser);
+
+      const capture = sendDashboardReportSubscription(subscription(), {
+        skipEmailWithoutScreenshot: true,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await capture;
+
+      expect(result.screenshotError).toContain(
+        "page unresponsive (renderer hung or crashed)",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains the final diagnostic marker beyond the old 400-character limit", async () => {
+    const marker = "final-stage-marker";
+    const page = createPage({
+      gotoError: new Error(`${"x".repeat(700)} ${marker}`),
+    });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result.screenshotError).toContain(marker);
+    expect(result.screenshotError!.length).toBeGreaterThan(400);
+  });
+
   it("treats a partially loaded chunk as a complete-capture failure", async () => {
     const page = createPage({ readyWaitFails: true });
     const { browser } = createBrowser([page]);
@@ -452,6 +548,70 @@ describe("dashboard report email", () => {
       recursive: true,
       force: true,
     });
+  });
+
+  it("uses the pinned Chromium pack and bounded chunk timeouts in serverless runtimes", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+    mocks.existsSync.mockReturnValue(false);
+    const page = createPage();
+    const { browser } = createBrowser([page]);
+    mocks.launchPersistentContext.mockResolvedValue(browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(page.page.setDefaultTimeout).toHaveBeenCalledWith(90_000);
+    expect(page.page.waitForFunction).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      undefined,
+      { timeout: 35_000 },
+    );
+    expect(page.page.waitForFunction).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      undefined,
+      { timeout: 15_000 },
+    );
+    expect(mocks.chromiumExecutablePath).toHaveBeenCalledWith(
+      "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar",
+    );
+    expect(mocks.launch).not.toHaveBeenCalled();
+    const [profilePath, launchOptions] =
+      mocks.launchPersistentContext.mock.calls[0];
+    expect(profilePath).toMatch(/dashboard-report-playwright-/);
+    expect(launchOptions.args).not.toEqual(
+      expect.arrayContaining([expect.stringMatching(/^--user-data-dir=/)]),
+    );
+    expect(launchOptions).toMatchObject({
+      deviceScaleFactor: 1,
+      viewport: { width: 1200, height: 1400 },
+    });
+    expect(browser.newPage).toHaveBeenCalledWith();
+  });
+
+  it("cleans the generated serverless profile when Chromium launch fails", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.launchPersistentContext.mockRejectedValue(
+      new Error("socket unavailable"),
+    );
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      emailsSent: false,
+      screenshotError: expect.stringContaining("socket unavailable"),
+    });
+    expect(mocks.rm).toHaveBeenCalledOnce();
+    expect(mocks.rm).toHaveBeenCalledWith(
+      expect.stringContaining("dashboard-report-playwright-"),
+      { recursive: true, force: true },
+    );
   });
 
   it("cleans stale serverless Chromium profiles before launching", async () => {
@@ -508,5 +668,18 @@ describe("dashboard report email", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("throws before email delivery when the caller requires a screenshot", async () => {
+    mocks.launch.mockRejectedValue(new Error("chromium died"));
+
+    await expect(
+      sendDashboardReportSubscription(subscription(), {
+        requireScreenshot: true,
+      }),
+    ).rejects.toThrow(
+      "Dashboard screenshot unavailable: chunked: chromium died",
+    );
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 });
