@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import type { ReactNode } from "react";
 
 import {
@@ -28,6 +29,7 @@ export function AlertDialog({
   pending = false,
   onConfirm,
 }: AlertDialogProps) {
+  const t = useT();
   return (
     <AlertDialogRoot open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
@@ -38,13 +40,15 @@ export function AlertDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={pending}>
+            {t("common.cancel")}
+          </AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             disabled={pending}
             onClick={() => void onConfirm()}
           >
-            Delete
+            {t("common.delete")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

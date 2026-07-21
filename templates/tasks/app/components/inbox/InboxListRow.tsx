@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChecks, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -33,6 +34,7 @@ export function InboxListRow({
   onRequestDelete,
   onMarkReady,
 }: InboxListRowProps) {
+  const t = useT();
   const [displayTitle, setDisplayTitle] = useState(item.title);
   const [markReadyPending, setMarkReadyPending] = useState(false);
   const busy = markReadyPending;
@@ -79,7 +81,7 @@ export function InboxListRow({
                 value={item.title}
                 onSave={onUpdateTitle}
                 onDisplayTitleChange={setDisplayTitle}
-                ariaLabel="Edit title"
+                ariaLabel={t("common.editTitleAriaLabel")}
                 disabled={busy}
                 titleDragProps={rowDrag.titleDragProps}
               />
@@ -93,11 +95,11 @@ export function InboxListRow({
             disabled={busy || rowSelection.selectionMode}
             onClick={() => void handleMarkReady()}
           >
-            Mark ready
+            {t("common.markReady")}
           </Button>
 
           <RowActionsMenu
-            ariaLabel={`Actions for ${displayTitle}`}
+            ariaLabel={t("common.rowActionsAriaLabel", { title: displayTitle })}
             disabled={busy || rowSelection.selectionMode}
           >
             <DropdownMenuItem
@@ -105,14 +107,14 @@ export function InboxListRow({
               onSelect={() => selection.actions.startSelection(item.id)}
             >
               <IconChecks className="size-4" />
-              Select
+              {t("selection.select")}
             </DropdownMenuItem>
             <DropdownMenuItem
               className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
               onSelect={onRequestDelete}
             >
               <IconTrash className="size-4" />
-              Delete
+              {t("common.delete")}
             </DropdownMenuItem>
           </RowActionsMenu>
         </>
