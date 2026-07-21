@@ -50,16 +50,18 @@ const useSourceFallback = shouldUseSourceFallback({
   freshness,
 });
 
-if (!useSourceFallback && existsSync(distEntry)) {
-  await import(pathToFileURL(distEntry).href);
-} else {
-  if (!existsSync(sourceEntry)) {
+if (!useSourceFallback) {
+  // Installed packages (and up-to-date checkouts) always run the shipped build.
+  // tsx is not a runtime dependency, so it must never be invoked here.
+  if (!existsSync(distEntry)) {
     console.error(
       "agent-native CLI build output is missing. Run `pnpm --filter @agent-native/core build` and try again.",
     );
     process.exit(1);
   }
 
+  await import(pathToFileURL(distEntry).href);
+} else {
   const child = spawn("tsx", [sourceEntry, ...process.argv.slice(2)], {
     stdio: "inherit",
     env: process.env,
