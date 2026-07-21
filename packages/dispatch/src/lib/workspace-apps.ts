@@ -1,4 +1,4 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 
 export interface WorkspaceAppSummary {
   id: string;

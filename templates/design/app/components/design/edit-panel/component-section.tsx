@@ -1,9 +1,9 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { propNameToDataAttribute } from "@shared/component-model";
 import {
   IconArrowRight,

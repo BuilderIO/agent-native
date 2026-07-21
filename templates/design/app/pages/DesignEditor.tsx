@@ -1,4 +1,3 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import {
   generateTabId,
   AgentChatSurface,
@@ -47,6 +46,7 @@ import {
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,

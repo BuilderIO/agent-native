@@ -1,4 +1,4 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {

@@ -1,8 +1,8 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconApps,

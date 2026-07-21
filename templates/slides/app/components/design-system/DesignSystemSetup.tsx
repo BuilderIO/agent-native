@@ -1,4 +1,3 @@
-import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import {
@@ -7,6 +6,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openAgentSidebar } from "@agent-native/core/client/navigation";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
   IconPalette,
