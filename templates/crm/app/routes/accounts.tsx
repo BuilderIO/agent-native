@@ -1,4 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useSearchParams } from "react-router";
 
 import { RecordGrid } from "@/components/crm/RecordGrid";
 import { PageHeader } from "@/components/crm/Surface";
@@ -8,16 +9,22 @@ export function meta() {
   return [{ title: "Accounts · CRM" }];
 }
 export default function AccountsRoute() {
+  const [searchParams] = useSearchParams();
+  const viewId = searchParams.get("view") ?? undefined;
   const query = useActionQuery<unknown>(
     "list-crm-records" as never,
-    { kind: "account" } as never,
+    { kind: "account", viewId } as never,
   );
   return (
     <>
       <PageHeader
         eyebrow="Records"
         title="Accounts"
-        description="Connected accounts in the active CRM mirror."
+        description={
+          viewId
+            ? "Accounts matching this saved view."
+            : "Connected accounts in the active CRM mirror."
+        }
       />
       <RecordGrid
         kind="account"

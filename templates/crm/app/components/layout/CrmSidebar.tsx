@@ -1,8 +1,10 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconBuilding,
+  IconChecklist,
   IconLayoutDashboard,
   IconMessageCircle,
+  IconPencilCheck,
   IconRoute,
   IconSettings,
   IconUsers,
@@ -17,6 +19,8 @@ const navigation = [
   { to: "/accounts", label: "Accounts", icon: IconBuilding },
   { to: "/people", label: "People", icon: IconUsers },
   { to: "/opportunities", label: "Opportunities", icon: IconRoute },
+  { to: "/tasks", label: "Tasks", icon: IconChecklist },
+  { to: "/proposals", label: "Proposals", icon: IconPencilCheck },
   { to: "/views", label: "Saved views", icon: IconViewfinder },
 ];
 

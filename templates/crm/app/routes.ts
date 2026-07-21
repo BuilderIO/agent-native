@@ -6,6 +6,8 @@ export default [
   route("people", "./routes/people.tsx"),
   route("opportunities", "./routes/opportunities.tsx"),
   route("records/:recordId", "./routes/records.$recordId.tsx"),
+  route("tasks", "./routes/tasks.tsx"),
+  route("proposals", "./routes/proposals.tsx"),
   route("views", "./routes/views.tsx"),
   route("ask", "./routes/ask.tsx"),
   route("setup", "./routes/setup.tsx"),

@@ -30,15 +30,49 @@ templates/crm/app/routes/ask.tsx|Ask CRM
 templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up work, and evidence from connected records.
 templates/crm/app/routes/opportunities.tsx|Opportunities · CRM
 templates/crm/app/routes/people.tsx|People · CRM
+templates/crm/app/routes/proposals.tsx|Apply proposal
+templates/crm/app/routes/proposals.tsx|Apply this provider write?
+templates/crm/app/routes/proposals.tsx|CRM proposal applied.
+templates/crm/app/routes/proposals.tsx|No CRM proposals
+templates/crm/app/routes/proposals.tsx|Proposal failed.
+templates/crm/app/routes/proposals.tsx|Review and apply
+templates/crm/app/routes/proposals.tsx|The field preview is unavailable. Approval remains scoped to this single record.
 templates/crm/app/routes/settings.tsx|CRM settings
 templates/crm/app/routes/settings.tsx|CRM uses workspace Connections for provider authorization. The local mirror stores only allow-listed fields, scoped metadata, and bounded evidence references.
-templates/crm/app/routes/setup.tsx|Connect your CRM
+templates/crm/app/routes/setup.tsx|Authorize HubSpot and grant it to CRM from shared settings.
+templates/crm/app/routes/setup.tsx|Days, capped at 365.
+templates/crm/app/routes/setup.tsx|Deal pipeline IDs
+templates/crm/app/routes/setup.tsx|HubSpot connection
 templates/crm/app/routes/setup.tsx|HubSpot sync failed.
+templates/crm/app/routes/setup.tsx|Leave blank for recently updated deals.
+templates/crm/app/routes/setup.tsx|No connected HubSpot account is available.
+templates/crm/app/routes/setup.tsx|Only workspace Connections granted to this app can be used. CRM never stores the provider token.
+templates/crm/app/routes/setup.tsx|Open shared connections
+templates/crm/app/routes/setup.tsx|Optional, comma-separated
 templates/crm/app/routes/setup.tsx|Recent HubSpot records are ready.
+templates/crm/app/routes/setup.tsx|Recent history
+templates/crm/app/routes/setup.tsx|Select a shared connection
+templates/crm/app/routes/tasks.tsx|Create follow-up task
+templates/crm/app/routes/tasks.tsx|Create task
+templates/crm/app/routes/tasks.tsx|New task
+templates/crm/app/routes/tasks.tsx|No follow-up tasks
+templates/crm/app/routes/tasks.tsx|Open record
+templates/crm/app/routes/tasks.tsx|Task created.
+templates/crm/app/routes/tasks.tsx|Task creation failed.
+templates/crm/app/routes/tasks.tsx|Task update failed.
+templates/crm/app/routes/tasks.tsx|Tasks are local by default and never write to the provider silently.
+templates/crm/app/routes/views.tsx|Create saved view
+templates/crm/app/routes/views.tsx|Data program
+templates/crm/app/routes/views.tsx|Data program ID
+templates/crm/app/routes/views.tsx|Name contains…
 templates/crm/app/routes/views.tsx|New view
 templates/crm/app/routes/views.tsx|No saved views yet
+templates/crm/app/routes/views.tsx|Optional saved cross-source program
+templates/crm/app/routes/views.tsx|Save and open
+templates/crm/app/routes/views.tsx|Saved view created.
 templates/crm/app/routes/views.tsx|Saved views
-templates/crm/app/routes/views.tsx|Untitled view
+templates/crm/app/routes/views.tsx|View could not be saved.
+templates/crm/app/routes/views.tsx|Views store bounded filters and presentation settings, not provider rows.
 templates/design/app/components/design/DesignCanvas.tsx|handle ? [
 templates/design/app/components/design/FusionAppBanner.tsx|Publish failed
 templates/design/app/components/design/FusionAppBanner.tsx|Push failed

@@ -4,6 +4,8 @@ export type CrmView =
   | "work"
   | CrmKind
   | "record"
+  | "tasks"
+  | "proposals"
   | "views"
   | "ask"
   | "setup"
@@ -14,6 +16,8 @@ export const CRM_VIEW_PATHS: Record<Exclude<CrmView, "record">, string> = {
   account: "/accounts",
   person: "/people",
   opportunity: "/opportunities",
+  tasks: "/tasks",
+  proposals: "/proposals",
   views: "/views",
   ask: "/ask",
   setup: "/setup",
@@ -25,6 +29,8 @@ export function viewFromPath(pathname: string): CrmView {
   if (pathname.startsWith("/accounts")) return "account";
   if (pathname.startsWith("/people")) return "person";
   if (pathname.startsWith("/opportunities")) return "opportunity";
+  if (pathname.startsWith("/tasks")) return "tasks";
+  if (pathname.startsWith("/proposals")) return "proposals";
   if (pathname.startsWith("/views")) return "views";
   if (pathname.startsWith("/ask")) return "ask";
   if (pathname.startsWith("/setup")) return "setup";

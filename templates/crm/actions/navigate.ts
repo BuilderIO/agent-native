@@ -8,6 +8,8 @@ const viewSchema = z.enum([
   "person",
   "opportunity",
   "record",
+  "tasks",
+  "proposals",
   "views",
   "ask",
   "setup",
@@ -19,6 +21,8 @@ const paths = {
   account: "/accounts",
   person: "/people",
   opportunity: "/opportunities",
+  tasks: "/tasks",
+  proposals: "/proposals",
   views: "/views",
   ask: "/ask",
   setup: "/setup",
@@ -27,7 +31,7 @@ const paths = {
 
 export default defineAction({
   description:
-    "Navigate the CRM UI to work, accounts, people, opportunities, a record, saved views, Ask CRM, or setup.",
+    "Navigate the CRM UI to work, records, tasks, proposals, saved views, Ask CRM, setup, or settings.",
   schema: z.object({
     view: viewSchema,
     recordId: z.string().trim().min(1).max(200).optional(),

@@ -1,4 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useSearchParams } from "react-router";
 
 import { RecordGrid } from "@/components/crm/RecordGrid";
 import { PageHeader } from "@/components/crm/Surface";
@@ -8,16 +9,22 @@ export function meta() {
   return [{ title: "People · CRM" }];
 }
 export default function PeopleRoute() {
+  const [searchParams] = useSearchParams();
+  const viewId = searchParams.get("view") ?? undefined;
   const query = useActionQuery<unknown>(
     "list-crm-records" as never,
-    { kind: "person" } as never,
+    { kind: "person", viewId } as never,
   );
   return (
     <>
       <PageHeader
         eyebrow="Records"
         title="People"
-        description="Contacts permitted through your connected CRM."
+        description={
+          viewId
+            ? "People matching this saved view."
+            : "Contacts permitted through your connected CRM."
+        }
       />
       <RecordGrid
         kind="person"

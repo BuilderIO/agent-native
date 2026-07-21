@@ -254,6 +254,30 @@ describe("HubSpotCrmAdapter", () => {
     expect(mockTransport.request).toHaveBeenCalledTimes(1);
   });
 
+  it("never includes provider response bodies in adapter errors", async () => {
+    const crm = adapter(
+      transport(() => ({
+        status: 400,
+        body: { message: "customer data must not be stored", token: "secret" },
+      })),
+    );
+
+    await expect(
+      crm.syncPage({
+        scope: { objectType: "deals", recordIds: ["deal-1"] },
+        fieldAllowList: ["dealname"],
+        limit: 1,
+      }),
+    ).rejects.toThrow("HubSpot API error 400: HubSpot request failed.");
+    await expect(
+      crm.syncPage({
+        scope: { objectType: "deals", recordIds: ["deal-1"] },
+        fieldAllowList: ["dealname"],
+        limit: 1,
+      }),
+    ).rejects.not.toThrow("customer data must not be stored");
+  });
+
   it("fails closed through the app-scoped workspace connection resolver", async () => {
     const workspaceConnection = connection();
     workspace.resolveConnection.mockResolvedValue({

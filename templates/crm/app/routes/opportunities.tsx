@@ -1,4 +1,5 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useSearchParams } from "react-router";
 
 import { RecordGrid } from "@/components/crm/RecordGrid";
 import { PageHeader } from "@/components/crm/Surface";
@@ -8,16 +9,22 @@ export function meta() {
   return [{ title: "Opportunities · CRM" }];
 }
 export default function OpportunitiesRoute() {
+  const [searchParams] = useSearchParams();
+  const viewId = searchParams.get("view") ?? undefined;
   const query = useActionQuery<unknown>(
     "list-crm-records" as never,
-    { kind: "opportunity" } as never,
+    { kind: "opportunity", viewId } as never,
   );
   return (
     <>
       <PageHeader
         eyebrow="Records"
         title="Opportunities"
-        description="Current commercial work from the connected CRM."
+        description={
+          viewId
+            ? "Opportunities matching this saved view."
+            : "Current commercial work from the connected CRM."
+        }
       />
       <RecordGrid
         kind="opportunity"

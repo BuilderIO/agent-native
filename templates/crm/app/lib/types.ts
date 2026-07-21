@@ -43,8 +43,10 @@ export interface CrmTask {
 export interface CrmSavedView {
   id: string;
   name: string;
+  description?: string;
   kind?: CrmKind;
   query?: string;
+  dataProgramId?: string;
 }
 
 export interface CrmOverview {
