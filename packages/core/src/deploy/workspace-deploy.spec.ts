@@ -1238,6 +1238,16 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
       `${pathToFileURL(path.join(recoveryDir, "dispatch-integration-recovery.mjs")).href}?t=${Date.now()}`
     );
     expect(generated.config.schedule).toBe("* * * * *");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await generated.default(
+      new Request("https://app.test/.netlify/functions/recovery"),
+      {},
+    );
+    expect(response.status).toBe(204);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "[integration-recovery] A2A_SECRET is required; sweep skipped",
+    );
+    consoleSpy.mockRestore();
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
     expect(
       fs.existsSync(

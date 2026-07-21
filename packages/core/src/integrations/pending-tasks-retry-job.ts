@@ -64,6 +64,7 @@ interface StuckTaskRow {
   status: string;
   attempts: number;
   updatedAt: number;
+  dispatchScope: string | null;
 }
 
 export interface PendingTasksSweepResult {
@@ -110,13 +111,20 @@ function durableScopeSql(): { clause: string; args: string[] } {
     }
     if (scope.platform === "slack" && /^[A-Za-z0-9]+$/.test(scope.value)) {
       clauses.push(
-        "(platform = ? AND (external_thread_id = ? OR external_thread_id LIKE ?))",
+        "(platform = ? AND (external_thread_id = ? OR dispatch_scope = ? OR external_thread_id LIKE ?))",
       );
-      args.push(scope.platform, scope.value, `%:%:${scope.value}:%`);
+      args.push(
+        scope.platform,
+        scope.value,
+        scope.value,
+        `%:%:${scope.value}:%`,
+      );
       continue;
     }
-    clauses.push("(platform = ? AND external_thread_id = ?)");
-    args.push(scope.platform, scope.value);
+    clauses.push(
+      "(platform = ? AND (external_thread_id = ? OR dispatch_scope = ?))",
+    );
+    args.push(scope.platform, scope.value, scope.value);
   }
   return { clause: ` AND (${clauses.join(" OR ")})`, args };
 }
@@ -157,7 +165,7 @@ export async function retryStuckPendingTasks(
   try {
     const { rows } = await client.execute({
       sql: `
-        SELECT id, platform, external_thread_id, status, attempts, updated_at
+        SELECT id, platform, external_thread_id, dispatch_scope, status, attempts, updated_at
           FROM integration_pending_tasks
          WHERE ((status = 'pending' AND created_at <= ? AND updated_at <= ?)
             OR (status = 'processing' AND (
@@ -191,6 +199,7 @@ export async function retryStuckPendingTasks(
       status: r.status as string,
       attempts: Number(r.attempts ?? 0),
       updatedAt: Number(r.updated_at ?? 0),
+      dispatchScope: (r.dispatch_scope as string | null) ?? null,
     }));
     tableExists = true;
   } catch (err) {
@@ -210,6 +219,9 @@ export async function retryStuckPendingTasks(
     const durable = isIntegrationDurableDispatchEnabledForTask({
       platform: row.platform,
       externalThreadId: row.externalThreadId,
+      platformContext: row.dispatchScope
+        ? { channelId: row.dispatchScope }
+        : undefined,
     });
     if (options.durableOnly && !durable) return false;
     return true;
@@ -278,6 +290,9 @@ export async function retryStuckPendingTasks(
         task: {
           platform: row.platform,
           externalThreadId: row.externalThreadId,
+          platformContext: row.dispatchScope
+            ? { channelId: row.dispatchScope }
+            : undefined,
         },
         baseUrl,
         portableSettleMs: 1_000,

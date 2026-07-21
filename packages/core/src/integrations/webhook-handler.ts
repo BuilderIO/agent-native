@@ -57,7 +57,10 @@ import {
   clearIntegrationAwaitingInput,
   setIntegrationAwaitingInput,
 } from "./awaiting-input-store.js";
-import { dispatchPendingIntegrationTask } from "./integration-durable-dispatch.js";
+import {
+  dispatchPendingIntegrationTask,
+  integrationDispatchScopeValue,
+} from "./integration-durable-dispatch.js";
 import { loadIntegrationMemoryPrompt } from "./integration-memory.js";
 import {
   insertPendingTask,
@@ -476,6 +479,11 @@ async function enqueueAndDispatch(
     // platform produce the same key, so the unique index rejects the
     // second insert (H3 in the webhook security audit).
     externalEventKey: buildEventDedupKey(incoming),
+    dispatchScope: integrationDispatchScopeValue({
+      platform: incoming.platform,
+      externalThreadId: incoming.externalThreadId,
+      platformContext: incoming.platformContext,
+    }),
   });
 
   const baseUrl = resolveBaseUrl(event);

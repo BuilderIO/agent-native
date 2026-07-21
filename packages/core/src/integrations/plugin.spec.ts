@@ -39,6 +39,10 @@ const markTaskDeliveryRetryableMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 const retryStuckPendingTasksMock = vi.hoisted(() => vi.fn());
+const getNextPendingTaskForThreadMock = vi.hoisted(() =>
+  vi.fn(async () => null),
+);
+const dispatchPendingIntegrationTaskMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -74,6 +78,16 @@ vi.mock("./pending-tasks-retry-job.js", () => ({
   retryStuckPendingTasks: retryStuckPendingTasksMock,
 }));
 
+vi.mock("./integration-durable-dispatch.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("./integration-durable-dispatch.js")
+  >("./integration-durable-dispatch.js");
+  return {
+    ...actual,
+    dispatchPendingIntegrationTask: dispatchPendingIntegrationTaskMock,
+  };
+});
+
 vi.mock("./google-docs-poller.js", () => ({
   startGoogleDocsPoller: vi.fn(),
   handlePushNotification: vi.fn(),
@@ -97,7 +111,7 @@ vi.mock("./pending-tasks-store.js", () => ({
   claimPendingTask: claimPendingTaskMock,
   failTaskDeliveryTransition: failTaskDeliveryTransitionMock,
   getPendingTask: vi.fn(),
-  getNextPendingTaskIdForThread: vi.fn(async () => null),
+  getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
   insertPendingTask: insertPendingTaskMock,
   isDuplicateEventError: vi.fn(() => false),
   markTaskCompleted: markTaskCompletedMock,
@@ -630,6 +644,37 @@ describe("integrations plugin routes", () => {
         isIntegrationCaller: true,
       },
       expect.any(Function),
+    );
+  });
+
+  it("preserves the queued successor's channel scope during immediate dispatch", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    getNextPendingTaskForThreadMock.mockResolvedValueOnce({
+      id: "next-task",
+      dispatchScope: "channel-7",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(dispatchPendingIntegrationTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "next-task",
+        task: {
+          platform: task.platform,
+          externalThreadId: task.externalThreadId,
+          platformContext: { channelId: "channel-7" },
+        },
+      }),
     );
   });
 

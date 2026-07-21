@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS integration_pending_tasks (
   dispatch_attempts  INTEGER NOT NULL DEFAULT 0,
   last_dispatch_at   INTEGER,
   last_dispatch_outcome TEXT,
+  dispatch_scope     TEXT,             -- persisted channel scope for recovery
   error_message      TEXT,
   created_at         INTEGER NOT NULL,
   updated_at         INTEGER NOT NULL,
@@ -143,6 +144,8 @@ CREATE TABLE IF NOT EXISTS integration_pending_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created
   ON integration_pending_tasks(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope
+  ON integration_pending_tasks(platform, dispatch_scope);
 ```
 
 The store layer creates this lazily on first use via `ensureTable()` and uses
@@ -163,6 +166,8 @@ rollout can be narrowed with the comma-separated
 `AGENT_INTEGRATION_DURABLE_DISPATCH_SCOPES` allowlist. Supported values are
 `<platform>:*`, `<platform>:<external-thread-id>`, and, for adapters that expose
 one, `<platform>:<channel-id>` (for example `slack:C123`).
+Channel-scoped handoffs persist that scope separately from the provider thread
+identity so a later bounded recovery sweep applies the same allowlist decision.
 
 Workspace deploys emit this pair only for the Dispatch control-plane app, which
 owns workspace messaging integrations. Standalone templates emit their own

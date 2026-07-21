@@ -41,6 +41,13 @@ export interface IntegrationDurableDispatchScope {
   value: string;
 }
 
+export function integrationDispatchScopeValue(
+  task: IntegrationDispatchTaskScope,
+): string | null {
+  const value = task.platformContext?.channelId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 export function configuredIntegrationDurableDispatchScopes():
   | IntegrationDurableDispatchScope[]
   | null {
@@ -65,9 +72,9 @@ function taskScopeCandidates(task: IntegrationDispatchTaskScope): string[] {
     `${task.platform}:*`,
     `${task.platform}:${task.externalThreadId}`,
   ];
-  const explicitScope = task.platformContext?.channelId;
-  if (typeof explicitScope === "string" && explicitScope.trim()) {
-    candidates.push(`${task.platform}:${explicitScope.trim()}`);
+  const explicitScope = integrationDispatchScopeValue(task);
+  if (explicitScope) {
+    candidates.push(`${task.platform}:${explicitScope}`);
   } else if (task.platform === "slack") {
     const channelId = task.externalThreadId.split(":")[2];
     if (channelId) candidates.push(`slack:${channelId}`);

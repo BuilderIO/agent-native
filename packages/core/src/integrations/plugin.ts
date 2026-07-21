@@ -72,6 +72,7 @@ import {
 import {
   dispatchPendingIntegrationTask,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  integrationDispatchScopeValue,
   isIntegrationDurableDispatchConfigured,
 } from "./integration-durable-dispatch.js";
 import {
@@ -88,7 +89,7 @@ import {
 import {
   claimPendingTask,
   failTaskDeliveryTransition,
-  getNextPendingTaskIdForThread,
+  getNextPendingTaskForThread,
   insertPendingTask,
   isDuplicateEventError,
   MAX_PENDING_TASK_ATTEMPTS,
@@ -733,6 +734,11 @@ export function createIntegrationsPlugin(
           externalEventKey: opts?.dedupeKey
             ? systemNoticeEventKey(opts.dedupeKey, dedupeTtlMs)
             : undefined,
+          dispatchScope: integrationDispatchScopeValue({
+            platform: incoming.platform,
+            externalThreadId: noticeThreadId,
+            platformContext: incoming.platformContext,
+          }),
         });
       } catch (err) {
         if (isDuplicateEventError(err)) return;
@@ -1823,16 +1829,19 @@ export function createIntegrationsPlugin(
             return { ok: true, taskId, retrying: "response-delivery" };
           }
           await markTaskCompleted(taskId);
-          const nextTaskId = await getNextPendingTaskIdForThread(
+          const nextTask = await getNextPendingTaskForThread(
             task.platform,
             task.externalThreadId,
           );
-          if (nextTaskId) {
+          if (nextTask) {
             await dispatchPendingIntegrationTask({
-              taskId: nextTaskId,
+              taskId: nextTask.id,
               task: {
                 platform: task.platform,
                 externalThreadId: task.externalThreadId,
+                platformContext: nextTask.dispatchScope
+                  ? { channelId: nextTask.dispatchScope }
+                  : undefined,
               },
               event,
               baseUrl: getBaseUrl(event),
@@ -2057,6 +2066,11 @@ export function createIntegrationsPlugin(
             ownerEmail: control.ownerEmail,
             orgId: control.orgId,
             externalEventKey: `control:${control.id}`,
+            dispatchScope: integrationDispatchScopeValue({
+              platform: incoming.platform,
+              externalThreadId: incoming.externalThreadId,
+              platformContext: incoming.platformContext,
+            }),
           });
           await dispatchPendingIntegrationTask({
             taskId,

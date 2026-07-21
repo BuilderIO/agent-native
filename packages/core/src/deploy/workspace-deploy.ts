@@ -939,9 +939,7 @@ function enabled() {
   return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
 }
 
-function token() {
-  const secret = process.env.A2A_SECRET;
-  if (!secret) throw new Error("A2A_SECRET is required for integration recovery");
+function token(secret) {
   const timestamp = Date.now();
   const signature = createHmac("sha256", secret)
     .update(\`${INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT}:\${timestamp}\`)
@@ -955,13 +953,18 @@ let cachedHandler;
 export default async function handler(request, context) {
   setBasePathEnv();
   if (!enabled()) return new Response(null, { status: 204 });
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    console.error("[integration-recovery] A2A_SECRET is required; sweep skipped");
+    return new Response(null, { status: 204 });
+  }
   cachedHandler ??= (await import("./main.mjs")).default;
   const url = new URL(request.url);
   url.pathname = SWEEP_PATH;
   const rewritten = new Request(url.toString(), {
     method: "POST",
     headers: {
-      Authorization: \`Bearer \${token()}\`,
+      Authorization: \`Bearer \${token(secret)}\`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ taskId: SWEEP_SUBJECT }),

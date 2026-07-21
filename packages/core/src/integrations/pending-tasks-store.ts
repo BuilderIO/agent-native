@@ -36,6 +36,7 @@ async function ensureTable(): Promise<void> {
   dispatch_attempts ${intType()} NOT NULL DEFAULT 0,
   last_dispatch_at ${intType()},
   last_dispatch_outcome TEXT,
+  dispatch_scope TEXT,
   error_message TEXT,
   created_at ${intType()} NOT NULL,
   updated_at ${intType()} NOT NULL,
@@ -65,6 +66,11 @@ async function ensureTable(): Promise<void> {
           "last_dispatch_outcome",
           `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS last_dispatch_outcome TEXT`,
         );
+        await ensureColumnExists(
+          "integration_pending_tasks",
+          "dispatch_scope",
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS dispatch_scope TEXT`,
+        );
         await ensureIndexExists(
           "idx_pending_tasks_status_created",
           `CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created ON integration_pending_tasks(status, created_at)`,
@@ -72,6 +78,10 @@ async function ensureTable(): Promise<void> {
         await ensureIndexExists(
           "idx_pending_tasks_event_key",
           `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_tasks_event_key ON integration_pending_tasks(platform, external_event_key)`,
+        );
+        await ensureIndexExists(
+          "idx_pending_tasks_dispatch_scope",
+          `CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope ON integration_pending_tasks(platform, dispatch_scope)`,
         );
         return;
       }
@@ -88,6 +98,9 @@ async function ensureTable(): Promise<void> {
       // catch as "already-enqueued".
       await ensureExternalEventKey(client);
       await ensureDispatchColumns(client);
+      await client.execute(
+        `CREATE INDEX IF NOT EXISTS idx_pending_tasks_dispatch_scope ON integration_pending_tasks(platform, dispatch_scope)`,
+      );
       await client.execute(
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_tasks_event_key ON integration_pending_tasks(platform, external_event_key)`,
       );
@@ -137,6 +150,7 @@ async function ensureDispatchColumns(
     `dispatch_attempts ${intType()} NOT NULL DEFAULT 0`,
     `last_dispatch_at ${intType()}`,
     "last_dispatch_outcome TEXT",
+    "dispatch_scope TEXT",
   ];
   for (const column of columns) {
     try {
@@ -174,6 +188,7 @@ export interface PendingTask {
   dispatchAttempts: number;
   lastDispatchAt: number | null;
   lastDispatchOutcome: string | null;
+  dispatchScope: string | null;
   errorMessage: string | null;
   createdAt: number;
   updatedAt: number;
@@ -221,6 +236,7 @@ function rowToTask(row: Record<string, unknown>): PendingTask {
         ? null
         : Number(row.last_dispatch_at as number),
     lastDispatchOutcome: (row.last_dispatch_outcome as string | null) ?? null,
+    dispatchScope: (row.dispatch_scope as string | null) ?? null,
     errorMessage: (row.error_message as string | null) ?? null,
     createdAt: Number(row.created_at ?? 0),
     updatedAt: Number(row.updated_at ?? 0),
@@ -246,14 +262,15 @@ export async function insertPendingTask(input: {
   ownerEmail: string;
   orgId?: string | null;
   externalEventKey?: string | null;
+  dispatchScope?: string | null;
 }): Promise<void> {
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   await client.execute({
     sql: `INSERT INTO integration_pending_tasks
-      (id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, created_at, updated_at, external_event_key)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, created_at, updated_at, external_event_key, dispatch_scope)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.id,
       input.platform,
@@ -266,6 +283,7 @@ export async function insertPendingTask(input: {
       now,
       now,
       input.externalEventKey ?? null,
+      input.dispatchScope ?? null,
     ],
   });
 }
@@ -295,7 +313,7 @@ export async function getPendingTask(id: string): Promise<PendingTask | null> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, error_message, created_at, updated_at, completed_at
+    sql: `SELECT id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at
           FROM integration_pending_tasks WHERE id = ? LIMIT 1`,
     args: [id],
   });
@@ -433,7 +451,7 @@ export async function claimPendingTask(
                  )
                )
            )
-         RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, error_message, created_at, updated_at, completed_at`
+         RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?,
              last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
@@ -499,18 +517,23 @@ export async function recordPendingTaskDispatchAttempt(
 }
 
 /** Next queued turn for a provider thread after its current task completes. */
-export async function getNextPendingTaskIdForThread(
+export async function getNextPendingTaskForThread(
   platform: string,
   externalThreadId: string,
-): Promise<string | null> {
+): Promise<{ id: string; dispatchScope: string | null } | null> {
   await ensureTable();
   const { rows } = await getDbExec().execute({
-    sql: `SELECT id FROM integration_pending_tasks
+    sql: `SELECT id, dispatch_scope FROM integration_pending_tasks
       WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
       ORDER BY created_at ASC, id ASC LIMIT 1`,
     args: [platform, externalThreadId],
   });
-  return rows[0]?.id ? String(rows[0].id) : null;
+  return rows[0]?.id
+    ? {
+        id: String(rows[0].id),
+        dispatchScope: (rows[0].dispatch_scope as string | null) ?? null,
+      }
+    : null;
 }
 
 /** Mark a task as completed. */

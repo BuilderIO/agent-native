@@ -257,7 +257,13 @@ describe("pending task retry job", () => {
       args: unknown[];
     };
     expect(select.sql).toContain("external_thread_id LIKE ?");
-    expect(select.args.slice(-4)).toEqual(["slack", "C123", "%:%:C123:%", 1]);
+    expect(select.args.slice(-5)).toEqual([
+      "slack",
+      "C123",
+      "C123",
+      "%:%:C123:%",
+      1,
+    ]);
     expect(result).toEqual({
       selected: 1,
       dispatched: 1,
@@ -267,6 +273,58 @@ describe("pending task retry job", () => {
     });
     expect(dispatchPendingTaskMock).toHaveBeenCalledWith(
       expect.objectContaining({ taskId: "enabled-task" }),
+    );
+  });
+
+  it("preserves a non-Slack channel scope through durable recovery", async () => {
+    configuredScopesMock.mockReturnValue([
+      { platform: "microsoft-teams", value: "channel-7" },
+    ]);
+    durableEnabledMock.mockImplementation(
+      ({ platformContext }) => platformContext?.channelId === "channel-7",
+    );
+    const { retryStuckPendingTasks } = await loadRetryJob();
+    executeMock
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "teams-task",
+            platform: "microsoft-teams",
+            external_thread_id: "conversation-9",
+            dispatch_scope: "channel-7",
+            status: "pending",
+            attempts: 0,
+            updated_at: 60,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 });
+
+    const result = await retryStuckPendingTasks({
+      webhookBaseUrl: "https://app.test",
+      durableOnly: true,
+      limit: 1,
+    });
+
+    const select = executeMock.mock.calls[0]?.[0] as {
+      sql: string;
+      args: unknown[];
+    };
+    expect(select.sql).toContain("dispatch_scope = ?");
+    expect(select.args.slice(-4)).toEqual([
+      "microsoft-teams",
+      "channel-7",
+      "channel-7",
+      1,
+    ]);
+    expect(result.dispatched).toBe(1);
+    expect(dispatchPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: "teams-task",
+        task: expect.objectContaining({
+          platformContext: { channelId: "channel-7" },
+        }),
+      }),
     );
   });
 

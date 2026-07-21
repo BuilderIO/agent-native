@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import {
@@ -1546,6 +1546,22 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       `${pathToFileURL(path.join(dest, "server-integration-recovery.mjs")).href}?t=${Date.now()}`
     );
     expect(generated.config.schedule).toBe("* * * * *");
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    delete process.env.A2A_SECRET;
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const response = await generated.default(
+        new Request("https://app.test/.netlify/functions/recovery"),
+        {},
+      );
+      expect(response.status).toBe(204);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        "[integration-recovery] A2A_SECRET is required; sweep skipped",
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+    }
   });
 
   it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
