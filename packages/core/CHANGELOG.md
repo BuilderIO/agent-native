@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.114.12
+
+### Patch Changes
+
+- 5c18906: Fix "Fix" button on runtime errors not opening agent chat for extensions embedded via `EmbeddedExtension` (e.g. dashboard panels).
+
 ## 0.114.11
 
 ### Patch Changes
