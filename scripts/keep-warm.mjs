@@ -26,7 +26,7 @@ const HEALTH_PATH = "/_agent-native/health";
 const PER_REQUEST_TIMEOUT_MS = 25_000; // Neon pooler cold-start can take ~10s.
 const ATTEMPTS = 2;
 
-/** Extract { name, prodUrl } pairs from the registry source without importing TS. */
+/** Extract visible hosted { name, prodUrl } pairs without importing TS. */
 async function readApps() {
   const src = await readFile(REGISTRY, "utf8");
   const apps = [];
@@ -35,7 +35,8 @@ async function readApps() {
   for (const block of src.matchAll(blockRe)) {
     const name = block[1];
     const prodUrl = /prodUrl:\s*"([^"]+)"/.exec(block[0])?.[1];
-    if (prodUrl) apps.push({ name, prodUrl });
+    const hidden = /\bhidden:\s*true\b/.test(block[0]);
+    if (prodUrl && !hidden) apps.push({ name, prodUrl });
   }
   return apps;
 }
@@ -49,22 +50,32 @@ async function pingOnce(url) {
   });
   const ms = Date.now() - startedAt;
   let db;
+  let ready;
   try {
-    db = (await res.json())?.db;
+    const body = await res.json();
+    db = body?.db;
+    ready = body?.ready;
   } catch {
     // Non-JSON body (e.g. an error page) — still counts as the function awake.
   }
-  return { status: res.status, ok: res.ok, db, ms };
+  return { status: res.status, ok: res.ok, db, ready, ms };
 }
 
-async function pingApp({ name, prodUrl }) {
-  const url = `${prodUrl.replace(/\/$/, "")}${HEALTH_PATH}`;
+async function pingApp({ name, prodUrl }, strict) {
+  const healthPath = strict ? `${HEALTH_PATH}?strict=1` : HEALTH_PATH;
+  const url = `${prodUrl.replace(/\/$/, "")}${healthPath}`;
   let lastErr;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
       const r = await pingOnce(url);
-      if (r.ok) return { name, ok: true, ...r };
-      lastErr = `HTTP ${r.status}`;
+      if (r.ok && (!strict || (r.db === true && r.ready === true))) {
+        return { name, ok: true, ...r };
+      }
+      lastErr = r.ok
+        ? r.db !== true
+          ? "db unavailable"
+          : "not ready"
+        : `HTTP ${r.status}`;
     } catch (err) {
       lastErr =
         err?.name === "TimeoutError" ? "timeout" : String(err?.message ?? err);
@@ -87,7 +98,7 @@ async function main() {
     process.exit(1);
   }
 
-  const results = await Promise.all(apps.map(pingApp));
+  const results = await Promise.all(apps.map((app) => pingApp(app, strict)));
   results.sort((a, b) => a.name.localeCompare(b.name));
 
   let warmed = 0;
