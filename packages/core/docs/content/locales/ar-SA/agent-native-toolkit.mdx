@@ -134,3 +134,9 @@ being rebuilt in slightly different ways every time.
 - [**إنشاء القوالب**](/docs/creating-templates) — أنشئ قالباً كاملاً لترى موضع المجموعات.
 - [**واجهة مكونات API**](/docs/components) — مرجع exports العامة لـ React.
 - [**دورة حياة الحزم**](/docs/package-lifecycle) — افحص وأضف وأخرج وحدات قدرات Toolkit المعتمدة على manifest بأمان.
+
+## تخصيص مجموعة أو إخراجها {#customize-or-eject}
+
+اتبع هذا الترتيب: اضبط API العامة ← ركّب العناصر العامة ← أخرج أصغر وحدة ← اقترح نقطة توسيع مشتركة. استخدم `agent-native eject --list` و`agent-native eject inspect <unit>` للاستكشاف، ثم عاين `agent-native eject <unit> --app <app>` قبل إضافة `--apply`.
+
+تغطي بيانات Toolkit كل نقطة دخول عامة، ويسجل التطبيق المصدر وإعادات كتابة الاستيراد في `agent-native.ejections.json`. يعرض `agent-native eject diff <unit> --app <app>` التغييرات، ولا تعيد `restore` الملفات إلا إذا بقيت التجزئات والاستيرادات مطابقة. تشمل الوحدات الرسمية أيضًا كتالوجات MCP البعيدة واتصالات مساحة العمل وتعريفات provider API ومهايئات الرسائل وواجهة الاستعداد وحزم المجال. الوصفة الرسمية المفقودة تفشل حارس الإصدار؛ الحزمة الخارجية تحصل على مخطط add؛ وعقود Core المحمية تبقى خلف نقاط التوسعة العامة.

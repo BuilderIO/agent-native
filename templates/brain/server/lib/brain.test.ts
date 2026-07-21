@@ -125,10 +125,13 @@ const mocks = vi.hoisted(() => {
     brainSyncRuns: table("brainSyncRuns", [
       "id",
       "sourceId",
+      "activeSourceId",
       "provider",
       "status",
       "statsJson",
       "error",
+      "leaseToken",
+      "leaseExpiresAt",
       "startedAt",
       "completedAt",
     ]),
@@ -431,6 +434,15 @@ const mocks = vi.hoisted(() => {
         insertControls.beforeThrow = null;
         throw error;
       }
+      if (
+        tableRef === schema.brainSyncRuns &&
+        row.activeSourceId != null &&
+        tableRows(tableRef).some(
+          (item) => item.activeSourceId === row.activeSourceId,
+        )
+      ) {
+        throw new Error("unique active source");
+      }
       tableRows(tableRef).push({ ...row });
       return {
         onConflictDoUpdate: vi.fn(async ({ set }: { set: Row }) => {
@@ -711,6 +723,7 @@ import listSourcesAction from "../../actions/list-sources.js";
 import markCaptureDistilledAction from "../../actions/mark-capture-distilled.js";
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
 import ingestHandler from "../routes/api/_agent-native/brain/ingest.post.js";
+import { ensureCaptureAudience } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   applyRedactions,
@@ -787,6 +800,20 @@ function seedSource(overrides: Row = {}) {
   };
   mocks.rows.sources.push(source);
   return source;
+}
+
+function expectCursorPersistedBeforeRunRelease() {
+  const updatedTables = mocks.db.update.mock.calls.map(([tableRef]) =>
+    String((tableRef as Row).__tableName),
+  );
+  const sourceUpdate = updatedTables.lastIndexOf("brainSources");
+  const runRelease = updatedTables.lastIndexOf("brainSyncRuns");
+  expect(sourceUpdate).toBeGreaterThan(-1);
+  expect(runRelease).toBeGreaterThan(sourceUpdate);
+  expect(mocks.rows.syncRuns[mocks.rows.syncRuns.length - 1]).toMatchObject({
+    activeSourceId: null,
+    leaseToken: null,
+  });
 }
 
 function seedCapture(overrides: Row = {}) {
@@ -1134,6 +1161,94 @@ describe("Brain knowledge quality gates", () => {
       sourceId: "clips-source",
       externalId: "clip-1",
     });
+  });
+
+  it("uses object and string participant emails for signed meeting ACLs", async () => {
+    const tokenHash = await sha256Hex("ingest-token");
+    seedSource({
+      id: "clips-source",
+      sourceKey: "clips",
+      ingestTokenHash: tokenHash,
+      configJson: JSON.stringify({
+        sourceKey: "clips",
+        ingestTokenHash: tokenHash,
+      }),
+    });
+
+    const handler = ingestHandler as unknown as (event: Row) => Promise<Row>;
+    await handler({
+      headers: { authorization: "Bearer ingest-token" },
+      body: {
+        sourceKey: "clips",
+        externalId: "clip-with-attendees",
+        title: "Product review",
+        transcript: "Decision: ship the beta on May 20.",
+        participants: [
+          { email: " Attendee@Example.Test " },
+          { email: "attendee@example.test" },
+          { emailAddress: "Second@Example.Test" },
+          { email_address: "third@example.test" },
+          "FOURTH@example.test",
+          { email: "not-an-email" },
+        ],
+      },
+    });
+
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "meeting",
+        memberEmails: [
+          "attendee@example.test",
+          "fourth@example.test",
+          "second@example.test",
+          "third@example.test",
+        ],
+        upstreamRefHash: "clip-with-attendees",
+      }),
+    );
+  });
+
+  it("keeps malformed or missing signed meeting participants owner-only", async () => {
+    const tokenHash = await sha256Hex("ingest-token");
+    seedSource({
+      id: "clips-source",
+      sourceKey: "clips",
+      ingestTokenHash: tokenHash,
+      ownerEmail: "Owner@Example.Test",
+      configJson: JSON.stringify({
+        sourceKey: "clips",
+        ingestTokenHash: tokenHash,
+      }),
+    });
+
+    const handler = ingestHandler as unknown as (event: Row) => Promise<Row>;
+    await handler({
+      headers: { authorization: "Bearer ingest-token" },
+      body: {
+        sourceKey: "clips",
+        externalId: "clip-without-safe-attendees",
+        title: "Product review",
+        transcript: "Decision: ship the beta on May 20.",
+        participants: [
+          { email: "not-an-email" },
+          { name: "No email" },
+          "Display Name",
+          null,
+          42,
+        ],
+      },
+    });
+
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "meeting",
+        memberEmails: ["owner@example.test"],
+        upstreamRefHash: "clip-without-safe-attendees",
+      }),
+    );
+    expect(vi.mocked(ensureCaptureAudience)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "org" }),
+    );
   });
 
   it("uses a SHA-256 content hash for new captures", async () => {
@@ -1527,6 +1642,149 @@ describe("Brain knowledge quality gates", () => {
       proposedAction: "create",
       title: "Beta date",
     });
+  });
+
+  it("publishes allowed company knowledge without review when every evidence source opts out", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture();
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(result.knowledge).toMatchObject({
+      status: "published",
+      publishTier: "company",
+      confidence: 80,
+      audienceId: "aud_org",
+      audienceAclHash: "acl-hash",
+    });
+  });
+
+  it("keeps auto-redacted knowledge unpublished when its evidence source opts out of review", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture({
+      content: "Contact alice@example.com before publishing the launch plan.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Launch contact alice@example.com",
+      body: "Contact alice@example.com before publishing the launch plan.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Contact alice@example.com before publishing the launch plan.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("knowledge");
+    expect(mocks.rows.proposals).toHaveLength(0);
+    expect(result.knowledge).toMatchObject({
+      status: "redacted",
+      publishedAt: null,
+      audienceId: "aud_org",
+      audienceAclHash: "acl-hash",
+    });
+    expect(JSON.stringify(result.knowledge)).not.toContain("alice@example.com");
+  });
+
+  it("keeps explicit proposals queued when their evidence source opts out of automatic review", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture();
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 80,
+      publishTier: "company",
+      proposalMode: "always",
+    });
+
+    expect(result.mode).toBe("proposal");
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+
+  it("requires review at high confidence when any evidence source explicitly requires it", async () => {
+    seedSource({ configJson: JSON.stringify({ reviewRequired: false }) });
+    seedCapture();
+    seedSource({
+      id: "source-2",
+      configJson: JSON.stringify({ reviewRequired: true }),
+    });
+    seedCapture({
+      id: "capture-2",
+      sourceId: "source-2",
+      content: "Decision: keep the existing launch safeguards.",
+    });
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta safeguards",
+      body: "The launch keeps its existing safeguards.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+        {
+          captureId: "capture-2",
+          quote: "Decision: keep the existing launch safeguards.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("proposal");
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
+  });
+
+  it("honors an explicit source review requirement above the legacy workspace default", async () => {
+    mocks.settings.requireApprovalForCompanyKnowledge = false;
+    seedSource({ configJson: JSON.stringify({ reviewRequired: true }) });
+    seedCapture();
+
+    const result = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      confidence: 95,
+      publishTier: "company",
+      proposalMode: "auto",
+    });
+
+    expect(result.mode).toBe("proposal");
+    expect(mocks.rows.proposals).toHaveLength(1);
+    expect(mocks.rows.knowledge).toHaveLength(0);
   });
 
   it("auto-publishes high-confidence company-tier knowledge when no redaction is needed", async () => {
@@ -2534,6 +2792,115 @@ describe("Brain connector smoke coverage", () => {
     );
   });
 
+  it("keeps Granola meeting captures scoped to normalized attendees", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/notes") {
+        return Response.json({
+          notes: [
+            {
+              id: "not_example12345",
+              title: "Product review",
+              owner: { email: "Owner@Example.Test" },
+              updated_at: "2026-05-14T11:00:00Z",
+            },
+          ],
+          hasMore: false,
+          cursor: null,
+        });
+      }
+      if (url.pathname.endsWith("/notes/not_example12345")) {
+        return Response.json({
+          id: "not_example12345",
+          title: "Product review",
+          attendees: [
+            { email: " Attendee@Example.Test " },
+            { email: "attendee@example.test" },
+            { email: "not-an-email" },
+          ],
+          calendar_event: {
+            invitees: [{ email: "Invited@Example.Test" }],
+            organiser: "Organizer@Example.Test",
+            scheduled_start_time: "2026-05-14T10:00:00Z",
+          },
+          summary_text: "Decision: ship the beta on May 20.",
+          updated_at: "2026-05-14T11:00:00Z",
+        });
+      }
+      return Response.json({ error: "unexpected_url" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "granola-source",
+      provider: "granola",
+      ownerEmail: "source-owner@example.test",
+      configJson: "{}",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      provider: "granola",
+      status: "success",
+      capturesCreated: 1,
+    });
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "meeting",
+        memberEmails: [
+          "attendee@example.test",
+          "invited@example.test",
+          "organizer@example.test",
+          "owner@example.test",
+        ],
+        upstreamRefHash: "granola:not_example12345",
+      }),
+    );
+  });
+
+  it("falls back to the source owner for Granola notes without safe attendees", async () => {
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/v1/notes") {
+        return Response.json({
+          notes: [{ id: "not_noattendees1", title: "Product review" }],
+          hasMore: false,
+          cursor: null,
+        });
+      }
+      if (url.pathname.endsWith("/notes/not_noattendees1")) {
+        return Response.json({
+          id: "not_noattendees1",
+          title: "Product review",
+          owner: { email: "not-an-email" },
+          attendees: [{ name: "No email" }],
+          summary_text: "Decision: ship the beta on May 20.",
+        });
+      }
+      return Response.json({ error: "unexpected_url" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "granola-source",
+      provider: "granola",
+      ownerEmail: "source-owner@example.test",
+      configJson: "{}",
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success", capturesCreated: 1 });
+    expect(vi.mocked(ensureCaptureAudience)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "meeting",
+        memberEmails: ["source-owner@example.test"],
+      }),
+    );
+    expect(vi.mocked(ensureCaptureAudience)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "org" }),
+    );
+  });
+
   it("syncs only an allow-listed Slack channel and stores a permalink citation", async () => {
     const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));
@@ -2628,6 +2995,302 @@ describe("Brain connector smoke coverage", () => {
     expect(metadata).not.toHaveProperty("raw");
     expect(metadata).not.toHaveProperty("user");
     expect(fetchSpy).toHaveBeenCalledTimes(4);
+  });
+
+  it("bounds concurrent Slack thread capture processing", async () => {
+    let activeCaptures = 0;
+    let maxActiveCaptures = 0;
+    mocks.audienceHook.value = async () => {
+      activeCaptures += 1;
+      maxActiveCaptures = Math.max(maxActiveCaptures, activeCaptures);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeCaptures -= 1;
+    };
+    const messageTimestamps = Array.from(
+      { length: 7 },
+      (_, index) => `177091920${index}.000100`,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({
+            ok: true,
+            channel: {
+              id: "C123",
+              name: "product",
+              is_channel: true,
+              is_member: true,
+              is_archived: false,
+            },
+          });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          return Response.json({
+            ok: true,
+            messages: messageTimestamps.map((ts, index) => ({
+              type: "message",
+              text: `Product decision ${index}: ship the update.`,
+              ts,
+            })),
+            has_more: false,
+          });
+        }
+        if (url.pathname.endsWith("/conversations.replies")) {
+          const ts = url.searchParams.get("ts")!;
+          return Response.json({
+            ok: true,
+            messages: [
+              {
+                type: "message",
+                text: "Product decision: ship the update.",
+                ts,
+              },
+            ],
+          });
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      }),
+    );
+    const source = seedSource({
+      id: "slack-concurrent-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        permalinkLimit: 0,
+        threadCaptureConcurrency: 3,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 7,
+      stats: { threadsFetched: 7, threadCaptureConcurrency: 3 },
+    });
+    expect(maxActiveCaptures).toBeGreaterThan(1);
+    expect(maxActiveCaptures).toBeLessThanOrEqual(3);
+  });
+
+  it("settles in-flight Slack captures before returning a rate-limit retry", async () => {
+    const replyTimestamps: string[] = [];
+    const messageTimestamps = [
+      "1770919200.000100",
+      "1770919201.000100",
+      "1770919202.000100",
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({
+            ok: true,
+            channel: {
+              id: "C123",
+              name: "product",
+              is_channel: true,
+              is_member: true,
+              is_archived: false,
+            },
+          });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          return Response.json({
+            ok: true,
+            messages: messageTimestamps.map((ts) => ({
+              type: "message",
+              text: "Product decision: ship the update.",
+              ts,
+            })),
+            has_more: false,
+          });
+        }
+        if (url.pathname.endsWith("/conversations.replies")) {
+          const ts = url.searchParams.get("ts")!;
+          replyTimestamps.push(ts);
+          if (ts === messageTimestamps[0]) {
+            return Response.json(
+              { ok: false, error: "ratelimited" },
+              { status: 429, headers: { "retry-after": "2" } },
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return Response.json({
+            ok: true,
+            messages: [
+              {
+                type: "message",
+                text: "Product decision: ship the update.",
+                ts,
+              },
+            ],
+          });
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      }),
+    );
+    const source = seedSource({
+      id: "slack-rate-limit-source",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        permalinkLimit: 0,
+        threadCaptureConcurrency: 2,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { threadsFetched: 1, rateLimited: true },
+    });
+    expect(replyTimestamps).toEqual(messageTimestamps.slice(0, 2));
+    expect(result.captures[0]?.externalId).toBe(
+      `slack:C123:${messageTimestamps[1]}`,
+    );
+    expectCursorPersistedBeforeRunRelease();
+  });
+
+  it("consumes the Slack history page budget and persists the next cursor", async () => {
+    const historyCursors: Array<string | null> = [];
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/conversations.info")) {
+        return Response.json({
+          ok: true,
+          channel: {
+            id: "C123",
+            name: "product",
+            is_channel: true,
+            is_member: true,
+            is_archived: false,
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.history")) {
+        const cursor = url.searchParams.get("cursor");
+        historyCursors.push(cursor);
+        const secondPage = cursor === "history-page-2";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              user: "U123",
+              text: secondPage
+                ? "Decision: keep the procurement follow-up."
+                : "Decision: keep annual plans.",
+              ts: secondPage ? "1770919199.000100" : "1770919200.000100",
+            },
+          ],
+          has_more: true,
+          response_metadata: {
+            next_cursor: secondPage ? "history-page-3" : "history-page-2",
+          },
+        });
+      }
+      if (url.pathname.endsWith("/conversations.replies")) {
+        const ts = url.searchParams.get("ts") ?? "1770919200.000100";
+        return Response.json({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              text: "Decision from paginated Slack history.",
+              ts,
+            },
+          ],
+        });
+      }
+      return Response.json({ ok: false, error: "unexpected_method" });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-paginated-source",
+      title: "Slack product history",
+      provider: "slack",
+      configJson: JSON.stringify({
+        channelIds: ["C123"],
+        historyLimit: 1,
+        pagesPerChannel: 2,
+        permalinkLimit: 0,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 2,
+      stats: { messagesSeen: 2, threadsFetched: 2 },
+    });
+    expect(historyCursors).toEqual([null, "history-page-2"]);
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      channels: {
+        C123: {
+          pageCursor: "history-page-3",
+          pendingLatestTs: "1770919200.000100",
+        },
+      },
+    });
+  });
+
+  it("joins an explicitly configured public channel before reading history", async () => {
+    const calls: string[] = [];
+    const fetchSpy = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/conversations.info")) {
+          return Response.json({
+            ok: true,
+            channel: {
+              id: "C123",
+              name: "product",
+              is_channel: true,
+              is_archived: false,
+              is_member: false,
+            },
+          });
+        }
+        if (url.pathname.endsWith("/conversations.join")) {
+          calls.push("join");
+          expect(init?.method).toBe("POST");
+          expect(new URLSearchParams(String(init?.body)).get("channel")).toBe(
+            "C123",
+          );
+          return Response.json({ ok: true });
+        }
+        if (url.pathname.endsWith("/conversations.history")) {
+          calls.push("history");
+          return Response.json({ ok: true, messages: [], has_more: false });
+        }
+        return Response.json({ ok: false, error: "unexpected_method" });
+      },
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const source = seedSource({
+      id: "slack-source",
+      title: "Slack product",
+      provider: "slack",
+      configJson: JSON.stringify({ channelIds: ["C123"] }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      stats: {
+        publicChannelsJoined: 1,
+        publicChannelsAlreadyJoined: 0,
+        scannedChannels: 1,
+      },
+    });
+    expect(calls).toEqual(["join", "history"]);
   });
 
   it("builds stable safe Slack segment offsets against the stored thread content", () => {
@@ -3086,6 +3749,222 @@ describe("Brain connector smoke coverage", () => {
     expect(result.captures[0]?.metadata).not.toHaveProperty("sourceUrl");
   });
 
+  it("renews configured-item leases while capture processing is in flight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-15T12:00:00.000Z"));
+    let releaseCapture: (() => void) | undefined;
+    let markCaptureStarted: (() => void) | undefined;
+    const captureStarted = new Promise<void>((resolve) => {
+      markCaptureStarted = resolve;
+    });
+    const captureBlocked = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    mocks.audienceHook.value = async () => {
+      markCaptureStarted?.();
+      await captureBlocked;
+    };
+    const source = seedSource({
+      id: "configured-heartbeat-source",
+      provider: "granola",
+      configJson: JSON.stringify({
+        transcripts: [
+          {
+            externalId: "configured-heartbeat-item",
+            title: "Long-running capture",
+            text: "Decision: retain the connector lease during classification.",
+          },
+        ],
+      }),
+    });
+
+    try {
+      const sync = runConnectorSync(source as never);
+      await captureStarted;
+      const initialExpiry = String(mocks.rows.syncRuns[0]?.leaseExpiresAt);
+
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1_000);
+
+      expect(
+        Date.parse(String(mocks.rows.syncRuns[0]?.leaseExpiresAt)),
+      ).toBeGreaterThan(Date.parse(initialExpiry));
+      releaseCapture?.();
+      await sync;
+    } finally {
+      releaseCapture?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds concurrent Granola note fetch and capture processing", async () => {
+    let activeCaptures = 0;
+    let maxActiveCaptures = 0;
+    mocks.audienceHook.value = async () => {
+      activeCaptures += 1;
+      maxActiveCaptures = Math.max(maxActiveCaptures, activeCaptures);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      activeCaptures -= 1;
+    };
+    const noteIds = Array.from({ length: 6 }, (_, index) => `note_${index}`);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/notes")) {
+          return Response.json({
+            notes: noteIds.map((id, index) => ({
+              id,
+              title: `Product review ${index}`,
+              updated_at: `2026-05-1${index}T10:00:00.000Z`,
+            })),
+            hasMore: false,
+          });
+        }
+        const id = url.pathname.split("/").pop()!;
+        return Response.json({
+          id,
+          title: `Product review ${id}`,
+          updated_at: "2026-05-19T10:00:00.000Z",
+          summary_text: "Product decision: ship the workspace update.",
+        });
+      }),
+    );
+    const source = seedSource({
+      id: "granola-concurrent-source",
+      provider: "granola",
+      configJson: JSON.stringify({
+        pageSize: 6,
+        noteCaptureConcurrency: 2,
+      }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 6,
+      stats: { notesFetched: 6, noteCaptureConcurrency: 2 },
+    });
+    expect(maxActiveCaptures).toBeGreaterThan(1);
+    expect(maxActiveCaptures).toBeLessThanOrEqual(2);
+    expect(JSON.parse(String(source.cursorJson))).toMatchObject({
+      cursor: null,
+      updatedAfter: "2026-05-19T10:00:00.000Z",
+    });
+  });
+
+  it("settles in-flight Granola captures before returning a rate-limit retry", async () => {
+    const detailIds: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/notes")) {
+          return Response.json({
+            notes: ["note_0", "note_1", "note_2"].map((id) => ({
+              id,
+              title: "Product review",
+            })),
+            hasMore: false,
+          });
+        }
+        const id = url.pathname.split("/").pop()!;
+        detailIds.push(id);
+        if (id === "note_0") {
+          return Response.json(
+            { error: "ratelimited" },
+            { status: 429, headers: { "retry-after": "2" } },
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return Response.json({
+          id,
+          title: "Product review",
+          summary_text: "Product decision: ship the workspace update.",
+        });
+      }),
+    );
+    const source = seedSource({
+      id: "granola-rate-limit-source",
+      provider: "granola",
+      configJson: JSON.stringify({ noteCaptureConcurrency: 2 }),
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      status: "success",
+      capturesCreated: 1,
+      stats: { notesFetched: 1, rateLimited: true },
+    });
+    expect(detailIds).toEqual(["note_0", "note_1"]);
+    expect(result.captures[0]?.externalId).toBe("granola:note_1");
+    expectCursorPersistedBeforeRunRelease();
+  });
+
+  it("coalesces overlapping source syncs onto the active run", async () => {
+    const source = seedSource({ id: "leased-source", provider: "manual" });
+    mocks.rows.syncRuns.push({
+      id: "active-run",
+      sourceId: source.id,
+      activeSourceId: source.id,
+      provider: source.provider,
+      status: "running",
+      statsJson: "{}",
+      error: null,
+      leaseToken: "active-lease",
+      leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({
+      runId: "active-run",
+      status: "success",
+      capturesCreated: 0,
+      stats: { alreadyRunning: true },
+    });
+    expect(mocks.rows.syncRuns).toHaveLength(1);
+  });
+
+  it("marks an expired source sync lease as error before retrying", async () => {
+    const source = seedSource({
+      id: "stale-leased-source",
+      provider: "manual",
+    });
+    mocks.rows.syncRuns.push({
+      id: "stale-run",
+      sourceId: source.id,
+      activeSourceId: source.id,
+      provider: source.provider,
+      status: "running",
+      statsJson: "{}",
+      error: null,
+      leaseToken: "stale-lease",
+      leaseExpiresAt: new Date(Date.now() - 60_000).toISOString(),
+      startedAt: new Date(Date.now() - 11 * 60_000).toISOString(),
+      completedAt: null,
+    });
+
+    const result = await runConnectorSync(source as never);
+
+    expect(result).toMatchObject({ status: "success" });
+    expect(mocks.rows.syncRuns).toHaveLength(2);
+    expect(mocks.rows.syncRuns[0]).toMatchObject({
+      status: "error",
+      activeSourceId: null,
+      leaseToken: null,
+      error: "Sync lease expired before completion",
+    });
+    expect(mocks.rows.syncRuns[1]).toMatchObject({
+      status: "success",
+      activeSourceId: null,
+      leaseToken: null,
+    });
+  });
+
   it("syncs GitHub issues and pull requests from configured repositories", async () => {
     const fetchSpy = vi.fn(
       async (input: RequestInfo | URL, _init?: RequestInit) => {
@@ -3192,6 +4071,62 @@ describe("Brain connector smoke coverage", () => {
         Accept: "application/vnd.github+json",
       }),
     });
+  });
+
+  it("renews GitHub leases while item capture processing is in flight", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-15T12:00:00.000Z"));
+    let releaseCapture: (() => void) | undefined;
+    let markCaptureStarted: (() => void) | undefined;
+    const captureStarted = new Promise<void>((resolve) => {
+      markCaptureStarted = resolve;
+    });
+    const captureBlocked = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    mocks.audienceHook.value = async () => {
+      markCaptureStarted?.();
+      await captureBlocked;
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json([
+          {
+            id: 101,
+            number: 7,
+            title: "Retain the backfill lease",
+            body: "Decision: heartbeat during capture classification.",
+            html_url: "https://github.com/acme/brain/issues/7",
+            state: "open",
+            created_at: "2026-05-14T10:00:00Z",
+            updated_at: "2026-05-14T11:00:00Z",
+          },
+        ]),
+      ),
+    );
+    const source = seedSource({
+      id: "github-heartbeat-source",
+      provider: "github",
+      configJson: JSON.stringify({ repos: ["acme/brain"], limit: 1 }),
+    });
+
+    try {
+      const sync = runConnectorSync(source as never);
+      await captureStarted;
+      const initialExpiry = String(mocks.rows.syncRuns[0]?.leaseExpiresAt);
+
+      await vi.advanceTimersByTimeAsync(4 * 60 * 1_000);
+
+      expect(
+        Date.parse(String(mocks.rows.syncRuns[0]?.leaseExpiresAt)),
+      ).toBeGreaterThan(Date.parse(initialExpiry));
+      releaseCapture?.();
+      await sync;
+    } finally {
+      releaseCapture?.();
+      vi.useRealTimers();
+    }
   });
 
   it("does not load inaccessible Slack captures while finding linked GitHub refs", async () => {
@@ -3435,6 +4370,7 @@ describe("Brain connector smoke coverage", () => {
         endpoint: "/repos/acme/brain/issues",
       },
     });
+    expectCursorPersistedBeforeRunRelease();
   });
 });
 

@@ -11,6 +11,7 @@ import type {
   CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseItem,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
@@ -57,6 +58,77 @@ export function contentDatabaseQueryKey(documentId: string) {
 
 export function contentDatabaseByIdQueryKey(databaseId: string) {
   return ["action", "get-content-database", { databaseId }] as const;
+}
+
+export function applyOptimisticItemToContentDatabase(
+  current: ContentDatabaseResponse | undefined,
+  item: ContentDatabaseItem,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  if (
+    current.items.some(
+      (candidate) =>
+        candidate.id === item.id || candidate.document.id === item.document.id,
+    )
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    items: [...current.items, item],
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: current.pagination.totalItems + 1,
+          returnedItems: current.pagination.returnedItems + 1,
+        }
+      : current.pagination,
+  };
+}
+
+export function removeOptimisticItemFromContentDatabase(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  const items = current.items.filter(
+    (candidate) => candidate.document.id !== documentId,
+  );
+  if (items.length === current.items.length) return current;
+
+  return {
+    ...current,
+    items,
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: Math.max(0, current.pagination.totalItems - 1),
+          returnedItems: Math.max(0, current.pagination.returnedItems - 1),
+        }
+      : current.pagination,
+  };
+}
+
+export function preserveScopedDatabasePlaceholder<T>(
+  previous: T | undefined,
+  previousQuery: Pick<Query, "queryKey"> | undefined,
+  scope: { documentId?: string; databaseId?: string },
+): T | undefined {
+  const previousParams = previousQuery?.queryKey[2];
+  if (!previousParams || typeof previousParams !== "object") return undefined;
+
+  const params = previousParams as {
+    documentId?: unknown;
+    databaseId?: unknown;
+  };
+  if (scope.documentId !== undefined) {
+    return params.documentId === scope.documentId ? previous : undefined;
+  }
+  if (scope.databaseId !== undefined) {
+    return params.databaseId === scope.databaseId ? previous : undefined;
+  }
+  return undefined;
 }
 
 function isContentDatabaseQueryForDocument(
@@ -449,7 +521,10 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
     {
       enabled: !!documentId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          documentId: documentId ?? undefined,
+        }),
       initialData: () =>
         documentId
           ? readCachedContentDatabaseResponse(queryClient, documentId)
@@ -468,7 +543,10 @@ export function useContentDatabaseById(databaseId: string | null) {
     {
       enabled: !!databaseId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          databaseId: databaseId ?? undefined,
+        }),
     },
   );
 }
@@ -544,6 +622,9 @@ export function useDeleteContentDatabase() {
   >("delete-content-database", {
     onSuccess: (data) => {
       clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
     },
   });
 }
@@ -571,6 +652,9 @@ export function useRestoreContentDatabase() {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-content-databases"],
@@ -719,7 +803,10 @@ export function useContentDatabasePersonalView(databaseId: string | null) {
     {
       enabled: !!databaseId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          databaseId: databaseId ?? undefined,
+        }),
     },
   );
 }

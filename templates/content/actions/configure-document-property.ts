@@ -118,6 +118,9 @@ export default defineAction({
           ),
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
+      if (existing.systemRole) {
+        throw new Error("System properties cannot be changed.");
+      }
       if (
         isComputedPropertyType(existing.type as DocumentPropertyType) &&
         existing.type !== type

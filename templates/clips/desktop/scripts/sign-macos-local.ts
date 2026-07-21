@@ -12,11 +12,14 @@ if (process.platform !== "darwin") {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptDir, "..");
+const appName = process.env.CLIPS_MACOS_APP_NAME || "Clips";
+const buildProfile = process.env.CLIPS_MACOS_BUILD_PROFILE || "release";
 const appPath = resolve(
   desktopDir,
-  "src-tauri/target/release/bundle/macos/Clips.app",
+  `src-tauri/target/${buildProfile}/bundle/macos/${appName}.app`,
 );
 const entitlementsPath = resolve(desktopDir, "src-tauri/Entitlements.plist");
+const stableAdHocBundleId = process.env.CLIPS_MACOS_BUNDLE_ID?.trim();
 
 if (!existsSync(appPath)) {
   console.warn(`[clips-desktop] No macOS app bundle found at ${appPath}`);
@@ -24,6 +27,13 @@ if (!existsSync(appPath)) {
 }
 
 function sign(identity: string) {
+  const stableRequirement =
+    identity === "-" && stableAdHocBundleId
+      ? [
+          "--requirements",
+          `=designated => identifier \"${stableAdHocBundleId.replaceAll('"', "")}\"`,
+        ]
+      : [];
   const result = spawnSync(
     "codesign",
     [
@@ -31,6 +41,7 @@ function sign(identity: string) {
       "--deep",
       "--sign",
       identity,
+      ...stableRequirement,
       "--options",
       "runtime",
       "--entitlements",

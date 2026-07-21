@@ -1,5 +1,97 @@
 # @agent-native/skills
 
+## 0.2.375
+
+### Patch Changes
+
+- Updated dependencies [fb32d85]
+  - @agent-native/core@0.114.9
+
+## 0.2.374
+
+### Patch Changes
+
+- Updated dependencies [dcd0810]
+- Updated dependencies [dcd0810]
+  - @agent-native/core@0.114.8
+
+## 0.2.373
+
+### Patch Changes
+
+- b706848: Add r5 semantic chapter metadata and provenance-aware local Screen Memory search, publish a reusable Rewind skill whose installer also repairs the local Screen Memory MCP connection, and keep the standalone skills installer aligned.
+- Updated dependencies [b706848]
+  - @agent-native/core@0.114.7
+
+## 0.2.372
+
+### Patch Changes
+
+- Updated dependencies [6d96437]
+  - @agent-native/core@0.114.6
+
+## 0.2.371
+
+### Patch Changes
+
+- Updated dependencies [570be31]
+  - @agent-native/core@0.114.5
+
+## 0.2.370
+
+### Patch Changes
+
+- Updated dependencies [f3dcee3]
+  - @agent-native/core@0.114.4
+
+## 0.2.369
+
+### Patch Changes
+
+- Updated dependencies [c47eb50]
+  - @agent-native/core@0.114.3
+
+## 0.2.368
+
+### Patch Changes
+
+- Updated dependencies [3253e1d]
+  - @agent-native/core@0.114.2
+
+## 0.2.367
+
+### Patch Changes
+
+- Updated dependencies [c913280]
+- Updated dependencies [c913280]
+- Updated dependencies [c913280]
+- Updated dependencies [c913280]
+  - @agent-native/core@0.114.1
+
+## 0.2.366
+
+### Patch Changes
+
+- Updated dependencies [8453025]
+  - @agent-native/core@0.114.0
+
+## 0.2.365
+
+### Patch Changes
+
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+- Updated dependencies [e53a34e]
+  - @agent-native/core@0.113.0
+
 ## 0.2.364
 
 ### Patch Changes

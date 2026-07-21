@@ -14,6 +14,7 @@ import {
   serializeCapture,
   sha256Hex,
 } from "../../../../lib/brain.js";
+import { resolveMeetingMemberEmails } from "../../../../lib/meeting-audience.js";
 
 const segmentSchema = z
   .object({
@@ -111,6 +112,10 @@ export default defineEventHandler(async (event) => {
       orgId: source.orgId ?? undefined,
     },
     async () => {
+      const memberEmails = resolveMeetingMemberEmails(
+        payload.participants,
+        source.ownerEmail,
+      );
       let capture;
       try {
         capture = await createCapture({
@@ -130,10 +135,7 @@ export default defineEventHandler(async (event) => {
           },
           audience: {
             kind: "meeting",
-            memberEmails: payload.participants.filter(
-              (participant): participant is string =>
-                typeof participant === "string",
-            ),
+            memberEmails,
             upstreamRefHash: payload.externalId,
           },
         });

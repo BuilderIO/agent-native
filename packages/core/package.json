@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.112.0",
+  "version": "0.114.9",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -18,12 +18,18 @@
   "files": [
     "bin",
     "blueprints",
+    "agent-native.eject.json",
     "corpus",
     "dist",
     "docs",
     "!docs/content/locales/**",
     "migration-manifest.json",
     "tsconfig.base.json",
+    "src",
+    "!src/**/*.spec.ts",
+    "!src/**/*.spec.tsx",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
     "src/templates/default",
     "src/templates/headless",
     "src/templates/chat",
@@ -63,6 +69,7 @@
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
     "./integrations": "./dist/integrations/index.js",
+    "./integrations/runtime": "./dist/integrations/runtime.js",
     "./ingestion": "./dist/ingestion/index.js",
     "./search-utils": "./dist/search-utils/index.js",
     "./search": "./dist/search/index.js",
@@ -106,6 +113,7 @@
     "./client/integrations": "./dist/client/integrations/index.js",
     "./client/navigation": "./dist/client/navigation/index.js",
     "./client/resources": "./dist/client/resources/index.js",
+    "./client/resources/runtime": "./dist/client/resources/runtime.js",
     "./client/route-chunk-recovery": "./dist/client/route-chunk-recovery/index.js",
     "./client/settings": "./dist/client/settings/index.js",
     "./client/ui": "./dist/client/ui/index.js",
@@ -132,6 +140,7 @@
     "./client/observability": "./dist/client/observability/index.js",
     "./client/onboarding": "./dist/client/onboarding/index.js",
     "./client/setup-connections": "./dist/client/setup-connections/index.js",
+    "./client/setup-connections/runtime": "./dist/client/setup-connections/runtime.js",
     "./client/i18n": "./dist/client/i18n.js",
     "./client/settings/useBuilderStatus": "./dist/client/settings/useBuilderStatus.js",
     "./embedding": "./dist/embedding/index.js",
@@ -150,6 +159,7 @@
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
     "./feature-flags": "./dist/feature-flags/index.js",
+    "./feature-flags/registry": "./dist/feature-flags/registry.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
     "./feature-flags/actions/list-feature-flags": "./dist/feature-flags/actions/list-feature-flags.js",
     "./feature-flags/actions/set-feature-flag": "./dist/feature-flags/actions/set-feature-flag.js",
@@ -244,7 +254,10 @@
     "./tracking": "./dist/tracking/index.js",
     "./usage": "./dist/usage/store.js",
     "./connections": "./dist/connections/index.js",
+    "./connections/runtime": "./dist/connections/runtime.js",
     "./provider-api": "./dist/provider-api/index.js",
+    "./provider-api/runtime": "./dist/provider-api/runtime.js",
+    "./provider-api/gong": "./dist/provider-api/gong.js",
     "./provider-api/corpus-jobs": "./dist/provider-api/corpus-jobs.js",
     "./provider-api/corpus-jobs-store": "./dist/provider-api/corpus-jobs-store.js",
     "./provider-api/staging": "./dist/provider-api/staging.js",
@@ -253,7 +266,11 @@
     "./provider-api/actions/query-staged-dataset": "./dist/provider-api/actions/query-staged-dataset.js",
     "./provider-api/actions/list-staged-datasets": "./dist/provider-api/actions/list-staged-datasets.js",
     "./provider-api/actions/delete-staged-dataset": "./dist/provider-api/actions/delete-staged-dataset.js",
+    "./provider-api/actions/staged-datasets": "./dist/provider-api/actions/staged-datasets.js",
     "./provider-api/actions/github-repo-files": "./dist/provider-api/actions/github-repo-files.js",
+    "./provider-api/actions/provider-api": "./dist/provider-api/actions/provider-api.js",
+    "./provider-api/actions/provider-api-audit": "./dist/provider-api/actions/provider-api-audit.js",
+    "./provider-api/actions/custom-provider-registration": "./dist/provider-api/actions/custom-provider-registration.js",
     "./data-programs": {
       "types": "./dist/data-programs/index.d.ts",
       "default": "./dist/data-programs/index.js"
@@ -267,6 +284,7 @@
       "types": "./dist/package-lifecycle/index.d.ts",
       "default": "./dist/package-lifecycle/index.js"
     },
+    "./agent-native.eject.json": "./agent-native.eject.json",
     "./migration-manifest.json": "./migration-manifest.json",
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
@@ -556,5 +574,6 @@
   },
   "engines": {
     "node": ">=22.22.0"
-  }
+  },
+  "agentNativeEjectManifest": "agent-native.eject.json"
 }

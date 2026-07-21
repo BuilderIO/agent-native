@@ -2668,6 +2668,8 @@ const editorToolbarMessages = {
   failedToDisconnect: "Failed to disconnect.",
   failedToUpdateSharing: "Failed to update sharing",
   hideInSearch: "Hide in search",
+  info: "Info",
+  closeUtilityPanel: "Close panel",
   hideInSearchDescription:
     "Hide from Organization and search. People with the link can still view.",
   importingFromNotion: "Importing from Notion...",
@@ -2789,9 +2791,12 @@ const editorSlashMessages = {
 };
 
 const localFilesMessages = {
+  interruptedPicker:
+    "The folder picker did not finish last time, so it has been disabled in this browser profile. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   unsupportedElectron:
-    "Local folder sync is unavailable in this Electron browser. Use Agent Native Desktop or a browser with folder access.",
-  unsupportedBrowser: "Folder access is unavailable in this browser.",
+    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
+  unsupportedBrowser:
+    "Local folder sync is unavailable here. Use Agent Native Desktop, Chrome, Edge, or another Chromium browser.",
   notSyncedYet: "Not synced yet",
   summaryCreated: "{{count}} created",
   summaryUpdated: "{{count}} updated",
@@ -3063,6 +3068,8 @@ const enUS = {
   },
   comments: {
     add: "Add a comment...",
+    title: "Comments",
+    empty: "No comments yet.",
     cancel: "Cancel",
     submit: "Comment",
     askAi: "Ask AI",
@@ -3085,6 +3092,7 @@ const enUS = {
   localFiles: localFilesMessages,
   sidebar: {
     cannotReorderPages: "Cannot reorder pages",
+    addWorkspace: "Add workspace",
     addChild: "Add child",
     addChildTo: "Add child to {{title}}",
     addSubPage: "Add sub-page",
@@ -3100,22 +3108,35 @@ const enUS = {
     database: "Database",
     databasePermanentlyDeleted: "Database permanently deleted",
     databaseRestored: "Database restored",
+    pagePermanentlyDeleted: "Page permanently deleted",
+    pageRestored: "Page restored",
     deleteDatabaseNamedPermanently: "Delete {{title}} permanently",
     deleteDatabasePermanentlyDescription:
       "This permanently deletes “{{title}}” and its pages. This cannot be undone.",
     deleteDatabasePermanentlyQuestion: "Delete database permanently?",
+    deletePageNamedPermanently: "Delete {{title}} permanently",
+    deletePagePermanentlyDescription:
+      "This permanently deletes “{{title}}” and its sub-pages. This cannot be undone.",
+    deletePagePermanentlyQuestion: "Delete page permanently?",
     deletePermanently: "Delete permanently",
     failedCreateDatabase: "Failed to create database",
     failedCreatePage: "Failed to create page",
+    failedCreateWorkspace: "Failed to create workspace",
     failedDeletePage: "Failed to delete page",
     failedPermanentDeleteDatabase: "Failed to permanently delete database",
+    failedPermanentDeletePage: "Failed to permanently delete page",
     failedMovePage: "Failed to move page",
+    failedUpdateFavorite: "Could not update favorite",
+    removeFromFavorites: "Remove from favorites",
     failedRemoveLocalFiles: "Failed to remove local files",
     failedRestoreDatabase: "Failed to restore database",
+    failedRestorePage: "Failed to restore page",
+    failedSaveSidebarState: "Failed to save sidebar state",
     deletePageDescription:
-      "“{{title}}” and all its sub-pages will be permanently deleted. This cannot be undone.",
-    deletePageQuestion: "Delete page?",
+      "“{{title}}” and all its sub-pages will move to Trash. You can restore them later.",
+    deletePageQuestion: "Move page to Trash?",
     localFiles: "Local files",
+    localFolder: "Local folder",
     files: "Files",
     loadingFiles: "Loading files…",
     localFilesActions: "Local files actions",
@@ -3125,6 +3146,11 @@ const enUS = {
     new: "New",
     newDatabase: "New database",
     newPage: "New page",
+    newWorkspace: "New workspace",
+    newWorkspaceDescription:
+      "Create a private workspace with its own Files database.",
+    workspaceName: "Workspace name",
+    createWorkspace: "Create workspace",
     nextStep: "Next step",
     notionConfigureOAuthAuthorize:
       "Configure OAuth, then authorize your workspace.",
@@ -3175,10 +3201,13 @@ const enUS = {
     removeLocalFilesQuestion: "Remove local files from sidebar?",
     restoreDatabase: "Restore",
     restoreDatabaseNamed: "Restore {{title}}",
+    restorePage: "Restore",
+    restorePageNamed: "Restore {{title}}",
     saving: "Saving...",
     sharedCopies: "Shared copies",
     synced: "Synced",
     trash: "Trash",
+    trashEmpty: "Trash is empty",
     favorites: "Favorites",
     untitled: "Untitled",
     workspaces: "Workspaces",
@@ -3313,6 +3342,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "移除本地文件失败",
       failedPermanentDeleteDatabase: "永久删除数据库失败",
       failedRestoreDatabase: "恢复数据库失败",
+      failedSaveSidebarState: "保存侧边栏状态失败",
       localFilesActions: "本地文件操作",
       localFilesRemoved: "本地文件已移除",
       localFilesRemovedDescription: "已移除 {{count}} 个项目",
@@ -3612,6 +3642,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "No se pudo eliminar permanentemente la base de datos",
       failedRestoreDatabase: "No se pudo restaurar la base de datos",
+      failedSaveSidebarState:
+        "No se pudo guardar el estado de la barra lateral",
       localFilesActions: "Acciones de archivos locales",
       localFilesRemoved: "Archivos locales quitados",
       localFilesRemovedDescription: "{{count}} elementos quitados",
@@ -3675,6 +3707,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "移除本機檔案失敗",
       failedPermanentDeleteDatabase: "永久刪除資料庫失敗",
       failedRestoreDatabase: "還原資料庫失敗",
+      failedSaveSidebarState: "儲存側邊欄狀態失敗",
       localFilesActions: "本機檔案操作",
       localFilesRemoved: "已移除本機檔案",
       localFilesRemovedDescription: "已移除 {{count}} 個項目",
@@ -3708,6 +3741,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Échec de la suppression définitive de la base de données",
       failedRestoreDatabase: "Échec de la restauration de la base de données",
+      failedSaveSidebarState:
+        "Échec de l’enregistrement de l’état de la barre latérale",
       localFilesActions: "Actions des fichiers locaux",
       localFilesRemoved: "Fichiers locaux supprimés",
       localFilesRemovedDescription: "{{count}} éléments supprimés",
@@ -3741,6 +3776,8 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Datenbank konnte nicht endgültig gelöscht werden",
       failedRestoreDatabase: "Datenbank konnte nicht wiederhergestellt werden",
+      failedSaveSidebarState:
+        "Der Seitenleistenstatus konnte nicht gespeichert werden",
       localFilesActions: "Aktionen für lokale Dateien",
       localFilesRemoved: "Lokale Dateien entfernt",
       localFilesRemovedDescription: "{{count}} Elemente entfernt",
@@ -3773,6 +3810,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "ローカルファイルを削除できませんでした",
       failedPermanentDeleteDatabase: "データベースを完全に削除できませんでした",
       failedRestoreDatabase: "データベースを復元できませんでした",
+      failedSaveSidebarState: "サイドバーの状態を保存できませんでした",
       localFilesActions: "ローカルファイルの操作",
       localFilesRemoved: "ローカルファイルを削除しました",
       localFilesRemovedDescription: "{{count}} 件を削除しました",
@@ -3805,6 +3843,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "로컬 파일을 제거하지 못했습니다",
       failedPermanentDeleteDatabase: "데이터베이스를 영구 삭제하지 못했습니다",
       failedRestoreDatabase: "데이터베이스를 복원하지 못했습니다",
+      failedSaveSidebarState: "사이드바 상태를 저장하지 못했습니다",
       localFilesActions: "로컬 파일 작업",
       localFilesRemoved: "로컬 파일이 제거되었습니다",
       localFilesRemovedDescription: "{{count}}개 항목 제거됨",
@@ -3838,6 +3877,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedPermanentDeleteDatabase:
         "Falha ao excluir banco de dados permanentemente",
       failedRestoreDatabase: "Falha ao restaurar banco de dados",
+      failedSaveSidebarState: "Falha ao salvar o estado da barra lateral",
       localFilesActions: "Ações de arquivos locais",
       localFilesRemoved: "Arquivos locais removidos",
       localFilesRemovedDescription: "{{count}} itens removidos",
@@ -3869,6 +3909,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
       failedRemoveLocalFiles: "स्थानीय फ़ाइलें हटाई नहीं जा सकीं",
       failedPermanentDeleteDatabase: "डेटाबेस स्थायी रूप से हटाया नहीं जा सका",
       failedRestoreDatabase: "डेटाबेस बहाल नहीं हो सका",
+      failedSaveSidebarState: "साइडबार की स्थिति सहेजी नहीं जा सकी",
       localFilesActions: "स्थानीय फ़ाइल क्रियाएं",
       localFilesRemoved: "स्थानीय फ़ाइलें हटाई गईं",
       localFilesRemovedDescription: "{{count}} आइटम हटाए गए",
@@ -3909,6 +3950,7 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
         "هل تريد إزالة الملفات المحلية من الشريط الجانبي؟",
       failedPermanentDeleteDatabase: "فشل حذف قاعدة البيانات نهائيًا",
       failedRestoreDatabase: "فشلت استعادة قاعدة البيانات",
+      failedSaveSidebarState: "فشل حفظ حالة الشريط الجانبي",
       new: "جديد",
       page: "صفحة",
       restoreDatabase: "استعادة",
@@ -3920,9 +3962,12 @@ const rawLiteralLocaleMessages: Partial<Record<LocaleCode, PartialMessages>> = {
 
 const localFilesMessagesByLocale = {
   "zh-CN": {
+    interruptedPicker:
+      "上次文件夹选择器未能完成，因此已在此浏览器配置文件中停用。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     unsupportedElectron:
-      "此 Electron 浏览器不支持本地文件夹同步。请使用 Agent Native Desktop 或支持文件夹访问的浏览器。",
-    unsupportedBrowser: "此浏览器不支持文件夹访问。",
+      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
+    unsupportedBrowser:
+      "此处无法使用本地文件夹同步。请使用 Agent Native Desktop、Chrome、Edge 或其他 Chromium 浏览器。",
     notSyncedYet: "尚未同步",
     summaryCreated: "已创建 {{count}} 个",
     summaryUpdated: "已更新 {{count}} 个",
@@ -3965,10 +4010,12 @@ const localFilesMessagesByLocale = {
     removing: "正在移除...",
   },
   "es-ES": {
+    interruptedPicker:
+      "El selector de carpetas no terminó la última vez, por lo que se ha desactivado en este perfil del navegador. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedElectron:
-      "La sincronización de carpetas locales no está disponible en este navegador Electron. Usa Agent Native Desktop o un navegador con acceso a carpetas.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     unsupportedBrowser:
-      "El acceso a carpetas no está disponible en este navegador.",
+      "La sincronización de carpetas locales no está disponible aquí. Usa Agent Native Desktop, Chrome, Edge u otro navegador Chromium.",
     notSyncedYet: "Aún no sincronizado",
     summaryCreated: "{{count}} creados",
     summaryUpdated: "{{count}} actualizados",
@@ -4013,10 +4060,12 @@ const localFilesMessagesByLocale = {
     removing: "Quitando...",
   },
   "fr-FR": {
+    interruptedPicker:
+      "Le sélecteur de dossiers ne s’est pas terminé la dernière fois. Il a donc été désactivé dans ce profil de navigateur. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedElectron:
-      "La synchronisation des dossiers locaux n’est pas disponible dans ce navigateur Electron. Utilisez Agent Native Desktop ou un navigateur avec accès aux dossiers.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     unsupportedBrowser:
-      "L’accès aux dossiers n’est pas disponible dans ce navigateur.",
+      "La synchronisation des dossiers locaux n’est pas disponible ici. Utilisez Agent Native Desktop, Chrome, Edge ou un autre navigateur Chromium.",
     notSyncedYet: "Pas encore synchronisé",
     summaryCreated: "{{count}} créés",
     summaryUpdated: "{{count}} mis à jour",
@@ -4062,9 +4111,12 @@ const localFilesMessagesByLocale = {
     removing: "Suppression...",
   },
   "de-DE": {
+    interruptedPicker:
+      "Die Ordnerauswahl wurde beim letzten Mal nicht abgeschlossen und ist daher in diesem Browserprofil deaktiviert. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     unsupportedElectron:
-      "Die lokale Ordnersynchronisierung ist in diesem Electron-Browser nicht verfügbar. Verwende Agent Native Desktop oder einen Browser mit Ordnerzugriff.",
-    unsupportedBrowser: "Ordnerzugriff ist in diesem Browser nicht verfügbar.",
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
+    unsupportedBrowser:
+      "Die lokale Ordnersynchronisierung ist hier nicht verfügbar. Verwende Agent Native Desktop, Chrome, Edge oder einen anderen Chromium-Browser.",
     notSyncedYet: "Noch nicht synchronisiert",
     summaryCreated: "{{count}} erstellt",
     summaryUpdated: "{{count}} aktualisiert",
@@ -4108,10 +4160,12 @@ const localFilesMessagesByLocale = {
     removing: "Wird entfernt...",
   },
   "ja-JP": {
+    interruptedPicker:
+      "前回フォルダーピッカーが完了しなかったため、このブラウザプロフィールでは無効になっています。Agent Native Desktop、Chrome、Edge、または別の Chromium ブラウザを使用してください。",
     unsupportedElectron:
-      "この Electron ブラウザーではローカルフォルダー同期を利用できません。Agent Native Desktop またはフォルダーアクセス対応ブラウザーを使用してください。",
+      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     unsupportedBrowser:
-      "このブラウザーではフォルダーアクセスを利用できません。",
+      "ここではローカルフォルダー同期を利用できません。Agent Native Desktop、Chrome、Edge、またはその他の Chromium ブラウザーを使用してください。",
     notSyncedYet: "まだ同期されていません",
     summaryCreated: "{{count}} 件作成",
     summaryUpdated: "{{count}} 件更新",
@@ -4156,9 +4210,12 @@ const localFilesMessagesByLocale = {
     removing: "削除中...",
   },
   "ko-KR": {
+    interruptedPicker:
+      "지난번에 폴더 선택기가 완료되지 않아 이 브라우저 프로필에서 비활성화되었습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     unsupportedElectron:
-      "이 Electron 브라우저에서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop 또는 폴더 접근을 지원하는 브라우저를 사용하세요.",
-    unsupportedBrowser: "이 브라우저에서는 폴더 접근을 사용할 수 없습니다.",
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
+    unsupportedBrowser:
+      "여기서는 로컬 폴더 동기화를 사용할 수 없습니다. Agent Native Desktop, Chrome, Edge 또는 다른 Chromium 브라우저를 사용하세요.",
     notSyncedYet: "아직 동기화되지 않음",
     summaryCreated: "{{count}}개 생성됨",
     summaryUpdated: "{{count}}개 업데이트됨",
@@ -4203,10 +4260,12 @@ const localFilesMessagesByLocale = {
     removing: "제거 중...",
   },
   "pt-BR": {
+    interruptedPicker:
+      "O seletor de pastas não foi concluído da última vez, por isso foi desativado neste perfil do navegador. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedElectron:
-      "A sincronização de pastas locais não está disponível neste navegador Electron. Use o Agent Native Desktop ou um navegador com acesso a pastas.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     unsupportedBrowser:
-      "O acesso a pastas não está disponível neste navegador.",
+      "A sincronização de pastas locais não está disponível aqui. Use o Agent Native Desktop, Chrome, Edge ou outro navegador Chromium.",
     notSyncedYet: "Ainda não sincronizado",
     summaryCreated: "{{count}} criados",
     summaryUpdated: "{{count}} atualizados",
@@ -4251,9 +4310,12 @@ const localFilesMessagesByLocale = {
     removing: "Removendo...",
   },
   "hi-IN": {
+    interruptedPicker:
+      "पिछली बार फ़ोल्डर पिकर पूरा नहीं हुआ था, इसलिए इसे इस ब्राउज़र प्रोफ़ाइल में बंद कर दिया गया है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     unsupportedElectron:
-      "इस Electron ब्राउज़र में स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop या फ़ोल्डर एक्सेस वाले ब्राउज़र का उपयोग करें।",
-    unsupportedBrowser: "इस ब्राउज़र में फ़ोल्डर एक्सेस उपलब्ध नहीं है।",
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
+    unsupportedBrowser:
+      "यहाँ स्थानीय फ़ोल्डर सिंक उपलब्ध नहीं है। Agent Native Desktop, Chrome, Edge या किसी अन्य Chromium ब्राउज़र का उपयोग करें।",
     notSyncedYet: "अभी सिंक नहीं हुआ",
     summaryCreated: "{{count}} बनाए गए",
     summaryUpdated: "{{count}} अपडेट किए गए",
@@ -4297,9 +4359,12 @@ const localFilesMessagesByLocale = {
     removing: "हटाया जा रहा है...",
   },
   "ar-SA": {
+    interruptedPicker:
+      "لم يكتمل منتقي المجلدات في المرة السابقة، لذلك تم تعطيله في ملف تعريف المتصفح هذا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     unsupportedElectron:
-      "مزامنة المجلدات المحلية غير متاحة في متصفح Electron هذا. استخدم Agent Native Desktop أو متصفحا يدعم الوصول إلى المجلدات.",
-    unsupportedBrowser: "الوصول إلى المجلدات غير متاح في هذا المتصفح.",
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
+    unsupportedBrowser:
+      "مزامنة المجلدات المحلية غير متاحة هنا. استخدم Agent Native Desktop أو Chrome أو Edge أو متصفح Chromium آخر.",
     notSyncedYet: "لم تتم المزامنة بعد",
     summaryCreated: "تم إنشاء {{count}}",
     summaryUpdated: "تم تحديث {{count}}",
@@ -8875,6 +8940,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "无法重新排序页面",
+      deletePagePermanentlyQuestion: "永久删除页面？",
       loadingFiles: "正在加载文件…",
       newDatabase: "新建数据库",
       noWorkspaces: "还没有工作区",
@@ -8882,6 +8948,8 @@ export const messagesByLocale = {
       expand: "展开侧边栏",
       failedCreatePage: "创建页面失败",
       failedDeletePage: "删除页面失败",
+      failedPermanentDeletePage: "永久删除页面失败",
+      failedRestorePage: "恢复页面失败",
       failedMovePage: "移动页面失败",
       localFiles: "本地文件",
       newPage: "新页面",
@@ -8893,11 +8961,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "还没有共享副本",
       oneAffectedPageReadOnly: "受影响的页面之一是只读的。",
       organization: "组织",
+      pagePermanentlyDeleted: "页面已永久删除",
+      pageRestored: "页面已恢复",
       private: "私有",
       results: "结果",
       search: "搜索",
       searchPages: "搜索页面...",
       sharedCopies: "共享副本",
+      trashEmpty: "回收站为空",
       favorites: "收藏",
       untitled: "无标题",
     },
@@ -9065,6 +9136,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "No se pueden reordenar las páginas",
+      deletePagePermanentlyQuestion: "¿Eliminar la página permanentemente?",
       loadingFiles: "Cargando archivos…",
       newDatabase: "Nueva base de datos",
       noWorkspaces: "Aún no hay espacios de trabajo",
@@ -9072,6 +9144,9 @@ export const messagesByLocale = {
       expand: "Expandir barra lateral",
       failedCreatePage: "No se pudo crear la página",
       failedDeletePage: "No se pudo eliminar la página",
+      failedPermanentDeletePage:
+        "No se pudo eliminar la página permanentemente",
+      failedRestorePage: "No se pudo restaurar la página",
       failedMovePage: "No se pudo mover la página",
       localFiles: "Archivos locales",
       newPage: "Nueva página",
@@ -9084,11 +9159,14 @@ export const messagesByLocale = {
       oneAffectedPageReadOnly:
         "Una de las páginas afectadas es de solo lectura.",
       organization: "Organización",
+      pagePermanentlyDeleted: "Página eliminada permanentemente",
+      pageRestored: "Página restaurada",
       private: "Privado",
       results: "Resultados",
       search: "Buscar",
       searchPages: "Buscar páginas...",
       sharedCopies: "Copias compartidas",
+      trashEmpty: "La papelera está vacía",
       favorites: "Favoritos",
       untitled: "Sin título",
     },
@@ -9256,6 +9334,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Impossible de réordonner les pages",
+      deletePagePermanentlyQuestion: "Supprimer définitivement la page ?",
       loadingFiles: "Chargement des fichiers…",
       newDatabase: "Nouvelle base de données",
       noWorkspaces: "Aucun espace de travail pour le moment",
@@ -9263,6 +9342,9 @@ export const messagesByLocale = {
       expand: "Développer la barre latérale",
       failedCreatePage: "Échec de la création de la page",
       failedDeletePage: "Échec de la suppression de la page",
+      failedPermanentDeletePage:
+        "Échec de la suppression définitive de la page",
+      failedRestorePage: "Échec de la restauration de la page",
       failedMovePage: "Échec du déplacement de la page",
       localFiles: "Fichiers locaux",
       newPage: "Nouvelle page",
@@ -9275,11 +9357,14 @@ export const messagesByLocale = {
       oneAffectedPageReadOnly:
         "L'une des pages concernées est en lecture seule.",
       organization: "Organisation",
+      pagePermanentlyDeleted: "Page supprimée définitivement",
+      pageRestored: "Page restaurée",
       private: "Privé",
       results: "Résultats",
       search: "Rechercher",
       searchPages: "Rechercher des pages...",
       sharedCopies: "Copies partagées",
+      trashEmpty: "La corbeille est vide",
       favorites: "Favoris",
       untitled: "Sans titre",
     },
@@ -9445,6 +9530,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Seiten können nicht neu angeordnet werden",
+      deletePagePermanentlyQuestion: "Seite dauerhaft löschen?",
       loadingFiles: "Dateien werden geladen…",
       newDatabase: "Neue Datenbank",
       noWorkspaces: "Noch keine Arbeitsbereiche",
@@ -9452,6 +9538,8 @@ export const messagesByLocale = {
       expand: "Seitenleiste ausklappen",
       failedCreatePage: "Seite konnte nicht erstellt werden",
       failedDeletePage: "Seite konnte nicht gelöscht werden",
+      failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
+      failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
       failedMovePage: "Seite konnte nicht verschoben werden",
       localFiles: "Lokale Dateien",
       newPage: "Neue Seite",
@@ -9464,11 +9552,14 @@ export const messagesByLocale = {
       oneAffectedPageReadOnly:
         "Eine der betroffenen Seiten ist schreibgeschützt.",
       organization: "Organisation",
+      pagePermanentlyDeleted: "Seite dauerhaft gelöscht",
+      pageRestored: "Seite wiederhergestellt",
       private: "Privat",
       results: "Ergebnisse",
       search: "Suchen",
       searchPages: "Seiten suchen...",
       sharedCopies: "Geteilte Kopien",
+      trashEmpty: "Papierkorb ist leer",
       favorites: "Favoriten",
       untitled: "Ohne Titel",
     },
@@ -9634,6 +9725,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "ページを並べ替えられません",
+      deletePagePermanentlyQuestion: "ページを完全に削除しますか？",
       loadingFiles: "ファイルを読み込んでいます…",
       newDatabase: "新しいデータベース",
       noWorkspaces: "ワークスペースはまだありません",
@@ -9641,6 +9733,8 @@ export const messagesByLocale = {
       expand: "サイドバーを展開",
       failedCreatePage: "ページを作成できませんでした",
       failedDeletePage: "ページを削除できませんでした",
+      failedPermanentDeletePage: "ページを完全に削除できませんでした",
+      failedRestorePage: "ページを復元できませんでした",
       failedMovePage: "ページを移動できませんでした",
       localFiles: "ローカルファイル",
       newPage: "新しいページ",
@@ -9652,11 +9746,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "まだ共有コピーはありません",
       oneAffectedPageReadOnly: "影響を受けるページの 1 つは読み取り専用です。",
       organization: "組織",
+      pagePermanentlyDeleted: "ページを完全に削除しました",
+      pageRestored: "ページを復元しました",
       private: "非公開",
       results: "結果",
       search: "検索",
       searchPages: "ページを検索...",
       sharedCopies: "共有コピー",
+      trashEmpty: "ゴミ箱は空です",
       favorites: "お気に入り",
       untitled: "無題",
     },
@@ -9812,6 +9909,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "페이지 순서를 변경할 수 없습니다",
+      deletePagePermanentlyQuestion: "페이지를 영구적으로 삭제하시겠습니까?",
       loadingFiles: "파일을 불러오는 중…",
       newDatabase: "새 데이터베이스",
       noWorkspaces: "아직 워크스페이스가 없습니다",
@@ -9819,6 +9917,8 @@ export const messagesByLocale = {
       expand: "사이드바 펼치기",
       failedCreatePage: "페이지를 만들지 못했습니다",
       failedDeletePage: "페이지를 삭제하지 못했습니다",
+      failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
+      failedRestorePage: "페이지를 복원하지 못했습니다",
       failedMovePage: "페이지를 이동하지 못했습니다",
       localFiles: "로컬 파일",
       newPage: "새 페이지",
@@ -9830,11 +9930,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "아직 공유 사본이 없습니다",
       oneAffectedPageReadOnly: "영향을 받는 페이지 중 하나가 읽기 전용입니다.",
       organization: "조직",
+      pagePermanentlyDeleted: "페이지가 영구적으로 삭제되었습니다",
+      pageRestored: "페이지가 복원되었습니다",
       private: "비공개",
       results: "결과",
       search: "검색",
       searchPages: "페이지 검색...",
       sharedCopies: "공유 사본",
+      trashEmpty: "휴지통이 비어 있습니다",
       favorites: "즐겨찾기",
       untitled: "제목 없음",
     },
@@ -10002,6 +10105,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Não é possível reordenar páginas",
+      deletePagePermanentlyQuestion: "Excluir a página permanentemente?",
       loadingFiles: "Carregando arquivos…",
       newDatabase: "Novo banco de dados",
       noWorkspaces: "Ainda não há espaços de trabalho",
@@ -10009,6 +10113,8 @@ export const messagesByLocale = {
       expand: "Expandir barra lateral",
       failedCreatePage: "Falha ao criar página",
       failedDeletePage: "Falha ao excluir página",
+      failedPermanentDeletePage: "Falha ao excluir a página permanentemente",
+      failedRestorePage: "Falha ao restaurar a página",
       failedMovePage: "Falha ao mover página",
       localFiles: "Arquivos locais",
       newPage: "Nova página",
@@ -10020,11 +10126,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "Ainda não há cópias compartilhadas",
       oneAffectedPageReadOnly: "Uma das páginas afetadas é somente leitura.",
       organization: "Organização",
+      pagePermanentlyDeleted: "Página excluída permanentemente",
+      pageRestored: "Página restaurada",
       private: "Privado",
       results: "Resultados",
       search: "Buscar",
       searchPages: "Buscar páginas...",
       sharedCopies: "Cópias compartilhadas",
+      trashEmpty: "A lixeira está vazia",
       favorites: "Favoritos",
       untitled: "Sem título",
     },
@@ -10178,6 +10287,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "पेजों को फिर से क्रमबद्ध नहीं किया जा सकता",
+      deletePagePermanentlyQuestion: "पेज को स्थायी रूप से हटाएं?",
       loadingFiles: "फ़ाइलें लोड हो रही हैं…",
       newDatabase: "नया डेटाबेस",
       noWorkspaces: "अभी कोई कार्यस्थान नहीं है",
@@ -10185,6 +10295,8 @@ export const messagesByLocale = {
       expand: "साइडबार फैलाएं",
       failedCreatePage: "पेज नहीं बन सका",
       failedDeletePage: "पेज हटाया नहीं जा सका",
+      failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
+      failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",
       failedMovePage: "पेज स्थानांतरित नहीं हो सका",
       localFiles: "स्थानीय फ़ाइलें",
       newPage: "नया पेज",
@@ -10196,11 +10308,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "अभी कोई साझा कॉपी नहीं है",
       oneAffectedPageReadOnly: "प्रभावित पेजों में से एक केवल-पढ़ने योग्य है।",
       organization: "संगठन",
+      pagePermanentlyDeleted: "पेज स्थायी रूप से हटा दिया गया",
+      pageRestored: "पेज पुनर्स्थापित किया गया",
       private: "निजी",
       results: "परिणाम",
       search: "खोजें",
       searchPages: "पेज खोजें...",
       sharedCopies: "साझा कॉपियां",
+      trashEmpty: "ट्रैश खाली है",
       favorites: "पसंदीदा",
       untitled: "शीर्षकहीन",
     },
@@ -10357,6 +10472,7 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "تعذرت إعادة ترتيب الصفحات",
+      deletePagePermanentlyQuestion: "هل تريد حذف الصفحة نهائيًا؟",
       loadingFiles: "جارٍ تحميل الملفات…",
       newDatabase: "قاعدة بيانات جديدة",
       noWorkspaces: "لا توجد مساحات عمل بعد",
@@ -10364,6 +10480,8 @@ export const messagesByLocale = {
       expand: "توسيع الشريط الجانبي",
       failedCreatePage: "فشل إنشاء الصفحة",
       failedDeletePage: "فشل حذف الصفحة",
+      failedPermanentDeletePage: "فشل حذف الصفحة نهائيًا",
+      failedRestorePage: "فشل استعادة الصفحة",
       failedMovePage: "فشل نقل الصفحة",
       localFiles: "الملفات المحلية",
       newPage: "صفحة جديدة",
@@ -10375,11 +10493,14 @@ export const messagesByLocale = {
       noSharedCopiesYet: "لا توجد نسخ مشتركة بعد",
       oneAffectedPageReadOnly: "إحدى الصفحات المتأثرة للقراءة فقط.",
       organization: "المؤسسة",
+      pagePermanentlyDeleted: "تم حذف الصفحة نهائيًا",
+      pageRestored: "تمت استعادة الصفحة",
       private: "خاص",
       results: "النتائج",
       search: "بحث",
       searchPages: "البحث في الصفحات...",
       sharedCopies: "النسخ المشتركة",
+      trashEmpty: "سلة المهملات فارغة",
       favorites: "المفضلة",
       untitled: "بدون عنوان",
     },
@@ -10387,6 +10508,29 @@ export const messagesByLocale = {
 } satisfies Record<LocaleCode, Messages>;
 
 const contentExactEnglishTranslations = {
+  "zh-TW": {
+    editor: {
+      toolbar: {
+        info: "資訊",
+        closeUtilityPanel: "關閉面板",
+      },
+    },
+    comments: {
+      title: "評論",
+      empty: "尚無評論。",
+    },
+    sidebar: {
+      addWorkspace: "新增工作區",
+      failedCreateWorkspace: "無法建立工作區",
+      failedUpdateFavorite: "無法更新收藏",
+      removeFromFavorites: "從收藏中移除",
+      localFolder: "本機資料夾",
+      newWorkspace: "新增工作區",
+      newWorkspaceDescription: "建立一個擁有專屬 Files 資料庫的私人工作區。",
+      workspaceName: "工作區名稱",
+      createWorkspace: "建立工作區",
+    },
+  },
   "zh-CN": {
     editor: {
       failedToCreatePage: "创建页面失败",
@@ -10406,6 +10550,8 @@ const contentExactEnglishTranslations = {
         equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
       },
       toolbar: {
+        info: "信息",
+        closeUtilityPanel: "关闭面板",
         copiedPageLink: "已复制页面链接",
         copyPageLink: "复制页面链接",
         couldNotCopyLink: "无法复制链接",
@@ -10413,6 +10559,21 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "页面面包屑",
       },
       versionRestoreQuestion: "恢复此版本？",
+    },
+    comments: {
+      title: "评论",
+      empty: "暂无评论。",
+    },
+    sidebar: {
+      addWorkspace: "添加工作区",
+      failedCreateWorkspace: "无法创建工作区",
+      failedUpdateFavorite: "无法更新收藏",
+      removeFromFavorites: "从收藏中移除",
+      localFolder: "本地文件夹",
+      newWorkspace: "新建工作区",
+      newWorkspaceDescription: "创建一个拥有专属 Files 数据库的私有工作区。",
+      workspaceName: "工作区名称",
+      createWorkspace: "创建工作区",
     },
   },
   "es-ES": {
@@ -10436,6 +10597,8 @@ const contentExactEnglishTranslations = {
           "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
       },
       toolbar: {
+        info: "Información",
+        closeUtilityPanel: "Cerrar panel",
         copiedPageLink: "Enlace de página copiado",
         copyPageLink: "Copiar enlace de página",
         couldNotCopyLink: "No se pudo copiar el enlace",
@@ -10444,6 +10607,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Ruta de la página",
       },
       versionRestoreQuestion: "¿Restaurar esta versión?",
+    },
+    comments: {
+      title: "Comentarios",
+      empty: "Aún no hay comentarios.",
+    },
+    sidebar: {
+      addWorkspace: "Añadir espacio de trabajo",
+      failedCreateWorkspace: "No se pudo crear el espacio de trabajo",
+      failedUpdateFavorite: "No se pudo actualizar el favorito",
+      removeFromFavorites: "Quitar de favoritos",
+      localFolder: "Carpeta local",
+      newWorkspace: "Nuevo espacio de trabajo",
+      newWorkspaceDescription:
+        "Crea un espacio privado con su propia base de datos de Archivos.",
+      workspaceName: "Nombre del espacio de trabajo",
+      createWorkspace: "Crear espacio de trabajo",
     },
   },
   "fr-FR": {
@@ -10467,6 +10646,8 @@ const contentExactEnglishTranslations = {
           "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
       },
       toolbar: {
+        info: "Informations",
+        closeUtilityPanel: "Fermer le panneau",
         copiedPageLink: "Lien de la page copié",
         copyPageLink: "Copier le lien de la page",
         couldNotCopyLink: "Impossible de copier le lien",
@@ -10475,6 +10656,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Fil d'Ariane de la page",
       },
       versionRestoreQuestion: "Restaurer cette version ?",
+    },
+    comments: {
+      title: "Commentaires",
+      empty: "Aucun commentaire pour le moment.",
+    },
+    sidebar: {
+      addWorkspace: "Ajouter un espace de travail",
+      failedCreateWorkspace: "Impossible de créer l’espace de travail",
+      failedUpdateFavorite: "Impossible de mettre à jour le favori",
+      removeFromFavorites: "Retirer des favoris",
+      localFolder: "Dossier local",
+      newWorkspace: "Nouvel espace de travail",
+      newWorkspaceDescription:
+        "Créez un espace privé avec sa propre base de données Fichiers.",
+      workspaceName: "Nom de l’espace de travail",
+      createWorkspace: "Créer l’espace de travail",
     },
   },
   "de-DE": {
@@ -10499,6 +10696,8 @@ const contentExactEnglishTranslations = {
           "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
       },
       toolbar: {
+        info: "Informationen",
+        closeUtilityPanel: "Bereich schließen",
         copiedPageLink: "Seitenlink kopiert",
         copyPageLink: "Seitenlink kopieren",
         couldNotCopyLink: "Link konnte nicht kopiert werden",
@@ -10507,6 +10706,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Seitenpfad",
       },
       versionRestoreQuestion: "Diese Version wiederherstellen?",
+    },
+    comments: {
+      title: "Kommentare",
+      empty: "Noch keine Kommentare.",
+    },
+    sidebar: {
+      addWorkspace: "Arbeitsbereich hinzufügen",
+      failedCreateWorkspace: "Arbeitsbereich konnte nicht erstellt werden",
+      failedUpdateFavorite: "Favorit konnte nicht aktualisiert werden",
+      removeFromFavorites: "Aus Favoriten entfernen",
+      localFolder: "Lokaler Ordner",
+      newWorkspace: "Neuer Arbeitsbereich",
+      newWorkspaceDescription:
+        "Erstellen Sie einen privaten Arbeitsbereich mit eigener Dateien-Datenbank.",
+      workspaceName: "Name des Arbeitsbereichs",
+      createWorkspace: "Arbeitsbereich erstellen",
     },
   },
   "ja-JP": {
@@ -10530,6 +10745,8 @@ const contentExactEnglishTranslations = {
           "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
       },
       toolbar: {
+        info: "情報",
+        closeUtilityPanel: "パネルを閉じる",
         copiedPageLink: "ページリンクをコピーしました",
         copyPageLink: "ページリンクをコピー",
         couldNotCopyLink: "リンクをコピーできませんでした",
@@ -10538,6 +10755,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "ページのパンくずリスト",
       },
       versionRestoreQuestion: "このバージョンを復元しますか？",
+    },
+    comments: {
+      title: "コメント",
+      empty: "コメントはまだありません。",
+    },
+    sidebar: {
+      addWorkspace: "ワークスペースを追加",
+      failedCreateWorkspace: "ワークスペースを作成できませんでした",
+      failedUpdateFavorite: "お気に入りを更新できませんでした",
+      removeFromFavorites: "お気に入りから削除",
+      localFolder: "ローカルフォルダー",
+      newWorkspace: "新しいワークスペース",
+      newWorkspaceDescription:
+        "専用の Files データベースを持つプライベートワークスペースを作成します。",
+      workspaceName: "ワークスペース名",
+      createWorkspace: "ワークスペースを作成",
     },
   },
   "ko-KR": {
@@ -10560,6 +10793,8 @@ const contentExactEnglishTranslations = {
           "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
       },
       toolbar: {
+        info: "정보",
+        closeUtilityPanel: "패널 닫기",
         copiedPageLink: "페이지 링크를 복사했습니다",
         copyPageLink: "페이지 링크 복사",
         couldNotCopyLink: "링크를 복사하지 못했습니다",
@@ -10568,6 +10803,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "페이지 이동 경로",
       },
       versionRestoreQuestion: "이 버전을 복원할까요?",
+    },
+    comments: {
+      title: "댓글",
+      empty: "아직 댓글이 없습니다.",
+    },
+    sidebar: {
+      addWorkspace: "워크스페이스 추가",
+      failedCreateWorkspace: "워크스페이스를 만들지 못했습니다",
+      failedUpdateFavorite: "즐겨찾기를 업데이트하지 못했습니다",
+      removeFromFavorites: "즐겨찾기에서 제거",
+      localFolder: "로컬 폴더",
+      newWorkspace: "새 워크스페이스",
+      newWorkspaceDescription:
+        "자체 Files 데이터베이스가 있는 비공개 워크스페이스를 만듭니다.",
+      workspaceName: "워크스페이스 이름",
+      createWorkspace: "워크스페이스 만들기",
     },
   },
   "pt-BR": {
@@ -10591,6 +10842,8 @@ const contentExactEnglishTranslations = {
           "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
       },
       toolbar: {
+        info: "Informações",
+        closeUtilityPanel: "Fechar painel",
         copiedPageLink: "Link da página copiado",
         copyPageLink: "Copiar link da página",
         couldNotCopyLink: "Não foi possível copiar o link",
@@ -10599,6 +10852,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "Caminho da página",
       },
       versionRestoreQuestion: "Restaurar esta versão?",
+    },
+    comments: {
+      title: "Comentários",
+      empty: "Ainda não há comentários.",
+    },
+    sidebar: {
+      addWorkspace: "Adicionar espaço de trabalho",
+      failedCreateWorkspace: "Não foi possível criar o espaço de trabalho",
+      failedUpdateFavorite: "Não foi possível atualizar o favorito",
+      removeFromFavorites: "Remover dos favoritos",
+      localFolder: "Pasta local",
+      newWorkspace: "Novo espaço de trabalho",
+      newWorkspaceDescription:
+        "Crie um espaço privado com seu próprio banco de dados de Arquivos.",
+      workspaceName: "Nome do espaço de trabalho",
+      createWorkspace: "Criar espaço de trabalho",
     },
   },
   "hi-IN": {
@@ -10621,6 +10890,8 @@ const contentExactEnglishTranslations = {
           "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
       },
       toolbar: {
+        info: "जानकारी",
+        closeUtilityPanel: "पैनल बंद करें",
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
         couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
@@ -10628,6 +10899,21 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "पेज ब्रेडक्रंब",
       },
       versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",
+    },
+    comments: {
+      title: "टिप्पणियाँ",
+      empty: "अभी तक कोई टिप्पणी नहीं है।",
+    },
+    sidebar: {
+      addWorkspace: "वर्कस्पेस जोड़ें",
+      failedCreateWorkspace: "वर्कस्पेस नहीं बनाया जा सका",
+      failedUpdateFavorite: "पसंदीदा अपडेट नहीं किया जा सका",
+      removeFromFavorites: "पसंदीदा से हटाएँ",
+      localFolder: "स्थानीय फ़ोल्डर",
+      newWorkspace: "नया वर्कस्पेस",
+      newWorkspaceDescription: "अपने Files डेटाबेस के साथ एक निजी वर्कस्पेस बनाएँ।",
+      workspaceName: "वर्कस्पेस का नाम",
+      createWorkspace: "वर्कस्पेस बनाएँ",
     },
   },
   "ar-SA": {
@@ -10650,6 +10936,8 @@ const contentExactEnglishTranslations = {
           "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
       },
       toolbar: {
+        info: "معلومات",
+        closeUtilityPanel: "إغلاق اللوحة",
         copiedPageLink: "تم نسخ رابط الصفحة",
         copyPageLink: "نسخ رابط الصفحة",
         couldNotCopyLink: "تعذر نسخ الرابط",
@@ -10658,6 +10946,22 @@ const contentExactEnglishTranslations = {
         pageBreadcrumb: "مسار الصفحة",
       },
       versionRestoreQuestion: "استعادة هذا الإصدار؟",
+    },
+    comments: {
+      title: "التعليقات",
+      empty: "لا توجد تعليقات بعد.",
+    },
+    sidebar: {
+      addWorkspace: "إضافة مساحة عمل",
+      failedCreateWorkspace: "تعذر إنشاء مساحة العمل",
+      failedUpdateFavorite: "تعذر تحديث المفضلة",
+      removeFromFavorites: "إزالة من المفضلة",
+      localFolder: "مجلد محلي",
+      newWorkspace: "مساحة عمل جديدة",
+      newWorkspaceDescription:
+        "أنشئ مساحة عمل خاصة بقاعدة بيانات Files خاصة بها.",
+      workspaceName: "اسم مساحة العمل",
+      createWorkspace: "إنشاء مساحة عمل",
     },
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;

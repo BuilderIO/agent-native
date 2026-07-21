@@ -7,6 +7,11 @@ comments, folders/spaces, meetings, dictation, and sharing through actions.
 Detailed media, meeting, dictation, editing, and sharing rules live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -47,6 +52,17 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   transcript. Pass `--regenerate=true` to replace an existing ready transcript
   from the stored recording media; if regeneration fails, keep the prior ready
   transcript available.
+- Use `export-to-brain --recordingId=<id>` for one ready transcript. For a
+  bounded historical import, omit `recordingId` and pass `lookbackDays`,
+  `limit`, and `concurrency`; when `nextCursor` is non-null, pass it as
+  `cursor` on the next call until `nextCursor` is null. The cursor keeps the
+  original lookback snapshot and advances by recording creation time plus id,
+  so pages cannot reselect the same recordings or expand forever as new clips
+  arrive. The action only selects
+  current-user recordings with ready transcripts in the active organization
+  and reports exported, quarantined, skipped, and failed counts. Both
+  `BRAIN_INGEST_URL` and `BRAIN_INGEST_TOKEN` must be available as scoped Clips
+  secrets.
 - The transcript embedded by `view-screen` is a bounded preview. If
   `previewTruncated` is true, it may end mid-sentence and does not show where
   transcription ended. Call `get-recording-player-data` before judging
@@ -86,6 +102,11 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
+- Meeting share links include the summary, key points, and action items. The
+  full transcript is an explicit, default-off setting: call `update-meeting`
+  with `shareTranscript=true|false` only when the owner or a share admin asks
+  to change what the meeting link exposes. This does not change the linked
+  recording's visibility or expose its media.
 - Use `list-recordings --view=shared` for the current user's "Shared with me"
   collection. It returns recordings admitted by sharing access that are owned
   by someone else; public-link-only clips remain out of this list.
@@ -95,10 +116,15 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
   frame at a timestamp. Password-protected clips require the password once to
   mint a short-lived token returned inside agent-context links.
-- If public agent context or transcript APIs report `transcript.status` as
-  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
-  times, especially for long recordings. Do not pivot straight to frames or tell
-  the user there is no transcript until the retry budget is exhausted.
+- If a public agent discovery/context/transcript payload reports
+  `agentReadiness.state` as `"preparing"` (the clip is `"uploading"` or
+  `"processing"`), wait 15 seconds and retry `agentContextUrl`; do not open the
+  share page, fetch frames, or draw conclusions until the recording status is
+  `"ready"`.
+  If `transcript.status` is `"pending"` after the clip is ready, wait 15-30
+  seconds and retry the context/transcript URL a few times, especially for long
+  recordings. Do not pivot straight to frames or tell the user there is no
+  transcript until the retry budget is exhausted.
 - If transcription failed because Builder transcription credits are exhausted,
   tell the user that clearly and point them to Builder.io credits/upgrade or a
   Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do

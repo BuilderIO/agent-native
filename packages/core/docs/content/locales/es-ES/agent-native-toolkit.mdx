@@ -139,3 +139,9 @@ datos, flujos, etiquetas y estilo visual específicos del dominio.
 - [**Crear plantillas**](/docs/creating-templates) — crea una plantilla completa y ve dónde encajan los kits.
 - [**API de componentes**](/docs/components) — la referencia de todos los exports públicos de React.
 - [**Ciclo de vida de paquetes**](/docs/package-lifecycle) — inspecciona, añade y expulsa módulos de capacidad de Toolkit guiados por manifiestos de forma segura.
+
+## Personalizar o expulsar un kit {#customize-or-eject}
+
+Sigue este orden: configura la API pública → compón primitivas públicas → expulsa la unidad más pequeña → propón un punto de extensión compartido. Explora con `agent-native eject --list` y `agent-native eject inspect <unit>`; después previsualiza `agent-native eject <unit> --app <app>` antes de añadir `--apply`.
+
+Los manifiestos de Toolkit cubren cada punto de entrada público. La app registra el origen y las reescrituras de imports en `agent-native.ejections.json`. `agent-native eject diff <unit> --app <app>` muestra la deriva; `restore` solo funciona si hashes e imports siguen intactos. Las unidades propias también cubren catálogos MCP remotos, conexiones de workspace, definiciones de provider API, adaptadores de mensajería, UI de configuración/preparación y paquetes de dominio. Una receta propia ausente hace fallar el guard de publicación; los paquetes externos reciben un blueprint add; los contratos Core protegidos permanecen tras puntos de extensión públicos.

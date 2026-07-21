@@ -168,6 +168,7 @@ export type {
 export interface DocumentPropertyDefinition {
   id: string;
   databaseId: string | null;
+  systemRole?: DocumentPropertySystemRole | null;
   name: string;
   type: DocumentPropertyType;
   description?: string;
@@ -177,6 +178,11 @@ export interface DocumentPropertyDefinition {
   createdAt: string;
   updatedAt: string;
 }
+
+export type DocumentPropertySystemRole =
+  | "files_kind"
+  | "files_parent"
+  | "files_source";
 
 export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
@@ -227,6 +233,7 @@ export interface ContentDatabase {
   id: string;
   documentId: string;
   title: string;
+  systemRole?: string | null;
   description?: string;
   viewConfig: ContentDatabaseViewConfig;
   createdAt: string;
@@ -333,6 +340,8 @@ export interface ContentDatabaseViewConfig {
   filters: ContentDatabaseFilter[];
   columnWidths: Record<string, number>;
 }
+
+export const CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION = 2;
 
 export interface ContentDatabasePersonalViewOverrides {
   version: number;
@@ -900,6 +909,16 @@ export interface TrashedContentDatabaseSummary {
 
 export interface ListTrashedContentDatabasesResponse {
   databases: TrashedContentDatabaseSummary[];
+}
+
+export interface TrashedDocumentSummary {
+  documentId: string;
+  title: string;
+  trashedAt: string;
+}
+
+export interface ListTrashedDocumentsResponse {
+  documents: TrashedDocumentSummary[];
 }
 
 export interface SuggestSourceJoinKeyRequest {

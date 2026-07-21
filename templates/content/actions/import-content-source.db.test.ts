@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { serializeContentSourceDocument } from "../shared/content-source.js";
@@ -59,6 +59,21 @@ function sourceWithDescription(description: string) {
     icon: null,
     position: 0,
     isFavorite: false,
+    hideFromSearch: false,
+    visibility: "private",
+  });
+}
+
+function sourceWithFavorite(isFavorite: boolean) {
+  return serializeContentSourceDocument({
+    id: "doc_favorite_roundtrip",
+    parentId: null,
+    title: "Favorite round-trip",
+    description: "",
+    content: "Body",
+    icon: null,
+    position: 0,
+    isFavorite,
     hideFromSearch: false,
     visibility: "private",
   });
@@ -166,5 +181,68 @@ describe("import-content-source descriptions", () => {
     expect(unchanged.unchanged).toEqual([
       expect.objectContaining({ id: "doc_description_roundtrip", path }),
     ]);
+  });
+
+  it("uses Favorites membership rather than the legacy document flag", async () => {
+    const path = "content/favorite-round-trip--doc_favorite_roundtrip.mdx";
+    const provisioned = await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: sourceWithFavorite(true) },
+        dryRun: false,
+      }),
+    );
+    await expect(
+      getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseItems.databaseId,
+              provisioned.favoritesDatabaseId,
+            ),
+            eq(
+              schema.contentDatabaseItems.documentId,
+              "doc_favorite_roundtrip",
+            ),
+          ),
+        ),
+    ).resolves.toHaveLength(1);
+
+    await getDb()
+      .update(schema.documents)
+      .set({ isFavorite: 0 })
+      .where(eq(schema.documents.id, "doc_favorite_roundtrip"));
+    const removed = await runWithRequestContext({ userEmail: OWNER }, () =>
+      importContentSourceAction.run({
+        files: { [path]: sourceWithFavorite(false) },
+        dryRun: false,
+      }),
+    );
+
+    expect(removed.updated).toEqual([
+      expect.objectContaining({ id: "doc_favorite_roundtrip", path }),
+    ]);
+    await expect(
+      getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseItems.databaseId,
+              provisioned.favoritesDatabaseId,
+            ),
+            eq(
+              schema.contentDatabaseItems.documentId,
+              "doc_favorite_roundtrip",
+            ),
+          ),
+        ),
+    ).resolves.toEqual([]);
   });
 });

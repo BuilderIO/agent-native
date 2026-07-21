@@ -617,36 +617,44 @@ async function executeCodexCliRun(options: {
     });
 
     if (result.exitCode !== 0) {
+      const interrupted = options.signal?.aborted === true;
       const message =
         result.error ??
         result.stderr.trim() ??
         `Codex CLI exited with ${result.exitSignal ?? result.exitCode}.`;
-      options.stdout?.write(`\nCodex CLI run failed: ${message}\n`);
+      const summary = interrupted
+        ? "Codex CLI run paused."
+        : `Codex CLI run failed: ${message}`;
+      options.stdout?.write(`\n${summary}\n`);
       appendCodeAgentTranscriptEvent({
         runId: options.run.id,
         kind: "status",
-        message: `Codex CLI run failed: ${message}`,
+        message: summary,
         metadata: {
-          status: "errored",
-          phase: "error",
+          status: interrupted ? "paused" : "errored",
+          phase: interrupted ? "paused" : "error",
           engine: CODEX_CLI_ENGINE_NAME,
           exitCode: result.exitCode,
           exitSignal: result.exitSignal,
         },
       });
       return updateCodeAgentRunRecord(options.run.id, {
-        status: options.signal?.aborted ? "paused" : "errored",
-        phase: options.signal?.aborted ? "paused" : "error",
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
         progress: {
-          label: options.signal?.aborted ? "Paused" : "Error",
+          label: interrupted ? "Paused" : "Error",
           completed: 0,
           total: 1,
-          failed: options.signal?.aborted ? 0 : 1,
+          failed: interrupted ? 0 : 1,
           percent: 0,
         },
         metadata: {
-          executionError: message,
-          executionErroredAt: new Date().toISOString(),
+          ...(interrupted
+            ? { executionPausedAt: new Date().toISOString() }
+            : {
+                executionError: message,
+                executionErroredAt: new Date().toISOString(),
+              }),
           engine: CODEX_CLI_ENGINE_NAME,
           model: model ?? "codex-default",
         },

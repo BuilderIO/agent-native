@@ -335,6 +335,7 @@ export {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   providerReaderSupports,
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,

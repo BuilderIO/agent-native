@@ -5,6 +5,12 @@
     "./app-shell/*": ["dist/app-shell/*.d.ts", "dist/app-shell/*.js"],
     "./collab-ui": ["dist/collab-ui/index.d.ts", "dist/collab-ui/index.js"],
     "./collab-ui/*": ["dist/collab-ui/*.d.ts", "dist/collab-ui/*.js"],
+    "./chat-history": [
+      "dist/chat-history/index.d.ts",
+      "dist/chat-history/index.js"
+    ],
+    "./chat-history.css": ["dist/chat-history.css"],
+    "./chat-history/*": ["dist/chat-history/*.d.ts", "dist/chat-history/*.js"],
     "./context-ui": ["dist/context-ui/index.d.ts", "dist/context-ui/index.js"],
     "./design-tweaks": [
       "dist/design-tweaks/index.d.ts",

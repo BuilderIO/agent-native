@@ -7,6 +7,8 @@ import { defineConfig, type Plugin } from "vite";
 
 const configDirectory = path.dirname(fileURLToPath(import.meta.url));
 const runnerOutDir = path.join(configDirectory, "out", "main");
+const smokeEntry =
+  process.env.AGENT_NATIVE_PACKAGED_MULTI_FRONTIER_SMOKE === "1";
 
 function copyRunnerRuntimePackage(
   packageName: string,
@@ -47,10 +49,14 @@ export default defineConfig({
         configDirectory,
         "src",
         "main",
-        "code-agent-runner-entry.ts",
+        smokeEntry
+          ? "packaged-multi-frontier-smoke-entry.ts"
+          : "code-agent-runner-entry.ts",
       ),
       output: {
-        entryFileNames: "code-agent-runner-entry.js",
+        entryFileNames: smokeEntry
+          ? "packaged-multi-frontier-smoke-entry.js"
+          : "code-agent-runner-entry.js",
         format: "cjs",
         codeSplitting: false,
       },

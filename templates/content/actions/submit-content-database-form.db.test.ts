@@ -303,6 +303,79 @@ describe("submit-content-database-form", () => {
     ).rejects.toThrow('Unknown option "Extremely urgent"');
   });
 
+  it("excludes system properties from form questions and rejects supplied values", async () => {
+    const seeded = await seedFormDatabase();
+    const systemPropertyId = `system_kind_${Date.now()}`;
+    const db = getDb();
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    const viewConfig = JSON.parse(database.viewConfigJson);
+    viewConfig.views[0].formQuestions.push({
+      key: systemPropertyId,
+      enabled: true,
+      required: true,
+    });
+    await db
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: JSON.stringify(viewConfig) })
+      .where(eq(schema.contentDatabases.id, seeded.databaseId));
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: systemPropertyId,
+      ownerEmail: OWNER,
+      databaseId: seeded.databaseId,
+      systemRole: "files_kind",
+      name: "Kind",
+      type: "select",
+      optionsJson: serializePropertyOptions({
+        options: [{ id: "page", name: "Page", color: "gray" }],
+      }),
+      position: 5,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "System fields stay derived",
+          propertyValues: {
+            Description: "The configured required system question is ignored.",
+            Priority: "P1 — High",
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({ verified: true });
+    const beforeRejectedSubmission = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        submitForm.run({
+          databaseId: seeded.databaseId,
+          viewId: "request-form",
+          title: "Cannot override Kind",
+          propertyValues: {
+            Description: "This row must not be created.",
+            Priority: "P1 — High",
+            [systemPropertyId]: "page",
+          },
+        }),
+      ),
+    ).rejects.toThrow('System property "Kind" cannot be submitted');
+    const afterRejectedSubmission = await db
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
+    expect(afterRejectedSubmission).toHaveLength(
+      beforeRejectedSubmission.length,
+    );
+  });
+
   it("rolls back the document and item when an in-transaction property write fails", async () => {
     const seeded = await seedFormDatabase();
     const triggerName = `force_form_rollback_${Date.now()}`;

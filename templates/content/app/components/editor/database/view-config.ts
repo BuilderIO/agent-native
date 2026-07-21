@@ -33,10 +33,11 @@ export function createDatabaseView(
   values: Partial<Omit<ContentDatabaseView, "id" | "name" | "type">> = {},
   type: ContentDatabaseViewType = "table",
 ): ContentDatabaseView {
+  const normalizedType = type === "sidebar" ? "table" : type;
   return {
     id,
-    name: name.trim() || databaseViewDefaultName(type),
-    type,
+    name: name.trim() || databaseViewDefaultName(normalizedType),
+    type: normalizedType,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -293,6 +294,7 @@ function normalizeClientDatabaseView(
   value: Partial<ContentDatabaseView> | null | undefined,
 ) {
   if (!value || typeof value.id !== "string" || !value.id.trim()) return null;
+  const retiredSidebar = value.type === "sidebar";
   const type =
     value.type === "board" ||
     value.type === "list" ||
@@ -304,7 +306,11 @@ function normalizeClientDatabaseView(
       ? value.type
       : "table";
   return createDatabaseView(
-    typeof value.name === "string" ? value.name : databaseViewDefaultName(type),
+    typeof value.name === "string"
+      ? retiredSidebar && value.name.trim() === "Sidebar"
+        ? "Table"
+        : value.name
+      : databaseViewDefaultName(type),
     value.id,
     {
       sorts: Array.isArray(value.sorts)

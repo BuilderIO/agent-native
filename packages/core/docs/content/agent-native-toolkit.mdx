@@ -122,6 +122,44 @@ Use the package path that owns the needed behavior, but design the user-facing
 settings, collaboration, sharing, team, review, and setup experiences as one
 coherent kit instead of exposing package boundaries in the app.
 
+## Customize or eject a kit {#customize-or-eject}
+
+Adopt shared behavior in this order: configure the public component or adapter,
+compose public primitives behind an app-owned wrapper, eject the smallest
+supported unit, then propose a new shared seam when the same override appears in
+multiple apps.
+
+Toolkit publishes readable, version-matched source and an ejection manifest that
+covers every public entry point. Inspect a unit before taking ownership:
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+```
+
+The dry run reports all files and consumer imports that will change. Applying
+the plan copies the complete source closure into the app, rewrites only the
+declared imports, and records package version, manifest digest, file hashes, and
+rewrites in the committed `agent-native.ejections.json`. Chat history is one
+such unit: an app can own its presentation while Core continues to own thread
+state, access, persistence, and chat transport.
+
+Use `agent-native eject diff <unit> --app <app>` to inspect drift. Use
+`agent-native eject restore <unit> --app <app>` to preview a return to the
+package implementation, then add `--apply`. Restore refuses when any ejected
+file or rewritten import has local edits, so app-owned changes are never
+silently discarded.
+
+The same unit contract covers first-party integration surfaces: remote MCP
+presets, workspace-connection providers, provider API definitions,
+messaging/channel adapters, setup and readiness UI, and domain packages. The
+catalog is complete by construction; a missing first-party unit fails the
+release guard. Unknown third-party packages receive an add-style blueprint.
+Protected runtime contracts are not ejectable and instead route to their public
+configuration, adapter, or extension seam.
+
 ## Foundation Pieces {#foundation-pieces}
 
 - [UI Primitives](/docs/toolkit-ui) covers the shared shadcn-style primitives

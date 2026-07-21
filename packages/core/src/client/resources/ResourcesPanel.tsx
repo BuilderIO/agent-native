@@ -1,3 +1,4 @@
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconPlus,
   IconUpload,
@@ -46,7 +47,10 @@ import { useOrg } from "../org/hooks.js";
 import { useUploadResource } from "../uploads/use-upload-resource.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
-import { isMcpIntegrationCatalogAvailable } from "./mcp-integration-catalog.js";
+import {
+  isMcpIntegrationCatalogAvailable,
+  type DefaultMcpIntegration,
+} from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { ResourceEditor } from "./ResourceEditor.js";
@@ -78,6 +82,42 @@ import {
 
 const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
+
+const EMPTY_RESOURCE_ACTION_LABELS: Record<ResourceView, string> = {
+  files: "Add file",
+  instructions: "Add instructions",
+  agents: "Add agent",
+  memory: "Add memory",
+  skills: "Add skill",
+  learnings: "Add learning",
+  "remote-agents": "Add remote agent",
+};
+
+const EMPTY_RESOURCE_SEEDS: Partial<
+  Record<ResourceView, { path: string; content: string; mimeType?: string }>
+> = {
+  instructions: {
+    path: "AGENTS.md",
+    content: "# Agent Instructions\n\n",
+    mimeType: "text/markdown",
+  },
+  memory: {
+    path: "memory/MEMORY.md",
+    content: "# Memory\n\n",
+    mimeType: "text/markdown",
+  },
+  learnings: {
+    path: "LEARNINGS.md",
+    content: "# Learnings\n\n",
+    mimeType: "text/markdown",
+  },
+  "remote-agents": {
+    path: "remote-agents/new-agent.json",
+    content:
+      '{\n  "id": "new-agent",\n  "name": "New agent",\n  "description": "",\n  "url": "",\n  "color": "#6B7280"\n}\n',
+    mimeType: "application/json",
+  },
+};
 
 export type ResourceView =
   | "files"
@@ -224,6 +264,10 @@ function CreateMenu({
   hasOrg,
   onCreated,
   showToast,
+  mcpIntegrations,
+  triggerVariant = "icon",
+  triggerLabel,
+  initialView = "menu",
 }: {
   scope: ResourceScope;
   resourceFilter?: ResourceView;
@@ -247,19 +291,26 @@ function CreateMenu({
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
   onCreated?: () => void;
+  mcpIntegrations?: DefaultMcpIntegration[];
   showToast?: (
     kind: "ok" | "err",
     message: string,
     opts?: { resourceId?: string; durationMs?: number },
   ) => void;
+  triggerVariant?: "icon" | "outline";
+  triggerLabel?: string;
+  initialView?: CreateMenuView;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
   const showMcpIntegrations = useMemo(
-    () => isMcpIntegrationCatalogAvailable(),
-    [],
+    () =>
+      mcpIntegrations
+        ? mcpIntegrations.length > 0
+        : isMcpIntegrationCatalogAvailable(),
+    [mcpIntegrations],
   );
   const [value, setValue] = useState("");
   const [agentName, setAgentName] = useState("");
@@ -305,7 +356,7 @@ function CreateMenu({
 
   useEffect(() => {
     if (open) {
-      setView("menu");
+      setView(initialView);
       setValue("");
       setAgentName("");
       setAgentDescription("");
@@ -318,7 +369,7 @@ function CreateMenu({
       setSkillUploadFileName("");
       setSkillFlyoutOpen(false);
     }
-  }, [open]);
+  }, [initialView, open]);
 
   useEffect(() => {
     if (view !== "menu" && view !== "agent-form") {
@@ -634,22 +685,36 @@ The result should be a reusable agent profile, not a one-off task response.`,
             e.target.value = "";
           }}
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                  open && "bg-accent/50 text-foreground",
-                )}
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-              </button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Create new...</TooltipContent>
-        </Tooltip>
+        {triggerVariant === "outline" ? (
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2.5 text-xs"
+            >
+              <IconPlus className="size-3.5" />
+              {triggerLabel ?? "Add resource"}
+            </Button>
+          </PopoverTrigger>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    open && "bg-accent/50 text-foreground",
+                  )}
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Create new...</TooltipContent>
+          </Tooltip>
+        )}
         <PopoverContent
           align="end"
           sideOffset={6}
@@ -1030,6 +1095,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         hasOrg={hasOrg}
         onCreateMcpServer={onCreateMcpServer}
         onCreated={onCreated}
+        integrations={mcpIntegrations}
       />
     </>
   );
@@ -1098,6 +1164,8 @@ export interface ResourcesPanelProps {
   resourceFilter?: ResourceView;
   /** Render special collections as cards instead of a nested file tree. */
   resourceTreeVariant?: ResourceTreeVariant;
+  /** Optional app-owned remote MCP catalog. */
+  mcpIntegrations?: DefaultMcpIntegration[];
 }
 
 export function resolveInitialResourceScope(
@@ -1115,6 +1183,7 @@ export function ResourcesPanel({
   showOnlyRequestedScope = false,
   resourceFilter,
   resourceTreeVariant = "tree",
+  mcpIntegrations,
 }: ResourcesPanelProps = {}) {
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.
@@ -1505,7 +1574,72 @@ export function ResourcesPanel({
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrgForMcp}
         showToast={showToast}
+        mcpIntegrations={mcpIntegrations}
       />
+    );
+  };
+
+  const renderEmptyStateAction = (targetScope: ResourceScope) => {
+    if (targetScope === "shared" && !canEditOrg) return null;
+
+    const label = resourceFilter
+      ? EMPTY_RESOURCE_ACTION_LABELS[resourceFilter]
+      : "Add resource";
+
+    if (
+      !resourceFilter ||
+      resourceFilter === "files" ||
+      resourceFilter === "agents" ||
+      resourceFilter === "skills"
+    ) {
+      return (
+        <CreateMenu
+          scope={targetScope}
+          resourceFilter={resourceFilter}
+          onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
+          onCreateResource={(path, content, mimeType, opts) =>
+            handleCreateResourceFromToolbar(
+              targetScope,
+              path,
+              content,
+              mimeType,
+              opts,
+            )
+          }
+          onCreateMcpServer={handleCreateMcpServer}
+          canCreateOrgMcp={canCreateOrgMcp}
+          hasOrg={hasOrgForMcp}
+          showToast={showToast}
+          mcpIntegrations={mcpIntegrations}
+          triggerVariant="outline"
+          triggerLabel={label}
+          initialView={resourceFilter === "files" ? "file" : "menu"}
+        />
+      );
+    }
+
+    const seed = EMPTY_RESOURCE_SEEDS[resourceFilter];
+    if (!seed) return null;
+
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 px-2.5 text-xs"
+        disabled={createResource.isPending}
+        onClick={() =>
+          handleCreateResourceFromToolbar(
+            targetScope,
+            seed.path,
+            seed.content,
+            seed.mimeType,
+          )
+        }
+      >
+        <IconPlus className="size-3.5" />
+        {label}
+      </Button>
     );
   };
 
@@ -1664,6 +1798,7 @@ export function ResourcesPanel({
               canCreateOrgMcp={canCreateOrgMcp}
               hasOrg={hasOrgForMcp}
               showToast={showToast}
+              mcpIntegrations={mcpIntegrations}
             />
           )}
           {(!resourceFilter || resourceFilter === "files") && (
@@ -1867,6 +2002,7 @@ export function ResourcesPanel({
                 title="Personal"
                 titleTooltip="Files visible only to you"
                 sectionAction={renderScopeCreateMenu("personal")}
+                emptyStateAction={renderEmptyStateAction("personal")}
               />
             )}
             {showSharedTree && (
@@ -1901,6 +2037,7 @@ export function ResourcesPanel({
                 readOnly={!canEditOrg}
                 headingHint={!canEditOrg ? "Read only" : undefined}
                 sectionAction={renderScopeCreateMenu("shared")}
+                emptyStateAction={renderEmptyStateAction("shared")}
               />
             )}
           </div>

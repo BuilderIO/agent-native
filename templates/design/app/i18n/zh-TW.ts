@@ -1050,6 +1050,7 @@ const messages = {
     escToExit: "Esc 退出",
     tellAgentWhatToChange: "告訴代理要更改什麼...",
     changesSaveWhenReconnected: "重新連線時將儲存更改",
+    changesDiscarded: "部分變更因檔案已不存在而無法儲存，已被捨棄。",
     offline: "離線",
     saving: "儲存...",
     clearedAllAnnotations: "已清除所有批注",

@@ -18,8 +18,34 @@ agent-native package eject @agent-native/scheduling --apply
 Añadir y expulsar solo muestran una vista previa de forma predeterminada.
 `--apply` habilita las escrituras y el gestor de paquetes. La CLI rechaza
 colisiones y diseños desconocidos, y revierte archivos y bloqueos si falla la
-instalación. Solo Scheduling admite expulsión en este piloto; Pinpoint queda
-aplazado.
+instalación.
+
+## Expulsar una función
+
+Usa la escalera de personalización en este orden: configura la API pública,
+compón primitivas públicas, expulsa la unidad más pequeña y propón un punto de
+extensión compartido cuando la misma necesidad aparezca en varias apps.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+Los comandos son vistas previas de forma predeterminada. Al aplicar, se guarda
+la procedencia versionada en `agent-native.ejections.json`, con versión del
+paquete, digest del manifiesto, hashes de archivos y reescrituras de imports.
+Restore solo funciona si archivos e imports siguen intactos; de lo contrario
+muestra el diff y se niega a borrar cambios locales.
+
+Los manifiestos propios cubren todos los puntos de entrada públicos de Toolkit
+y todos los catálogos de integración propios. Una receta propia ausente es un
+fallo de cobertura del framework; un paquete externo desconocido recibe un
+blueprint de tipo add. Los contratos protegidos de Core no se copian: la CLI
+señala el punto público de configuración, adaptador o extensión.
 
 ## Migraciones
 

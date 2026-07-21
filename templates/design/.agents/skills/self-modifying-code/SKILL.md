@@ -35,8 +35,16 @@ Tier 4 includes **all** of the following — not only editing package source:
 - Files under `node_modules/@agent-native/*` (core, dispatch, scheduling, …)
 - `pnpm.overrides`, `overrides`, `resolutions`, or `patchedDependencies` that
   target any `@agent-native/*` package
-- Local patches, vendored copies, or invented "dispatch/core behavior"
-  shims meant to paper over a version skew or failed upgrade
+- Local package patches or invented "dispatch/core behavior" shims meant to
+  paper over a version skew or failed upgrade
+
+This does not prohibit intentional app-owned UI customization. When public
+props and composition are insufficient, the `customizing-agent-native` skill
+uses `agent-native eject` to transfer the smallest supported unit from the
+installed package into the app. The ejected unit must keep public runtime
+contracts and must not replace Core auth, DB, actions, agent execution, or
+transport behavior. Manual copying is only the fallback described by an unknown
+third-party package's add-style blueprint.
 
 When an older branch needs current packages, use **`agent-native upgrade`**
 (see the `upgrade-agent-native` skill). If upgrade or typecheck fails, fix
@@ -88,6 +96,9 @@ inline strings in components.
 - Don't modify `.env` files or files containing secrets
 - Don't modify `@agent-native/core`, `@agent-native/dispatch`, or other
   `@agent-native/*` package internals (including under `node_modules`)
+- Don't confuse readable package source with app-owned code: use
+  `customizing-agent-native` and `agent-native eject` for supported ownership
+  transfer
 - Don't add `pnpm.overrides` / `patchedDependencies` / `resolutions` for
   `@agent-native/*` to "make the app run" after a version bump
 - Don't invent local dispatch/core behavior overrides when upgrade fails —
@@ -99,6 +110,7 @@ inline strings in components.
 ## Related Skills
 
 - **upgrade-agent-native** — supported path to bring an older app/workspace current
+- **customizing-agent-native** — configure, compose, or eject installed features safely
 - **storing-data** — Tier 1 modifications (data files) are the safest and most common
 - **actions** — The agent can create or modify actions to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat

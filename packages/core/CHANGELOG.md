@@ -1,5 +1,122 @@
 # @agent-native/core
 
+## 0.114.9
+
+### Patch Changes
+
+- fb32d85: Run configurable PR Visual Recap jobs with Bash on every runner platform.
+- Updated dependencies [fb32d85]
+  - @agent-native/recap-cli@0.4.6
+
+## 0.114.8
+
+### Patch Changes
+
+- dcd0810: Forward app-specific agent run no-progress timeouts through every interactive chat handler.
+- dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+- Updated dependencies [dcd0810]
+  - @agent-native/toolkit@0.8.2
+
+## 0.114.7
+
+### Patch Changes
+
+- b706848: Add r5 semantic chapter metadata and provenance-aware local Screen Memory search, publish a reusable Rewind skill whose installer also repairs the local Screen Memory MCP connection, and keep the standalone skills installer aligned.
+
+## 0.114.6
+
+### Patch Changes
+
+- 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+- Updated dependencies [6d96437]
+  - @agent-native/toolkit@0.8.1
+
+## 0.114.5
+
+### Patch Changes
+
+- 570be31: Skip visual recap publishing when the authoring agent does not produce recap source.
+- Updated dependencies [570be31]
+  - @agent-native/recap-cli@0.4.5
+
+## 0.114.4
+
+### Patch Changes
+
+- f3dcee3: Suppress provisional artifact warnings while delegated work is still running, and preserve verified Slack provenance for cross-app intake through an audience-scoped, fail-closed resolver.
+
+## 0.114.3
+
+### Patch Changes
+
+- c47eb50: fix(core): keep feature-flag definitions out of the browser server graph
+
+  App-shared config that imported feature-flag definitions from
+  `@agent-native/core/feature-flags` pulled the barrel's server re-exports
+  (`store` → `settings/store` → `db/client` → request telemetry) into the client
+  dev graph. Vite's dev server does not tree-shake, so the browser evaluated that
+  server chain and `request-telemetry`'s top-level `new AsyncLocalStorage()` threw
+  against the externalized `node:async_hooks` stub, breaking app load in dev
+  (production tree-shakes it away and was unaffected).
+  - Add a client-safe `@agent-native/core/feature-flags/registry` entry for
+    `defineFeatureFlag` / `defineFeatureFlags` / `registerFeatureFlags` so shared
+    config no longer imports the server barrel.
+  - Make `db/request-telemetry` and `settings/store` resolve `AsyncLocalStorage` /
+    `EventEmitter` lazily via `process.getBuiltinModule` (matching
+    `server/request-context`) instead of a top-level value import, so the modules
+    can be evaluated in any runtime without tripping the browser stub.
+  - Add a regression guard asserting the client-safe registry entry never reaches
+    the server layer and that those modules never statically value-import the
+    builtins.
+
+## 0.114.2
+
+### Patch Changes
+
+- 3253e1d: Teach generated agents to discover Toolkit capabilities before composing or ejecting shared features.
+
+## 0.114.1
+
+### Patch Changes
+
+- c913280: Keep action mutations pending until asynchronous success callbacks finish.
+- c913280: Allow email-password signup without email verification on Netlify deploy previews while preserving explicit verification overrides, and hold auth requests until their serverless routes finish mounting.
+- c913280: Fence incompatible cached browser clients from newer action backends and reload version-aware tabs with a cache-busted build.
+- c913280: Honor an explicit Personal context for users who also belong to organizations.
+
+## 0.114.0
+
+### Minor Changes
+
+- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
+
+### Patch Changes
+
+- Updated dependencies [8453025]
+  - @agent-native/toolkit@0.8.0
+
+## 0.113.0
+
+### Minor Changes
+
+- e53a34e: Extract reusable Postgres search and embedding primitives into Core while preserving Creative Context imports.
+  The pgvector setup error now consistently says "Vector search" instead of the narrower "Visual search" wording.
+- e53a34e: Add reusable Google and Slack OAuth compatibility helpers, including Slack's Basic-auth token exchange, Gong lookup utilities, and SSRF-safe JSON webhook delivery with shared Slack escaping.
+- e53a34e: Add reusable provider API and staged dataset action factories, including opt-in custom provider registration and sanitized provider request audit summaries that narrow recorded audit metadata to safe request context.
+
+### Patch Changes
+
+- e53a34e: Add a subscription-only Claude Code participant runtime with enforced read-only and driver permissions.
+- e53a34e: Add a ChatGPT-subscription Codex CLI participant runtime with enforced read-only and driver sandboxes.
+- e53a34e: Add durable, fenced local state for compound multi-frontier runs.
+- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
+- e53a34e: Keep interrupted local Codex runs paused and resumable across every runner command.
+- e53a34e: Harden local Code run persistence and cancellation for the packaged desktop runner.
+- e53a34e: Harden local Code run and transcript persistence with atomic replacements and idempotent events.
+- e53a34e: Persist bounded, redacted Desktop multi-frontier orchestration state for safe recovery.
+- Updated dependencies [e53a34e]
+  - @agent-native/toolkit@0.7.0
+
 ## 0.112.0
 
 ### Minor Changes

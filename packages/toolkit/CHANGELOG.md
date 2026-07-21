@@ -1,5 +1,29 @@
 # @agent-native/toolkit
 
+## 0.8.2
+
+### Patch Changes
+
+- dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+
+## 0.8.1
+
+### Patch Changes
+
+- 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
+
+## 0.8.0
+
+### Minor Changes
+
+- 8453025: Publish ejection units for every Toolkit entry point so apps can take ownership of individual presentation features while preserving protected runtime contracts.
+
+## 0.7.0
+
+### Minor Changes
+
+- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
+
 ## 0.6.0
 
 ### Minor Changes

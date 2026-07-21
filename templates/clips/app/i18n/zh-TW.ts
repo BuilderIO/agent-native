@@ -884,6 +884,17 @@ const messages = {
     summary: "摘要",
     keyPoints: "要點",
     actionItems: "行動項",
+    sharedContent: "共享內容",
+    summaryIncluded: "摘要、要點和行動項",
+    includeTranscript: "包含完整逐字稿",
+    includeTranscriptDescription:
+      "任何有權存取此會議的人都可以閱讀完整逐字稿。",
+    transcriptUnavailable: "逐字稿尚未準備好。",
+    transcript: "逐字稿",
+    copyTranscript: "複製逐字稿",
+    transcriptCopied: "已複製逐字稿",
+    copyTranscriptFailed: "無法複製逐字稿",
+    updateTranscriptSharingFailed: "無法更新逐字稿分享設定",
   },
   deleteRecordingMenu: {
     movedToTrash: "剪輯已移至廢紙簍",
@@ -1419,6 +1430,21 @@ const messages = {
     guideStartDescription:
       "通話開始時，使用桌面提醒或選單列中的 Start Meeting Notes 項目。",
   },
+  rewindExtension: {
+    title: "加入錄製前的內容",
+    description:
+      "從本機 Rewind 選取一段時間並加入此剪輯開頭。不會自動加入任何內容。",
+    progressLabel: "Rewind 記錄處理進度",
+    privateFirstTitle: "先將此剪輯設為私人",
+    privateFirstDescription:
+      "本機 Rewind 記錄可能包含你開始錄製前的內容。此操作會將剪輯設為私人。如果仍有人擁有直接存取權，Clips 會先停止，讓你在分享設定中移除他們。",
+    makePrivateContinue: "設為私人並繼續",
+    add30Seconds: "加入前 30 秒",
+    add5Minutes: "加入前 5 分鐘",
+    add5MinutesDescription: "適合找回較長說明的開頭部分。",
+    privateReady: "此剪輯已設為私人。現在可以加入本機 Rewind 記錄。",
+  },
+  timeline: { clipStartedHere: "剪輯從這裡開始" },
 };
 
 export default messages;

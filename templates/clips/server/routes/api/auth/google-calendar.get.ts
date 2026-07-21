@@ -33,13 +33,13 @@ import {
 import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,
+  resolveGoogleOAuthCredentialCandidates,
 } from "../../../lib/google-calendar-client.js";
 import { CLIPS_GOOGLE_OAUTH_APP_ID } from "../../../lib/google-calendar-oauth.js";
 
 export default defineEventHandler(async (event: H3Event) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
+  const [credentials] = await resolveGoogleOAuthCredentialCandidates();
+  if (!credentials) {
     setResponseStatus(event, 422);
     return {
       error: "missing_credentials",
@@ -89,7 +89,7 @@ export default defineEventHandler(async (event: H3Event) => {
     });
 
     const params = new URLSearchParams({
-      client_id: clientId,
+      client_id: credentials.clientId,
       redirect_uri: redirectUri,
       response_type: "code",
       // We need a refresh token, so always force prompt=consent — Google only
