@@ -195,9 +195,6 @@ pub async fn whisper_model_status(app: AppHandle) -> Result<ModelStatus, String>
 
 #[tauri::command]
 pub async fn whisper_model_download(app: AppHandle) -> Result<(), String> {
-    if DOWNLOADING.load(Ordering::Acquire) {
-        return Ok(());
-    }
     let path = model_file(&app)?;
     if let Ok(meta) = std::fs::metadata(&path) {
         let config = crate::config::feature_config(&app);
@@ -247,7 +244,10 @@ pub async fn whisper_model_delete(app: AppHandle, model_id: String) -> Result<()
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| format!("delete model: {e}"))?;
     }
-    let _ = app.emit("whisper:model-deleted", serde_json::json!({ "modelId": model_id }));
+    let _ = app.emit(
+        "whisper:model-deleted",
+        serde_json::json!({ "modelId": model_id }),
+    );
     Ok(())
 }
 
@@ -284,7 +284,14 @@ pub(crate) async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
         );
     }
 
-    if DOWNLOADING.load(Ordering::SeqCst) {
+    loop {
+        if DOWNLOADING
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            break;
+        }
+
         eprintln!("[whisper] waiting for in-progress download…");
         while DOWNLOADING.load(Ordering::SeqCst) {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -293,13 +300,6 @@ pub(crate) async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
             return Ok(path);
         }
     }
-
-    if DOWNLOADING
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        return Err("Download already in progress — please wait.".to_string());
-    }
     DOWNLOADED_BYTES.store(0, Ordering::Relaxed);
 
     let result = do_download(app, &path, model).await;
@@ -307,14 +307,18 @@ pub(crate) async fn ensure_model(app: &AppHandle) -> Result<PathBuf, String> {
     result
 }
 
-async fn do_download(app: &AppHandle, path: &Path, model: &WhisperModel) -> Result<PathBuf, String> {
+async fn do_download(
+    app: &AppHandle,
+    path: &Path,
+    model: &WhisperModel,
+) -> Result<PathBuf, String> {
     eprintln!(
         "[whisper] downloading {} (~{} MB)",
         model.url, model.size_mb
     );
-    let mut response = reqwest::get(model.url).await.map_err(|e| {
-        format!("model download failed: {e}")
-    })?;
+    let mut response = reqwest::get(model.url)
+        .await
+        .map_err(|e| format!("model download failed: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("model download HTTP {}", response.status()));
     }
@@ -323,13 +327,16 @@ async fn do_download(app: &AppHandle, path: &Path, model: &WhisperModel) -> Resu
     use std::io::Write as _;
 
     let tmp = path.with_extension("bin.tmp");
-    let mut file =
-        std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
+    let mut file = std::fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
     let mut hasher = Sha256::new();
     let mut total = 0_u64;
     let mut last_progress = 0_u64;
 
-    while let Some(chunk) = response.chunk().await.map_err(|e| format!("download body: {e}"))? {
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| format!("download body: {e}"))?
+    {
         hasher.update(&chunk);
         total += chunk.len() as u64;
         DOWNLOADED_BYTES.store(total, Ordering::Relaxed);
@@ -359,7 +366,11 @@ async fn do_download(app: &AppHandle, path: &Path, model: &WhisperModel) -> Resu
             model.size_bytes
         ));
     }
-    let digest: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
     if digest != model.sha256 {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!(

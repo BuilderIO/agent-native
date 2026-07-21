@@ -29,9 +29,8 @@ export interface WhisperModelStatus {
   totalMb: number;
 }
 
-const WHISPER_EVENTS = [
+const WHISPER_STATUS_EVENTS = [
   "whisper:model-progress",
-  "whisper:model-ready",
   "whisper:model-error",
   "whisper:model-enabled-changed",
   "whisper:model-selection-changed",
@@ -94,9 +93,15 @@ export function useWhisperSettings(
       }).catch(() => {});
     };
 
-    for (const event of WHISPER_EVENTS) {
+    for (const event of WHISPER_STATUS_EVENTS) {
       track(listen(event, () => refreshStatus()));
     }
+    track(
+      listen("whisper:model-ready", () => {
+        refreshStatus();
+        refreshDownloaded();
+      }),
+    );
     track(listen("whisper:model-deleted", () => refreshDownloaded()));
 
     return () => {
@@ -121,14 +126,15 @@ export function useWhisperSettings(
       config: { ...featureConfig, whisperModelEnabled: next },
     })
       .then(() => {
-        if (next) triggerDownload();
+        if (next) {
+          triggerDownload();
+        } else if (voiceProvider === "whisper") {
+          onVoiceProviderChange(nativeVoiceProvider());
+        }
       })
       .catch((err) =>
         console.error("[whisper] set_feature_config failed", err),
       );
-    if (!next && voiceProvider === "whisper") {
-      onVoiceProviderChange(nativeVoiceProvider());
-    }
   }
 
   function setModelId(next: string) {
