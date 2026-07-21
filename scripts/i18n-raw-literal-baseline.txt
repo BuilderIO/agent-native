@@ -59,7 +59,6 @@ templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up wo
 templates/crm/app/routes/opportunities.tsx|Opportunities · CRM
 templates/crm/app/routes/people.tsx|People · CRM
 templates/crm/app/routes/proposals.tsx|No CRM proposals
-templates/crm/app/routes/proposals.tsx|Proposal reviewed. Complete the approved change in HubSpot.
 templates/crm/app/routes/proposals.tsx|Proposal failed.
 templates/crm/app/routes/proposals.tsx|Review this provider change
 templates/crm/app/routes/proposals.tsx|Review upstream change
