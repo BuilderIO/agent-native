@@ -56,6 +56,8 @@ const STORAGE_SETUP_REQUIRED_MESSAGE =
 const STORAGE_SETUP_FAILURE_RE =
   /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
+const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
+const FINAL_CHUNK_UPLOAD_TIMEOUT_MS = 180_000;
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
@@ -860,6 +862,11 @@ async function uploadChunk(
         headers,
         credentials: "include",
         body,
+        signal: AbortSignal.timeout(
+          extra.isFinal
+            ? FINAL_CHUNK_UPLOAD_TIMEOUT_MS
+            : CHUNK_UPLOAD_TIMEOUT_MS,
+        ),
       });
     } catch (err) {
       if (attempt >= CHUNK_UPLOAD_MAX_ATTEMPTS) throw err;

@@ -6,6 +6,8 @@ export type NativeRecordingStateStatus =
   | "complete"
   | "error";
 
+export type RestartUploadMode = "streaming" | "buffered";
+
 export type OffscreenRecordingState = {
   activeSessionId?: string;
   preparedSessionId?: string;
@@ -29,4 +31,21 @@ export function shouldReconcilePersistedRecording(
   // offer the existing discard/re-upload path.
   if (status === "error" || status === "complete") return false;
   return !hasLiveOffscreenSession(sessionId, state);
+}
+
+export function restartUploadResetBody(): {
+  requestStreaming: true;
+  mimeType: "video/webm";
+} {
+  return { requestStreaming: true, mimeType: "video/webm" };
+}
+
+export function restartUploadModeFromResponse(
+  value: unknown,
+): RestartUploadMode | null {
+  if (!value || typeof value !== "object") return null;
+  const uploadMode = (value as { uploadMode?: unknown }).uploadMode;
+  return uploadMode === "streaming" || uploadMode === "buffered"
+    ? uploadMode
+    : null;
 }
