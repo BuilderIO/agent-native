@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.114.13
+
+### Patch Changes
+
+- 7112c17: Add portable transactional multi-key application-state compare-and-set operations, including atomic D1 batch support and missing-key creation for race-safe UI workflows.
+
 ## 0.114.12
 
 ### Patch Changes
