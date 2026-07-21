@@ -65,7 +65,7 @@ interface RecordingCardProps {
   recording: RecordingSummary;
   selected?: boolean;
   selectionMode?: boolean;
-  onToggleSelect?: (id: string) => void;
+  onToggleSelect?: (id: string, shiftKey: boolean) => void;
   onShare?: (rec: RecordingSummary) => void;
   onMove?: (rec: RecordingSummary, folderId: string | null) => void;
   moveTargets?: BulkMoveTarget[];
@@ -147,18 +147,18 @@ export function RecordingCard({
   const handleLinkClick = useCallback(
     (event: React.MouseEvent<HTMLAnchorElement>) => {
       if (
-        !selectionMode ||
+        !onToggleSelect ||
         event.button !== 0 ||
         event.metaKey ||
         event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
+        event.altKey ||
+        (!selectionMode && !event.shiftKey)
       ) {
         return;
       }
 
       event.preventDefault();
-      onToggleSelect?.(recording.id);
+      onToggleSelect(recording.id, event.shiftKey);
     },
     [onToggleSelect, recording.id, selectionMode],
   );
@@ -166,7 +166,7 @@ export function RecordingCard({
   const handleCheckbox = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
-      onToggleSelect?.(recording.id);
+      onToggleSelect?.(recording.id, e.shiftKey);
     },
     [onToggleSelect, recording.id],
   );
@@ -243,8 +243,10 @@ export function RecordingCard({
           >
             <Checkbox
               checked={selected}
-              onCheckedChange={() => onToggleSelect?.(recording.id)}
-              onClick={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleSelect?.(recording.id, e.shiftKey);
+              }}
               className="h-3.5 w-3.5"
             />
           </div>

@@ -12,7 +12,7 @@ describe("selected library actions layout", () => {
     const toolbarSource = readSource("./bulk-action-toolbar.tsx");
 
     expect(gridSource).toContain(
-      'className="relative flex min-h-0 flex-1 overflow-hidden"',
+      'className="relative flex min-h-0 flex-1 flex-col overflow-hidden"',
     );
     expect(gridSource).toContain(
       'className="pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4"',

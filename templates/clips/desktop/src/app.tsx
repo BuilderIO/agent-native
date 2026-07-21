@@ -572,6 +572,21 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
   }
 }
 
+// Same explicit-drag pattern the toolbar/bubble overlays use —
+// `data-tauri-drag-region` has been unreliable, so we call `startDragging()`
+// directly on mousedown. Clicks on buttons/inputs still reach their handlers
+// since we only start a drag when the mousedown target isn't inside one.
+function handlePopoverHeaderMouseDown(event: React.MouseEvent) {
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement;
+  if (target.closest("button, a, input, select, textarea")) return;
+  getCurrentWindow()
+    .startDragging()
+    .catch((err) => {
+      console.warn("[clips-popover] startDragging failed:", err);
+    });
+}
+
 function nativeVoiceProvider(): VoiceProvider {
   return isMacPlatform() ? "macos-native" : "browser";
 }
@@ -4248,7 +4263,10 @@ function Header({
   // close button lives top-right as an absolute-positioned sibling, so the
   // tabs aren't offset by the close button's width.
   return (
-    <div className="header header-centered">
+    <div
+      className="header header-centered"
+      onMouseDown={handlePopoverHeaderMouseDown}
+    >
       <FeedbackButton submitterEmail={submitterEmail} />
       <div
         className="mode-toggle"
@@ -4444,7 +4462,10 @@ function PopoverSubViewHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="setup-header popover-view-header">
+    <div
+      className="setup-header popover-view-header"
+      onMouseDown={handlePopoverHeaderMouseDown}
+    >
       <button
         type="button"
         className="setup-back"
@@ -6376,7 +6397,7 @@ function Setup({
 
   return (
     <div className="setup">
-      <div className="setup-header">
+      <div className="setup-header" onMouseDown={handlePopoverHeaderMouseDown}>
         {onCancel ? (
           <button
             type="button"

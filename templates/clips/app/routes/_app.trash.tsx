@@ -46,6 +46,7 @@ export default function TrashRoute() {
   const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
@@ -60,13 +61,26 @@ export default function TrashRoute() {
     "delete-recording-permanent",
   );
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: string, shiftKey = false) => {
     setSelected((prev) => {
+      if (shiftKey && lastSelectedId && lastSelectedId !== id) {
+        const ids = recordings.map((r) => r.id);
+        const fromIndex = ids.indexOf(lastSelectedId);
+        const toIndex = ids.indexOf(id);
+        if (fromIndex !== -1 && toIndex !== -1) {
+          const [start, end] =
+            fromIndex < toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
+          const next = new Set(prev);
+          for (let i = start; i <= end; i++) next.add(ids[i]);
+          return next;
+        }
+      }
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    setLastSelectedId(id);
   };
 
   const restoreAll = async (ids: string[]) => {
@@ -170,6 +184,7 @@ export default function TrashRoute() {
         ? new Set()
         : new Set(recordings.map((r) => r.id)),
     );
+    setLastSelectedId(null);
   };
 
   return (

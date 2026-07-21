@@ -861,6 +861,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     loadFailedBody:
       "Beim Laden dieser Liste ist etwas schiefgelaufen. Deine Aufnahmen sind sicher — versuche es erneut.",
     retry: "Erneut versuchen",
+    paginationRange: "{{start}}–{{end}} von {{total}}",
+    paginationPrevious: "Zurück",
+    paginationNext: "Weiter",
+    paginationPage: "Seite {{page}} von {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",
@@ -1410,6 +1414,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
   clipsFinalRaw: {
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
+    selectAll: "Alle auswählen",
+    deselectAll: "Auswahl aufheben",
     move: "Verschieben",
     moveSelected: "{{count}} ausgewählte verschieben",
     current: "Aktuell",
