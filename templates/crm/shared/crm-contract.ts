@@ -200,7 +200,13 @@ export interface CrmAdapter {
   listRelationships(input: {
     record: CrmRecordRef;
     targetObjectTypes?: string[];
-  }): Promise<CrmRelationship[]>;
+    limit: number;
+    cursor?: string;
+  }): Promise<{
+    relationships: CrmRelationship[];
+    nextCursor?: string;
+    complete: boolean;
+  }>;
   applyMutation(mutation: CrmMutation): Promise<CrmMutationResult>;
 }
 

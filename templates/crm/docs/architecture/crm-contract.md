@@ -103,9 +103,20 @@ they are refreshed.
 | Agent, bulk/destructive/ownership/amount/stage/external side effect | Require approval      | Preview exact scope and changed fields; fail closed       |
 | Automation with stored policy                                       | Execute inside policy | No per-run prompt; stop and propose/deny outside policy   |
 
+Named high-risk classes remain approval-gated even when routine provider writes
+have delegated authority. A later policy version may add field-specific
+delegation without weakening the destructive/bulk boundary. A human `execute`
+decision assumes the initiating UI has already collected any required
+destructive confirmation; the policy layer does not add a second prompt.
+
 All mutations are idempotent, access-checked, audited, and record the actor,
 policy decision, before/after field summary, provider response status, and
 remote revision. Provider conflicts never overwrite silently.
+
+`applyMutation` represents one logical record mutation, not one HTTP request.
+Adapters may use provider batch endpoints internally. A future bulk action can
+add an `applyMutations` adapter method without changing the single-mutation
+contract.
 
 ## Provider-model validation
 
