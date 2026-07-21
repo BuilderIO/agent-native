@@ -6,6 +6,39 @@ templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY 
 templates/clips/app/components/player/transcript-panel.tsx|gsk_…
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
+templates/crm/app/components/crm/RecordGrid.tsx|Next step
+templates/crm/app/components/crm/RecordWorkspace.tsx|Last updated
+templates/crm/app/components/crm/RecordWorkspace.tsx|Next step
+templates/crm/app/components/crm/RecordWorkspace.tsx|This CRM record is unavailable
+templates/crm/app/components/crm/Surface.tsx|Open shared connections
+templates/crm/app/components/crm/WorkOverview.tsx|A focused queue from your connected CRM.
+templates/crm/app/components/crm/WorkOverview.tsx|CRM will surface follow-up signals as connected records become available.
+templates/crm/app/components/crm/WorkOverview.tsx|Recently active
+templates/crm/app/components/crm/WorkOverview.tsx|Saved views
+templates/crm/app/components/crm/WorkOverview.tsx|Signals worth deciding on.
+templates/crm/app/components/crm/WorkOverview.tsx|Today’s work
+templates/crm/app/components/layout/CrmLayout.tsx|CRM navigation
+templates/crm/app/components/layout/CrmLayout.tsx|Navigate CRM records and shared agent work.
+templates/crm/app/components/layout/CrmLayout.tsx|Open CRM navigation
+templates/crm/app/components/layout/CrmSidebar.tsx|Ask CRM
+templates/crm/app/components/layout/CrmSidebar.tsx|My work
+templates/crm/app/components/layout/CrmSidebar.tsx|Saved views
+templates/crm/app/routes/_index.tsx|My work
+templates/crm/app/routes/_index.tsx|My work · CRM
+templates/crm/app/routes/accounts.tsx|Accounts · CRM
+templates/crm/app/routes/ask.tsx|Ask CRM
+templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up work, and evidence from connected records.
+templates/crm/app/routes/opportunities.tsx|Opportunities · CRM
+templates/crm/app/routes/people.tsx|People · CRM
+templates/crm/app/routes/settings.tsx|CRM settings
+templates/crm/app/routes/settings.tsx|CRM uses workspace Connections for provider authorization. The local mirror stores only allow-listed fields, scoped metadata, and bounded evidence references.
+templates/crm/app/routes/setup.tsx|Connect your CRM
+templates/crm/app/routes/setup.tsx|HubSpot sync failed.
+templates/crm/app/routes/setup.tsx|Recent HubSpot records are ready.
+templates/crm/app/routes/views.tsx|New view
+templates/crm/app/routes/views.tsx|No saved views yet
+templates/crm/app/routes/views.tsx|Saved views
+templates/crm/app/routes/views.tsx|Untitled view
 templates/design/app/components/design/DesignCanvas.tsx|handle ? [
 templates/design/app/components/design/FusionAppBanner.tsx|Publish failed
 templates/design/app/components/design/FusionAppBanner.tsx|Push failed

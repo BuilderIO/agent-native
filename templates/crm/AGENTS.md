@@ -57,6 +57,9 @@ policies, provenance, provider identity, and write policy.
 
 ## Implementation
 
+Before building common workspace or agent UI, read `agent-native-toolkit`; use
+`customizing-agent-native` when composing or ejecting shared surfaces.
+
 Use `defineAction` and action hooks rather than duplicate `/api` CRUD routes.
 Use shared Toolkit surfaces for connections, settings, navigation, sharing,
 automations, and extensions before adding app-local equivalents. Keep SQL
