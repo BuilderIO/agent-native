@@ -114,3 +114,6 @@ test-reports/
 # tsup transient bundled config artifacts
 tsup.config.bundled_*.mjs
 packages/core/corpus.tmp-*/
+
+# Temporary trusted document exports can contain internal workspace content.
+/.tmp-docs-trusted-*/
