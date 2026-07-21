@@ -1,18 +1,24 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  ShareButton,
-  PresenceBar,
   useCollaborativeDoc,
-  generateTabId,
   emailToColor,
   emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
   useSession,
-  agentNativePath,
   callAction,
   useChangeVersions,
   useActionMutation,
-  useT,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  CreativeContextShareSheet,
+  CreativeContextShareTab,
+} from "@agent-native/creative-context/client";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   useDroppable,
   DndContext,
@@ -138,6 +144,7 @@ import {
   resolveFilterVars,
 } from "./DashboardFilterBar";
 import { EmailReportDialog } from "./EmailReportDialog";
+import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
@@ -267,6 +274,7 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel,
   onEditPanel,
   onSavePanel,
+  dashboardExtensionContext,
 }: {
   panel: SqlPanel;
   vars: Record<string, string>;
@@ -282,6 +290,7 @@ const PanelCell = memo(function PanelCell({
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
+  dashboardExtensionContext: Record<string, unknown>;
 }) {
   const resolved = useMemo(
     () =>
@@ -362,6 +371,23 @@ const PanelCell = memo(function PanelCell({
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
+        extensionContext={
+          panel.chartType === "extension"
+            ? {
+                ...dashboardExtensionContext,
+                panel: {
+                  id: panel.id,
+                  title: panel.title,
+                  slotId:
+                    panel.config?.extensionSlotId ??
+                    dashboardExtensionSlotId(
+                      String(dashboardExtensionContext.dashboardId),
+                      panel.id,
+                    ),
+                },
+              }
+            : undefined
+        }
       />
     </div>
   );
@@ -504,6 +530,7 @@ export default function SqlDashboardPage() {
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -1424,6 +1451,29 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            shareTabs={{
+              tabs: [
+                {
+                  value: "context",
+                  label: "Context",
+                  content: (
+                    <CreativeContextShareTab
+                      resource={{
+                        appId: "analytics",
+                        resourceType: "dashboard",
+                        resourceId: dashboardId,
+                        title: dashboard.name,
+                        updatedAt: dashboardUpdatedAt ?? undefined,
+                        preview: {
+                          kind: "document",
+                          label: t("dashboard.sqlDashboard"),
+                        },
+                      }}
+                    />
+                  ),
+                },
+              ],
+            }}
           />
         ) : null}
         {canEdit ? (
@@ -1509,6 +1559,18 @@ export default function SqlDashboardPage() {
             {(canEdit && !archivedAt) || canManage ? (
               <DropdownMenuSeparator />
             ) : null}
+            {dashboardId && canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDashboardActionsOpen(false);
+                  setContextSheetOpen(true);
+                }}
+              >
+                <IconPlus className="mr-2 h-3.5 w-3.5" />
+                {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+              </DropdownMenuItem>
+            ) : null}
             {dashboardId ? (
               <>
                 <DropdownMenuSeparator />
@@ -1579,6 +1641,25 @@ export default function SqlDashboardPage() {
             open={historyOpen}
             onOpenChange={setHistoryOpen}
             canRestore={canEdit && !archivedAt}
+          />
+        ) : null}
+        {dashboardId ? (
+          <CreativeContextShareSheet
+            open={contextSheetOpen}
+            onOpenChange={setContextSheetOpen}
+            resource={{
+              appId: "analytics",
+              resourceType: "dashboard",
+              resourceId: dashboardId,
+              title: dashboard.name,
+              updatedAt: dashboardUpdatedAt ?? undefined,
+              visibility: dashboardVisibility ?? undefined,
+              preview: {
+                kind: "document",
+                label: t("dashboard.sqlDashboard"),
+              },
+            }}
+            canManage={canManage}
           />
         ) : null}
         {canManage ? (
@@ -1907,6 +1988,13 @@ export default function SqlDashboardPage() {
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
+                                dashboardExtensionContext={{
+                                  dashboardId,
+                                  dashboardName: dashboard.name,
+                                  dashboardDescription:
+                                    dashboard.description ?? null,
+                                  filters: vars,
+                                }}
                               />
                               <DashboardDropLine
                                 slot={{

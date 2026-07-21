@@ -83,6 +83,10 @@ export {
   IDENTITY_SSO_SCOPE,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
+export {
+  assertCurrentRequestUserIsOrgAdmin,
+  currentRequestUserIsOrgAdmin,
+} from "./org-admin.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
   getLocaleInitScript,
@@ -176,6 +180,7 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
+export { createFeatureFlagsPlugin } from "../feature-flags/plugin.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -298,11 +303,17 @@ export {
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export {
   hasGoogleSignInCredentials,
+  GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PROVIDER_CREDENTIAL_KEY_PAIRS,
   resolveGoogleLegacyProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveGoogleProviderCredentialCandidates,
   resolveGoogleProviderCredentials,
   resolveGoogleSignInCredentials,
+  type GoogleOAuthCredentialKeyPair,
   type GoogleOAuthCredentials,
+  type ReadGoogleOAuthCredential,
 } from "./google-oauth-credentials.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {

@@ -82,8 +82,7 @@ export default defineAction({
 透過使用 `useActionQuery` 從 UI 呼叫 `list-audit-events` 來建置活動來源或“誰更改了此”行 - 切勿手寫對審核表的擷取：
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,

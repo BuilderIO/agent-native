@@ -8,7 +8,7 @@ const agentChatSurfaceMock = vi.hoisted(() => vi.fn());
 const cancelPrewarmMock = vi.hoisted(() => vi.fn());
 const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     agentChatSurfaceMock(props);
     return (
@@ -19,6 +19,9 @@ vi.mock("@agent-native/core/client", () => ({
   },
   markAgentChatHomeHandoff: vi.fn(),
   sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     const strings: Record<string, string> = {
       "home.composerPlaceholder": "What do you want to do?",

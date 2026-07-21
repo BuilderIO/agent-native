@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   createAnthropicEngine,
@@ -366,7 +366,7 @@ describe("createAnthropicEngine", () => {
     const events = await collectEvents(engine.stream(opts));
     const stopEvent = events.find((e) => e.type === "stop");
     expect(stopEvent?.reason).toBe("error");
-    expect(stopEvent?.error).toContain("Agent workspace > LLM");
+    expect(stopEvent?.error).toContain("Manage agent > LLM");
     expect(stopEvent?.error).not.toContain("ANTHROPIC_API_KEY");
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
@@ -478,5 +478,136 @@ describe("createAnthropicEngine", () => {
       budget_tokens: 4_000,
     });
     expect(requestParams.output_config).toBeUndefined();
+  });
+});
+
+describe("createAnthropicEngine first-event deadline", () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aborts with a retryable network error when the stream produces no chunks within 120s", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {
+        await new Promise((_resolve, reject) => {
+          if (capturedSignal?.aborted) {
+            reject(capturedSignal.reason ?? new Error("aborted"));
+            return;
+          }
+          capturedSignal?.addEventListener(
+            "abort",
+            () => reject(capturedSignal!.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        });
+      },
+      finalMessage: vi.fn(),
+    };
+    const streamSpy = vi.fn((_params: any, opts: any) => {
+      capturedSignal = opts?.signal;
+      return mockStream;
+    });
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: streamSpy };
+      },
+    }));
+
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const engine = freshCreate({ apiKey: "test" });
+    vi.useFakeTimers();
+
+    const opts: EngineStreamOptions = {
+      model: "claude-haiku-4-5-20251001",
+      systemPrompt: "You are helpful.",
+      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      tools: [],
+      abortSignal: new AbortController().signal,
+    };
+
+    // The engine yields the terminal stop event and then rethrows, so
+    // collect events defensively (matches the pattern above).
+    const events: any[] = [];
+    let settledEarly = false;
+    const runPromise = (async () => {
+      for await (const e of engine.stream(opts)) events.push(e);
+    })();
+    void runPromise
+      .catch(() => {})
+      .then(() => {
+        settledEarly = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(runPromise).rejects.toThrow();
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("provider_network_error");
+    expect(stop?.providerRetryable).toBe(true);
+    expect(stop?.error).toContain("120s");
+
+    vi.doUnmock("@anthropic-ai/sdk");
+  });
+
+  it("does not abort once the stream has produced a chunk", async () => {
+    const finalMsg = {
+      content: [{ type: "text", text: "Hello" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 5, output_tokens: 2 },
+    };
+    const mockStream = {
+      [Symbol.asyncIterator]: async function* () {
+        yield {
+          type: "content_block_start",
+          index: 0,
+          content_block: { type: "text", text: "" },
+        };
+        yield {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "text_delta", text: "Hello" },
+        };
+      },
+      finalMessage: vi.fn().mockResolvedValue(finalMsg),
+    };
+    vi.doMock("@anthropic-ai/sdk", () => ({
+      default: class MockAnthropic {
+        messages = { stream: vi.fn().mockReturnValue(mockStream) };
+      },
+    }));
+
+    vi.resetModules();
+    const { createAnthropicEngine: freshCreate } =
+      await import("./anthropic-engine.js");
+    const engine = freshCreate({ apiKey: "test" });
+
+    const events = await collectEvents(
+      engine.stream({
+        model: "claude-haiku-4-5-20251001",
+        systemPrompt: "You are helpful.",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      }),
+    );
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("end_turn");
+    expect(stop?.errorCode).toBeUndefined();
+    expect(mockStream.finalMessage).toHaveBeenCalledTimes(1);
+
+    vi.doUnmock("@anthropic-ai/sdk");
   });
 });

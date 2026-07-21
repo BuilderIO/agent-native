@@ -1,7 +1,7 @@
 import {
   readClientAppState,
   setClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import type * as monaco from "monaco-editor";
 import {
   useCallback,

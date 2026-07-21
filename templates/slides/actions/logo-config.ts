@@ -1,14 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
+import { getLogoProviderConfig } from "../server/lib/media-search-providers.js";
+
 export default defineAction({
-  description: "Get logo search configuration (Brandfetch client ID status).",
+  description: "Get runtime-backed logo provider configuration for the UI.",
   schema: z.object({}),
   http: { method: "GET" },
-  run: async () => {
-    return {
-      brandfetchId: process.env.BRANDFETCH_CLIENT_ID || null,
-      hasLogoDevSecret: !!process.env.LOGO_DEV_SECRET_KEY?.startsWith("sk_"),
-    };
-  },
+  readOnly: true,
+  agentTool: false,
+  run: async () => getLogoProviderConfig(),
 });

@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -37,10 +37,10 @@ const enUS = {
     deliveryDescription:
       "Manage message destinations and check the outbound delivery queue.",
     openDelivery: "Open delivery",
-    agentTitle: "Agent workspace",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent workspace for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
-    openAgentSettings: "Open agent workspace",
+      "Manage the agent's model, API keys, voice, and other controls. Use the Automations page for scheduled and event-triggered jobs.",
+    openAgentSettings: "Manage agent",
   },
   integrations: {
     title: "Integrations",
@@ -430,10 +430,10 @@ export const messagesByLocale = {
       deliveryTitle: "投递",
       deliveryDescription: "管理消息目的地并查看出站投递队列。",
       openDelivery: "打开投递",
-      agentTitle: "代理设置",
+      agentTitle: "管理代理",
       agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、语音和其他代理控制项。定时与事件触发的任务请使用自动化页面。",
-      openAgentSettings: "打开代理设置",
+        "管理代理的模型、API 密钥、语音和其他控制项。定时与事件触发的任务请使用自动化页面。",
+      openAgentSettings: "管理代理",
     },
     integrations: {
       title: "集成",
@@ -728,10 +728,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gestiona destinos de mensajes y revisa la cola de entrega saliente.",
       openDelivery: "Abrir entrega",
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
+      openAgentSettings: "Gestionar agente",
     },
     integrations: {
       title: "Integraciones",
@@ -1054,10 +1054,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gérez les destinations de messages et consultez la file d’attente sortante.",
       openDelivery: "Ouvrir la livraison",
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, voix et autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, la voix et les autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
+      openAgentSettings: "Gérer l’agent",
     },
     integrations: {
       title: "Intégrations",
@@ -1380,10 +1380,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Nachrichtenziele verwalten und die ausgehende Zustellungswarteschlange prüfen.",
       openDelivery: "Zustellung öffnen",
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Sprache und weitere Steuerungen. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Sprache und weitere Steuerungen des Agents. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
+      openAgentSettings: "Agent verwalten",
     },
     integrations: {
       title: "Integrationen",
@@ -1693,10 +1693,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "メッセージの送信先を管理し、送信キューを確認します。",
       openDelivery: "配信を開く",
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
+      openAgentSettings: "エージェントを管理",
     },
     integrations: {
       title: "連携",
@@ -2003,10 +2003,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "메시지 대상을 관리하고 발신 전달 대기열을 확인합니다.",
       openDelivery: "전달 열기",
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
+      openAgentSettings: "에이전트 관리",
     },
     integrations: {
       title: "통합",
@@ -2310,10 +2310,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gerencie destinos de mensagens e verifique a fila de entrega de saída.",
       openDelivery: "Abrir entrega",
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
+      openAgentSettings: "Gerenciar agente",
     },
     integrations: {
       title: "Integrações",
@@ -2629,10 +2629,10 @@ export const messagesByLocale = {
       deliveryTitle: "डिलीवरी",
       deliveryDescription: "संदेश गंतव्य प्रबंधित करें और आउटबाउंड डिलीवरी कतार जांचें।",
       openDelivery: "डिलीवरी खोलें",
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
     },
     integrations: {
       title: "इंटीग्रेशन",
@@ -2929,10 +2929,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "إدارة وجهات الرسائل وفحص قائمة انتظار التسليم الصادرة.",
       openDelivery: "فتح التسليم",
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
+      openAgentSettings: "إدارة الوكيل",
     },
     integrations: {
       title: "عمليات التكامل",

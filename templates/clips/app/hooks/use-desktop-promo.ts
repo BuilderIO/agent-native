@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
 import {
-  hasDismissedDesktopPromo,
-  markDesktopPromoDismissed,
+  hasDownloadedDesktopApp,
+  markDesktopAppDownloaded,
 } from "@/lib/capture-install-options";
 
 function detectDesktopApp(): boolean {
@@ -23,23 +23,28 @@ function detectDesktopApp(): boolean {
 export function useDesktopPromo() {
   const isMobile = useIsMobile();
   const [isDesktopApp, setIsDesktopApp] = useState(false);
+  const [runtimeDetected, setRuntimeDetected] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setIsDesktopApp(detectDesktopApp());
-    setDismissed(hasDismissedDesktopPromo());
+    setDismissed(hasDownloadedDesktopApp());
+    // Keep desktop prompts hidden until the client runtime is known. This
+    // prevents the web CTA from flashing in the desktop shell's first render.
+    setRuntimeDetected(true);
   }, []);
 
   const dismiss = useCallback(() => {
     setDismissed(true);
-    markDesktopPromoDismissed();
+    markDesktopAppDownloaded();
   }, []);
 
   return {
     isDesktopApp,
     isMobile,
-    shouldShowPromo: !isMobile && !isDesktopApp && !dismissed,
-    shouldShowSidebarLink: !isMobile && !isDesktopApp,
+    shouldShowPromo:
+      runtimeDetected && !isMobile && !isDesktopApp && !dismissed,
+    shouldShowSidebarLink: runtimeDetected && !isMobile && !isDesktopApp,
     dismiss,
   };
 }

@@ -1,14 +1,24 @@
 import { createHash } from "node:crypto";
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
+import {
+  isComputedPropertyType,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
 } from "./_content-space-access.js";
 import {
+  defaultFilesDatabaseViewConfig,
+  ensureFilesSystemPropertyDefinitions,
+} from "./_files-system-properties.js";
+import { withPositionLock } from "./_position-utils.js";
+import {
   defaultDatabaseViewConfig,
+  normalizedValueJson,
   seedDefaultBlocksField,
   serializeDatabaseViewConfig,
 } from "./_property-utils.js";
@@ -19,6 +29,8 @@ export type ProvisionedContentSpaces = {
   personalSpaceId: string;
   personalFilesDatabaseId: string;
   catalogDatabaseId: string;
+  favoritesDatabaseId: string;
+  favoritesDocumentId: string;
   spaceIds: string[];
   created: {
     spaces: number;
@@ -50,9 +62,16 @@ export function sourceBackedContentSpaceId(
   );
 }
 
+export function userContentSpaceId(email: string, workspaceId: string) {
+  return opaqueId(
+    "content_space_user",
+    `${normalizeContentSpaceEmail(email)}:${workspaceId.trim()}`,
+  );
+}
+
 export function systemIdsForContentSpace(
   scope: string,
-  role: "files" | "workspaces",
+  role: "files" | "workspaces" | "favorites",
 ) {
   return {
     databaseId: opaqueId(`content_database_${role}`, scope),
@@ -90,7 +109,7 @@ async function ensureSystemDatabase(args: {
   ownerEmail: string;
   orgId: string | null;
   title: string;
-  role: "files" | "workspaces";
+  role: "files" | "workspaces" | "favorites";
   visibility: "private" | "org";
   now: string;
   created: ProvisionedContentSpaces["created"];
@@ -137,7 +156,9 @@ async function ensureSystemDatabase(args: {
         title: args.title,
         systemRole: args.role,
         viewConfigJson: serializeDatabaseViewConfig(
-          defaultDatabaseViewConfig("sidebar"),
+          args.role === "files"
+            ? defaultFilesDatabaseViewConfig(ids.databaseId)
+            : defaultDatabaseViewConfig("table"),
         ),
         createdAt: args.now,
         updatedAt: args.now,
@@ -158,6 +179,22 @@ async function ensureSystemDatabase(args: {
     throw new Error(
       `Unable to provision ${args.role} database for Content space`,
     );
+  if (args.role === "files" && database.title === "Files") {
+    await args.db
+      .update(schema.contentDatabases)
+      .set({ title: args.title, updatedAt: args.now })
+      .where(eq(schema.contentDatabases.id, database.id));
+    await args.db
+      .update(schema.documents)
+      .set({ title: args.title, updatedAt: args.now })
+      .where(eq(schema.documents.id, database.documentId));
+    database.title = args.title;
+  }
+  await ensureFilesSystemPropertyDefinitions({
+    database,
+    db: args.db,
+    now: args.now,
+  });
   return database;
 }
 
@@ -214,26 +251,30 @@ export async function provisionContentSpaces(
       .databaseId,
     catalogDatabaseId: systemIdsForContentSpace(personalSpaceId, "workspaces")
       .databaseId,
+    favoritesDatabaseId: systemIdsForContentSpace(personalSpaceId, "favorites")
+      .databaseId,
+    favoritesDocumentId: systemIdsForContentSpace(personalSpaceId, "favorites")
+      .documentId,
     spaceIds: [],
     created: { spaces: 0, databases: 0, documents: 0, catalogItems: 0 },
   };
 
   await db.transaction(async (tx: Db) => {
+    const [personalSpace] = await tx
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, personalSpaceId));
     const personalFiles = await ensureSystemDatabase({
       db: tx,
       spaceId: personalSpaceId,
       ownerEmail: email,
       orgId: null,
-      title: "Files",
+      title: personalSpace?.name ?? "Personal",
       role: "files",
       visibility: "private",
       now,
       created: result.created,
     });
-    const [personalSpace] = await tx
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, personalSpaceId));
     if (!personalSpace) {
       await tx
         .insert(schema.contentSpaces)
@@ -267,20 +308,31 @@ export async function provisionContentSpaces(
       now,
       created: result.created,
     });
-    await ensureDatabaseItem({
+    const [existingFavorites] = await tx
+      .select({ id: schema.contentDatabases.id })
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, personalSpaceId),
+          eq(schema.contentDatabases.systemRole, "favorites"),
+        ),
+      );
+    const favorites = await ensureSystemDatabase({
       db: tx,
-      databaseId: personalFiles.id,
-      documentId: catalog.documentId,
+      spaceId: personalSpaceId,
       ownerEmail: email,
       orgId: null,
-      position: 0,
+      title: "Favorites",
+      role: "favorites",
+      visibility: "private",
       now,
+      created: result.created,
     });
 
     const spaces = [
       {
         id: personalSpaceId,
-        name: "Personal",
+        name: personalSpace?.name ?? "Personal",
         ownerEmail: email,
         orgId: null as string | null,
         createdBy: email,
@@ -298,31 +350,23 @@ export async function provisionContentSpaces(
         ).databaseId,
       })),
     ];
-    const provisionableOrganizationSpaceIds = new Set(
-      memberships
-        .filter(
-          (membership) =>
-            membership.role === "owner" || membership.role === "admin",
-        )
-        .map((membership) => organizationContentSpaceId(membership.orgId)),
-    );
     for (const space of spaces.slice(1)) {
-      if (!provisionableOrganizationSpaceIds.has(space.id)) continue;
+      const [existingSpace] = await tx
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, space.id));
+      if (existingSpace) space.name = existingSpace.name;
       const files = await ensureSystemDatabase({
         db: tx,
         spaceId: space.id,
         ownerEmail: space.ownerEmail,
         orgId: space.orgId,
-        title: "Files",
+        title: space.name,
         role: "files",
         visibility: "org",
         now,
         created: result.created,
       });
-      const [existingSpace] = await tx
-        .select()
-        .from(schema.contentSpaces)
-        .where(eq(schema.contentSpaces.id, space.id));
       if (!existingSpace) {
         await tx
           .insert(schema.contentSpaces)
@@ -335,18 +379,63 @@ export async function provisionContentSpaces(
           })
           .onConflictDoNothing();
         result.created.spaces += 1;
-      } else if (
-        existingSpace.name !== space.name ||
-        existingSpace.filesDatabaseId !== files.id
-      ) {
+      }
+      if (existingSpace && existingSpace.filesDatabaseId !== files.id) {
         await tx
           .update(schema.contentSpaces)
           .set({
-            name: space.name,
             filesDatabaseId: files.id,
             updatedAt: now,
           })
           .where(eq(schema.contentSpaces.id, space.id));
+      }
+    }
+    if (!existingFavorites) {
+      const accessibleSpaceIds = spaces.map((space) => space.id);
+      const legacyFavorites: Array<typeof schema.documents.$inferSelect> =
+        await tx
+          .select()
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.isFavorite, 1),
+              inArray(schema.documents.spaceId, accessibleSpaceIds),
+            ),
+          );
+      const roleByOrgId = new Map(
+        memberships.map((membership) => [membership.orgId, membership.role]),
+      );
+      const visibleLegacyFavorites = legacyFavorites.filter((document) => {
+        if (!document.orgId) {
+          return normalizeContentSpaceEmail(document.ownerEmail) === email;
+        }
+        return (
+          normalizeContentSpaceEmail(document.ownerEmail) === email ||
+          document.visibility === "org" ||
+          document.visibility === "public" ||
+          roleByOrgId.get(document.orgId) === "owner" ||
+          roleByOrgId.get(document.orgId) === "admin"
+        );
+      });
+      if (visibleLegacyFavorites.length > 0) {
+        await tx
+          .insert(schema.contentDatabaseItems)
+          .values(
+            visibleLegacyFavorites.map((document, position) => ({
+              id: opaqueId(
+                "content_database_item",
+                `${favorites.id}:${document.id}`,
+              ),
+              ownerEmail: email,
+              orgId: null,
+              databaseId: favorites.id,
+              documentId: document.id,
+              position,
+              createdAt: now,
+              updatedAt: now,
+            })),
+          )
+          .onConflictDoNothing();
       }
     }
     const accessibleIds = new Set(spaces.map((space) => space.id));
@@ -393,15 +482,6 @@ export async function provisionContentSpaces(
         ownerEmail: email,
         orgId: null,
         position: index,
-        now,
-      });
-      await ensureDatabaseItem({
-        db: tx,
-        databaseId: personalFiles.id,
-        documentId: referenceDocumentId,
-        ownerEmail: email,
-        orgId: null,
-        position: index + 1,
         now,
       });
       const [existingCatalogItem] = await tx
@@ -451,7 +531,6 @@ export async function provisionContentSpaces(
       db,
     });
   for (const membership of memberships) {
-    if (membership.role !== "owner" && membership.role !== "admin") continue;
     const spaceId = organizationContentSpaceId(membership.orgId);
     const [database] = await db
       .select({
@@ -484,21 +563,24 @@ export async function provisionContentSpaces(
   return result;
 }
 
-export async function provisionSourceBackedContentSpace(
+async function provisionOwnedContentSpace(
   db: Db,
   userEmail: string,
-  input: { connectionId: string; name: string },
+  input: {
+    spaceId: string;
+    name: string;
+    kind: "user" | "source_backed";
+    propertyValues?: Record<string, unknown>;
+  },
 ) {
   const email = normalizeContentSpaceEmail(userEmail);
-  const connectionId = input.connectionId.trim();
-  const name = input.name.trim() || "Local folder";
-  if (!connectionId) throw new Error("Local folder connection ID is required");
+  const name = input.name.trim();
+  if (!name) throw new Error("Workspace name is required");
   await provisionContentSpaces(db, email);
 
   const now = new Date().toISOString();
-  const spaceId = sourceBackedContentSpaceId(email, connectionId);
+  const spaceId = input.spaceId;
   const personalSpaceId = personalContentSpaceId(email);
-  const personalFilesIds = systemIdsForContentSpace(personalSpaceId, "files");
   const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
   const created: ProvisionedContentSpaces["created"] = {
     spaces: 0,
@@ -507,134 +589,254 @@ export async function provisionSourceBackedContentSpace(
     catalogItems: 0,
   };
 
-  const files = await db.transaction(async (tx: Db) => {
-    const sourceFiles = await ensureSystemDatabase({
-      db: tx,
-      spaceId,
-      ownerEmail: email,
-      orgId: null,
-      title: "Files",
-      role: "files",
-      visibility: "private",
-      now,
-      created,
-    });
-    const [existingSpace] = await tx
-      .select()
-      .from(schema.contentSpaces)
-      .where(eq(schema.contentSpaces.id, spaceId));
-    if (!existingSpace) {
-      await tx
-        .insert(schema.contentSpaces)
-        .values({
-          id: spaceId,
-          name,
-          kind: "source_backed",
-          ownerEmail: email,
-          orgId: null,
-          filesDatabaseId: sourceFiles.id,
-          createdBy: email,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoNothing();
-    } else if (
-      existingSpace.name !== name ||
-      existingSpace.filesDatabaseId !== sourceFiles.id
-    ) {
-      await tx
-        .update(schema.contentSpaces)
-        .set({ name, filesDatabaseId: sourceFiles.id, updatedAt: now })
+  const provisioned = await withPositionLock<{
+    files: typeof schema.contentDatabases.$inferSelect;
+    name: string;
+    catalogDatabaseId: string;
+    catalogItemId: string;
+    catalogDocumentId: string;
+  }>(`contentSpace:${spaceId}`, () =>
+    db.transaction(async (tx: Db) => {
+      const [existingSpace] = await tx
+        .select()
+        .from(schema.contentSpaces)
         .where(eq(schema.contentSpaces.id, spaceId));
-    }
-
-    const referenceDocumentId = opaqueId(
-      "content_workspace_reference",
-      `${email}:${spaceId}`,
-    );
-    await ensureDocument(
-      tx,
-      {
-        id: referenceDocumentId,
-        spaceId: personalSpaceId,
+      const sourceFiles = await ensureSystemDatabase({
+        db: tx,
+        spaceId,
         ownerEmail: email,
         orgId: null,
-        parentId: catalogIds.documentId,
-        title: name,
-        content: "",
-        description: "",
-        position: 0,
-        isFavorite: 0,
-        hideFromSearch: 0,
+        title: existingSpace?.name ?? name,
+        role: "files",
         visibility: "private",
-        createdAt: now,
-        updatedAt: now,
-      },
-      created,
-    );
-    await tx
-      .update(schema.documents)
-      .set({ title: name, updatedAt: now })
-      .where(eq(schema.documents.id, referenceDocumentId));
-
-    const [maxCatalogPosition] = await tx
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.databaseId, catalogIds.databaseId));
-    const catalogItemId = await ensureDatabaseItem({
-      db: tx,
-      databaseId: catalogIds.databaseId,
-      documentId: referenceDocumentId,
-      ownerEmail: email,
-      orgId: null,
-      position: (maxCatalogPosition?.max ?? -1) + 1,
-      now,
-    });
-    await ensureDatabaseItem({
-      db: tx,
-      databaseId: personalFilesIds.databaseId,
-      documentId: referenceDocumentId,
-      ownerEmail: email,
-      orgId: null,
-      position: (maxCatalogPosition?.max ?? -1) + 1,
-      now,
-    });
-    const [mapping] = await tx
-      .select({ id: schema.contentSpaceCatalogItems.id })
-      .from(schema.contentSpaceCatalogItems)
-      .where(
-        and(
-          eq(
-            schema.contentSpaceCatalogItems.catalogDatabaseId,
-            catalogIds.databaseId,
-          ),
-          eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
-        ),
+        now,
+        created,
+      });
+      if (
+        existingSpace &&
+        input.kind === "user" &&
+        existingSpace.name !== name
+      ) {
+        throw new Error(
+          "Workspace request ID is already bound to another name",
+        );
+      }
+      let createdSpace = false;
+      if (!existingSpace) {
+        const inserted = await tx
+          .insert(schema.contentSpaces)
+          .values({
+            id: spaceId,
+            name,
+            kind: input.kind,
+            ownerEmail: email,
+            orgId: null,
+            filesDatabaseId: sourceFiles.id,
+            createdBy: email,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing()
+          .returning({ id: schema.contentSpaces.id });
+        createdSpace = inserted.length > 0;
+      } else if (existingSpace.filesDatabaseId !== sourceFiles.id) {
+        await tx
+          .update(schema.contentSpaces)
+          .set({ filesDatabaseId: sourceFiles.id, updatedAt: now })
+          .where(eq(schema.contentSpaces.id, spaceId));
+      }
+      const [canonicalSpace] = await tx
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId));
+      if (!canonicalSpace)
+        throw new Error("Unable to create Content workspace");
+      if (input.kind === "user" && canonicalSpace.name !== name) {
+        throw new Error(
+          "Workspace request ID is already bound to another name",
+        );
+      }
+      const referenceDocumentId = opaqueId(
+        "content_workspace_reference",
+        `${email}:${spaceId}`,
       );
-    if (!mapping) {
-      await tx
-        .insert(schema.contentSpaceCatalogItems)
-        .values({
-          id: opaqueId("content_space_catalog", `${email}:${spaceId}`),
+      await ensureDocument(
+        tx,
+        {
+          id: referenceDocumentId,
+          spaceId: personalSpaceId,
           ownerEmail: email,
-          catalogDatabaseId: catalogIds.databaseId,
-          databaseItemId: catalogItemId,
-          documentId: referenceDocumentId,
-          spaceId,
+          orgId: null,
+          parentId: catalogIds.documentId,
+          title: canonicalSpace.name,
+          content: "",
+          description: "",
+          position: 0,
+          isFavorite: 0,
+          hideFromSearch: 0,
+          visibility: "private",
           createdAt: now,
           updatedAt: now,
-        })
-        .onConflictDoNothing();
-    }
-    return sourceFiles;
-  });
+        },
+        created,
+      );
+      if (createdSpace) {
+        await tx
+          .update(schema.documents)
+          .set({ title: canonicalSpace.name, updatedAt: now })
+          .where(eq(schema.documents.id, referenceDocumentId));
+      }
+
+      const [maxCatalogPosition] = await tx
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.contentDatabaseItems)
+        .where(
+          eq(schema.contentDatabaseItems.databaseId, catalogIds.databaseId),
+        );
+      const catalogItemId = await ensureDatabaseItem({
+        db: tx,
+        databaseId: catalogIds.databaseId,
+        documentId: referenceDocumentId,
+        ownerEmail: email,
+        orgId: null,
+        position: (maxCatalogPosition?.max ?? -1) + 1,
+        now,
+      });
+      const [mapping] = await tx
+        .select({ id: schema.contentSpaceCatalogItems.id })
+        .from(schema.contentSpaceCatalogItems)
+        .where(
+          and(
+            eq(
+              schema.contentSpaceCatalogItems.catalogDatabaseId,
+              catalogIds.databaseId,
+            ),
+            eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
+          ),
+        );
+      if (!mapping) {
+        await tx
+          .insert(schema.contentSpaceCatalogItems)
+          .values({
+            id: opaqueId("content_space_catalog", `${email}:${spaceId}`),
+            ownerEmail: email,
+            catalogDatabaseId: catalogIds.databaseId,
+            databaseItemId: catalogItemId,
+            documentId: referenceDocumentId,
+            spaceId,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing();
+      }
+      const initialPropertyValues = Object.entries(input.propertyValues ?? {});
+      if (createdSpace && initialPropertyValues.length > 0) {
+        const definitions = (await tx
+          .select()
+          .from(schema.documentPropertyDefinitions)
+          .where(
+            and(
+              eq(
+                schema.documentPropertyDefinitions.databaseId,
+                catalogIds.databaseId,
+              ),
+              inArray(
+                schema.documentPropertyDefinitions.id,
+                initialPropertyValues.map(([propertyId]) => propertyId),
+              ),
+            ),
+          )) as Array<typeof schema.documentPropertyDefinitions.$inferSelect>;
+        const definitionById = new Map(
+          definitions.map((definition) => [definition.id, definition]),
+        );
+        for (const [propertyId, value] of initialPropertyValues) {
+          const definition = definitionById.get(propertyId);
+          const type = definition?.type as DocumentPropertyType | undefined;
+          if (!type || isComputedPropertyType(type)) continue;
+          await tx
+            .insert(schema.documentPropertyValues)
+            .values({
+              id: opaqueId(
+                "content_workspace_property",
+                `${email}:${spaceId}:${propertyId}`,
+              ),
+              ownerEmail: email,
+              documentId: referenceDocumentId,
+              propertyId,
+              valueJson: normalizedValueJson(type, value),
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: schema.documentPropertyValues.id,
+              set: {
+                valueJson: normalizedValueJson(type, value),
+                updatedAt: now,
+              },
+            });
+        }
+      }
+      return {
+        files: sourceFiles,
+        name: canonicalSpace.name,
+        catalogDatabaseId: catalogIds.databaseId,
+        catalogItemId,
+        catalogDocumentId: referenceDocumentId,
+      };
+    }),
+  );
 
   await seedDefaultBlocksField({
-    databaseId: files.id,
-    ownerEmail: files.ownerEmail,
-    orgId: files.orgId,
+    databaseId: provisioned.files.id,
+    ownerEmail: provisioned.files.ownerEmail,
+    orgId: provisioned.files.orgId,
     now,
     db,
   });
-  return { spaceId, filesDatabaseId: files.id };
+  return {
+    spaceId,
+    name: provisioned.name,
+    filesDatabaseId: provisioned.files.id,
+    catalogDatabaseId: provisioned.catalogDatabaseId,
+    catalogItemId: provisioned.catalogItemId,
+    catalogDocumentId: provisioned.catalogDocumentId,
+  };
+}
+
+export async function provisionSourceBackedContentSpace(
+  db: Db,
+  userEmail: string,
+  input: {
+    connectionId: string;
+    name: string;
+    propertyValues?: Record<string, unknown>;
+  },
+) {
+  const connectionId = input.connectionId.trim();
+  if (!connectionId) throw new Error("Local folder connection ID is required");
+  return provisionOwnedContentSpace(db, userEmail, {
+    spaceId: sourceBackedContentSpaceId(userEmail, connectionId),
+    name: input.name.trim() || "Local folder",
+    kind: "source_backed",
+    propertyValues: input.propertyValues,
+  });
+}
+
+export async function provisionUserContentSpace(
+  db: Db,
+  userEmail: string,
+  input: {
+    workspaceId: string;
+    name: string;
+    propertyValues?: Record<string, unknown>;
+  },
+) {
+  const workspaceId = input.workspaceId.trim();
+  if (!workspaceId) throw new Error("Workspace ID is required");
+  return provisionOwnedContentSpace(db, userEmail, {
+    spaceId: userContentSpaceId(userEmail, workspaceId),
+    name: input.name,
+    kind: "user",
+    propertyValues: input.propertyValues,
+  });
 }

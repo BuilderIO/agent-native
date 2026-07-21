@@ -1,8 +1,8 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,

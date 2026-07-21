@@ -1,4 +1,4 @@
-import { useFormatters, useT } from "@agent-native/core/client";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   IconDots,
   IconLock,
@@ -7,10 +7,12 @@ import {
   IconPlayerPlay,
   IconShare,
   IconFolder,
+  IconFolderPlus,
   IconArchive,
   IconTrash,
   IconCheck,
   IconAlertTriangle,
+  IconExternalLink,
 } from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -31,6 +33,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { isDefaultTitle } from "@/hooks/use-auto-title";
 import type { RecordingSummary } from "@/hooks/use-library";
+import { attemptOpenDesktopApp } from "@/lib/capture-install-options";
 import { isStaleRecordingUpload } from "@/lib/recording-status";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
@@ -67,6 +70,7 @@ interface RecordingCardProps {
   onMove?: (rec: RecordingSummary, folderId: string | null) => void;
   moveTargets?: BulkMoveTarget[];
   isMovePending?: boolean;
+  onCreateFolder?: () => void;
   onArchive?: (rec: RecordingSummary) => void;
   onTrash?: (rec: RecordingSummary) => void;
   readOnly?: boolean;
@@ -81,6 +85,7 @@ export function RecordingCard({
   onMove,
   moveTargets = [],
   isMovePending = false,
+  onCreateFolder,
   onArchive,
   onTrash,
   readOnly = false,
@@ -120,8 +125,7 @@ export function RecordingCard({
     );
   const canMove = Boolean(onMove && moveTargets.length > 0);
   const canSelect = Boolean(onToggleSelect) && !readOnly;
-  const showActions =
-    !readOnly && Boolean(onShare || onMove || onArchive || onTrash);
+  const showActions = Boolean(onShare || onMove || onArchive || onTrash);
   const hasDefaultTitle = isDefaultTitle(recording.title);
   const displayTitle = hasDefaultTitle
     ? t("editableTitle.untitled")
@@ -174,6 +178,11 @@ export function RecordingCard({
     },
     [onTrash, recording],
   );
+
+  const handleOpenDesktopApp = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    attemptOpenDesktopApp();
+  }, []);
 
   return (
     <div
@@ -281,6 +290,16 @@ export function RecordingCard({
                       ? t("clipsFinalRaw.retryFromClipsMenu")
                       : failureReason}
                 </div>
+                {nativeUploadPaused ? (
+                  <button
+                    type="button"
+                    onClick={handleOpenDesktopApp}
+                    className="pointer-events-auto mt-1.5 inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-medium text-foreground hover:bg-accent"
+                  >
+                    <IconExternalLink className="h-3 w-3" />
+                    {t("captureInstall.openDesktopApp")}
+                  </button>
+                ) : null}
               </div>
               {!waitingForStorage && onTrash && (
                 <button
@@ -310,6 +329,17 @@ export function RecordingCard({
                 {displayTitle}
               </div>
             )}
+            <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Avatar className="h-4 w-4 shrink-0">
+                <AvatarImage src="" alt={recording.ownerEmail} />
+                <AvatarFallback className="bg-primary/15 text-[8px] text-primary">
+                  {ownerInitials}
+                </AvatarFallback>
+              </Avatar>
+              <span className="min-w-0 truncate">{recording.ownerEmail}</span>
+              <span aria-hidden>•</span>
+              <span className="shrink-0">{relative}</span>
+            </div>
             <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <PrivacyIcon
                 visibility={recording.visibility}
@@ -333,8 +363,6 @@ export function RecordingCard({
                   })}
                 </span>
               )}
-              <span>•</span>
-              <span>{relative}</span>
             </div>
           </div>
 
@@ -365,6 +393,16 @@ export function RecordingCard({
                       {t("clipsFinalRaw.moveToFolder")}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="w-64">
+                      <DropdownMenuItem
+                        disabled={isMovePending}
+                        onSelect={() => {
+                          setTimeout(() => onCreateFolder?.(), 0);
+                        }}
+                      >
+                        <IconFolderPlus className="h-4 w-4 me-2" />
+                        {t("navigation.newFolder")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
                       {moveTargets.map((target, index) => (
                         <DropdownMenuItem
                           key={target.id ?? `root-${index}`}
@@ -416,34 +454,23 @@ export function RecordingCard({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <Avatar className="h-5 w-5">
-            <AvatarImage src="" alt={recording.ownerEmail} />
-            <AvatarFallback className="text-[9px] bg-primary/15 text-primary">
-              {ownerInitials}
-            </AvatarFallback>
-          </Avatar>
-          <span className="text-xs text-muted-foreground truncate">
-            {recording.ownerEmail}
-          </span>
-          {recording.tags.length > 0 && (
-            <div className="ms-auto flex items-center gap-1 truncate">
-              {recording.tags.slice(0, 2).map((t) => (
-                <span
-                  key={t}
-                  className="rounded-full bg-primary/10 text-primary text-[10px] px-1.5 py-0.5"
-                >
-                  {t}
-                </span>
-              ))}
-              {recording.tags.length > 2 && (
-                <span className="text-[10px] text-muted-foreground">
-                  +{recording.tags.length - 2}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+        {recording.tags.length > 0 && (
+          <div className="flex items-center gap-1 truncate">
+            {recording.tags.slice(0, 2).map((t) => (
+              <span
+                key={t}
+                className="rounded-full bg-primary/10 text-primary text-[10px] px-1.5 py-0.5"
+              >
+                {t}
+              </span>
+            ))}
+            {recording.tags.length > 2 && (
+              <span className="text-[10px] text-muted-foreground">
+                +{recording.tags.length - 2}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

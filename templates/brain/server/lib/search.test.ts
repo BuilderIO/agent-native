@@ -58,6 +58,9 @@ const mocks = vi.hoisted(() => {
       "importedBy",
       "status",
       "distilledAt",
+      "sensitivityDisposition",
+      "sensitivityPolicyVersion",
+      "audienceAclHash",
       "createdAt",
       "updatedAt",
     ]),
@@ -88,6 +91,12 @@ const mocks = vi.hoisted(() => {
       "updatedAt",
     ]),
     brainKnowledgeShares: table("brainKnowledgeShares", ["id"]),
+    brainCaptureAudiences: table("brainCaptureAudiences", [
+      "id",
+      "captureId",
+      "audienceId",
+      "aclHash",
+    ]),
   };
 
   const rows = {
@@ -185,6 +194,10 @@ vi.mock("../db/index.js", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   accessFilter: () => ({ op: "access" }),
+}));
+
+vi.mock("./audiences.js", () => ({
+  listAccessibleAudienceIds: vi.fn(async () => ["aud_org"]),
 }));
 
 vi.mock("@agent-native/core/workspace-connections", () => ({
@@ -431,6 +444,11 @@ function resetRows() {
       updatedAt: now,
     },
   );
+  for (const capture of mocks.rows.captures) {
+    capture.sensitivityDisposition = "allowed";
+    capture.sensitivityPolicyVersion = "1";
+    capture.audienceAclHash = "acl-hash";
+  }
 }
 
 beforeEach(resetRows);
@@ -511,6 +529,15 @@ describe("Brain universal search helpers", () => {
       sourceUrlFromMetadata({
         sourceUrl: "https://notes.granola.ai/d/private-call",
       }),
+    ).toBeNull();
+    expect(
+      sourceUrlFromMetadata({ sourceUrl: "javascript:alert(1)" }),
+    ).toBeNull();
+    expect(
+      sourceUrlFromMetadata({ sourceUrl: "data:text/html,test" }),
+    ).toBeNull();
+    expect(
+      sourceUrlFromMetadata({ sourceUrl: "http://docs.example/a" }),
     ).toBeNull();
   });
 

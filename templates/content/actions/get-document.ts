@@ -1,12 +1,14 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  parseDocumentFavorite,
-  parseDocumentHideFromSearch,
-} from "../server/lib/documents.js";
+import { getDb, schema } from "../server/db/index.js";
+import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import { favoriteDocumentIds } from "./_content-favorites.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   getDatabaseByDocumentId,
   getDocumentContextPath,
@@ -15,7 +17,6 @@ import {
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import "../server/db/index.js";
 import {
   listPropertiesForDocument,
   serializeDatabase,
@@ -29,6 +30,26 @@ function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
 
+async function resolveDocumentAccess(id: string) {
+  const current = await resolveAccess("document", id);
+  if (current) return current;
+  const [reference] = await getDb()
+    .select({ spaceId: schema.documents.spaceId })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, id))
+    .limit(1);
+  if (!reference?.spaceId) return null;
+  try {
+    const spaceAccess = await resolveContentSpaceAccess(reference.spaceId);
+    return resolveAccess("document", id, {
+      userEmail: spaceAccess.authority.userEmail,
+      orgId: spaceAccess.authority.orgId ?? undefined,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export default defineAction({
   description: "Get a single document by ID with full content.",
   schema: z.object({
@@ -40,7 +61,7 @@ export default defineAction({
   run: async (args) => {
     if (!args.id) throw new Error("--id is required");
 
-    const access = await resolveAccess("document", args.id);
+    const access = await resolveDocumentAccess(args.id);
     // Not-found is a deterministic client-state condition (deleted or
     // inaccessible document still referenced by an open tab) — 404, not a
     // 500 that floods the console as Internal Server Error.
@@ -49,7 +70,10 @@ export default defineAction({
         statusCode: 404,
       });
     }
-    if (await isSoftDeletedDatabaseDocument(args.id)) {
+    if (
+      access.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(args.id))
+    ) {
       throw Object.assign(new Error(`Document "${args.id}" not found`), {
         statusCode: 404,
       });
@@ -57,6 +81,10 @@ export default defineAction({
     const doc = access.resource;
     const database = await getDatabaseByDocumentId(doc.id);
     const databaseMembership = await getDatabaseItemByDocumentId(doc.id);
+    const userEmail = getRequestUserEmail();
+    const favoriteIds = userEmail
+      ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
+      : new Set<string>();
 
     return {
       id: doc.id,
@@ -71,7 +99,7 @@ export default defineAction({
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
+      isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       source: serializeDocumentSource(doc),

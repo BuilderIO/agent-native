@@ -1,6 +1,11 @@
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
-import { setupCreativeContext } from "@agent-native/creative-context/server";
+import {
+  registerNativeResourceCaptureAdapter,
+  setupCreativeContext,
+} from "@agent-native/creative-context/server";
 import { listContextSources } from "@agent-native/creative-context/store";
+
+import { nativeDesignCreativeContextAdapter } from "../lib/native-creative-context.js";
 
 registerOnboardingStep({
   id: "creative-context-library",
@@ -27,5 +32,7 @@ registerOnboardingStep({
     }
   },
 });
+
+registerNativeResourceCaptureAdapter(nativeDesignCreativeContextAdapter);
 
 export default setupCreativeContext({ appId: "design" });

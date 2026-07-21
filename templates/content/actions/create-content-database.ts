@@ -5,7 +5,13 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  accessFilter,
+  assertAccess,
+  currentAccess,
+  ForbiddenError,
+  type ShareRole,
+} from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -154,13 +160,38 @@ export async function resolveContentDatabaseSpace(
   if (!userEmail) throw new Error("no authenticated user");
   const provisioned = await provisionContentSpaces(db, userEmail);
   const spaceId = args.spaceId ?? provisioned.personalSpaceId;
-  await resolveContentSpaceAccess(spaceId, "editor");
+  await resolveContentSpaceAccess(spaceId, "contributor");
   return spaceId;
+}
+
+async function assertDocumentEditorAccess(db: any, documentId: string) {
+  const [document] = await db
+    .select()
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, documentId),
+        accessFilter(
+          schema.documents,
+          schema.documentShares,
+          currentAccess(),
+          "editor",
+        ),
+      ),
+    );
+  if (!document) {
+    throw new ForbiddenError(`No editor access to document ${documentId}`);
+  }
+  return document;
 }
 
 export async function createContentDatabaseRecord(
   args: CreateDatabaseRequest,
-  options: { db?: any; spaceId?: string } = {},
+  options: {
+    db?: any;
+    spaceId?: string;
+    resolveSpaceAccess?: typeof resolveContentSpaceAccess;
+  } = {},
 ): Promise<string> {
   const db = options.db ?? getDb();
   const now = new Date().toISOString();
@@ -178,8 +209,7 @@ export async function createContentDatabaseRecord(
   }> = [];
 
   if (documentId) {
-    const access = await assertAccess("document", documentId, "editor");
-    const document = access.resource;
+    const document = await assertDocumentEditorAccess(db, documentId);
     ownerEmail = document.ownerEmail as string;
     orgId = (document.orgId as string | null) ?? null;
     spaceId = (document.spaceId as string | null) ?? spaceId;
@@ -230,8 +260,7 @@ export async function createContentDatabaseRecord(
     let hideFromSearch = 0;
 
     if (parentId) {
-      const parentAccess = await assertAccess("document", parentId, "editor");
-      const parent = parentAccess.resource;
+      const parent = await assertDocumentEditorAccess(db, parentId);
       ownerEmail = parent.ownerEmail as string;
       orgId = (parent.orgId as string | null) ?? null;
       spaceId = (parent.spaceId as string | null) ?? spaceId;
@@ -257,7 +286,12 @@ export async function createContentDatabaseRecord(
           "A top-level database requires a resolved Content space",
         );
       }
-      const spaceAccess = await resolveContentSpaceAccess(spaceId, "editor");
+      const spaceAccess = await (
+        options.resolveSpaceAccess ?? resolveContentSpaceAccess
+      )(spaceId, "contributor", { db });
+      if (spaceAccess.space.id !== spaceId) {
+        throw new Error("Resolved Content space does not match the request");
+      }
       ownerEmail = getRequestUserEmail() ?? ownerEmail;
       orgId = spaceAccess.space.orgId;
       visibility = orgId ? "org" : "private";

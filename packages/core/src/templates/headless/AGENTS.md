@@ -39,6 +39,14 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
   `node_modules/@agent-native/core/corpus/` for source examples.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. When adding or
+customizing a browser UI, read `customizing-agent-native`.
+Use the supported ladder: configure → compose → eject the smallest unit →
+propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
+commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+private source, or eject protected runtime/action contracts.
+
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` for app-specific rules, then use
 the corpus for reusable framework/template patterns.
@@ -82,3 +90,7 @@ pnpm agent "Call the hello action for Builder and explain the result"
 Skills in `.agents/skills/` provide detailed guidance. Read
 `.agents/skills/agent-native-docs/SKILL.md` before using advanced Agent Native
 framework APIs, generated-app features, automations, A2A, sharing, or MCP.
+Read `.agents/skills/agent-native-toolkit/SKILL.md` before adding common
+workspace, agent, chat, settings, navigation, or collaboration UI.
+Read `.agents/skills/customizing-agent-native/SKILL.md` before adding UI or
+overriding shared Agent Native features.

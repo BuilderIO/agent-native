@@ -1,13 +1,10 @@
-import {
-  VisibilityBadge,
-  callAction,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconPlus,
   IconDots,

@@ -1,0 +1,55 @@
+---
+title: "Editors & Canvases"
+description: "Choose reusable editor and canvas surfaces without confusing Core compatibility APIs, template patterns, and Toolkit primitives."
+---
+
+# Editors & canvases
+
+Editors and canvases are related product surfaces, not one flagship feature.
+Choose the smallest reusable layer that matches the interaction your app owns.
+
+## Ownership today
+
+| Surface             | Current owner and maturity                     | Use it when                                                                                                      |
+| ------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Rich editor         | Toolkit, with Core compatibility re-exports    | You need portable rich editing, markdown, slash commands, images, drag handles, or collaboration reconciliation. |
+| Blocks              | Core in this phase                             | You need registered, structured blocks and their runtime contract.                                               |
+| Design              | Template pattern plus reusable `design-tweaks` | You are building a Design-like workflow and can own its domain behavior.                                         |
+| Canvas presentation | Toolkit or app composition                     | You need reusable UI around an app-specific canvas model.                                                        |
+
+## Choose deliberately
+
+Import the portable editor surface from `@agent-native/toolkit/editor`:
+
+```tsx
+import {
+  RichMarkdownEditor,
+  createSharedEditorExtensions,
+  useCollabReconcile,
+} from "@agent-native/toolkit/editor";
+```
+
+Existing imports from `@agent-native/core/client` and
+`@agent-native/core/client/editor` continue to work as compatibility
+re-exports. Keep app-specific schemas, commands, persistence, upload actions,
+and registry adapters in your app or Core as appropriate.
+
+Design is not a drop-in replacement for an editor or general canvas. The
+[Design template](/docs/template-design) demonstrates a complete product
+pattern; `design-tweaks` are reusable presentation adjustments within that
+pattern. Reuse them when they fit, but do not assume they supply a complete
+canvas data model, collaboration model, or workflow.
+
+Blocks remain Core-owned because the browser and server contracts share one
+implementation. They are documented here alongside editors and canvases
+because Toolkit docs are the discovery catalog for reusable UI, regardless of
+which package currently owns the implementation. Register and render blocks
+through the Core contract so the agent and UI share the same structured
+vocabulary.
+
+## Related docs
+
+- [Toolkit overview](/docs/agent-native-toolkit) — the full catalog and ownership boundary.
+- [Component API](/docs/components) — public React exports and rich-editor compatibility details.
+- [Real-time collaboration](/docs/real-time-collaboration) — presence and collaborative editing foundations.
+- [Design template](/docs/template-design) — the Design product pattern.

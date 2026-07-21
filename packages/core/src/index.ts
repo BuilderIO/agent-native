@@ -142,6 +142,21 @@ export {
   type AutomationWorkflowDefinition,
   type JsonSchema,
 } from "./automation/index.js";
+export {
+  createFeatureFlagsPlugin,
+  defineFeatureFlag,
+  defineFeatureFlags,
+  evaluateFeatureFlag,
+  getFeatureFlagDefinition,
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  listFeatureFlags,
+  registerFeatureFlags,
+  type FeatureFlagDefinition,
+  type FeatureFlagMode,
+  type FeatureFlagRules,
+  type FeatureFlagScope,
+} from "./feature-flags/index.js";
 
 // Server
 export {
@@ -320,6 +335,7 @@ export {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   providerReaderSupports,
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
@@ -384,6 +400,8 @@ export * from "./review/index.js";
 export * from "./org-team/index.js";
 export * from "./navigation/index.js";
 export * from "./command-navigation/index.js";
+export * from "./search/index.js";
+export * from "./embeddings/index.js";
 export {
   registerWorkspaceConnectionOnboardingStep,
   type RegisterWorkspaceConnectionOnboardingStepOptions,

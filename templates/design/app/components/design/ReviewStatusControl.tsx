@@ -1,8 +1,8 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   ReviewStatusBadge,
   useSetReviewStatus,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/review";
 import type { ReviewStatus } from "@agent-native/core/review";
 import { IconChevronDown } from "@tabler/icons-react";
 import { toast } from "sonner";

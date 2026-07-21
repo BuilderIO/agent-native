@@ -6,6 +6,7 @@ describe("normalizeCreativeContextState", () => {
   it("defaults missing state to automatic context", () => {
     expect(normalizeCreativeContextState(null)).toEqual({
       contextMode: "auto",
+      selectedContextId: null,
       currentPackId: null,
       pinnedPackId: null,
     });
@@ -15,11 +16,13 @@ describe("normalizeCreativeContextState", () => {
     expect(
       normalizeCreativeContextState({
         contextMode: "off",
+        selectedContextId: "selected-context",
         currentPackId: "current-pack",
         pinnedPackId: "pinned-pack",
       }),
     ).toEqual({
       contextMode: "off",
+      selectedContextId: null,
       currentPackId: null,
       pinnedPackId: null,
     });
@@ -29,11 +32,13 @@ describe("normalizeCreativeContextState", () => {
     expect(
       normalizeCreativeContextState({
         contextMode: "auto",
+        selectedContextId: " selected-context ",
         currentPackId: " current-pack ",
         pinnedPackId: "pinned-pack",
       }),
     ).toEqual({
       contextMode: "auto",
+      selectedContextId: "selected-context",
       currentPackId: "current-pack",
       pinnedPackId: "pinned-pack",
     });

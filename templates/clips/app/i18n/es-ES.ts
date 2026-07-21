@@ -625,10 +625,10 @@ const messages = {
     pageTitle: "Unirse al equipo · Clips",
   },
   settings: {
-    openAgentSettings: "Abrir ajustes del agente",
+    openAgentSettings: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    agentTitle: "Ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Gestionar agente",
     title: "Ajustes",
     pageTitle: "Ajustes · Clips",
     intro: "Preferencias y servicios conectados para este espacio de Clips.",
@@ -636,6 +636,16 @@ const messages = {
     languageDescription:
       "Elige el idioma de la interfaz para esta cuenta. Clips lo recordará en todos tus dispositivos.",
     languageLabel: "Idioma de la interfaz",
+    uploadWorkspaceTitle: "Espacio activo",
+    uploadWorkspaceDescription:
+      "Elige el espacio que Clips usará para las nuevas grabaciones, incluidas las cargas desde el escritorio.",
+    uploadWorkspaceLabel: "Espacio actual",
+    uploadWorkspacePlaceholder: "Elige un espacio",
+    uploadWorkspaceHint:
+      "Al cambiarlo también se actualizan las vistas de Clips vinculadas al espacio.",
+    uploadWorkspaceSaving: "Guardando espacio…",
+    uploadWorkspaceSaved: "Espacio activo actualizado",
+    uploadWorkspaceSaveFailed: "No se pudo actualizar el espacio activo",
     whatsNew: "Novedades",
     changelogEmpty: "Aún no hay actualizaciones.",
     viewAllUpdates: "Ver todas las actualizaciones",
@@ -939,6 +949,18 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     summary: "Resumen",
     keyPoints: "Puntos clave",
     actionItems: "Elementos de acción",
+    sharedContent: "Contenido compartido",
+    summaryIncluded: "Resumen, puntos clave y elementos de acción",
+    includeTranscript: "Incluir la transcripción completa",
+    includeTranscriptDescription:
+      "Cualquier persona con acceso a esta reunión puede leer la transcripción completa.",
+    transcriptUnavailable: "La transcripción aún no está lista.",
+    transcript: "Transcripción",
+    copyTranscript: "Copiar transcripción",
+    transcriptCopied: "Transcripción copiada",
+    copyTranscriptFailed: "No se pudo copiar la transcripción",
+    updateTranscriptSharingFailed:
+      "No se pudo actualizar el uso compartido de la transcripción",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip movido a la papelera",
@@ -1390,7 +1412,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     connectStorageToFinish:
       "Ábrelo para conectar almacenamiento y terminar de guardar.",
     retryFromClipsMenu:
-      "Reintenta desde el menú de Clips; no hace falta grabar de nuevo.",
+      "Abre Clips desde la barra de menús para reintentar esta carga guardada; no hace falta grabar de nuevo.",
     removeFailedClip: "Eliminar este clip fallido.",
     remove: "Eliminar",
     viewsCount: "{{count}} visualizaciones",
@@ -1505,6 +1527,23 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localizado)",
   },
+  rewindExtension: {
+    title: "Añadir lo que ocurrió antes",
+    description:
+      "Elige un intervalo del Rewind local y añádelo al inicio de este clip. No se añade nada automáticamente.",
+    progressLabel: "Progreso del procesamiento del historial de Rewind",
+    privateFirstTitle: "Haz privado este clip primero",
+    privateFirstDescription:
+      "El historial local de Rewind puede incluir contexto anterior al inicio de la grabación. Esto hará privado el clip. Si alguien aún tiene acceso directo, Clips se detendrá para que lo elimines primero en Compartir.",
+    makePrivateContinue: "Hacer privado y continuar",
+    add30Seconds: "Añadir los 30 segundos anteriores",
+    add5Minutes: "Añadir los 5 minutos anteriores",
+    add5MinutesDescription:
+      "Útil para recuperar el inicio de una explicación más larga.",
+    privateReady:
+      "Este clip es privado. Ya puedes añadir el historial local de Rewind.",
+  },
+  timeline: { clipStartedHere: "El clip empezó aquí" },
 };
 
 export default messages;

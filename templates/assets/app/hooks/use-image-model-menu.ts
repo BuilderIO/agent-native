@@ -1,8 +1,8 @@
 import {
   readClientAppState,
-  useT,
   writeClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 // The composer's model picker shows the chat LLM (Claude/OpenAI/Gemini). The

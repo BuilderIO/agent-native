@@ -197,4 +197,32 @@ export function registerFrameworkSecrets(): void {
       required: false,
     });
   }
+
+  if (!getRequiredSecret("FIGMA_ACCESS_TOKEN")) {
+    registerRequiredSecret({
+      key: "FIGMA_ACCESS_TOKEN",
+      label: "Figma access token",
+      description:
+        "Optional fallback for reading Figma file and node context when the hosted Figma MCP server is unavailable. Generate a personal access token with current_user:read and file_content:read.",
+      docsUrl:
+        "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.figma.com/v1/me", {
+          headers: {
+            "X-Figma-Token": value,
+            "User-Agent": "AgentNative/1.0",
+          },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Figma rejected the token (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
 }

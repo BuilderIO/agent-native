@@ -3,7 +3,7 @@ import {
   readClientAppState,
   setClientAppState,
   useChangeVersion,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useState } from "react";
 
 export const CREATIVE_CONTEXT_STATE_KEY = "creative-context";
@@ -12,12 +12,14 @@ export type CreativeContextMode = "auto" | "off";
 
 export interface CreativeContextApplicationState {
   contextMode: CreativeContextMode;
+  selectedContextId?: string | null;
   currentPackId?: string | null;
   pinnedPackId?: string | null;
 }
 
 export const DEFAULT_CREATIVE_CONTEXT_STATE: CreativeContextApplicationState = {
   contextMode: "auto",
+  selectedContextId: null,
   currentPackId: null,
   pinnedPackId: null,
 };
@@ -38,12 +40,14 @@ export function normalizeCreativeContextState(
   if (contextMode === "off") {
     return {
       contextMode,
+      selectedContextId: null,
       currentPackId: null,
       pinnedPackId: null,
     };
   }
   return {
     contextMode,
+    selectedContextId: normalizePackId(record.selectedContextId),
     currentPackId: normalizePackId(record.currentPackId),
     pinnedPackId: normalizePackId(record.pinnedPackId),
   };
@@ -76,8 +80,18 @@ export async function setCreativeContextMode(
   const state = current ?? (await readCreativeContextState());
   return setCreativeContextState(
     mode === "off"
-      ? { contextMode: "off", currentPackId: null, pinnedPackId: null }
-      : { ...state, contextMode: "auto" },
+      ? {
+          contextMode: "off",
+          selectedContextId: null,
+          currentPackId: null,
+          pinnedPackId: null,
+        }
+      : {
+          ...state,
+          contextMode: "auto",
+          selectedContextId: null,
+          pinnedPackId: null,
+        },
   );
 }
 
@@ -89,7 +103,21 @@ export async function setPinnedCreativeContextPack(
   return setCreativeContextState({
     ...state,
     contextMode: "auto",
+    selectedContextId: null,
     pinnedPackId: normalizePackId(packId),
+  });
+}
+
+export async function setSelectedCreativeContext(
+  contextId: string | null,
+  current?: CreativeContextApplicationState,
+): Promise<CreativeContextApplicationState> {
+  const state = current ?? (await readCreativeContextState());
+  return setCreativeContextState({
+    ...state,
+    contextMode: "auto",
+    selectedContextId: normalizePackId(contextId),
+    pinnedPackId: null,
   });
 }
 

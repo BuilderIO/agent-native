@@ -1,16 +1,15 @@
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
+import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  appPath,
   useActionMutation,
   useActionQuery,
   useSession,
-  AgentPanel,
-  agentNativePath,
   getBrowserTabId,
   readClientAppState,
   writeClientAppState,
   useChangeVersions,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   BUILDER_CREDITS_UPGRADE_URL,
   type BuilderCreditsStatus,
@@ -92,7 +91,7 @@ import { cn } from "@/lib/utils";
 import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
-const PROCESSING_STUCK_TIMEOUT_MS = 2 * 60 * 1000;
+const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
@@ -376,6 +375,7 @@ export default function RecordingPage() {
   }, [recordingId, playerDataForbidden, navigate]);
 
   const recording = playerDataQ.data?.recording;
+  const verificationPending = recording?.verificationPending === true;
   const role = playerDataQ.data?.role as
     | "owner"
     | "admin"
@@ -781,13 +781,22 @@ export default function RecordingPage() {
       setProcessingTimeout(false);
       return;
     }
+    if (verificationPending) {
+      setProcessingTimeout(false);
+      return;
+    }
     const timeoutMs =
       recording.status === "processing"
         ? PROCESSING_STUCK_TIMEOUT_MS
         : UPLOAD_STUCK_TIMEOUT_MS;
     const handle = setTimeout(() => setProcessingTimeout(true), timeoutMs);
     return () => clearTimeout(handle);
-  }, [recording?.status, recording?.videoUrl, recordingId]);
+  }, [
+    recording?.status,
+    recording?.videoUrl,
+    recordingId,
+    verificationPending,
+  ]);
 
   usePlayerShortcuts({ playerRef, chapters });
 
@@ -873,7 +882,8 @@ export default function RecordingPage() {
       isNativeSaveFailureReason(rawFailureReason);
     // Give a long-running desktop save an actionable recovery state without
     // claiming the upload failed while its bounded final request is still live.
-    const stuckFailure = !explicitFailure && processingTimeout;
+    const stuckFailure =
+      !explicitFailure && !verificationPending && processingTimeout;
     const isFailure = explicitFailure || waitingForStorage || nativeSaveFailed;
     const showRecoveryState = isFailure || stuckFailure;
     const displayReason = explicitFailure

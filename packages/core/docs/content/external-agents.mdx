@@ -90,7 +90,7 @@ The identity rule is the safety hinge: the link is just `view` + record ids + fi
 - **Your own runtime behind Agent-Native chat:** see [Agent Surfaces](/docs/agent-surfaces#byo-agent) and [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes) when an agent built with another framework should power `<AssistantChat runtime={...}>`.
 - **Your app consuming MCP tools:** see [MCP Clients](/docs/mcp-clients) when an agent-native app needs to call tools exposed by another MCP server.
 - **Another app or agent via A2A:** use [Agent Mentions](/docs/agent-mentions) and [A2A](/docs/a2a-protocol) when agent-native apps should discover and delegate to each other.
-- **Local custom sub-agents:** use [Workspace](/docs/workspace) when you want custom agent profiles inside the agent-native workspace itself.
+- **Local custom sub-agents:** use [Agent Resources](/docs/workspace) when you want custom agent profiles inside the app's own agent resources.
 
 ## Easy setup {#easy-setup}
 
@@ -559,6 +559,14 @@ the inline wait expires. Poll with `ask_app_status` using the returned `app`
 and `taskId`; the result includes `pollAfterMs` as a host-friendly interval.
 The task must be created before the first response can time out, so a polling
 URL returned only after a long call is not a reliable recovery contract.
+
+If a bounded transient status read is unavailable, `ask_app_status` can return
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
+original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
+read is unavailable—not that the durable task failed. Retry `ask_app_status`
+with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
+submission can duplicate work. Permanent authentication, not-found, and
+protocol failures remain errors.
 
 ### Per-app tour {#tour}
 

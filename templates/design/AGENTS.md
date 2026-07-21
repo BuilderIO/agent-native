@@ -7,6 +7,11 @@ through actions against the shared SQL state.
 Keep this file essential. Detailed generation, design-system, export, and UI
 patterns live in `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -178,6 +183,11 @@ patterns live in `.agents/skills/`.
   `.agents/skills/creative-context/SKILL.md`: explicit request and current
   design first, then a pinned/current pack, then narrow library search. Respect
   `creative-context.contextMode: "off"` without silently restoring a pack.
+- To submit a design to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it captures one immutable live design snapshot.
+  Reuse only a returned opaque native clone reference through the Design clone action.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
   through `index-design-system-with-builder` or the Design System Setup `.fig`
@@ -256,7 +266,8 @@ patterns live in `.agents/skills/`.
   `connect-localhost`; list them with `list-localhost-connections` before
   creating or resolving local-code artboards. Fusion designs are full-app
   designs backed by a running Builder Fusion container, created via
-  `create-fusion-app` when `FULL_APP_BUILDING_ENABLED` is on; preserve the
+  `create-fusion-app` when the `full-app-building` feature flag is enabled;
+  preserve the
   design's `fusionApp` linkage data whenever present and never invent it.
 - Localhost route manifests are scaffolding for URL-backed Flow Canvas
   artboards. Use `add-localhost-screens` to place routes or path/query states as
@@ -426,8 +437,9 @@ patterns live in `.agents/skills/`.
 
 ## Full App Building
 
-Flag-gated (`FULL_APP_BUILDING_ENABLED` in `shared/full-app.ts`, default off)
-and requires Builder connected. See `full-app-build` skill for the full flow.
+Flag-gated by `FULL_APP_BUILDING` in `shared/full-app.ts` (key
+`full-app-building`, default off) and requires Builder connected. See
+`full-app-build` skill for the full flow.
 
 - `create-fusion-app`: creates the app branch via the Builder cloud agent; one
   branch per design; returns existing linkage if already created.

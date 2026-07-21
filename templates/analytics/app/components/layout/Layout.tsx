@@ -1,5 +1,4 @@
 import {
-  appBasePath,
   AgentSidebar,
   GuidedQuestionFlow,
   focusAgentChat,
@@ -7,9 +6,11 @@ import {
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useGuidedQuestionFlow,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router";
 
@@ -162,8 +163,6 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isAskRoute && !reportScreenshot,
   });
-  const sidebarScope = chatHomeHandoffActive ? null : analyticsScope;
-
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -293,7 +292,8 @@ export function Layout({ children }: LayoutProps) {
               t("chat.suggestionAnomalies"),
               t("chat.suggestionMrr"),
             ]}
-            scope={sidebarScope}
+            scope={analyticsScope}
+            composerSlot={<CreativeContextComposerChip />}
           >
             {contentFrame}
           </AgentSidebar>

@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { assertNotWorkspaceCatalogDocuments } from "./_content-space-catalog-guards.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -45,6 +46,7 @@ export default defineAction({
             ? eq(schema.contentDatabaseItems.id, itemId)
             : eq(schema.contentDatabaseItems.documentId, documentId!),
           isNull(schema.contentDatabases.deletedAt),
+          isNull(schema.documents.trashedAt),
         ),
       );
 
@@ -58,6 +60,11 @@ export default defineAction({
 
     await assertAccess("document", row.database.documentId, "editor");
     await assertAccess("document", row.document.id, "viewer");
+    await assertNotWorkspaceCatalogDocuments(
+      db,
+      [row.document.id],
+      "duplicated",
+    );
 
     const now = new Date().toISOString();
     const nextDocumentId = nanoid();

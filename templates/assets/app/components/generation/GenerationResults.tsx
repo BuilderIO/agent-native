@@ -1,10 +1,10 @@
+import { setAgentChatContextItem } from "@agent-native/core/client/agent-chat";
 import {
   readClientAppState,
-  setAgentChatContextItem,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronLeft,
   IconChevronRight,

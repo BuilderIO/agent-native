@@ -1,33 +1,32 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  PromptComposer,
   BuilderSetupCard,
-  ErrorReportActions,
-  ShareButton,
-  appPath,
-  agentNativePath,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
-  useActionQuery,
-  useT,
-  useSession,
-  track,
-  emailToColor,
-  emailToName,
   type AgentSidebarStateChangeDetail,
-  type ErrorReportDebugItem,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { track } from "@agent-native/core/client/analytics";
+import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { emailToColor, emailToName } from "@agent-native/core/client/collab";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
 } from "@agent-native/core/client/org";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  ErrorReportActions,
+  type ErrorReportDebugItem,
+} from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -271,6 +270,7 @@ import {
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
 import {
+  fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
   localNetworkAccessPermissionState,
   localPlanBridgeUrlFromLocation,
@@ -2083,26 +2083,24 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   // Bridge bundles carry no comments; load comments.json from the colocated
   // folder so they render and survive refresh in bridge mode too.
-  const localPlanBridgeCommentsQuery = useActionQuery<LocalPlanBundle>(
-    "get-local-plan-folder",
-    localPlanBundleQueryParams(localPlanSlug ?? "", localPlanRepoPath),
-    {
-      enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
-      refetchInterval: false,
-      retry: false,
-    },
-  );
+  const localPlanBridgeCommentsQuery = useQuery<LocalPlanBundle["comments"]>({
+    queryKey: ["local-plan-bridge-comments", localPlanBridgeUrl],
+    enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
+    refetchInterval: false,
+    retry: false,
+    queryFn: () => fetchLocalPlanBridgeComments(localPlanBridgeUrl ?? ""),
+  });
   const localPlanData = useMemo(
     () =>
       localPlanBridgeUrl
         ? mergeLocalBridgeComments(
             localPlanBridgeQuery.data,
-            localPlanBridgeCommentsQuery.data?.comments,
+            localPlanBridgeCommentsQuery.data,
           )
         : localPlanQuery.data,
     [
       localPlanBridgeQuery.data,
-      localPlanBridgeCommentsQuery.data?.comments,
+      localPlanBridgeCommentsQuery.data,
       localPlanBridgeUrl,
       localPlanQuery.data,
     ],

@@ -132,7 +132,8 @@ export const DASHBOARD_MUTATION_EXAMPLES = [
   `dashboard.insertPanel({"id":"new-kpi","title":"New KPI","source":"first-party","chartType":"metric","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'"}).atTop();`,
   `dashboard.insertPanel({"id":"new-chart","title":"New Chart","source":"first-party","chartType":"line","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY event_date ORDER BY event_date"}).nextTo("retention-over-time");`,
   `dashboard.insertPanel({"id":"row-chart","title":"Row Chart","source":"first-party","chartType":"bar","width":1,"config":{"timeScope":"dashboard"},"sql":"SELECT event_name AS name, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY event_name"}).atRow(2);`,
-  'dashboard.insertPanel({"id":"pipeline-widget","title":"Pipeline Widget","chartType":"extension","width":3,"config":{"extensionId":"<existing-extension-id>"}}).atBottom();',
+  'dashboard.insertPanel({"id":"pipeline-widget","title":"Pipeline Widget","chartType":"extension","width":3,"config":{"extensionId":"<extension-id>"}}).atBottom();',
+  'dashboard.insertPanel({"id":"personal-widget-slot","title":"Personal Widget Slot","chartType":"extension","width":3,"config":{"extensionSlotId":"analytics.dashboard.<dashboard-id>.panel.personal-widget-slot"}}).atBottom();',
 ] as const;
 
 export type DashboardMutationOperation =

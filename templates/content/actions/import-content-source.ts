@@ -15,6 +15,10 @@ import {
   parseContentSourceFile,
   type ParsedContentSourceFile,
 } from "../shared/content-source.js";
+import {
+  favoriteDocumentIds,
+  setFavoriteMembership,
+} from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
@@ -231,6 +235,16 @@ export default defineAction({
         .filter((document) => document.sourcePath)
         .map((document) => [document.sourcePath!, document]),
     );
+    const existingFavoriteIds = await favoriteDocumentIds(
+      db,
+      currentUserEmail,
+      [
+        ...new Set([
+          ...parsed.flatMap((file) => (file.id ? [file.id] : [])),
+          ...existingLocalDocs.map((document) => document.id),
+        ]),
+      ],
+    );
 
     const seenIds = new Set<string>();
     const duplicateIds = new Set<string>();
@@ -311,7 +325,7 @@ export default defineAction({
           file.icon !== undefined && file.icon !== existing.icon;
         const favoriteChanged =
           file.isFavorite !== undefined &&
-          boolToInt(file.isFavorite) !== (existing.isFavorite ?? 0);
+          file.isFavorite !== existingFavoriteIds.has(id);
         const discoverabilityChanged =
           file.hideFromSearch !== undefined &&
           boolToInt(file.hideFromSearch) !== (existing.hideFromSearch ?? 0);
@@ -363,6 +377,15 @@ export default defineAction({
             .update(schema.documents)
             .set(updates)
             .where(eq(schema.documents.id, id));
+          if (favoriteChanged) {
+            await setFavoriteMembership({
+              db,
+              userEmail: currentUserEmail,
+              documentId: id,
+              favorite: file.isFavorite === true,
+              now,
+            });
+          }
         }
 
         updated.push({ id, path: file.path, title: file.title });
@@ -389,6 +412,15 @@ export default defineAction({
             createdAt: now,
             updatedAt: now,
           });
+          if (file.isFavorite) {
+            await setFavoriteMembership({
+              db,
+              userEmail: currentUserEmail,
+              documentId: id,
+              favorite: true,
+              now,
+            });
+          }
         } catch (err) {
           errors.push({
             path: file.path,

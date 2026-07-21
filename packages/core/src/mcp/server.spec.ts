@@ -19,6 +19,10 @@ import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
   askAppRun: vi.fn(async () => ({ response: "agent answer" })),
+  askAppStatusRun: vi.fn(async () => ({
+    status: "completed",
+    response: "agent answer",
+  })),
 }));
 
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
@@ -82,7 +86,7 @@ vi.mock("./builtin-tools.js", () => ({
         },
       },
       readOnly: true,
-      run: async () => ({ status: "completed", response: "agent answer" }),
+      run: (...args: any[]) => builtinToolMocks.askAppStatusRun(...args),
     },
     create_embed_session: {
       tool: {
@@ -533,6 +537,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     mockOAuthClients.clear();
     vi.clearAllMocks();
     builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
+    builtinToolMocks.askAppStatusRun.mockResolvedValue({
+      status: "completed",
+      response: "agent answer",
+    });
   });
 
   it("handles `initialize` without a 501", async () => {
@@ -1468,6 +1476,57 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       message: "Build the report.",
       async: true,
       maxWaitMs: 0,
+    });
+  });
+
+  it("returns transient ask_app status read exhaustion as recoverable structured content", async () => {
+    builtinToolMocks.askAppStatusRun.mockResolvedValueOnce({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      errorCategory: "transport",
+      attempts: 4,
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message:
+        "The task status could not be read. Retry ask_app_status; do not resubmit ask_app.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 293,
+        method: "tools/call",
+        params: {
+          name: "ask_app_status",
+          arguments: { app: "mail", taskId: "task-1" },
+        },
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(call.result.isError).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+    expect(call.result.structuredContent).toMatchObject({
+      taskId: "task-1",
+      statusRead: "unavailable",
+      retryable: true,
     });
   });
 

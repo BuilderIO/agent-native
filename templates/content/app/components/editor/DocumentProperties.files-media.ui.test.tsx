@@ -10,8 +10,7 @@ const setPropertyMutation = vi.hoisted(() => ({
   isPending: false,
 }));
 
-vi.mock("@agent-native/core/client", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/core/client")>()),
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) => {
     if (key === "editor.properties.editProperty") {
       return `Edit ${String(options?.name)}`;

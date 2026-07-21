@@ -1,4 +1,4 @@
-import { useSession } from "@agent-native/core/client";
+import { useSession } from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import { useEffect, useState } from "react";
 

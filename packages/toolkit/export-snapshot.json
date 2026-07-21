@@ -1,0 +1,35 @@
+{
+  "exports": {
+    ".": ["dist/index.d.ts", "dist/index.js"],
+    "./app-shell": ["dist/app-shell/index.d.ts", "dist/app-shell/index.js"],
+    "./app-shell/*": ["dist/app-shell/*.d.ts", "dist/app-shell/*.js"],
+    "./collab-ui": ["dist/collab-ui/index.d.ts", "dist/collab-ui/index.js"],
+    "./collab-ui/*": ["dist/collab-ui/*.d.ts", "dist/collab-ui/*.js"],
+    "./chat-history": [
+      "dist/chat-history/index.d.ts",
+      "dist/chat-history/index.js"
+    ],
+    "./chat-history.css": ["dist/chat-history.css"],
+    "./chat-history/*": ["dist/chat-history/*.d.ts", "dist/chat-history/*.js"],
+    "./context-ui": ["dist/context-ui/index.d.ts", "dist/context-ui/index.js"],
+    "./design-tweaks": [
+      "dist/design-tweaks/index.d.ts",
+      "dist/design-tweaks/index.js"
+    ],
+    "./editor": ["dist/editor/index.d.ts", "dist/editor/index.js"],
+    "./editor.css": ["dist/editor.css"],
+    "./editor/*": ["dist/editor/*.d.ts", "dist/editor/*.js"],
+    "./hooks": ["dist/hooks/index.d.ts", "dist/hooks/index.js"],
+    "./hooks/*": ["dist/hooks/*.d.ts", "dist/hooks/*.js"],
+    "./migration-manifest.json": ["migration-manifest.json"],
+    "./onboarding": ["dist/onboarding/index.d.ts", "dist/onboarding/index.js"],
+    "./onboarding/*": ["dist/onboarding/*.d.ts", "dist/onboarding/*.js"],
+    "./provider": ["dist/provider.d.ts", "dist/provider.js"],
+    "./sharing": ["dist/sharing/index.d.ts", "dist/sharing/index.js"],
+    "./sharing/*": ["dist/sharing/*.d.ts", "dist/sharing/*.js"],
+    "./styles.css": ["dist/styles.css"],
+    "./ui": ["dist/ui/index.d.ts", "dist/ui/index.js"],
+    "./ui/*": ["dist/ui/*.d.ts", "dist/ui/*.js"],
+    "./utils": ["dist/utils.d.ts", "dist/utils.js"]
+  }
+}

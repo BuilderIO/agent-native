@@ -42,6 +42,15 @@ export default defineAction({
     if (!ids.includes(targetPropertyId)) {
       throw new Error(`Property "${targetPropertyId}" not found`);
     }
+    const definitionById = new Map(
+      definitions.map((definition) => [definition.id, definition]),
+    );
+    if (
+      definitionById.get(propertyId)?.systemRole ||
+      definitionById.get(targetPropertyId)?.systemRole
+    ) {
+      throw new Error("System properties cannot be reordered.");
+    }
     if (propertyId === targetPropertyId) {
       return {
         documentId,

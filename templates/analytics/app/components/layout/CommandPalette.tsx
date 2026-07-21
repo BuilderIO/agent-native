@@ -1,13 +1,11 @@
 import {
   agentNativePath,
   appApiPath,
-  callAction,
-  useChangeVersions,
-  ChangelogDialog,
-  LanguagePicker,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { ChangelogDialog } from "@agent-native/core/client/changelog";
 import { extensionPath } from "@agent-native/core/client/extensions";
+import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconFlask,
@@ -95,15 +93,19 @@ const defaultTools = [
       "agent monitoring",
       "observability",
       "evals",
-      "experiments",
       "feedback",
       "database",
       "db admin",
       "dashboard usage",
       "dashboard audit",
-      "ab testing",
       "llm",
     ],
+  },
+  {
+    id: "feature-flags",
+    nameKey: "agents.featureFlags",
+    href: "/agents?view=flags",
+    keywords: ["flags", "rollout", "release", "targeting"],
   },
   {
     id: "explorer",
@@ -565,7 +567,11 @@ export function CommandPalette() {
 
             <CommandGroup key="tools" heading={t("commandPalette.groupTools")}>
               {defaultTools
-                .filter((tool) => tool.id !== "agents" || canManageOrg)
+                .filter((tool) =>
+                  ["agents", "feature-flags"].includes(tool.id)
+                    ? canManageOrg
+                    : true,
+                )
                 .map((tool) => (
                   <CommandItem
                     key={`tool-${tool.id}`}

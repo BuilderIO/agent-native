@@ -12,6 +12,15 @@ dive that asks what happened in customer conversations.
 
 ## Actions
 
+- `gong-native-insights` — one provider-native qualitative synthesis operation
+  (`ask_account`, `ask_deal`, or `generate_brief`) through Gong's connected MCP.
+  Use it for themes, risks, summaries, and deck narrative when the native tools
+  are connected. One action invocation makes at most one Gong AI request; omit
+  `operation` to inspect its schemas without spending a credit request, and set
+  `allowCreditRequest=true` only for the one consolidated request you intend to
+  send. Paid calls also require a workspace owner to enable them once with
+  `configure-gong-native-insights`; the policy defaults off and disabling it
+  never blocks the raw evidence path.
 - `account-deep-dive` — first choice for named account/deal deep dives that
   need HubSpot plus Gong. It searches by account/deal/company/contact domain,
   loads Gong call details, and returns compact transcript excerpts for synthesis.
@@ -19,18 +28,32 @@ dive that asks what happened in customer conversations.
   a single transcript by call ID, or return transcript excerpts for matching
   calls.
 
-## Two-Pass Search Algorithm
+## Route Synthesis and Evidence Separately
 
-Gong search uses `POST /v2/calls/extensive` (not `GET /v2/calls` — that returns
-no parties). The search works in two passes:
+- Use `gong-native-insights` for qualitative synthesis where Gong may retrieve
+  and analyze evidence internally. Its result is provider synthesis: coverage
+  is unknown and raw transcript evidence is unavailable.
+- Use `gong-calls` or `provider-corpus-job` for quotes, exact counts, transcript
+  records, coverage-sensitive claims, and proof that something was absent.
+- Consolidate related native questions into one narrowly scoped request. Each
+  native operation independently consumes Gong credits, so do not make one call
+  per slide, bullet, or sub-question.
+- From a sibling app, call the exact cataloged read action directly through
+  `call-agent`'s `action` + `input` mode. This skips Analytics' second model loop.
+  Use ordinary message delegation only when Analytics must plan, join sources,
+  or synthesize across multiple operations.
 
-1. **Title match first**: filter calls whose title contains any search variant
-   directly.
-2. **Party/email-domain match second**: for calls that did not title-match,
-   fetch party data via the extensive endpoint and match against external
-   participant names, emails, and email domains.
+## Account Search Algorithm
 
-This two-pass approach catches calls titled "Builder <> Acme" when you search
+Gong search pages `POST /v2/calls/extensive` directly with the requested date
+window and party data (not `GET /v2/calls`, which returns no parties). Each call
+is matched against both:
+
+1. **Title variants**: the call title contains a generated search variant.
+2. **External parties**: an external participant's name, email, or domain
+   matches a generated search variant.
+
+This catches calls titled "Builder <> Acme" when you search
 "Acme Corp" by matching the "acme" name variant or "@acme.com" domain variant.
 The lib generates variants by stripping deal suffixes (`- New Deal`, `- Fusion`),
 corporate suffixes (`Group`, `Inc`, `Corp`, `LLC`), and deriving first word and
@@ -63,6 +86,10 @@ For account or deal deep dives:
 4. Use `transcriptLimit` around 3-5 for a first pass. For broad coverage of a
    named account, increase to 10-20 — the action supports up to 50. Increase
    when the returned calls don't cover the time window or key people you need.
+   For a bounded "review all calls" request with at most 50 matches, make one
+   call with `exhaustive=true`, `after`, `before`, and
+   `includeTranscripts=true`; do not split discovery and transcripts into
+   separate agent tool calls.
 5. Use the compact transcript excerpts returned by `includeTranscripts=true`.
    Do not fetch raw individual transcripts unless the user asks for exhaustive
    quoting, debugging, or export.
@@ -91,22 +118,26 @@ When a single transcript is needed, `gong-calls(transcript: "...")` returns
 compact extracted text by default. Set `rawTranscript=true` only for
 debugging/export, and never pass raw transcript payloads into `save-analysis`.
 
-## Complete-Coverage Transcript Scan (corpus-first)
+## Complete-Coverage Transcript Scan
 
 When the question is "do ANY of these calls mention X?" or "how many calls across
 this cohort mention X?" — where missing a single call makes the answer wrong — do
-NOT rely on `includeTranscripts` excerpts. They load only the newest few calls,
-truncated, and concluding "not mentioned" from that sample is how you ship a false
-negative. Use this two-step pattern:
+NOT conclude absence from a sampled `includeTranscripts` result. Choose the
+smallest complete path for the bounded cohort:
 
-1. **Discover every call (cheap, metadata only).** For each account/deal, call
-   `gong-calls` with `exhaustive: true` and a bounded window via `after` (e.g. the
-   deal's closed-won date) and optionally `before`. This returns ALL matching
-   calls — not just `limit` — and never auto-loads transcripts, so it stays under
-   the function timeout. Collect the full `calls[]` (IDs + titles) across the cohort.
+1. **Named account, up to 50 calls, qualitative review.** Make one `gong-calls`
+   call with `exhaustive=true`, a bounded `after`/`before` window, and
+   `includeTranscripts=true`. The action discovers every matching call and
+   fetches transcript excerpts in batches, returning `transcriptCoverage`. Do
+   not fetch the same call IDs one at a time afterward.
 
-2. **Batch-search the raw transcript endpoint.** Prefer `provider-corpus-job`
-   with `mode: "batch-search"` over one-call-at-a-time loops. Use
+2. **Bounded mention/absence search, up to 200 calls.** Make one `gong-calls`
+   call with `exhaustive=true`, the date window, `transcriptQuery`, and an
+   adequate `transcriptScanLimit`. Report its coverage fields and only make an
+   absence claim when coverage is complete.
+
+3. **Larger or multi-account corpus.** Prefer `provider-corpus-job` with
+   `mode: "batch-search"` over one-call-at-a-time loops. Use
    `provider-api-catalog(provider: "gong")` and its `corpusRecipes` if you need
    the exact shape. The canonical request is `POST /calls/transcript` with
    `batch.itemBodyPath: "filter.callIds"`, `batch.responseItemsPath:
@@ -115,7 +146,7 @@ negative. Use this two-step pattern:
    call IDs through `batch.inputDatasetId` + `batch.inputValuePath` or through
    `batch.items`.
 
-3. **Use `run-code` only for joins/reductions around the corpus path.** After
+4. **Use `run-code` only for joins/reductions around the corpus path.** After
    the transcript job exists, use `run-code`, `query-staged-dataset`, or job
    results to join hits back to deals/accounts, compute variants, dedupe, and
    format evidence. A `run-code` loop over `gong-calls(transcript: id)` is a

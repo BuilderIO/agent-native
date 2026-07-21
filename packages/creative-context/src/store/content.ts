@@ -1,4 +1,3 @@
-import { getDbExec } from "@agent-native/core/db";
 import {
   buildSearchSnippet,
   escapeLikeTerm,
@@ -6,6 +5,7 @@ import {
   scoreSearchText,
   type SearchMatchMode,
 } from "@agent-native/core/search-utils";
+import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
   and,
@@ -16,6 +16,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   lte,
   ne,
   or,
@@ -934,6 +935,7 @@ export interface AccessibleLexicalCandidatesInput {
   query: string;
   sourceIds?: string[];
   packId?: string;
+  contextId?: string;
   kinds?: string[];
   tags?: string[];
   colors?: string[];
@@ -971,6 +973,68 @@ async function accessiblePackVersionIds(packId: string): Promise<string[]> {
   return members.map((member: any) => member.itemVersionId);
 }
 
+async function accessibleContextVersionIds(
+  contextId: string,
+): Promise<string[]> {
+  await assertAccess("creative-context", contextId, "viewer", undefined, {
+    skipResourceBody: true,
+  });
+  const { getDb, schema } = getCreativeContext();
+  const rows = await getDb()
+    .select({
+      itemVersionId: schema.creativeContextMemberships.publishedItemVersionId,
+    })
+    .from(schema.creativeContextMemberships)
+    .where(
+      and(
+        eq(schema.creativeContextMemberships.contextId, contextId),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    );
+  return rows.flatMap((row: any) =>
+    typeof row.itemVersionId === "string" ? [row.itemVersionId] : [],
+  );
+}
+
+async function accessibleContextMembershipMetadata(
+  contextId: string,
+): Promise<
+  Map<
+    string,
+    { rank: "canonical" | "exemplar" | "normal"; purpose: string | null }
+  >
+> {
+  await assertAccess("creative-context", contextId, "viewer", undefined, {
+    skipResourceBody: true,
+  });
+  const { getDb, schema } = getCreativeContext();
+  const rows = await getDb()
+    .select({
+      itemVersionId: schema.creativeContextMemberships.publishedItemVersionId,
+      rank: schema.creativeContextMemberships.rank,
+      purpose: schema.creativeContextMemberships.purpose,
+    })
+    .from(schema.creativeContextMemberships)
+    .where(
+      and(
+        eq(schema.creativeContextMemberships.contextId, contextId),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    );
+  return new Map(
+    (rows as any[]).flatMap((row) =>
+      typeof row.itemVersionId === "string"
+        ? [
+            [
+              row.itemVersionId,
+              { rank: row.rank, purpose: row.purpose ?? null },
+            ] as const,
+          ]
+        : [],
+    ),
+  );
+}
+
 export interface AccessibleSearchDocument extends ContextSearchResult {
   body: string;
   summary: string | null;
@@ -997,11 +1061,33 @@ export async function listAccessibleSearchDocuments(
   const packVersionIds: string[] | null = input.packId
     ? await accessiblePackVersionIds(input.packId)
     : null;
-  if (packVersionIds && !packVersionIds.length) return [];
-  const filters: any[] = [
+  const contextVersionIds: string[] | null = input.contextId
+    ? await accessibleContextVersionIds(input.contextId)
+    : null;
+  const contextMemberships = input.contextId
+    ? await accessibleContextMembershipMetadata(input.contextId)
+    : null;
+  if (
+    (packVersionIds && !packVersionIds.length) ||
+    (contextVersionIds && !contextVersionIds.length)
+  )
+    return [];
+  const sourceAccess = and(
     accessFilter(schema.contextSources, schema.contextSourceShares),
     ne(schema.contextSources.upstreamAccess, "restricted"),
     ne(schema.contextSources.status, "archived"),
+  );
+  const filters: any[] = [
+    ...(input.contextId
+      ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
+      : input.packId
+        ? [
+            or(
+              sourceAccess,
+              isNotNull(schema.creativeContextPublishedSnapshots.id),
+            ),
+          ]
+        : [sourceAccess]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
       : [
@@ -1072,6 +1158,23 @@ export async function listAccessibleSearchDocuments(
         schema.contextItemVersions,
         eq(schema.contextItemVersions.id, schema.contextChunks.itemVersionId),
       )
+      .leftJoin(
+        schema.creativeContextPublishedSnapshots,
+        and(
+          eq(
+            schema.creativeContextPublishedSnapshots.itemId,
+            schema.contextItems.id,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.itemVersionId,
+            schema.contextChunks.itemVersionId,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.sourceId,
+            schema.contextItems.sourceId,
+          ),
+        ),
+      )
       .where(
         and(
           ...filters,
@@ -1111,7 +1214,8 @@ export async function listAccessibleSearchDocuments(
       tags: row.tags,
       colors: row.colors,
       updatedAt: row.updatedAt,
-      curationRank: row.curationRank,
+      curationRank:
+        contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank,
       starred: Boolean(row.starred),
       indexState: row.indexState,
       inventoryOnly: row.parseStatus === "pending",
@@ -1183,7 +1287,17 @@ export async function listAccessibleLexicalCandidates(
   const packVersionIds: string[] | null = input.packId
     ? await accessiblePackVersionIds(input.packId)
     : null;
-  if (packVersionIds && !packVersionIds.length) return { results: [] };
+  const contextVersionIds: string[] | null = input.contextId
+    ? await accessibleContextVersionIds(input.contextId)
+    : null;
+  const contextMemberships = input.contextId
+    ? await accessibleContextMembershipMetadata(input.contextId)
+    : null;
+  if (
+    (packVersionIds && !packVersionIds.length) ||
+    (contextVersionIds && !contextVersionIds.length)
+  )
+    return { results: [] };
   const matchMode = input.matchMode ?? "allTerms";
   const terms = normalizeSearchTerms(input.query);
   if (!terms.length && matchMode !== "regex") return { results: [] };
@@ -1200,10 +1314,22 @@ export async function listAccessibleLexicalCandidates(
       sql`lower(${schema.contextChunks.text}) like ${pattern} escape '\\'`,
     );
   });
-  const filters: any[] = [
+  const sourceAccess = and(
     accessFilter(schema.contextSources, schema.contextSourceShares),
     ne(schema.contextSources.upstreamAccess, "restricted"),
     ne(schema.contextSources.status, "archived"),
+  );
+  const filters: any[] = [
+    ...(input.contextId
+      ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
+      : input.packId
+        ? [
+            or(
+              sourceAccess,
+              isNotNull(schema.creativeContextPublishedSnapshots.id),
+            ),
+          ]
+        : [sourceAccess]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
       : [
@@ -1281,6 +1407,23 @@ export async function listAccessibleLexicalCandidates(
         schema.contextItemVersions,
         eq(schema.contextItemVersions.id, schema.contextChunks.itemVersionId),
       )
+      .leftJoin(
+        schema.creativeContextPublishedSnapshots,
+        and(
+          eq(
+            schema.creativeContextPublishedSnapshots.itemId,
+            schema.contextItems.id,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.itemVersionId,
+            schema.contextChunks.itemVersionId,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.sourceId,
+            schema.contextItems.sourceId,
+          ),
+        ),
+      )
       .where(
         and(
           ...filters,
@@ -1324,9 +1467,11 @@ export async function listAccessibleLexicalCandidates(
           ) +
           (row.starred
             ? 2
-            : row.curationRank === "canonical"
+            : (contextMemberships?.get(row.itemVersionId)?.rank ??
+                  row.curationRank) === "canonical"
               ? 1.5
-              : row.curationRank === "exemplar"
+              : (contextMemberships?.get(row.itemVersionId)?.rank ??
+                    row.curationRank) === "exemplar"
                 ? 1
                 : 0),
         canonicalUrl: row.canonicalUrl ?? null,
@@ -1354,6 +1499,8 @@ export async function getCreativeContextItem(
   itemVersionId?: string,
 ): Promise<ContextDetail | null> {
   const { getDb, schema } = getCreativeContext();
+  const requestedVersionId =
+    itemVersionId ?? schema.contextItems.currentVersionId;
   const itemRows = await getDb()
     .select({ item: schema.contextItems })
     .from(schema.contextItems)
@@ -1361,12 +1508,70 @@ export async function getCreativeContextItem(
       schema.contextSources,
       eq(schema.contextSources.id, schema.contextItems.sourceId),
     )
+    .leftJoin(
+      schema.creativeContextMemberships,
+      and(
+        eq(
+          schema.creativeContextMemberships.publishedItemId,
+          schema.contextItems.id,
+        ),
+        eq(
+          schema.creativeContextMemberships.publishedItemVersionId,
+          requestedVersionId,
+        ),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    )
+    .leftJoin(
+      schema.creativeContexts,
+      eq(
+        schema.creativeContexts.id,
+        schema.creativeContextMemberships.contextId,
+      ),
+    )
+    .leftJoin(
+      schema.contextPackMembers,
+      and(
+        eq(schema.contextPackMembers.itemId, schema.contextItems.id),
+        eq(schema.contextPackMembers.itemVersionId, requestedVersionId),
+      ),
+    )
+    .leftJoin(
+      schema.contextPacks,
+      eq(schema.contextPacks.id, schema.contextPackMembers.packId),
+    )
+    .leftJoin(
+      schema.creativeContextPublishedSnapshots,
+      and(
+        eq(
+          schema.creativeContextPublishedSnapshots.itemId,
+          schema.contextItems.id,
+        ),
+        eq(
+          schema.creativeContextPublishedSnapshots.itemVersionId,
+          requestedVersionId,
+        ),
+        eq(
+          schema.creativeContextPublishedSnapshots.sourceId,
+          schema.contextItems.sourceId,
+        ),
+      ),
+    )
     .where(
       and(
         eq(schema.contextItems.id, itemId),
-        accessFilter(schema.contextSources, schema.contextSourceShares),
-        ne(schema.contextSources.upstreamAccess, "restricted"),
-        ne(schema.contextSources.status, "archived"),
+        or(
+          and(
+            accessFilter(schema.contextSources, schema.contextSourceShares),
+            ne(schema.contextSources.upstreamAccess, "restricted"),
+            ne(schema.contextSources.status, "archived"),
+          ),
+          and(
+            isNotNull(schema.creativeContextPublishedSnapshots.id),
+            accessFilter(schema.contextPacks, schema.contextPackShares),
+          ),
+          accessFilter(schema.creativeContexts, schema.creativeContextShares),
+        ),
         eq(schema.contextItems.curationStatus, "included"),
         ne(schema.contextItems.curationRank, "ignored"),
         eq(schema.contextItems.status, "active"),
@@ -1651,12 +1856,7 @@ export async function createEmbeddingSet(input: {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
   if (actor.orgId) {
-    const membership = await getDbExec().execute({
-      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
-      args: [actor.orgId, actor.ownerEmail.toLowerCase()],
-    });
-    const role = String(membership.rows[0]?.role ?? "").toLowerCase();
-    if (role !== "owner" && role !== "admin") {
+    if (!(await currentRequestUserIsOrgAdmin(actor.orgId))) {
       throw new Error(
         "Only organization owners or admins can activate an organization embedding family.",
       );

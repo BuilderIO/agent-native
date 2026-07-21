@@ -1,11 +1,11 @@
 import {
-  PromptComposer,
-  isInBuilderFrame,
   navigateWithAgentChatViewTransition,
-  useActionQuery,
   useChatModels,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 import { Link, useNavigate } from "react-router";

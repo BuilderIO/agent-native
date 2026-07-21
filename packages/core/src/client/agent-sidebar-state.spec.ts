@@ -6,6 +6,7 @@ const {
   dispatchAgentSidebarStateChange,
   getAgentSidebarOpenPreferenceKey,
   getInitialAgentSidebarOpen,
+  hasChatThreadDeepLink,
   requestAgentSidebarOpen,
   SIDEBAR_OPEN_KEY,
   SIDEBAR_STATE_CHANGE_EVENT,
@@ -38,6 +39,29 @@ describe("getInitialAgentSidebarOpen", () => {
 
   it("uses the provided default when there is no saved preference", () => {
     expect(getInitialAgentSidebarOpen(true)).toBe(true);
+    expect(getInitialAgentSidebarOpen(false)).toBe(false);
+  });
+
+  it("recognizes shared chat thread links", () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+    expect(hasChatThreadDeepLink()).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?threadId=thread-2");
+    expect(hasChatThreadDeepLink()).toBe(true);
+
+    window.history.replaceState(null, "", "/overview?from=sidebar");
+    expect(hasChatThreadDeepLink()).toBe(false);
+  });
+
+  it("opens for a shared chat thread link even when the sidebar defaults closed", () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+    expect(getInitialAgentSidebarOpen(false)).toBe(true);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/overview?thread=thread-1&agentSidebar=closed",
+    );
     expect(getInitialAgentSidebarOpen(false)).toBe(false);
   });
 

@@ -20,6 +20,7 @@ const getIntegrationConfigMock = vi.hoisted(() =>
 );
 const saveIntegrationConfigMock = vi.hoisted(() => vi.fn());
 const processIntegrationTaskMock = vi.hoisted(() => vi.fn());
+const recordIntegrationResponseDeliveryMock = vi.hoisted(() => vi.fn());
 const handleWebhookMock = vi.hoisted(() =>
   vi.fn(async () => ({ status: 200, body: "ok" })),
 );
@@ -28,9 +29,12 @@ const resourceListMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceListAccessibleMock = vi.hoisted(() => vi.fn(async () => []));
 const resourceGetMock = vi.hoisted(() => vi.fn(async () => null));
 const claimPendingTaskMock = vi.hoisted(() => vi.fn());
+const failTaskDeliveryTransitionMock = vi.hoisted(() => vi.fn());
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
 const markTaskRetryableMock = vi.hoisted(() => vi.fn());
+const markTaskDeliveryRetryableMock = vi.hoisted(() => vi.fn());
+const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
@@ -87,6 +91,7 @@ vi.mock("../resources/store.js", () => ({
 vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
   claimPendingTask: claimPendingTaskMock,
+  failTaskDeliveryTransition: failTaskDeliveryTransitionMock,
   getPendingTask: vi.fn(),
   getNextPendingTaskIdForThread: vi.fn(async () => null),
   insertPendingTask: insertPendingTaskMock,
@@ -94,6 +99,8 @@ vi.mock("./pending-tasks-store.js", () => ({
   markTaskCompleted: markTaskCompletedMock,
   markTaskFailed: markTaskFailedMock,
   markTaskRetryable: markTaskRetryableMock,
+  markTaskDeliveryRetryable: markTaskDeliveryRetryableMock,
+  stageTaskDeliveryPayload: stageTaskDeliveryPayloadMock,
 }));
 
 vi.mock("./webhook-handler.js", async () => {
@@ -104,6 +111,7 @@ vi.mock("./webhook-handler.js", async () => {
     ...actual,
     handleWebhook: handleWebhookMock,
     processIntegrationTask: processIntegrationTaskMock,
+    recordIntegrationResponseDelivery: recordIntegrationResponseDeliveryMock,
   };
 });
 
@@ -545,6 +553,312 @@ describe("integrations plugin routes", () => {
       },
       expect.any(Function),
     );
+  });
+
+  it("checkpoints a failed reply for delivery-only retry without rerunning the agent", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "Slack response delivery failed",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(markTaskDeliveryRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      JSON.stringify(deliveryPayload),
+      "Slack response delivery failed",
+    );
+    expect(stageTaskDeliveryPayloadMock).not.toHaveBeenCalled();
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed instead of requeuing stale payload when the atomic delivery transition fails", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(1);
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming: JSON.parse(task.payload).incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: { status: "delivered" as const },
+      userMessageId: "user-1",
+      assistantMessageId: "assistant-1",
+    };
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    processIntegrationTaskMock.mockResolvedValueOnce({
+      status: "delivery-pending",
+      payload: deliveryPayload,
+      errorMessage: "history checkpoint failed",
+    });
+    markTaskDeliveryRetryableMock.mockRejectedValueOnce(
+      new Error("database transition failed"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(500);
+    expect(failTaskDeliveryTransitionMock).toHaveBeenCalledWith(
+      task.id,
+      expect.stringContaining("database transition failed"),
+    );
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("delivers a response checkpoint without rerunning the mutation", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["reply-1"],
+    }));
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(2);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "Updated /page/request_123" }),
+      expect.objectContaining({ externalThreadId: "fake-thread" }),
+      {},
+    );
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("atomically preserves a provider receipt when delivery checkpointing fails", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["reply-sent-once"],
+    }));
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(1);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    stageTaskDeliveryPayloadMock.mockRejectedValueOnce(
+      new Error("receipt checkpoint unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const firstResult = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(firstResult.status).toBe(202);
+    expect(sendResponse).toHaveBeenCalledOnce();
+    const retryPayload = markTaskDeliveryRetryableMock.mock.calls.at(-1)?.[1];
+    expect(typeof retryPayload).toBe("string");
+    if (typeof retryPayload !== "string") {
+      throw new Error("Expected an enriched delivery retry payload");
+    }
+    expect(JSON.parse(retryPayload)).toMatchObject({
+      kind: "response-delivery",
+      deliveryReceipt: {
+        status: "delivered",
+        messageRefs: ["reply-sent-once"],
+      },
+    });
+    expect(markTaskRetryableMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+
+    claimPendingTaskMock.mockResolvedValueOnce({
+      ...task,
+      attempts: 2,
+      payload: retryPayload,
+    });
+    const secondResult = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(secondResult.status).toBe(200);
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("keeps an unconfirmed response checkpoint retryable", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn(async () => undefined);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(2);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(500);
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      "fake response completed without delivery proof",
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("finishes a provider-confirmed checkpoint without posting it twice", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn();
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(2);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: {
+        status: "delivered",
+        messageRefs: ["reply-already-sent"],
+      },
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("keeps a confirmed delivery receipt retryable after history retries exhaust", async () => {
+    process.env.NODE_ENV = "development";
+    const sendResponse = vi.fn();
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const task = claimedTask(3);
+    const incoming = JSON.parse(task.payload).incoming;
+    const deliveryPayload = {
+      kind: "response-delivery" as const,
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: {
+        status: "delivered" as const,
+        messageRefs: ["reply-already-sent"],
+      },
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+    };
+    task.payload = JSON.stringify(deliveryPayload);
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    recordIntegrationResponseDeliveryMock.mockRejectedValueOnce(
+      new Error("history database unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id },
+    );
+
+    expect(result.status).toBe(202);
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(markTaskDeliveryRetryableMock).toHaveBeenCalledWith(
+      task.id,
+      JSON.stringify(deliveryPayload),
+      expect.stringContaining("history database unavailable"),
+    );
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
+  it("contains a failed confirmed-delivery requeue transition", async () => {
+    process.env.NODE_ENV = "development";
+    const task = claimedTask(3);
+    const incoming = JSON.parse(task.payload).incoming;
+    task.payload = JSON.stringify({
+      kind: "response-delivery",
+      incoming,
+      message: { text: "Updated /page/request_123", platformContext: {} },
+      deliveryReceipt: { status: "delivered", messageRefs: ["reply-sent"] },
+    });
+    claimPendingTaskMock.mockResolvedValueOnce(task);
+    recordIntegrationResponseDeliveryMock.mockRejectedValueOnce(
+      new Error("history database unavailable"),
+    );
+    markTaskDeliveryRetryableMock.mockRejectedValueOnce(
+      new Error("retry transition unavailable"),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/integrations/process-task", "POST", {
+        taskId: task.id,
+      }),
+    ).resolves.toMatchObject({ status: 500 });
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
   });
 
   it("delivers persisted system notices from the fresh task processor", async () => {

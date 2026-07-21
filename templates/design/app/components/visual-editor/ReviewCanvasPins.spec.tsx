@@ -46,8 +46,12 @@ const comment = vi.hoisted(
     }) satisfies ReviewComment,
 );
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   callAction: mocks.callAction,
+  setClientAppState: mocks.setClientAppState,
+}));
+
+vi.mock("@agent-native/core/client/review", () => ({
   buildReviewThreads: (comments: ReviewComment[]) =>
     comments.map((root) => ({ root, replies: [] })),
   ReviewCommentComposer: (props: {
@@ -85,8 +89,6 @@ vi.mock("@agent-native/core/client", () => ({
         : null}
     </div>
   ),
-  cn: (...values: Array<string | false | null | undefined>) =>
-    values.filter(Boolean).join(" "),
   useCreateReviewComment: () => ({
     mutate: mocks.createMutate,
     isPending: false,
@@ -100,8 +102,10 @@ vi.mock("@agent-native/core/client", () => ({
     isPending: false,
   }),
   useReviewComments: () => ({ data: { comments: [comment] } }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  setClientAppState: mocks.setClientAppState,
 }));
 
 vi.mock("@/lib/agent-chat", () => ({

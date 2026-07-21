@@ -91,15 +91,15 @@ If you're running a single template standalone, you don't need Dispatch — each
 
 Seven capabilities, all sitting on top of the same workspace database the other apps use:
 
-| Capability               | What it gives you                                                               | Set it up                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| **Central inbox**        | Slack, email, Telegram, WhatsApp all reach one agent with shared memory + tools | **Settings → Messaging** ([Messaging](/docs/messaging))       |
-| **Secret vault**         | Store each credential once; rotate in one place across every app                | **Vault** + access mode (all-apps or manual)                  |
-| **Cross-app delegation** | Routes a request to the right specialist app over A2A and replies in-thread     | Automatic ([A2A](/docs/a2a-protocol))                         |
-| **Unified MCP gateway**  | One MCP connector for external agents reaches every granted workspace app       | [External Agents](/docs/external-agents)                      |
-| **Workspace resources**  | Author skills/instructions/profiles once; apps inherit them at runtime          | **Resources** ([Workspace](/docs/workspace#global-resources)) |
-| **Dreams**               | Reviews past runs/feedback and proposes durable improvements for you to approve | **Dreams** tab                                                |
-| **Approval flow**        | Gate sensitive runtime changes behind inline admin review                       | **dispatch approval policy**                                  |
+| Capability               | What it gives you                                                               | Set it up                                                           |
+| ------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Central inbox**        | Slack, email, Telegram, WhatsApp all reach one agent with shared memory + tools | **Settings → Messaging** ([Messaging](/docs/messaging))             |
+| **Secret vault**         | Store each credential once; rotate in one place across every app                | **Vault** + access mode (all-apps or manual)                        |
+| **Cross-app delegation** | Routes a request to the right specialist app over A2A and replies in-thread     | Automatic ([A2A](/docs/a2a-protocol))                               |
+| **Unified MCP gateway**  | One MCP connector for external agents reaches every granted workspace app       | [External Agents](/docs/external-agents)                            |
+| **Workspace resources**  | Author skills/instructions/profiles once; apps inherit them at runtime          | **Resources** ([Agent Resources](/docs/workspace#global-resources)) |
+| **Dreams**               | Reviews past runs/feedback and proposes durable improvements for you to approve | **Dreams** tab                                                      |
+| **Approval flow**        | Gate sensitive runtime changes behind inline admin review                       | **dispatch approval policy**                                        |
 
 Each is detailed below.
 
@@ -134,7 +134,7 @@ The single MCP connector URL external agents add (e.g. `https://dispatch.agent-n
 
 Skills, guardrail instructions, agent profiles, and reference resources can be authored once in Dispatch and inherited by the rest of the workspace. Resources with **All apps** scope are global: Dispatch stores them once at workspace scope, and every app agent reads them at runtime. They are not copied into each app, and there is no manual workspace-resource sync step. App shared resources and personal resources can override or narrow the workspace defaults locally.
 
-See [Workspace — Global resources](/docs/workspace#global-resources) for the canonical path table, starter pack, and override model.
+See [Agent Resources — Global resources](/docs/workspace#global-resources) for the canonical path table, starter pack, and override model.
 
 MCP server resources use JSON and are intentionally HTTP-only. Store tokens in
 Dispatch Vault, grant or sync those keys to the target apps, and reference them

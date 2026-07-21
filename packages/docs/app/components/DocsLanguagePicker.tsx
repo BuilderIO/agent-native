@@ -3,7 +3,7 @@ import {
   normalizeLocalizationPreference,
   useLocale,
   useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
 import { IconCheck, IconLanguage } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router";

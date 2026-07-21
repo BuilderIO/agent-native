@@ -1,5 +1,9 @@
-import { useDemoModeStatus, useT } from "@agent-native/core/client";
-import { EmbeddedExtension } from "@agent-native/core/client/extensions";
+import {
+  EmbeddedExtension,
+  ExtensionSlot,
+} from "@agent-native/core/client/extensions";
+import { useDemoModeStatus } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -16,7 +20,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -58,6 +61,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useChartTooltipPortalPosition } from "@/hooks/use-chart-tooltip-portal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
@@ -83,14 +87,9 @@ const DEFAULT_COLORS = [
 ];
 
 const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
-  zIndex: 60,
+  zIndex: 9999,
   pointerEvents: "none",
 };
-
-const PORTAL_GUTTER_PADDING = 12;
-const PORTAL_CURSOR_OFFSET = 24;
-const useBrowserLayoutEffect =
-  typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
@@ -595,7 +594,7 @@ export function SeriesLegend({
   if (!shouldShowLegend(panel, keys.length)) return null;
 
   return (
-    <div className="mt-2 min-h-16 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+    <div className="mt-1 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
         {keys.map((key, i) => {
           const hidden = hiddenKeys?.has(key) ?? false;
@@ -609,7 +608,7 @@ export function SeriesLegend({
             >
               <PopoverAnchor asChild>
                 <div
-                  className="inline-flex min-h-10 max-w-[14rem] items-center"
+                  className="inline-flex min-h-6 max-w-[14rem] items-center"
                   onPointerDown={(event) => {
                     if (!hasLegendActions || event.pointerType === "mouse") {
                       return;
@@ -645,7 +644,7 @@ export function SeriesLegend({
                     }
                     aria-haspopup={hasLegendActions ? "menu" : undefined}
                     data-chart-legend-item={key}
-                    className={`inline-flex min-h-10 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left transition-[opacity,color] touch-manipulation hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                    className={`inline-flex min-h-6 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left transition-[opacity,color] touch-manipulation hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                       hidden ? "opacity-35" : "opacity-100"
                     } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
                     title={label}
@@ -677,18 +676,18 @@ export function SeriesLegend({
                   align="center"
                   sideOffset={8}
                   collisionPadding={12}
-                  className="w-56 max-w-[calc(100vw-1.5rem)] rounded-lg p-1.5 shadow-lg"
+                  className="w-auto max-w-[calc(100vw-1.5rem)] rounded-lg p-1 shadow-lg"
                   onPointerEnter={clearCloseTimeout}
                   onPointerLeave={scheduleCloseLegendActions}
                   onFocusCapture={clearCloseTimeout}
                 >
-                  <div className="flex w-full items-center gap-1">
+                  <div className="flex items-center gap-0.5">
                     {onFilterKey && (
                       <button
                         type="button"
                         data-chart-legend-action="filter"
                         aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
-                        className="min-h-11 min-w-0 flex-1 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        className="min-h-8 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                         onClick={() => {
                           onFilterKey(key);
                           setOpenKey(null);
@@ -703,7 +702,7 @@ export function SeriesLegend({
                         data-chart-legend-action="hide"
                         aria-label={`${t("sqlDashboard.hide")} ${label}`}
                         disabled={hidden}
-                        className="min-h-11 min-w-0 flex-1 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        className="min-h-8 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
                         onClick={() => {
                           onToggleKey(key);
                           setOpenKey(null);
@@ -883,9 +882,9 @@ function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
       <Skeleton
         className={`w-full ${fill ? "h-full min-h-[250px] flex-1" : "h-[250px]"}`}
       />
-      <div className="mt-2 grid min-h-16 grid-cols-2 gap-x-3 gap-y-1 overflow-hidden pr-1 sm:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <div key={index} className="flex items-center gap-1.5">
+      <div className="mt-1 flex min-h-6 flex-wrap gap-x-3 gap-y-1 overflow-hidden pr-1">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="flex min-h-6 items-center gap-1.5">
             <Skeleton className="h-2.5 w-3 shrink-0 rounded-sm" />
             <Skeleton className="h-3 w-20 min-w-0" />
           </div>
@@ -895,10 +894,11 @@ function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
   );
 }
 
-function ChartTooltip({
+export function ChartTooltip({
   active,
   payload,
   label,
+  coordinate,
   labelFormatter,
   seriesNameFormatter,
   valueFormatter,
@@ -911,16 +911,11 @@ function ChartTooltip({
     value?: unknown;
   }>;
   label?: unknown;
+  coordinate?: { x?: number; y?: number };
   labelFormatter?: (value: string) => string;
   seriesNameFormatter?: (value: string) => string;
   valueFormatter?: (value: number) => string;
 }) {
-  const anchorRef = useRef<HTMLDivElement | null>(null);
-  const portalRef = useRef<HTMLDivElement | null>(null);
-  const [portalPosition, setPortalPosition] = useState<{
-    left: number;
-    top: number;
-  } | null>(null);
   const items = useMemo(
     () =>
       sortTooltipPayloadItems(
@@ -929,10 +924,10 @@ function ChartTooltip({
       ),
     [payload],
   );
-  const portalVisible = portalPosition !== null;
-  const clearPortalPosition = useCallback(
-    () => setPortalPosition((prev) => (prev === null ? prev : null)),
-    [],
+  const isVisible = Boolean(active) && items.length > 0;
+  const { anchorRef, boxRef } = useChartTooltipPortalPosition(
+    isVisible,
+    coordinate,
   );
 
   const labelText =
@@ -942,96 +937,14 @@ function ChartTooltip({
         ? labelFormatter(String(label))
         : String(label);
 
-  useBrowserLayoutEffect(() => {
-    if (!active || items.length === 0 || typeof window === "undefined") {
-      clearPortalPosition();
-      return;
-    }
-
-    const anchor = anchorRef.current;
-    const wrapper = anchor?.parentElement;
-    if (!anchor || !wrapper) return;
-
-    let frame = 0;
-    const apply = () => {
-      frame = 0;
-      if (!(wrapper as HTMLElement).style.transform) return;
-
-      const anchorRect = anchor.getBoundingClientRect();
-      const portalRect = portalRef.current?.getBoundingClientRect();
-      const width = portalRect?.width || anchorRect.width;
-      const height = portalRect?.height || anchorRect.height;
-      if (width === 0 || height === 0) return;
-
-      const sidebar = document.querySelector(".agent-sidebar-panel");
-      const sidebarRect = sidebar?.getBoundingClientRect();
-      const rightLimit =
-        sidebarRect && sidebarRect.width > 0 && sidebarRect.left > 0
-          ? sidebarRect.left - PORTAL_GUTTER_PADDING
-          : window.innerWidth - PORTAL_GUTTER_PADDING;
-      const bottomLimit = window.innerHeight - PORTAL_GUTTER_PADDING;
-
-      let left = anchorRect.left;
-      let top = anchorRect.top;
-
-      if (left + width > rightLimit) {
-        left = anchorRect.left - width - PORTAL_CURSOR_OFFSET;
-      }
-      left = Math.max(
-        PORTAL_GUTTER_PADDING,
-        Math.min(left, rightLimit - width),
-      );
-
-      if (top + height > bottomLimit) {
-        top = bottomLimit - height;
-      }
-      top = Math.max(PORTAL_GUTTER_PADDING, top);
-
-      setPortalPosition((prev) =>
-        prev &&
-        Math.abs(prev.left - left) < 0.5 &&
-        Math.abs(prev.top - top) < 0.5
-          ? prev
-          : { left, top },
-      );
-    };
-
-    const schedule = () => {
-      if (frame) return;
-      frame = window.requestAnimationFrame(apply);
-    };
-
-    schedule();
-
-    const mutationObserver = new MutationObserver(schedule);
-    mutationObserver.observe(wrapper, {
-      attributes: true,
-      attributeFilter: ["style", "class"],
-    });
-
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(schedule);
-    resizeObserver?.observe(anchor);
-    if (portalRef.current) resizeObserver?.observe(portalRef.current);
-
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame);
-      mutationObserver.disconnect();
-      resizeObserver?.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-    };
-  }, [active, clearPortalPosition, items.length, portalVisible]);
-
-  if (!active || items.length === 0) return null;
+  if (!isVisible) return null;
 
   const tooltip = (
-    <div className="min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg">
+    <div
+      ref={boxRef}
+      role="tooltip"
+      className="fixed z-[9999] min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
+    >
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
           {labelText}
@@ -1067,27 +980,8 @@ function ChartTooltip({
 
   return (
     <>
-      <div ref={anchorRef} aria-hidden="true" className="invisible">
-        {tooltip}
-      </div>
-      {portalPosition && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              ref={portalRef}
-              role="tooltip"
-              style={{
-                position: "fixed",
-                left: portalPosition.left,
-                top: portalPosition.top,
-                zIndex: 1000,
-                pointerEvents: "none",
-              }}
-            >
-              {tooltip}
-            </div>,
-            document.body,
-          )
-        : null}
+      <span ref={anchorRef} aria-hidden="true" />
+      {createPortal(tooltip, document.body)}
     </>
   );
 }
@@ -1185,6 +1079,8 @@ interface SqlChartProps {
   className?: string;
   loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
+  /** Dashboard/panel state sent to slot-backed extension boxes. */
+  extensionContext?: Record<string, unknown> | null;
 }
 
 export function SqlChart({
@@ -1192,6 +1088,7 @@ export function SqlChart({
   resolvedSql,
   loadData = true,
   onExportCsvChange,
+  extensionContext,
 }: SqlChartProps) {
   const t = useT();
   const { enabled: demoModeEnabled } = useDemoModeStatus();
@@ -1266,11 +1163,12 @@ export function SqlChart({
     );
   }
 
-  // Extension panels render a sandboxed extension iframe instead of querying a
-  // data source. The extension id lives in config.extensionId.
+  // Extension panels render either a named extension-point slot or a legacy
+  // direct extension iframe instead of querying a data source.
   if (isExtension) {
     const extensionId = panel.config?.extensionId;
-    if (!extensionId) {
+    const slotId = panel.config?.extensionSlotId;
+    if (!extensionId && !slotId) {
       return (
         <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
           <p className="text-sm text-muted-foreground text-center">
@@ -1280,7 +1178,12 @@ export function SqlChart({
       );
     }
     return (
-      <DashboardExtensionPanel extensionId={extensionId} panelId={panel.id} />
+      <DashboardExtensionPanel
+        extensionId={extensionId}
+        panelId={panel.id}
+        slotId={slotId}
+        context={extensionContext}
+      />
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;
@@ -1409,15 +1312,48 @@ export function SqlChart({
 function DashboardExtensionPanel({
   extensionId,
   panelId,
+  slotId,
+  context,
 }: {
-  extensionId: string;
+  extensionId?: string;
   panelId: string;
+  slotId?: string;
+  context?: Record<string, unknown> | null;
 }) {
   const t = useT();
   // Hold the report-readiness marker until the extension iframe paints so
   // dashboard report screenshots don't capture a blank extension panel.
   const [ready, setReady] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
+  const loadingSkeleton = !ready ? (
+    <Skeleton
+      data-dashboard-extension-loading="true"
+      className="absolute inset-0 z-10 h-full min-h-[180px] w-full rounded-md"
+      aria-hidden="true"
+    />
+  ) : null;
+
+  if (slotId) {
+    return (
+      <div
+        className="relative min-h-[180px] w-full"
+        aria-busy={!ready}
+        data-dashboard-report-loading={ready ? undefined : "true"}
+      >
+        {loadingSkeleton}
+        <div className={ready ? "opacity-100" : "opacity-0"}>
+          <ExtensionSlot
+            id={slotId}
+            context={context}
+            showEmptyAffordance
+            onReady={() => setReady(true)}
+            className="min-h-[120px] w-full"
+            toolClassName="w-full"
+          />
+        </div>
+      </div>
+    );
+  }
 
   // Embedding never grants access to the extension itself (same model as
   // ExtensionSlots). A viewer with dashboard-only access who can't see the
@@ -1434,15 +1370,16 @@ function DashboardExtensionPanel({
 
   return (
     <div
-      className="w-full"
+      className="relative min-h-[180px] w-full"
+      aria-busy={!ready}
       data-dashboard-report-loading={ready ? undefined : "true"}
     >
+      {loadingSkeleton}
       <EmbeddedExtension
-        extensionId={extensionId}
+        extensionId={extensionId!}
         slotId={`dashboard-panel-${panelId}`}
-        className="w-full"
-        // Intentional for v1: extension panels are standalone widgets and do not
-        // receive the dashboard's filters/variables/date range as `context`.
+        context={context}
+        className={ready ? "w-full opacity-100" : "w-full opacity-0"}
         initialHeight={180}
         onReady={() => setReady(true)}
         onUnavailable={() => {

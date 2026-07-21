@@ -1,4 +1,5 @@
-import { agentNativePath, callAction } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useState, useCallback, useEffect, useRef } from "react";
 
 import {

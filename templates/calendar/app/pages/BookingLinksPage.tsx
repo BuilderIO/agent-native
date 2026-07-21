@@ -1,9 +1,11 @@
-import { ShareButton, useT, VisibilityBadge } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   BookingLinkCreateDialog,
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import type {
   AvailabilityConfig,
   BookingHost,

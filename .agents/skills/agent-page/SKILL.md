@@ -43,7 +43,7 @@ everything that can influence the agent. Design principles:
    remount it (`client-side-routing` skill).
 2. Add an "Agent" item to primary navigation and the command palette,
    mirroring the Settings entries. Link-first (`native-navigation` skill).
-3. Pass `agentPageHref="/agent"` to `AgentSidebar` so the sidebar workspace
+3. Pass `agentPageHref="/agent"` to `AgentSidebar` so the sidebar Resources
    and settings modes link out to the full page.
 4. Hash deep-links work out of the box: `/agent#context`, `/agent#files`,
    `/agent#connections`, `/agent#jobs`, `/agent#access`.

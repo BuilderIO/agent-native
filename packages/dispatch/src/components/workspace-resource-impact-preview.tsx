@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";

@@ -26,6 +26,46 @@ function costUsdFromCenticents(value: number): number {
   return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
 }
 
+const MAX_TRACKED_GENERATION_TOOL_CALLS = 50;
+const MAX_TOOL_ERROR_MESSAGE_LENGTH = 500;
+const STANDALONE_API_KEY_PATTERN =
+  /\b(?:sk-(?:proj-|ant-)?[A-Za-z0-9_-]{8,}|(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}|AIza[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,})\b/g;
+
+type GenerationToolCall = {
+  name: string;
+  started_offset_ms: number;
+  duration_ms: number;
+  status: "success" | "error";
+  error_class: "tool_error" | "legacy_inferred_error" | "interrupted" | null;
+  error_message?: string;
+};
+
+function truncateToolErrorMessage(value: string): string {
+  return value.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
+    ? `${value.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
+    : value;
+}
+
+function redactToolErrorMessage(value: string): string {
+  const credentialName =
+    "authorization|cookie|api[_ -]?key|password|secret|token|access[_ -]?token|refresh[_ -]?token";
+  const labeledCredential = `(["']?\\b(?:${credentialName})\\b["']?\\s*[:=]\\s*["']?)`;
+  return value
+    .replace(
+      new RegExp(
+        `${labeledCredential}(?:Bearer|Basic)\\s+[^"'\\s,;)}\\]]+`,
+        "gi",
+      ),
+      "$1[REDACTED]",
+    )
+    .replace(
+      new RegExp(`${labeledCredential}[^"'\\s,;)}\\[\\]]+`, "gi"),
+      "$1[REDACTED]",
+    )
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "[REDACTED]")
+    .replace(STANDALONE_API_KEY_PATTERN, "[REDACTED]");
+}
+
 function emitLlmGenerationTrackingEvent(args: {
   runId: string;
   threadId: string | null;
@@ -45,6 +85,15 @@ function emitLlmGenerationTrackingEvent(args: {
   toolCalls: number;
   successfulTools: number;
   failedTools: number;
+  tools: GenerationToolCall[];
+  toolsTruncated: boolean;
+  delegation?: {
+    protocol: "a2a" | "mcp";
+    callerApp?: string;
+    taskId?: string;
+    parentRunId?: string;
+    parentTurnId?: string;
+  };
   createdAt: number;
   experimentAssignments?: Array<{
     experimentId: string;
@@ -77,6 +126,14 @@ function emitLlmGenerationTrackingEvent(args: {
     tool_calls: args.toolCalls,
     successful_tools: args.successfulTools,
     failed_tools: args.failedTools,
+    tools: args.tools,
+    tools_truncated: args.toolsTruncated,
+    delegated: args.delegation ? true : undefined,
+    delegation_protocol: args.delegation?.protocol,
+    caller_app: args.delegation?.callerApp,
+    a2a_task_id: args.delegation?.taskId,
+    parent_run_id: args.delegation?.parentRunId,
+    parent_turn_id: args.delegation?.parentTurnId,
     model_selection_source: args.modelSelectionSource,
     created_at: new Date(args.createdAt).toISOString(),
     created_at_ms: args.createdAt,
@@ -191,6 +248,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     providerOptions?: any;
+    runId?: string;
   }) => Promise<AgentLoopUsage>;
   loopOpts: {
     engine: any;
@@ -202,6 +260,7 @@ export async function instrumentAgentLoop(opts: {
     send: (event: AgentChatEvent) => void;
     signal: AbortSignal;
     providerOptions?: any;
+    runId?: string;
   };
   runId: string;
   threadId: string | null;
@@ -217,6 +276,13 @@ export async function instrumentAgentLoop(opts: {
     variantId: string;
   }>;
   modelSelectionSource?: string;
+  delegation?: {
+    protocol: "a2a" | "mcp";
+    callerApp?: string;
+    taskId?: string;
+    parentRunId?: string;
+    parentTurnId?: string;
+  };
   /** Raw user-authored message before prompt/context enrichment. */
   sentimentInput?: string;
   classifyError?: (error: unknown) =>
@@ -271,6 +337,7 @@ export async function instrumentAgentLoop(opts: {
     number,
     {
       spanId: string;
+      callId?: string;
       startMs: number;
       toolName: string;
       input: AgentToolInput;
@@ -278,12 +345,11 @@ export async function instrumentAgentLoop(opts: {
       endResult?: { status: "success" | "error"; errorMessage: string | null };
     }
   >();
-  // Secondary index: tool name → FIFO queue of pending invocation counters.
-  // tool_start/tool_done events carry only the tool name (no call id), so to
-  // pair starts and dones correctly when the agent runs concurrent calls to the
-  // same tool name (read-only / parallelSafe batches via Promise.all), we keep a
-  // queue per name and match each done to the OLDEST still-pending start.
+  // Secondary index for legacy emitters without call ids. Current tool events
+  // are paired by id first; same-name FIFO remains as a compatibility fallback.
   const toolNameToCounters = new Map<string, number[]>();
+  const toolCallIdToCounter = new Map<string, number>();
+  const generationToolCalls = new Map<number, GenerationToolCall>();
 
   let toolCallCount = 0;
   let successfulTools = 0;
@@ -304,6 +370,7 @@ export async function instrumentAgentLoop(opts: {
         // microtask gap by recording the span on the pending entry when ready.
         const entry: {
           spanId: string;
+          callId?: string;
           startMs: number;
           toolName: string;
           input: AgentToolInput;
@@ -316,12 +383,14 @@ export async function instrumentAgentLoop(opts: {
           };
         } = {
           spanId: sid,
+          ...(event.id ? { callId: event.id } : {}),
           startMs: Date.now(),
           toolName: event.tool,
           input: event.input,
           otelSpan: null,
         };
         pendingTools.set(counter, entry);
+        if (event.id) toolCallIdToCounter.set(event.id, counter);
         void startAgentSpan("tool.call", {
           "tool.name": event.tool,
         }).then((span) => {
@@ -343,16 +412,39 @@ export async function instrumentAgentLoop(opts: {
         else toolNameToCounters.set(event.tool, [counter]);
       } else if (event.type === "tool_done") {
         const queue = toolNameToCounters.get(event.tool);
-        const counter = queue?.shift();
+        const counterFromId = event.id
+          ? toolCallIdToCounter.get(event.id)
+          : undefined;
+        const legacyQueueIndex =
+          event.id && counterFromId === undefined && queue
+            ? queue.findIndex(
+                (candidate) => !pendingTools.get(candidate)?.callId,
+              )
+            : -1;
+        const counter =
+          counterFromId ??
+          (event.id
+            ? legacyQueueIndex >= 0
+              ? queue?.[legacyQueueIndex]
+              : undefined
+            : queue?.shift());
         const pending =
           counter !== undefined ? pendingTools.get(counter) : undefined;
         if (counter !== undefined) {
           pendingTools.delete(counter);
+          if (pending?.callId) toolCallIdToCounter.delete(pending.callId);
+          if ((counterFromId !== undefined || legacyQueueIndex >= 0) && queue) {
+            const queueIndex = queue.indexOf(counter);
+            if (queueIndex >= 0) queue.splice(queueIndex, 1);
+          }
           if (queue && queue.length === 0)
             toolNameToCounters.delete(event.tool);
         }
         toolCallCount++;
 
+        const finishedAt = Date.now();
+
+        const explicitError = event.isError === true;
         const isError =
           typeof event.isError === "boolean"
             ? event.isError
@@ -361,6 +453,28 @@ export async function instrumentAgentLoop(opts: {
                 event.result.startsWith("Error running "));
         if (isError) failedTools++;
         else successfulTools++;
+
+        if (
+          counter !== undefined &&
+          counter < MAX_TRACKED_GENERATION_TOOL_CALLS &&
+          pending
+        ) {
+          generationToolCalls.set(counter, {
+            name: pending.toolName,
+            started_offset_ms: Math.max(0, pending.startMs - runStart),
+            duration_ms: Math.max(0, finishedAt - pending.startMs),
+            status: isError ? "error" : "success",
+            error_class: !isError
+              ? null
+              : explicitError
+                ? "tool_error"
+                : "legacy_inferred_error",
+            error_message:
+              isError && config.captureToolResults
+                ? truncateToolErrorMessage(redactToolErrorMessage(event.result))
+                : undefined,
+          });
+        }
 
         // Finalize the OTel tool span. If the span promise hasn't resolved yet
         // we record the result on the entry so its `.then` handler ends it.
@@ -392,7 +506,7 @@ export async function instrumentAgentLoop(opts: {
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
           costCentsX100: 0,
-          durationMs: pending ? Date.now() - pending.startMs : 0,
+          durationMs: pending ? Math.max(0, finishedAt - pending.startMs) : 0,
           status: isError ? "error" : "success",
           errorMessage: isError ? event.result : null,
           metadata:
@@ -422,7 +536,11 @@ export async function instrumentAgentLoop(opts: {
   let errorMessage: string | null = null;
   let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   try {
-    usage = await runAgentLoop({ ...loopOpts, send: instrumentedSend });
+    usage = await runAgentLoop({
+      ...loopOpts,
+      runId,
+      send: instrumentedSend,
+    });
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
@@ -440,6 +558,65 @@ export async function instrumentAgentLoop(opts: {
     const runEnd = Date.now();
     const totalDurationMs = runEnd - runStart;
 
+    if (pendingTools.size > 0) {
+      if (runStatus === "success") {
+        runStatus = "error";
+        errorMessage ??= "Agent run ended with interrupted tool calls";
+      }
+      for (const [counter, pending] of pendingTools) {
+        toolCallCount += 1;
+        failedTools += 1;
+        const interruptedMessage = "Tool call interrupted before completion";
+        if (counter < MAX_TRACKED_GENERATION_TOOL_CALLS) {
+          generationToolCalls.set(counter, {
+            name: pending.toolName,
+            started_offset_ms: Math.max(0, pending.startMs - runStart),
+            duration_ms: Math.max(0, runEnd - pending.startMs),
+            status: "error",
+            error_class: "interrupted",
+            error_message: config.captureToolResults
+              ? interruptedMessage
+              : undefined,
+          });
+        }
+        if (pending.otelSpan) {
+          openOtelToolSpans.delete(pending.otelSpan);
+          endAgentSpan(pending.otelSpan, {
+            status: "error",
+            errorMessage: interruptedMessage,
+            attributes: { "tool.name": pending.toolName },
+          });
+        } else {
+          pending.endResult = {
+            status: "error",
+            errorMessage: interruptedMessage,
+          };
+        }
+        spans.push({
+          id: pending.spanId,
+          runId,
+          threadId,
+          userId,
+          parentSpanId,
+          spanType: "tool_call",
+          name: pending.toolName,
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          costCentsX100: 0,
+          durationMs: Math.max(0, runEnd - pending.startMs),
+          status: "error",
+          errorMessage: interruptedMessage,
+          metadata: null,
+          createdAt: runEnd,
+        });
+      }
+      pendingTools.clear();
+      toolNameToCounters.clear();
+      toolCallIdToCounter.clear();
+    }
+
     let costCentsX100 = 0;
     try {
       const { calculateCost } = await import("../usage/store.js");
@@ -455,8 +632,15 @@ export async function instrumentAgentLoop(opts: {
     } catch {}
 
     let llmCallCount = 0;
-    if (usage) {
+    if (usage || runStatus === "error") {
       llmCallCount = 1;
+      const generationUsage = usage ?? {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: loopOpts.model,
+      };
       const llmSpanId = spanId();
       const llmSpan: TraceSpan = {
         id: llmSpanId,
@@ -465,11 +649,11 @@ export async function instrumentAgentLoop(opts: {
         userId,
         parentSpanId,
         spanType: "llm_call",
-        name: usage.model,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheWriteTokens: usage.cacheWriteTokens,
+        name: generationUsage.model,
+        inputTokens: generationUsage.inputTokens,
+        outputTokens: generationUsage.outputTokens,
+        cacheReadTokens: generationUsage.cacheReadTokens,
+        cacheWriteTokens: generationUsage.cacheWriteTokens,
         costCentsX100,
         durationMs: totalDurationMs,
         status: runStatus,
@@ -488,11 +672,11 @@ export async function instrumentAgentLoop(opts: {
           typeof loopOpts.engine?.name === "string"
             ? loopOpts.engine.name
             : undefined,
-        model: usage.model,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheWriteTokens: usage.cacheWriteTokens,
+        model: generationUsage.model,
+        inputTokens: generationUsage.inputTokens,
+        outputTokens: generationUsage.outputTokens,
+        cacheReadTokens: generationUsage.cacheReadTokens,
+        cacheWriteTokens: generationUsage.cacheWriteTokens,
         costCentsX100,
         durationMs: totalDurationMs,
         status: runStatus,
@@ -500,6 +684,12 @@ export async function instrumentAgentLoop(opts: {
         toolCalls: toolCallCount,
         successfulTools,
         failedTools,
+        tools: [...generationToolCalls.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, detail]) => detail),
+        toolsTruncated:
+          toolInvocationCounter > MAX_TRACKED_GENERATION_TOOL_CALLS,
+        delegation: opts.delegation,
         createdAt: runStart,
         experimentAssignments: opts.experimentAssignments,
         modelSelectionSource: opts.modelSelectionSource,

@@ -11,6 +11,16 @@ export interface A2AArtifactResponseOptions {
   baseUrl?: string;
   includeReferencedArtifacts?: boolean;
   includePersistedArtifactMarker?: boolean;
+  persistedArtifactSecret?: string;
+}
+
+export interface GuardedA2AArtifactResponse {
+  text: string;
+  rejectedUnverifiedArtifactReferences: boolean;
+}
+
+export interface A2AArtifactIdentityOptions {
+  persistedArtifactSecrets?: readonly string[];
 }
 
 export interface A2AArtifactIdentity {
@@ -74,21 +84,26 @@ const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
 
 function persistedArtifactIdentitiesFromMarker(
   result: string,
+  secrets: readonly string[] = process.env.A2A_SECRET
+    ? [process.env.A2A_SECRET]
+    : [],
 ): A2AArtifactIdentity[] {
-  const secret = process.env.A2A_SECRET;
-  if (!secret) return [];
+  if (secrets.length === 0) return [];
   const match = result.match(
     /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/,
   );
   if (!match) return [];
   try {
     const payload = match[1];
-    const expected = createHmac("sha256", secret).update(payload).digest();
     const supplied = Buffer.from(match[2], "hex");
-    if (
-      supplied.length !== expected.length ||
-      !timingSafeEqual(supplied, expected)
-    ) {
+    const verified = secrets.some((secret) => {
+      const expected = createHmac("sha256", secret).update(payload).digest();
+      return (
+        supplied.length === expected.length &&
+        timingSafeEqual(supplied, expected)
+      );
+    });
+    if (!verified) {
       return [];
     }
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString());
@@ -114,9 +129,15 @@ function persistedArtifactIdentitiesFromMarker(
 function withPersistedArtifactMarker(
   text: string,
   toolResults: A2AToolResultSummary[],
+  secret = process.env.A2A_SECRET,
 ): string {
-  const identities = extractA2AArtifactIdentities(toolResults).slice(0, 12);
-  const secret = process.env.A2A_SECRET;
+  const verificationSecrets = [secret, process.env.A2A_SECRET].filter(
+    (value, index, values): value is string =>
+      !!value && values.indexOf(value) === index,
+  );
+  const identities = extractA2AArtifactIdentities(toolResults, {
+    persistedArtifactSecrets: verificationSecrets,
+  }).slice(0, 12);
   if (identities.length === 0 || !secret) return text;
   const payload = Buffer.from(JSON.stringify(identities)).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
@@ -881,6 +902,7 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
  */
 export function extractA2AArtifactIdentities(
   results: A2AToolResultSummary[],
+  options: A2AArtifactIdentityOptions = {},
 ): A2AArtifactIdentity[] {
   const identities = new Map<string, A2AArtifactIdentity>();
 
@@ -894,6 +916,7 @@ export function extractA2AArtifactIdentities(
     if (result.tool === "call-agent") {
       for (const identity of persistedArtifactIdentitiesFromMarker(
         result.result,
+        options.persistedArtifactSecrets,
       )) {
         remember({ ...identity, sourceAction: "call-agent" });
       }
@@ -1377,17 +1400,21 @@ function formatUnverifiedArtifactMessage(
     : message;
 }
 
-export function appendA2AArtifactLinks(
+export function guardA2AArtifactResponse(
   responseText: string,
   toolResults: A2AToolResultSummary[],
   options: A2AArtifactResponseOptions = {},
-): string {
+): GuardedA2AArtifactResponse {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
   const finalize = (value: string) =>
     options.includePersistedArtifactMarker
-      ? withPersistedArtifactMarker(value, toolResults)
+      ? withPersistedArtifactMarker(
+          value,
+          toolResults,
+          options.persistedArtifactSecret ?? process.env.A2A_SECRET,
+        )
       : value;
   const {
     documents,
@@ -1418,7 +1445,10 @@ export function appendA2AArtifactLinks(
     ) ||
       /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
   ) {
-    return finalize(formatIncompleteDesignMessage(incompleteShells));
+    return {
+      text: finalize(formatIncompleteDesignMessage(incompleteShells)),
+      rejectedUnverifiedArtifactReferences: false,
+    };
   }
 
   const unverifiedRefs = findUnverifiedArtifactReferences(
@@ -1432,18 +1462,21 @@ export function appendA2AArtifactLinks(
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
-    return finalize(
-      formatUnverifiedArtifactMessage(
-        unverifiedRefs,
-        documents,
-        decks,
-        dashboards,
-        analyses,
-        images,
-        generatedDesigns,
-        baseUrl,
+    return {
+      text: finalize(
+        formatUnverifiedArtifactMessage(
+          unverifiedRefs,
+          documents,
+          decks,
+          dashboards,
+          analyses,
+          images,
+          generatedDesigns,
+          baseUrl,
+        ),
       ),
-    );
+      rejectedUnverifiedArtifactReferences: true,
+    };
   }
 
   const missingLines: string[] = [];
@@ -1519,10 +1552,25 @@ export function appendA2AArtifactLinks(
   }
 
   if (missingLines.length === 0) {
-    return finalize(text);
+    return {
+      text: finalize(text),
+      rejectedUnverifiedArtifactReferences: false,
+    };
   }
+
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
-  return finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock);
+  return {
+    text: finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock),
+    rejectedUnverifiedArtifactReferences: false,
+  };
+}
+
+export function appendA2AArtifactLinks(
+  responseText: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string {
+  return guardA2AArtifactResponse(responseText, toolResults, options).text;
 }
 
 export function buildA2ARecoverableArtifactMessage(

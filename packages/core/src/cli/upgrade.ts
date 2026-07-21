@@ -18,6 +18,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { MigrationCodemodResult } from "./migration-codemod.js";
+
 const AGENT_NATIVE_SCOPE = "@agent-native/";
 const PINNABLE_VERSION = "latest";
 
@@ -27,6 +29,8 @@ export interface UpgradeCliOptions {
   command: UpgradeCommand;
   cwd?: string;
   dryRun?: boolean;
+  codemods?: boolean;
+  yes?: boolean;
   skipInstall?: boolean;
   skipVerify?: boolean;
   skipSkills?: boolean;
@@ -93,6 +97,11 @@ export interface UpgradeRunResult {
   }>;
   message: string;
   exitCode: number;
+  codemod?: {
+    files: string[];
+    warnings: string[];
+    diff: string;
+  };
 }
 
 export interface UpgradeIo {
@@ -139,6 +148,10 @@ export function parseUpgradeArgs(argv: string[]): UpgradeCliOptions {
       opts.help = true;
     } else if (arg === "--dry-run") {
       opts.dryRun = true;
+    } else if (arg === "--codemods") {
+      opts.codemods = true;
+    } else if (arg === "--yes") {
+      opts.yes = true;
     } else if (arg === "--skip-install") {
       opts.skipInstall = true;
     } else if (arg === "--skip-verify") {
@@ -167,9 +180,12 @@ export function printUpgradeHelp(io: Pick<UpgradeIo, "log"> = defaultIo): void {
       "  agent-native upgrade              Bring this app/workspace to current @agent-native/*",
       "  agent-native upgrade check        Doctor only: overrides, patches, pending bumps",
       "  agent-native upgrade --dry-run    Show the plan without writing or installing",
+      "  agent-native upgrade --codemods   Preview manifest-driven import migrations",
       "",
       "Options:",
       "  --skip-install   Bump package.json only; do not run the package manager",
+      "  --codemods       Rewrite moved Agent Native imports and exports (preview by default)",
+      "  --yes            Apply codemods; without this flag --codemods is a dry run",
       "  --skip-skills    Skip `skills update scaffold --project`",
       "  --skip-verify    Skip typecheck after upgrade",
       "  --force          Continue even when framework overrides/patches are present",
@@ -527,6 +543,19 @@ const FAILURE_GUIDANCE = [
   "  npx @agent-native/core@latest upgrade",
 ].join("\n");
 
+function applyCodemodDependencyPlan(
+  codemodResult: MigrationCodemodResult,
+): MigrationCodemodResult["changes"] {
+  const dependencyFiles = new Set(codemodResult.dependencyFiles);
+  const applied: MigrationCodemodResult["changes"] = [];
+  for (const change of codemodResult.changes) {
+    if (!dependencyFiles.has(change.file)) continue;
+    fs.writeFileSync(change.file, change.after);
+    applied.push(change);
+  }
+  return applied;
+}
+
 export async function runUpgrade(
   argv: string[],
   io: UpgradeIo = defaultIo,
@@ -566,9 +595,10 @@ export async function runUpgrade(
     return doctor.findings.length > 0 ? 1 : 0;
   }
 
+  const dryRun = Boolean(opts.dryRun || (opts.codemods && !opts.yes));
   const result: UpgradeRunResult = {
     ok: true,
-    dryRun: Boolean(opts.dryRun),
+    dryRun,
     doctor,
     steps: [],
     message: "",
@@ -613,7 +643,7 @@ export async function runUpgrade(
       status: "skipped",
       detail: "All @agent-native/* deps already use latest or local pins",
     });
-  } else if (opts.dryRun) {
+  } else if (dryRun) {
     result.steps.push({
       id: "bump",
       status: "planned",
@@ -644,6 +674,63 @@ export async function runUpgrade(
     });
   }
 
+  let codemodPlan:
+    | {
+        module: typeof import("./migration-codemod.js");
+        dependencyChanges: MigrationCodemodResult["changes"];
+      }
+    | undefined;
+
+  if (opts.codemods) {
+    const codemodModule = await import("./migration-codemod.js");
+    const codemodResult = codemodModule.runMigrationCodemods({
+      root: project.root,
+      targetExists: codemodModule.createMigrationPlanningTargetResolver(
+        project.root,
+      ),
+    });
+    const diff = codemodModule.formatMigrationCodemodDiff(
+      codemodResult,
+      project.root,
+    );
+    const dependencyChanges = dryRun
+      ? []
+      : applyCodemodDependencyPlan(codemodResult);
+    codemodPlan = {
+      module: codemodModule,
+      dependencyChanges,
+    };
+
+    if (dryRun) {
+      result.codemod = {
+        files: codemodResult.changes.map((change) =>
+          relativeTo(project.root, change.file),
+        ),
+        warnings: codemodResult.warnings,
+        diff,
+      };
+    }
+    if (dryRun) {
+      result.steps.push({
+        id: "codemods",
+        status: codemodResult.changes.length === 0 ? "skipped" : "planned",
+        detail:
+          codemodResult.changes.length === 0
+            ? "No manifest migrations found"
+            : `Would update ${codemodResult.changes.length} file(s)`,
+      });
+    }
+    if (dryRun && !opts.json && diff) {
+      io.log(diff);
+      io.log("");
+    }
+    if (dryRun && !opts.json) {
+      for (const warning of codemodResult.warnings) {
+        io.err(`[codemods] ${warning}`);
+      }
+    }
+  }
+
   // Install.
   if (opts.skipInstall) {
     result.steps.push({
@@ -651,7 +738,7 @@ export async function runUpgrade(
       status: "skipped",
       detail: "--skip-install",
     });
-  } else if (opts.dryRun) {
+  } else if (dryRun) {
     result.steps.push({
       id: "install",
       status: "planned",
@@ -667,6 +754,30 @@ export async function runUpgrade(
       result.ok = false;
       result.exitCode = spawned.status ?? 1;
       result.message = `${pm} install failed`;
+      if (codemodPlan && codemodPlan.dependencyChanges.length > 0) {
+        const dependencyResult: MigrationCodemodResult = {
+          changes: codemodPlan.dependencyChanges,
+          dependencyFiles: codemodPlan.dependencyChanges.map(
+            (change) => change.file,
+          ),
+          warnings: [],
+        };
+        const diff = codemodPlan.module.formatMigrationCodemodDiff(
+          dependencyResult,
+          project.root,
+        );
+        result.codemod = {
+          files: dependencyResult.changes.map((change) =>
+            relativeTo(project.root, change.file),
+          ),
+          warnings: [],
+          diff,
+        };
+        if (!opts.json && diff) {
+          io.log(diff);
+          io.log("");
+        }
+      }
       result.steps.push({
         id: "install",
         status: "failed",
@@ -678,6 +789,51 @@ export async function runUpgrade(
     result.steps.push({ id: "install", status: "ok", detail: `${pm} install` });
   }
 
+  if (codemodPlan && !dryRun) {
+    const applied = codemodPlan.module.runMigrationCodemods({
+      root: project.root,
+      apply: true,
+    });
+    const actualResult: MigrationCodemodResult = {
+      changes: [...codemodPlan.dependencyChanges, ...applied.changes],
+      dependencyFiles: codemodPlan.dependencyChanges.map(
+        (change) => change.file,
+      ),
+      warnings: applied.warnings,
+    };
+    const diff = codemodPlan.module.formatMigrationCodemodDiff(
+      actualResult,
+      project.root,
+    );
+    const files = [
+      ...new Set(actualResult.changes.map((change) => change.file)),
+    ];
+    result.codemod = {
+      files: files.map((file) => relativeTo(project.root, file)),
+      warnings: actualResult.warnings,
+      diff,
+    };
+    result.steps.push({
+      id: "codemods",
+      status: files.length === 0 ? "skipped" : "ok",
+      detail:
+        files.length === 0
+          ? "No resolvable manifest migrations found"
+          : opts.skipInstall
+            ? `Updated ${files.length} file(s) without installing dependencies`
+            : `Updated ${files.length} file(s) after dependency installation`,
+    });
+    if (!opts.json && diff) {
+      io.log(diff);
+      io.log("");
+    }
+    if (!opts.json) {
+      for (const warning of actualResult.warnings) {
+        io.err(`[codemods] ${warning}`);
+      }
+    }
+  }
+
   // Skills refresh.
   if (opts.skipSkills) {
     result.steps.push({
@@ -685,7 +841,7 @@ export async function runUpgrade(
       status: "skipped",
       detail: "--skip-skills",
     });
-  } else if (opts.dryRun) {
+  } else if (dryRun) {
     result.steps.push({
       id: "skills",
       status: "planned",
@@ -720,7 +876,7 @@ export async function runUpgrade(
       status: "skipped",
       detail: "--skip-verify",
     });
-  } else if (opts.dryRun) {
+  } else if (dryRun) {
     result.steps.push({
       id: "verify",
       status: "planned",
@@ -763,8 +919,10 @@ export async function runUpgrade(
     }
   }
 
-  result.message = opts.dryRun
-    ? "Dry run complete. Re-run without --dry-run to apply."
+  result.message = dryRun
+    ? opts.codemods && !opts.yes
+      ? "Codemod preview complete. Re-run with --codemods --yes to apply."
+      : "Dry run complete. Re-run without --dry-run to apply."
     : "Upgrade complete. If the app still fails to run, fix app-level code — do not patch @agent-native/*.";
   emitResult(io, opts, result);
   return 0;

@@ -1,13 +1,4 @@
-/**
- * Renders markdown content as HTML with:
- * - Syntax-highlighted code blocks (via Shiki)
- * - Heading anchor links (clickable # on h2/h3)
- * - Tailwind Typography styling via .docs-content
- *
- * Uses the 'marked' library for markdown→HTML conversion.
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { marked, type RendererThis, type Tokens } from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";

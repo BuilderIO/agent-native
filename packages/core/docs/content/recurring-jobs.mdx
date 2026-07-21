@@ -9,7 +9,7 @@ A **recurring job** is a prompt that runs on a cron schedule. It's how the agent
 
 Recurring jobs fire on a clock. To react to _events_ (a booking created, an email received) — same `jobs/` file format plus conditions — see [Automations](/docs/automations).
 
-Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
+Jobs live in [Agent Resources](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
 
 ## A job file {#job-file}
 
@@ -81,9 +81,9 @@ The framework includes cron utilities (`isValidCron()` and `describeCron()`) for
 
 ## Creating a job {#creating}
 
-### From the Workspace tab
+### From the Resources tab
 
-`+` → **Scheduled Task** in the workspace panel. Fill in the prompt and schedule. Saves as `jobs/<slug>.md` and starts running on the next matching tick.
+`+` → **Scheduled Task** in the Resources tab. Fill in the prompt and schedule. Saves as `jobs/<slug>.md` and starts running on the next matching tick.
 
 ### By asking the agent
 
@@ -214,6 +214,6 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 ## What's next
 
 - [**Automations**](/docs/automations) — add event triggers and conditions to the same `jobs/` format
-- [**Workspace**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
+- [**Agent Resources**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
 - [**Actions**](/docs/actions) — the tools a job calls
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work

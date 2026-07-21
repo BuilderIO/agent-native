@@ -1,4 +1,5 @@
-import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPlus,
   IconCheck,

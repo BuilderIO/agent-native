@@ -4,6 +4,7 @@ import {
   runMigrations,
 } from "@agent-native/core/db";
 
+import { repairFilesSystemPropertyDefinitions } from "../../actions/_files-system-properties.js";
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 import * as schema from "../db/schema.js";
 
@@ -847,6 +848,66 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique
           ON content_database_items (database_id, document_id)`,
     },
+    {
+      version: 75,
+      name: "content-files-system-properties",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS system_role TEXT;
+        ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS files_system_properties_seeded INTEGER NOT NULL DEFAULT 0;
+        CREATE UNIQUE INDEX IF NOT EXISTS document_property_definitions_database_system_role_unique
+          ON document_property_definitions (database_id, system_role)`,
+    },
+    {
+      version: 76,
+      name: "document-trash-lifecycle",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)`,
+    },
+    {
+      version: 77,
+      name: "backfill-database-trash-roots",
+      // guard:allow-unscoped — boot migration claims only archived database trees that predate document Trash metadata.
+      sql: `WITH RECURSIVE legacy_database_trash(document_id, root_id, deleted_at) AS (
+          SELECT documents.id, documents.id, MIN(content_databases.deleted_at)
+          FROM documents
+          INNER JOIN content_databases
+            ON content_databases.document_id = documents.id
+          WHERE documents.trashed_at IS NULL
+            AND content_databases.deleted_at IS NOT NULL
+          GROUP BY documents.id
+          UNION
+          SELECT child.id, legacy_database_trash.root_id, legacy_database_trash.deleted_at
+          FROM documents child
+          INNER JOIN legacy_database_trash
+            ON child.parent_id = legacy_database_trash.document_id
+          WHERE child.trashed_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM content_databases child_database
+              WHERE child_database.document_id = child.id
+                AND child_database.deleted_at IS NOT NULL
+            )
+        )
+        UPDATE documents
+        SET trashed_at = (
+          SELECT legacy_database_trash.deleted_at
+          FROM legacy_database_trash
+          WHERE legacy_database_trash.document_id = documents.id
+          LIMIT 1
+        ),
+        trash_root_id = (
+          SELECT legacy_database_trash.root_id
+          FROM legacy_database_trash
+          WHERE legacy_database_trash.document_id = documents.id
+          LIMIT 1
+        )
+        WHERE documents.trashed_at IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM legacy_database_trash
+            WHERE legacy_database_trash.document_id = documents.id
+          )`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -921,5 +982,13 @@ export default async function contentDatabasePlugin(
     // Retry in-process so a transient boot-time repair failure does not leave
     // legacy databases without their primary Blocks field until a full reboot.
     scheduleBlocksRepairRetry();
+  }
+  try {
+    await repairFilesSystemPropertyDefinitions();
+  } catch (err) {
+    console.warn(
+      "[db] Files system-property repair failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
   }
 }

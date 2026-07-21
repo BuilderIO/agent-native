@@ -1192,7 +1192,7 @@ export async function updateExtensionContent(
 
   if (opts.content !== undefined && opts.allowFullReplacement !== true) {
     throw new ExtensionContentEditError(
-      "Full extension-body replacement requires explicit allowFullReplacement=true. Use patches or edits for a targeted data-only repair so the existing design is preserved.",
+      "Full extension-body replacement requires allowFullReplacement=true. No changes were applied. Use patches or edits for a targeted data-only repair, or set allowFullReplacement=true for a user-requested broad visual rewrite.",
     );
   }
 

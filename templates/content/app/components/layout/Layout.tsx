@@ -1,4 +1,6 @@
-import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
@@ -189,7 +191,7 @@ export function Layout({ children }: LayoutProps) {
         )}
         <AgentSidebar
           position="right"
-          defaultOpen={!isMobile && !isNarrowDesktop}
+          defaultOpen={false}
           agentPageHref="/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[

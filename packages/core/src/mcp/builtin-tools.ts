@@ -123,7 +123,17 @@ interface AskAppTaskResult {
     arguments: { app: string; taskId: string };
   };
   message?: string;
+  statusRead?: "unavailable";
+  retryable?: true;
+  errorCategory?: AskAppStatusErrorCategory;
+  attempts?: number;
 }
+
+type AskAppStatusErrorCategory =
+  | "transport"
+  | "timeout"
+  | "upstream_5xx"
+  | "rate_limited";
 
 function safeAppPath(raw: unknown): string | null {
   if (typeof raw !== "string" || !raw.trim()) return null;
@@ -432,34 +442,125 @@ async function fetchAskAppA2ATask(
   taskId: string,
 ): Promise<AskAppTaskResult> {
   const { client } = await createA2AClientForAskApp(route.origin);
-  let lastError: unknown;
+  const maxAttempts = ASK_APP_STATUS_RETRY_DELAYS_MS.length + 1;
   for (
     let attempt = 0;
     attempt <= ASK_APP_STATUS_RETRY_DELAYS_MS.length;
     attempt++
   ) {
+    const startedAt = Date.now();
     try {
       const task = await client.getTask(taskId);
       return askAppTaskResult(route, task);
     } catch (err) {
-      lastError = err;
       const delayMs = ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
-      if (delayMs == null || !isTransientAskAppStatusError(err)) {
+      const errorCategory = askAppStatusErrorCategory(err);
+      const retryable = errorCategory != null;
+      const willRetry = retryable && delayMs != null;
+      if (retryable) {
+        console.warn("[ask_app_status] tasks/get attempt failed", {
+          app: route.app,
+          routedVia: route.routedVia,
+          taskId,
+          originHost: askAppStatusOriginHost(route.origin),
+          attempt: attempt + 1,
+          maxAttempts,
+          elapsedMs: Date.now() - startedAt,
+          errorCategory,
+          errorName: err instanceof Error ? err.name : typeof err,
+          causeCode: askAppStatusErrorCauseCode(err),
+          willRetry,
+        });
+      }
+
+      if (!retryable) {
         throw err;
+      }
+      if (delayMs == null) {
+        return askAppStatusReadUnavailableResult(
+          route,
+          taskId,
+          errorCategory,
+          maxAttempts,
+        );
       }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
-  throw lastError;
+  throw new Error("ask_app_status retry loop exited unexpectedly.");
 }
 
 function isTransientAskAppStatusError(err: unknown): boolean {
+  return askAppStatusErrorCategory(err) != null;
+}
+
+function askAppStatusErrorCategory(
+  err: unknown,
+): AskAppStatusErrorCategory | null {
   const message = err instanceof Error ? err.message : String(err ?? "");
-  return (
-    /\bfetch failed\b|failed to fetch|networkerror|socket hang up|econnreset|etimedout|timeout|aborted/i.test(
-      message,
-    ) || /A2A request failed \((?:429|500|502|503|504)\)/i.test(message)
-  );
+  const causeCode = askAppStatusErrorCauseCode(err) ?? "";
+  const diagnostic = `${message} ${causeCode}`;
+  if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
+  if (/A2A request failed \((?:500|502|503|504)\)/i.test(message)) {
+    return "upstream_5xx";
+  }
+  if (/etimedout|timeout|aborted|aborterror/i.test(diagnostic)) {
+    return "timeout";
+  }
+  if (
+    /\bfetch failed\b|failed to fetch|networkerror|socket hang up|econnreset/i.test(
+      diagnostic,
+    )
+  ) {
+    return "transport";
+  }
+  return null;
+}
+
+function askAppStatusErrorCauseCode(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const directCode = (err as Error & { code?: unknown }).code;
+  if (typeof directCode === "string" && directCode.trim()) {
+    return directCode.trim();
+  }
+  if (!err.cause || typeof err.cause !== "object") return undefined;
+  const code = (err.cause as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code.trim() : undefined;
+}
+
+function askAppStatusOriginHost(origin: string): string {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+function askAppStatusReadUnavailableResult(
+  route: AskAppRoute,
+  taskId: string,
+  errorCategory: AskAppStatusErrorCategory,
+  attempts: number,
+): AskAppTaskResult {
+  return {
+    app: route.app,
+    routedVia: route.routedVia,
+    taskId,
+    status: "unknown",
+    statusRead: "unavailable",
+    retryable: true,
+    errorCategory,
+    attempts,
+    pollAfterMs: ASK_APP_POLL_INTERVAL_MS,
+    poll: {
+      tool: "ask_app_status",
+      arguments: { app: route.app, taskId },
+    },
+    message:
+      "The durable ask_app task status could not be read after bounded retries. " +
+      "The task may still be running or completed. Retry ask_app_status " +
+      "with the same app and taskId; do not resubmit ask_app.",
+  };
 }
 
 /**
@@ -1186,7 +1287,11 @@ function askAppStatusTool(
 ): ActionEntry {
   return {
     tool: tool(
-      "Poll a durable ask_app task and return its current status or final response.",
+      "Poll a durable ask_app task and return its current status or final response. " +
+        "If a transient status read stays unavailable after bounded retries, the " +
+        "result preserves the app and taskId with statusRead 'unavailable' and a " +
+        "poll instruction. Retry ask_app_status for that same task; never resubmit " +
+        "ask_app as status-read recovery because that can duplicate work.",
       {
         app: {
           type: "string",

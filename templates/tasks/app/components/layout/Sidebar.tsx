@@ -1,6 +1,7 @@
-import { appPath, FeedbackButton } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconCheckbox,
   IconForms,

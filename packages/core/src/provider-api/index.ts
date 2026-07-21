@@ -23,6 +23,7 @@ import {
 import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
+import { mergeDefinitionsById } from "../shared/merge-by-id.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import { resolveWorkspaceConnectionForApp } from "../workspace-connections/store.js";
 import type {
@@ -474,6 +475,8 @@ export type ProviderApiCredentialResolver = (
 export interface ProviderApiRuntimeOptions {
   appId: string;
   providerIds?: readonly (ProviderApiId | string)[];
+  /** App-owned definitions replace matching built-ins by id without dropping other providers. */
+  providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
   getCredentialContext?: () => CredentialContext | null;
   resolveCredential?: ProviderApiCredentialResolver;
@@ -1284,6 +1287,35 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultHeaders: { "Notion-Version": "2026-03-11" },
     templateUses: ["analytics", "brain", "content", "dispatch"],
     examples: [{ label: "Search", method: "POST", path: "/search", body: {} }],
+    corpusRecipes: [
+      {
+        label: "Search a Notion data source with complete cursor coverage",
+        useWhen:
+          "Use for coverage-sensitive searches across one known Notion data source's page properties. This does not search page block bodies.",
+        workflow: [
+          "Resolve the exact data source id and apply the narrowest provider-side filter and filter_properties projection first.",
+          "Start provider-corpus-job with mode=paginated-search and pass next_cursor back as start_cursor in the POST body.",
+          "Search only the returned properties and report the 10,000-result API ceiling plus any incomplete request_status.",
+          "For page body text, stage page ids and fetch block children through a separate bounded data program; property search is not body search.",
+        ],
+        request: {
+          method: "POST",
+          path: "/data_sources/<data-source-id>/query",
+          body: { page_size: 100 },
+        },
+        pagination: {
+          itemsPath: "results",
+          nextCursorPath: "next_cursor",
+          cursorBodyPath: "start_cursor",
+          maxPages: 100,
+        },
+        search: {
+          textPaths: ["properties"],
+          idPaths: ["id"],
+          metadataPaths: ["id", "url", "created_time", "last_edited_time"],
+        },
+      },
+    ],
   },
   posthog: {
     id: "posthog",
@@ -1306,10 +1338,20 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     ],
     examples: [
       {
-        label: "List events",
-        method: "GET",
-        path: "/api/projects/{projectId}/events/",
+        label: "Aggregate events with HogQL",
+        method: "POST",
+        path: "/api/projects/{projectId}/query/",
+        body: {
+          query: {
+            kind: "HogQLQuery",
+            query:
+              "SELECT event, count() AS events FROM events WHERE timestamp >= now() - INTERVAL 7 DAY GROUP BY event ORDER BY events DESC LIMIT 100",
+          },
+        },
       },
+    ],
+    notes: [
+      "Prefer the query endpoint with a bounded HogQL projection or server-side aggregation over paging raw events into the agent context.",
     ],
   },
   prometheus: {
@@ -1400,6 +1442,39 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       { label: "Search messages", method: "GET", path: "/search.messages" },
       { label: "Post message", method: "POST", path: "/chat.postMessage" },
     ],
+    notes: [
+      "Bot-token reads must not call conversations.join implicitly. A bot can read only conversations it is already a member of with the required history scope.",
+      "search.messages requires a compatible user token; do not assume a bot token can use it. Use conversations.history for channel-scoped bot reads.",
+    ],
+    corpusRecipes: [
+      {
+        label: "Search complete Slack channel history",
+        useWhen:
+          "Use for all-message, mention, phrase, or absence-sensitive searches in one known Slack conversation without one agent turn per cursor page.",
+        workflow: [
+          "Resolve the exact channel id without joining or mutating membership.",
+          "Start provider-corpus-job with mode=paginated-search against conversations.history, bounded by oldest/latest when possible.",
+          "Pass response_metadata.next_cursor back as cursor and let quota_wait pause/resume rate-limited installations.",
+          "Report channel id, time bounds, pages, messages searched, matches, and is_limited or access gaps.",
+        ],
+        request: {
+          method: "GET",
+          path: "/conversations.history",
+          query: { channel: "<channel-id>" },
+        },
+        pagination: {
+          itemsPath: "messages",
+          nextCursorPath: "response_metadata.next_cursor",
+          cursorParam: "cursor",
+          maxPages: 500,
+        },
+        search: {
+          textPaths: ["text", "blocks", "attachments"],
+          idPaths: ["ts", "client_msg_id"],
+          metadataPaths: ["ts", "user", "thread_ts", "type", "subtype"],
+        },
+      },
+    ],
   },
   stripe: {
     id: "stripe",
@@ -1441,10 +1516,26 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
 
 export function getProviderApiConfig(
   provider: ProviderApiId | string,
+  overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiConfig {
-  const config = PROVIDER_CONFIGS[provider as ProviderApiId];
+  const config = mergeProviderApiConfigs(overrides).find(
+    (candidate) => candidate.id === provider,
+  );
   if (!config) throw new Error(`Unsupported provider API: ${provider}`);
   return config;
+}
+
+export function mergeProviderApiConfigs(
+  overrides: readonly ProviderApiConfig[] = [],
+): ProviderApiConfig[] {
+  for (const override of overrides) {
+    if (!isProviderApiId(override.id)) {
+      throw new Error(
+        `Provider API overrides must replace a built-in id: ${override.id}`,
+      );
+    }
+  }
+  return mergeDefinitionsById(Object.values(PROVIDER_CONFIGS), overrides);
 }
 
 export function isProviderApiId(provider: string): provider is ProviderApiId {
@@ -1453,23 +1544,32 @@ export function isProviderApiId(provider: string): provider is ProviderApiId {
 
 export function listProviderApiIdsForTemplateUse(
   templateUse: WorkspaceConnectionTemplateUse,
+  overrides: readonly ProviderApiConfig[] = [],
 ): ProviderApiId[] {
+  const configs = new Map(
+    mergeProviderApiConfigs(overrides).map((config) => [config.id, config]),
+  );
   return PROVIDER_API_IDS.filter((id) =>
-    (PROVIDER_CONFIGS[id].templateUses ?? []).includes(templateUse),
+    (configs.get(id)?.templateUses ?? []).includes(templateUse),
   );
 }
 
 export function listProviderApiCatalog(
   provider?: ProviderApiId | string,
-  options: { providerIds?: readonly (ProviderApiId | string)[] } = {},
+  options: {
+    providerIds?: readonly (ProviderApiId | string)[];
+    providerOverrides?: readonly ProviderApiConfig[];
+  } = {},
 ) {
   const providerIds = normalizeProviderIds(options.providerIds);
   if (provider) {
     assertProviderAllowed(provider, providerIds);
   }
   const configs = provider
-    ? [getProviderApiConfig(provider)]
-    : providerIds.map((id) => getProviderApiConfig(id));
+    ? [getProviderApiConfig(provider, options.providerOverrides)]
+    : providerIds.map((id) =>
+        getProviderApiConfig(id, options.providerOverrides),
+      );
   return configs.map((config) => ({
     id: config.id,
     label: config.label,
@@ -1492,6 +1592,7 @@ export function listProviderApiCatalog(
 export function createProviderApiRuntime(
   options: ProviderApiRuntimeOptions,
 ): ProviderApiRuntime {
+  mergeProviderApiConfigs(options.providerOverrides);
   const providerIds = normalizeProviderIds(options.providerIds);
   const runtimeOptions: Required<
     Pick<ProviderApiRuntimeOptions, "appId" | "localCredentialSource">
@@ -1506,7 +1607,7 @@ export function createProviderApiRuntime(
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
         provider,
-        { providerIds },
+        { providerIds, providerOverrides: options.providerOverrides },
         runtimeOptions,
       ),
     fetchDocs: (docsOptions) =>
@@ -1535,7 +1636,7 @@ export async function fetchProviderApiDocs(
 
   // Resolve config — may be a built-in or a custom provider.
   const builtIn = isProviderApiId(options.provider)
-    ? getProviderApiConfig(options.provider)
+    ? getProviderApiConfig(options.provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
@@ -1549,7 +1650,9 @@ export async function fetchProviderApiDocs(
   }
 
   const catalog = builtIn
-    ? listProviderApiCatalog(options.provider)[0]
+    ? listProviderApiCatalog(options.provider, {
+        providerOverrides: runtime.providerOverrides,
+      })[0]
     : customProviderToCatalogEntry(customConfig!);
 
   if (!options.url) {
@@ -1627,7 +1730,7 @@ export async function executeProviderApiRequest(
 
   // Check whether this is a built-in or custom provider.
   const builtIn = isProviderApiId(args.provider)
-    ? getProviderApiConfig(args.provider)
+    ? getProviderApiConfig(args.provider, runtime.providerOverrides)
     : null;
   const customConfig = builtIn
     ? null
@@ -1690,60 +1793,66 @@ export async function executeProviderApiRequest(
   // --- fetchAllPages mode ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
-    const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extra) => {
-        const queryWithCursor = extra?.query
-          ? mergeQueryObjects(
-              substituteUnknown(args.query, placeholders),
-              extra.query,
-            )
-          : substituteUnknown(args.query, placeholders);
-        const pageUrl = buildProviderUrl({
-          config,
-          baseUrl,
-          rawPath: substituteString(args.path, placeholders),
-          query: queryWithCursor,
-        });
-        const bodyWithCursor = extra?.bodyCursor
-          ? setValueAtPath(
-              substituteUnknown(args.body, placeholders),
-              extra.bodyCursor.path,
-              extra.bodyCursor.value,
-            )
-          : substituteUnknown(args.body, placeholders);
-        const pageBody = prepareBody(bodyWithCursor, { ...headers });
-        const requestKey = createProviderRequestDedupeKey({
-          method,
-          url: pageUrl.href,
-          body: pageBody,
-          headers,
-        });
-        const resp = await fetchWithTimeout(pageUrl.href, {
-          method,
-          headers,
-          body: pageBody,
-          maxBytes: effectiveMaxBytes,
-          timeoutMs: clampTimeout(args.timeoutMs),
-          secretValues: auth.secretValues,
-          quota: {
-            identity: quotaIdentity,
-            method,
-            target: describeProviderRequestTarget(
-              pageUrl.href,
-              auth.secretValues,
-            ),
-            requestKey,
-          },
-        });
-        return {
-          text:
-            resp.text ??
-            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
-          contentType: resp.contentType,
-          status: resp.status,
-          ok: resp.ok,
-        };
+    const {
+      items,
+      pageCount,
+      lastStatus,
+      lastContentType,
+      truncated,
+      nextCursor,
+    } = await fetchAllPages(pageCfg, async (extra) => {
+      const queryWithCursor = extra?.query
+        ? mergeQueryObjects(
+            substituteUnknown(args.query, placeholders),
+            extra.query,
+          )
+        : substituteUnknown(args.query, placeholders);
+      const pageUrl = buildProviderUrl({
+        config,
+        baseUrl,
+        rawPath: substituteString(args.path, placeholders),
+        query: queryWithCursor,
       });
+      const bodyWithCursor = extra?.bodyCursor
+        ? setValueAtPath(
+            substituteUnknown(args.body, placeholders),
+            extra.bodyCursor.path,
+            extra.bodyCursor.value,
+          )
+        : substituteUnknown(args.body, placeholders);
+      const pageBody = prepareBody(bodyWithCursor, headers);
+      const requestKey = createProviderRequestDedupeKey({
+        method,
+        url: pageUrl.href,
+        body: pageBody,
+        headers,
+      });
+      const resp = await fetchWithTimeout(pageUrl.href, {
+        method,
+        headers,
+        body: pageBody,
+        maxBytes: effectiveMaxBytes,
+        timeoutMs: clampTimeout(args.timeoutMs),
+        secretValues: auth.secretValues,
+        quota: {
+          identity: quotaIdentity,
+          method,
+          target: describeProviderRequestTarget(
+            pageUrl.href,
+            auth.secretValues,
+          ),
+          requestKey,
+        },
+      });
+      return {
+        text:
+          resp.text ??
+          (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+        contentType: resp.contentType,
+        status: resp.status,
+        ok: resp.ok,
+      };
+    });
 
     const allItemsJson = JSON.stringify(items, null, 2);
     const metadata = {
@@ -1751,6 +1860,8 @@ export async function executeProviderApiRequest(
       pagesRead: pageCount,
       totalItems: Array.isArray(items) ? items.length : 0,
       lastStatus,
+      truncated,
+      nextCursor,
     };
 
     if (args.saveToFile) {
@@ -1853,7 +1964,7 @@ export async function resolveProviderApiOAuthAccessToken(
   runtime: ProviderApiRuntimeOptions,
 ): Promise<ProviderApiOAuthAccessToken> {
   await assertProviderAllowedAsync(args.provider, runtime);
-  const config = getProviderApiConfig(args.provider);
+  const config = getProviderApiConfig(args.provider, runtime.providerOverrides);
   const auth = config.auth;
   const oauthAuth =
     auth.type === "oauth-bearer"
@@ -2642,57 +2753,63 @@ async function executeCustomProviderApiRequest(
   // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
-    const { items, pageCount, lastStatus, lastContentType } =
-      await fetchAllPages(pageCfg, async (extra) => {
-        const queryWithCursor = extra?.query
-          ? mergeQueryObjects(args.query, extra.query)
-          : args.query;
-        const pageUrl = buildProviderUrl({
-          config: syntheticConfig,
-          baseUrl,
-          rawPath: args.path,
-          query: queryWithCursor,
-        });
-        const bodyWithCursor = extra?.bodyCursor
-          ? setValueAtPath(
-              args.body,
-              extra.bodyCursor.path,
-              extra.bodyCursor.value,
-            )
-          : args.body;
-        const pageBody = prepareBody(bodyWithCursor, { ...headers });
-        const requestKey = createProviderRequestDedupeKey({
-          method,
-          url: pageUrl.href,
-          body: pageBody,
-          headers,
-        });
-        const resp = await fetchWithTimeout(pageUrl.href, {
-          method,
-          headers,
-          body: pageBody,
-          maxBytes: effectiveMaxBytes,
-          timeoutMs: clampTimeout(args.timeoutMs),
-          secretValues: auth.secretValues,
-          quota: {
-            identity: quotaIdentity,
-            method,
-            target: describeProviderRequestTarget(
-              pageUrl.href,
-              auth.secretValues,
-            ),
-            requestKey,
-          },
-        });
-        return {
-          text:
-            resp.text ??
-            (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
-          contentType: resp.contentType,
-          status: resp.status,
-          ok: resp.ok,
-        };
+    const {
+      items,
+      pageCount,
+      lastStatus,
+      lastContentType,
+      truncated,
+      nextCursor,
+    } = await fetchAllPages(pageCfg, async (extra) => {
+      const queryWithCursor = extra?.query
+        ? mergeQueryObjects(args.query, extra.query)
+        : args.query;
+      const pageUrl = buildProviderUrl({
+        config: syntheticConfig,
+        baseUrl,
+        rawPath: args.path,
+        query: queryWithCursor,
       });
+      const bodyWithCursor = extra?.bodyCursor
+        ? setValueAtPath(
+            args.body,
+            extra.bodyCursor.path,
+            extra.bodyCursor.value,
+          )
+        : args.body;
+      const pageBody = prepareBody(bodyWithCursor, headers);
+      const requestKey = createProviderRequestDedupeKey({
+        method,
+        url: pageUrl.href,
+        body: pageBody,
+        headers,
+      });
+      const resp = await fetchWithTimeout(pageUrl.href, {
+        method,
+        headers,
+        body: pageBody,
+        maxBytes: effectiveMaxBytes,
+        timeoutMs: clampTimeout(args.timeoutMs),
+        secretValues: auth.secretValues,
+        quota: {
+          identity: quotaIdentity,
+          method,
+          target: describeProviderRequestTarget(
+            pageUrl.href,
+            auth.secretValues,
+          ),
+          requestKey,
+        },
+      });
+      return {
+        text:
+          resp.text ??
+          (resp.json !== undefined ? JSON.stringify(resp.json) : ""),
+        contentType: resp.contentType,
+        status: resp.status,
+        ok: resp.ok,
+      };
+    });
 
     const allItemsJson = JSON.stringify(items, null, 2);
     const metadata = {
@@ -2704,6 +2821,8 @@ async function executeCustomProviderApiRequest(
       pagesRead: pageCount,
       totalItems: Array.isArray(items) ? items.length : 0,
       lastStatus,
+      truncated,
+      nextCursor,
     };
 
     if (args.saveToFile) {
@@ -2952,7 +3071,10 @@ function extractCredentialKeysFromCustomAuth(
  */
 async function listProviderApiCatalogWithCustom(
   provider: ProviderApiId | string | undefined,
-  options: { providerIds?: readonly (ProviderApiId | string)[] },
+  options: {
+    providerIds?: readonly (ProviderApiId | string)[];
+    providerOverrides?: readonly ProviderApiConfig[];
+  },
   runtime: ProviderApiRuntimeOptions,
 ): Promise<unknown[]> {
   const customConfigs = runtime.getCustomProviders
@@ -3835,7 +3957,7 @@ async function getGoogleServiceAccountToken(
   if (cached && Date.now() < cached.expiresAt - 30_000) return cached.token;
 
   const credsJson = await resolveCredentialValue({
-    config: getProviderApiConfig("gcloud"),
+    config: getProviderApiConfig("gcloud", runtime.providerOverrides),
     runtime,
     ctx,
     key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
@@ -5146,6 +5268,8 @@ async function fetchAllPages(
   pageCount: number;
   lastStatus: number;
   lastContentType: string | null;
+  truncated: boolean;
+  nextCursor: string | null;
 }> {
   const maxPages = Math.min(
     Number.isFinite(config.maxPages) && config.maxPages! > 0
@@ -5159,6 +5283,7 @@ async function fetchAllPages(
   let pageCount = 0;
   let lastStatus = 0;
   let lastContentType: string | null = null;
+  let truncated = false;
 
   if (!config.cursorParam && !config.cursorBodyPath) {
     throw new Error(
@@ -5224,12 +5349,21 @@ async function fetchAllPages(
       nextCursor === null ||
       nextCursor === cursor
     ) {
+      truncated = false;
       break;
     }
     cursor = String(nextCursor);
+    truncated = pageCount >= maxPages;
   }
 
-  return { items, pageCount, lastStatus, lastContentType };
+  return {
+    items,
+    pageCount,
+    lastStatus,
+    lastContentType,
+    truncated,
+    nextCursor: truncated ? (cursor ?? null) : null,
+  };
 }
 
 function fingerprint(value: string): string {

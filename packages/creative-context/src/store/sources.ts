@@ -1,4 +1,4 @@
-import { getDbExec } from "@agent-native/core/db";
+import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
 import {
   accessFilter,
   assertAccess,
@@ -580,22 +580,6 @@ export async function contextSourceBoundary(input: {
   };
 }
 
-async function currentUserIsOrgAdmin(
-  orgId: string,
-  ownerEmail: string,
-): Promise<boolean> {
-  try {
-    const result = await getDbExec().execute({
-      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
-      args: [orgId, ownerEmail.toLowerCase()],
-    });
-    const role = String(result.rows[0]?.role ?? "").toLowerCase();
-    return role === "owner" || role === "admin";
-  } catch {
-    return false;
-  }
-}
-
 export async function previewContextSourcePromotion(
   sourceId: string,
 ): Promise<ContextSourcePromotionPreview> {
@@ -608,7 +592,7 @@ export async function previewContextSourcePromotion(
   if (!actor.orgId) {
     throw new Error("Select an organization before promoting a context source");
   }
-  const orgAdmin = await currentUserIsOrgAdmin(actor.orgId, actor.ownerEmail);
+  const orgAdmin = await currentRequestUserIsOrgAdmin(actor.orgId);
   const verifiedOwner =
     access.role === "owner" &&
     Boolean(access.resource.containerOwnerVerifiedAt);

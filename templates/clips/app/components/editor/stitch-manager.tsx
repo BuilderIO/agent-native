@@ -1,9 +1,9 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  agentNativePath,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPuzzle,
   IconGripVertical,
@@ -24,23 +24,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { exportConcat } from "@/lib/ffmpeg-export";
 import { formatMs } from "@/lib/timestamp-mapping";
+import { uploadFileClient } from "@/lib/upload-file-client";
 import { cn } from "@/lib/utils";
-
-/** Client-side upload via the framework's auto-mounted `/file-upload` route. */
-async function uploadFileClient(
-  blob: Blob,
-  filename: string,
-): Promise<{ url: string } | null> {
-  const form = new FormData();
-  form.append("file", blob, filename);
-  const res = await fetch(agentNativePath("/_agent-native/file-upload"), {
-    method: "POST",
-    body: form,
-  });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.url ? { url: json.url as string } : null;
-}
 
 export interface StitchManagerProps {
   open: boolean;
@@ -70,7 +55,9 @@ export function StitchManager({
   const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const listQuery = useActionQuery("list-recordings", {});
+  const listQuery = useActionQuery("list-recordings", {
+    includeMedia: true,
+  });
   const stitch = useActionMutation("stitch-recordings");
 
   useEffect(() => {

@@ -1,7 +1,5 @@
-import type {
-  AgentPageScope,
-  SettingsTabItem,
-} from "@agent-native/core/client";
+import { type AgentPageScope } from "@agent-native/core/client/agent-chat";
+import { type SettingsTabItem } from "@agent-native/core/client/settings";
 import { IconLibrary } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 

@@ -128,10 +128,10 @@ describe("space-aware document writers", () => {
     ).rejects.toThrow("parent Content space");
   });
 
-  it("requires organization editor access for root page and database creation", async () => {
+  it("lets ordinary organization members create root pages and databases while guests remain read-only", async () => {
     const orgId = "org-shared-writers";
-    await addOrganizationMember({ orgId, email: MEMBER, role: "admin" });
-    await addOrganizationMember({ orgId, email: VIEWER });
+    await addOrganizationMember({ orgId, email: MEMBER });
+    await addOrganizationMember({ orgId, email: VIEWER, role: "guest" });
     const spaceId = organizationContentSpaceId(orgId);
     const created = await runWithRequestContext(
       { userEmail: MEMBER, orgId },
@@ -171,12 +171,12 @@ describe("space-aware document writers", () => {
       runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
         createDocument.run({ title: "Viewer page", spaceId }),
       ),
-    ).rejects.toThrow("Editor access is required");
+    ).rejects.toThrow("Contributor access is required");
     await expect(
       runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
         createContentDatabase.run({ title: "Viewer database", spaceId }),
       ),
-    ).rejects.toThrow("Editor access is required");
+    ).rejects.toThrow("Contributor access is required");
     await expect(
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
         createDocument.run({ title: "No entry", spaceId }),

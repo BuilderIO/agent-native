@@ -33,8 +33,11 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
 
 vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
 
-const { createProviderApiRuntime, resolveProviderApiOAuthAccessToken } =
-  await import("./index.js");
+const {
+  createProviderApiRuntime,
+  getProviderApiConfig,
+  resolveProviderApiOAuthAccessToken,
+} = await import("./index.js");
 const { createGitHubRepoFilesAction } =
   await import("./actions/github-repo-files.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
@@ -87,6 +90,28 @@ describe("provider API runtime", () => {
     await expect(runtime.listCatalog("gmail")).rejects.toThrow(
       /Provider API gmail is not enabled/,
     );
+  });
+
+  it("replaces one built-in provider definition without dropping the rest", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["slack", "stripe"],
+      providerOverrides: [
+        {
+          ...getProviderApiConfig("slack"),
+          label: "Acme Slack",
+        },
+      ],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const catalog = (await runtime.listCatalog()) as Array<{
+      id: string;
+      label: string;
+    }>;
+    expect(catalog.map(({ id }) => id)).toEqual(["slack", "stripe"]);
+    expect(catalog.find(({ id }) => id === "slack")?.label).toBe("Acme Slack");
+    expect(catalog.find(({ id }) => id === "stripe")?.label).toBe("Stripe");
   });
 
   it("injects Clay's public API key with the official header", async () => {
@@ -1361,6 +1386,99 @@ describe("provider API runtime", () => {
     ).rejects.toThrow(/exactly one cursor method/);
 
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps JSON content type headers on body-cursor pagination", async () => {
+    resolveCredential.mockResolvedValue("pylon-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockReset()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ id: "issue-1" }],
+            pagination: { cursor: "page-2" },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [{ id: "issue-2" }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["pylon"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "pylon",
+        method: "POST",
+        path: "/issues/search",
+        body: { limit: 500 },
+        fetchAllPages: {
+          cursorPath: "pagination.cursor",
+          cursorBodyPath: "cursor",
+          itemsPath: "data",
+          maxPages: 2,
+        },
+      }),
+    ).resolves.toMatchObject({
+      items: [{ id: "issue-1" }, { id: "issue-2" }],
+      pagesRead: 2,
+    });
+
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      headers: expect.objectContaining({ "Content-Type": "application/json" }),
+    });
+  });
+
+  it("reports a remaining cursor when fetchAllPages reaches its page budget", async () => {
+    resolveCredential.mockResolvedValue("hubspot-token");
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          results: [{ id: "deal-1" }],
+          paging: { next: { after: "page-2" } },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "hubspot",
+        path: "/crm/v3/objects/deals",
+        fetchAllPages: {
+          cursorPath: "paging.next.after",
+          cursorParam: "after",
+          itemsPath: "results",
+          maxPages: 1,
+        },
+      }),
+    ).resolves.toMatchObject({
+      items: [{ id: "deal-1" }],
+      pagesRead: 1,
+      totalItems: 1,
+      truncated: true,
+      nextCursor: "page-2",
+    });
   });
 
   it("retries provider 429s through the shared quota governor", async () => {

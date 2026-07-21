@@ -1,11 +1,11 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
 import {
   AgentNativeI18nProvider,
-  AgentSidebar,
-  configureTracking,
-  ErrorReportActions,
   getLocaleInitScript,
   useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, useEffect, useRef } from "react";
 import {

@@ -87,6 +87,15 @@ Extensions have full access to app data via helpers injected into the iframe
 (full signatures in `references/api.md`):
 
 - `appAction(name, params)` — call any app action
+- `agentNative.mcp.listTools(serverId?)` and
+  `agentNative.mcp.callTool(serverId, toolName, arguments)` — inspect and call
+  connected remote MCP tools through the host app's authenticated, scoped
+  action surface. The iframe never receives MCP credentials.
+- `agentNative.providerApi.catalog(params)` and `agentNative.providerApi.docs(params)`
+  — discover provider APIs and their contracts using existing OAuth workspace
+  connections. Arbitrary `providerApi.request` is intentionally not exposed to
+  extensions because it could turn a shared extension into an authenticated
+  write proxy; use `agentNative.mcp.callTool` or an explicit app action instead.
 - `appFetch(path, options)` — call allowed framework endpoints under
   `/_agent-native/*`
 - `dbQuery(sql, args)` — read from SQL
@@ -143,6 +152,25 @@ const allNotes = await extensionData.list('notes', { scope: 'all' });    // both
 persistence** — it handles everything automatically. Only use
 `dbQuery`/`dbExec` when querying the app's existing tables. See
 `references/api.md` for the full `get`/`remove`/scope reference.
+
+### Agent-side extension data access
+
+The agent can read and write `extensionData` directly using two dedicated
+actions — no need to go through the iframe bridge or raw SQL:
+
+| Action                | Purpose                                           |
+| --------------------- | ------------------------------------------------- |
+| `extension-data-set`  | Upsert an item in an extension's data store       |
+| `extension-data-get`  | Read items from an extension's data store         |
+
+Use `extension-data-set` when the agent needs to seed, refresh, or update
+data that an extension reads at render time via `extensionData.get()`. This
+is the correct path for agent-driven dashboard refreshes — the agent
+fetches fresh data from providers, then writes the merged result with
+`extension-data-set`, and the extension picks it up on next load.
+
+Use `extension-data-get` to inspect what data an extension currently stores,
+or to verify a write succeeded.
 
 ## What extensions are
 

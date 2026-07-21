@@ -4972,6 +4972,12 @@ describe("runAgentLoop", () => {
         text: expect.stringContaining("failed 3 times"),
       }),
     );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("DB failed"),
+      }),
+    );
   });
 
   it("stops after repeated identical unknown-tool errors", async () => {

@@ -646,7 +646,7 @@ export interface AgentTabsPageProps {
    */
   appName?: string;
   extraTabs?: SettingsTabItem[];
-  /** Scoped app-specific tabs that receive the current Agent workspace scope. */
+  /** Scoped app-specific tabs that receive the current Manage agent page scope. */
   extraTabFactories?: AgentPageExtraTabFactory[];
   defaultTab?: string;
   className?: string;
@@ -665,7 +665,7 @@ export function AgentTabsPage({
   defaultTab = "files",
   className,
   enableSearch = true,
-  searchPlaceholder = "Search agent workspace",
+  searchPlaceholder = "Search",
   hiddenTabs = [],
   value,
   onValueChange,
@@ -991,7 +991,7 @@ export function AgentTabsPage({
             >
               {results.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                  No matching agent workspace items
+                  No matching items
                 </p>
               ) : (
                 results.map((entry) => (

@@ -4,13 +4,16 @@ import { readFile } from "node:fs/promises";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   getBrowserTabId: () => "acceptance-tab",
   readClientAppState: vi.fn(),
   setClientAppState: vi.fn(),
   useActionMutation: vi.fn(),
   useActionQuery: vi.fn(),
   useChangeVersion: () => 0,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     ({
       "creativeContext.off": "Off",
@@ -131,6 +134,7 @@ describe("credential-free Library acceptance", () => {
       contextMode: "off",
       currentPackId: null,
       pinnedPackId: null,
+      selectedContextId: null,
     });
     const offMarkup = renderToStaticMarkup(
       <CreativeContextChip state={off} packs={[pack]} />,

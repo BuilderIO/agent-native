@@ -29,6 +29,9 @@ describe("Content space schema foundation", () => {
     expect(documents.spaceId.name).toBe("space_id");
     expect(contentDatabases.spaceId.name).toBe("space_id");
     expect(contentDatabases.systemRole.name).toBe("system_role");
+    expect(contentDatabases.filesSystemPropertiesSeeded.name).toBe(
+      "files_system_properties_seeded",
+    );
   });
 
   it("declares named additive migrations and their hot-path indexes", () => {
@@ -46,6 +49,12 @@ describe("Content space schema foundation", () => {
     );
     expect(migrationsSource).toContain(
       "content_space_catalog_items_owner_catalog_idx",
+    );
+    expect(migrationsSource).toContain(
+      'name: "content-files-system-properties"',
+    );
+    expect(migrationsSource).toContain(
+      "document_property_definitions_database_system_role_unique",
     );
   });
 });

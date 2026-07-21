@@ -29,10 +29,9 @@ const messages = {
     collapseSidebar: "收起側邊欄",
   },
   settings: {
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     languageTitle: "語言",
     languageDescription: "選取 Design 的介面語言。",
     languageLabel: "介面語言",
@@ -1051,6 +1050,7 @@ const messages = {
     escToExit: "Esc 退出",
     tellAgentWhatToChange: "告訴代理要更改什麼...",
     changesSaveWhenReconnected: "重新連線時將儲存更改",
+    changesDiscarded: "部分變更因檔案已不存在而無法儲存，已被捨棄。",
     offline: "離線",
     saving: "儲存...",
     clearedAllAnnotations: "已清除所有批注",

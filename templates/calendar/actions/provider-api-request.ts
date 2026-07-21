@@ -1,12 +1,9 @@
-import { defineAction } from "@agent-native/core";
-import { stagingExecuteRequest } from "@agent-native/core/provider-api/staging";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
 import {
   CALENDAR_APP_ID,
   CALENDAR_PROVIDER_API_IDS,
-  executeProviderApiRequest,
   getCalendarProviderApiRuntime,
 } from "../server/lib/provider-api.js";
 
@@ -68,7 +65,7 @@ const PaginationSchema = z
   })
   .optional();
 
-export default defineAction({
+export default createProviderApiRequestAction(getCalendarProviderApiRuntime(), {
   description:
     "Make an arbitrary authenticated HTTP request to a Calendar-connected provider API. " +
     "Use this as the flexible escape hatch when a convenience action cannot express the needed endpoint, event filter, attendee search, calendar list, CRM object, pagination mode, payload, or API version. " +
@@ -204,36 +201,6 @@ export default defineAction({
       ),
   }),
   http: false,
-  run: async (args) => {
-    if (args.stageAs) {
-      const ctx = getCredentialContext();
-      if (!ctx) {
-        throw new Error("No authenticated context for provider API staging.");
-      }
-      const providerRuntime = getCalendarProviderApiRuntime();
-      return stagingExecuteRequest(
-        {
-          provider: args.provider,
-          method: args.method,
-          path: args.path,
-          query: args.query,
-          headers: args.headers,
-          body: args.body,
-          auth: args.auth,
-          connectionId: args.connectionId,
-          accountId: args.accountId,
-          timeoutMs: args.timeoutMs,
-          maxBytes: args.maxBytes,
-          stageAs: args.stageAs,
-          itemsPath: args.itemsPath,
-          pagination: args.pagination,
-        },
-        (reqArgs) => providerRuntime.executeRequest(reqArgs),
-        { appId: CALENDAR_APP_ID, ownerEmail: ctx.userEmail },
-      );
-    }
-    return executeProviderApiRequest(
-      args as unknown as Parameters<typeof executeProviderApiRequest>[0],
-    );
-  },
+  toolCallable: false,
+  appId: CALENDAR_APP_ID,
 });

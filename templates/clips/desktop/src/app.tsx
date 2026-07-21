@@ -3,13 +3,18 @@ import {
   IconArrowLeft,
   IconCalendarEvent,
   IconCircleCheck,
+  IconCopy,
   IconDownload,
   IconExternalLink,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
+  IconHistory,
   IconMicrophone2,
+  IconPlayerPlay,
   IconRefresh,
+  IconSearch,
+  IconShieldLock,
   IconTrash,
   IconUpload,
   IconX,
@@ -55,7 +60,7 @@ import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
-import { resolveDesktopMeetingJoinUrl } from "./lib/meeting-join-url";
+import { openMeetingJoinUrl } from "./lib/open-meeting-join-url";
 import {
   DESKTOP_CAPTURE_PERMISSION_MESSAGE,
   isHardCapturePermissionError,
@@ -67,9 +72,12 @@ import {
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
   dismissBrowserRecordingBackup,
+  createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
+  getRewindClipOrigin,
   listBrowserRecordingBackups,
   retryBrowserRecordingBackup,
+  scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
   startRecording,
   type LocalExportedFile,
@@ -77,6 +85,8 @@ import {
   type RecorderHandle,
   type RecorderStopResult,
 } from "./lib/recorder";
+import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
+import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
   loadBool,
   loadString,
@@ -101,6 +111,7 @@ import {
 } from "./lib/voice-dictation";
 import {
   useFeatureConfig,
+  type FeatureConfig,
   type LocalRecordingMode,
   type ScreenMemoryStatus,
 } from "./shared/config";
@@ -125,7 +136,13 @@ interface PendingNativeUpload {
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
 
-type PopoverView = "recorder" | "settings" | "meetings" | "dictation";
+type PopoverView =
+  | "recorder"
+  | "memory"
+  | "rewind-settings"
+  | "settings"
+  | "meetings"
+  | "dictation";
 
 interface PopoverMeeting {
   id: string;
@@ -135,6 +152,52 @@ interface PopoverMeeting {
   joinUrl: string | null;
   platform: string | null;
   transcriptStatus: string | null;
+}
+
+interface RewindMeetingHistoryAvailability {
+  available: boolean;
+  reason?: string | null;
+  coveredFrom?: string | null;
+}
+
+interface RewindAgentHandoffRequest {
+  requestId: string;
+  status: "pending" | "processing" | "ready" | "declined" | "failed";
+  requestedAt: string;
+  startAt: string;
+  endAt: string;
+  durationMs: number;
+  reason: string;
+  includeMicrophone: boolean;
+  includeSystemAudio: boolean;
+  reviewRequired: boolean;
+  agentClipRetention: "forever" | "24-hours" | "7-days" | "30-days";
+  recordingId?: string;
+  agentUrl?: string;
+  contextUrl?: string;
+  expiresAt?: string;
+  error?: string;
+}
+
+interface RewindExtensionRequest {
+  requestId: string;
+  recordingId: string;
+  seconds: 30 | 300;
+  status: "pending" | "processing" | "ready" | "failed";
+  updatedAt: string;
+  preRollRecordingId?: string;
+  actualDurationMs?: number;
+  error?: string;
+}
+
+interface NativeRewindUploadResult {
+  recordingId: string;
+  durationMs: number;
+}
+
+interface DueRewindAgentHandoff {
+  requestId: string;
+  recordingId: string;
 }
 
 interface LocalRecordingNotice {
@@ -152,6 +215,74 @@ interface ScreenMemoryExportResult {
   }>;
 }
 
+interface RewindEgressEvent {
+  requestId: string;
+  occurredAt: string;
+  state:
+    | "prepared"
+    | "completed"
+    | "failed"
+    | "local-evidence-read"
+    | "handoff-requested";
+  evidenceCount: number;
+  packetBytes: number;
+  error?: string | null;
+  operation?: string | null;
+  receipt?: {
+    evidence?: Array<{
+      id: string;
+      momentId: string;
+      sourceType: "app-context" | "transcript" | "ocr" | "chapter";
+      capturedAt?: string | null;
+    }>;
+    frames?: Array<{ timestamp: string; segmentId: string }>;
+    mediaInterval?: { startAt: string; endAt: string };
+    reviewRequired?: boolean;
+  } | null;
+}
+
+interface RewindLocalAskResult {
+  query: string;
+  answerSummary: string;
+  evidence: Array<{
+    id: string;
+    sourceType: "app-context" | "transcript" | "ocr";
+    capturedAt: string;
+    excerpt: string;
+    confidence?: number | null;
+    segmentId: string;
+    offsetMs: number;
+  }>;
+  coverage: {
+    segmentsConsidered: number;
+    transcriptIndexesReady: number;
+    ocrIndexesReady: number;
+    gaps: Array<{
+      kind: string;
+      source: string;
+      startedAt?: string | null;
+      endedAt?: string | null;
+      detail: string;
+    }>;
+  };
+  confidence: string;
+  truncated: boolean;
+}
+
+interface RewindExcludedApplication {
+  bundleId: string;
+  name: string;
+  path?: string | null;
+  installed: boolean;
+}
+
+interface RewindAgentConnectionStatus {
+  client: "codex" | "claude-code";
+  configured: boolean;
+  configPath: string;
+  storeDir: string;
+}
+
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
@@ -164,11 +295,34 @@ const STORAGE_SETUP_FAILURE_RE =
 const DEFAULT_SCREEN_MEMORY_CONFIG = {
   enabled: false,
   paused: false,
-  retentionHours: 24,
+  retentionHours: 8,
   maxBytes: 20 * 1024 * 1024 * 1024,
   segmentSeconds: 5 * 60,
   sampleIntervalSeconds: 10,
+  captureMode: "visuals" as const,
+  reviewBeforeSending: true,
+  autoPreviewBeforeSending: true,
+  agentClipRetention: "forever" as const,
+  excludedBundleIds: [
+    "com.1password.1password",
+    "com.agilebits.onepassword7",
+    "com.bitwarden.desktop",
+    "com.dashlane.dashlane",
+    "com.lastpass.lastpass",
+  ],
+  excludePrivateWindows: false,
 };
+
+function parseExcludedBundleIds(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/[\n,]/)
+        .map((id) => id.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
 
 function isStorageSetupFailureMessage(message: string | null | undefined) {
   return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
@@ -366,17 +520,17 @@ type MacosPrivacyPane =
 
 const MACOS_PRIVACY_URLS: Record<MacosPrivacyPane, string> = {
   camera:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Camera",
   microphone:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone",
   screen:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture",
   speech:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_SpeechRecognition",
   accessibility:
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility",
   "input-monitoring":
-    "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ListenEvent",
 };
 
 const WINDOWS_PRIVACY_URLS: Partial<Record<MacosPrivacyPane, string>> = {
@@ -551,6 +705,17 @@ function measurePopoverHeight(el: HTMLElement): number {
 
   const candidates = [rect.height, el.scrollHeight + borderY];
 
+  // When a direct child is the scrollable content pane, the shell's own
+  // scrollHeight already includes the fixed footer but excludes content that
+  // is hidden inside that child. Add only that hidden delta to the shell
+  // baseline. Measuring the child's full height alone would omit the footer
+  // and leave the resumed recorder window partially clipped.
+  const directChildOverflow = Array.from(el.children).reduce((total, child) => {
+    if (!(child instanceof HTMLElement)) return total;
+    return total + Math.max(0, child.scrollHeight - child.clientHeight);
+  }, 0);
+  candidates.push(el.scrollHeight + borderY + directChildOverflow);
+
   // ResizeObserver on `.app` alone misses scroll-only and absolutely
   // positioned growth. Measure descendant bounds so menus, banners, and
   // settings sections can grow the native window even when `.app` is capped
@@ -562,6 +727,19 @@ function measurePopoverHeight(el: HTMLElement): number {
     const childRect = child.getBoundingClientRect();
     if (childRect.width === 0 && childRect.height === 0) continue;
     lowestBottom = Math.max(lowestBottom, childRect.bottom);
+
+    // Recorder Home deliberately keeps its footer fixed and lets the content
+    // region scroll when the native window is short. A newly inserted row can
+    // therefore grow `child.scrollHeight` without changing any descendant's
+    // visible bounding box. Include that hidden overflow in the desired
+    // window height so a state transition (for example paused -> remembering)
+    // can grow the popover back to its natural size.
+    const childBorderY =
+      Number.parseFloat(childStyle.borderTopWidth || "0") +
+      Number.parseFloat(childStyle.borderBottomWidth || "0");
+    candidates.push(
+      childRect.top - rect.top + child.scrollHeight + childBorderY,
+    );
   }
   candidates.push(lowestBottom - rect.top);
 
@@ -710,12 +888,34 @@ export function App() {
   const [localRecordingNotice, setLocalRecordingNotice] =
     useState<LocalRecordingNotice | null>(null);
   const [popoverView, setPopoverView] = useState<PopoverView>("recorder");
+  const [rewindSettingsReturnView, setRewindSettingsReturnView] = useState<
+    "recorder" | "settings"
+  >("recorder");
+  const [homeScreenMemoryStatus, setHomeScreenMemoryStatus] =
+    useState<ScreenMemoryStatus | null>(null);
+  const [homeScreenMemoryBusy, setHomeScreenMemoryBusy] = useState(false);
+  const homeScreenMemoryRefreshVersionRef = useRef(0);
+  const [rewindAgentPromptCopied, setRewindAgentPromptCopied] = useState(false);
+  const [agentHandoff, setAgentHandoff] =
+    useState<RewindAgentHandoffRequest | null>(null);
+  const agentHandoffProcessingRef = useRef<string | null>(null);
+  const agentHandoffPreviewedRef = useRef<Set<string>>(new Set());
+  const rewindExtensionProcessingRef = useRef<Set<string>>(new Set());
+  const [agentHandoffPreviewBusy, setAgentHandoffPreviewBusy] = useState(false);
+  const [agentHandoffPreviewError, setAgentHandoffPreviewError] = useState<
+    string | null
+  >(null);
+  const [promptRewindEnable, setPromptRewindEnable] = useState(false);
   const [meetings, setMeetings] = useState<PopoverMeeting[]>([]);
   const [meetingsLoading, setMeetingsLoading] = useState(false);
   const [meetingsError, setMeetingsError] = useState<string | null>(null);
   const [meetingStartMessage, setMeetingStartMessage] = useState<string | null>(
     null,
   );
+  const [
+    rewindMeetingHistoryAvailability,
+    setRewindMeetingHistoryAvailability,
+  ] = useState<Record<string, RewindMeetingHistoryAvailability>>({});
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
@@ -748,6 +948,54 @@ export function App() {
   const isRecording = recorder !== null;
   // Whether the popover window is shown; driven by the visibility effect below.
   const [popoverVisible, setPopoverVisible] = useState(false);
+  const homeRewindPresentation = getRewindStatusPresentation({
+    status: homeScreenMemoryStatus,
+    config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
+    clipRecordingActive: isRecording || recordingFlowActive,
+  });
+  const refreshHomeScreenMemoryStatus = useCallback(() => {
+    const version = ++homeScreenMemoryRefreshVersionRef.current;
+    invoke<ScreenMemoryStatus>("screen_memory_status")
+      .then((status) => {
+        if (version === homeScreenMemoryRefreshVersionRef.current) {
+          setHomeScreenMemoryStatus(status);
+        }
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (featureConfig?.screenMemory?.enabled !== true) {
+      homeScreenMemoryRefreshVersionRef.current += 1;
+      setHomeScreenMemoryStatus(null);
+      return;
+    }
+    let cancelled = false;
+    const refresh = () => {
+      if (!cancelled) refreshHomeScreenMemoryStatus();
+    };
+    refresh();
+    const timer = window.setInterval(refresh, popoverVisible ? 5_000 : 30_000);
+    let unlisten: (() => void) | undefined;
+    listen("clips:screen-memory-changed", refresh)
+      .then((stopListening) => {
+        if (cancelled) {
+          stopListening();
+          return;
+        }
+        unlisten = stopListening;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      homeScreenMemoryRefreshVersionRef.current += 1;
+      window.clearInterval(timer);
+      unlisten?.();
+    };
+  }, [
+    featureConfig?.screenMemory?.enabled,
+    popoverVisible,
+    refreshHomeScreenMemoryStatus,
+  ]);
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
   // Mirrors `bubbleActive` (assigned below once it is computed) so device
   // probes can synchronously tell whether the camera bubble owns the grant.
@@ -1029,11 +1277,9 @@ export function App() {
     listen<{ joinUrl?: string | null }>("meetings:open-join-url", (ev) => {
       const url = ev.payload?.joinUrl;
       if (!url) return;
-      import("@tauri-apps/plugin-shell")
-        .then(({ open }) => open(resolveDesktopMeetingJoinUrl(url)))
-        .catch((err) => {
-          console.error("[clips-popover] open join url failed:", err);
-        });
+      openMeetingJoinUrl(url).catch((err) => {
+        console.error("[clips-popover] open join url failed:", err);
+      });
     })
       .then((u) => {
         unlisten = u;
@@ -1104,6 +1350,327 @@ export function App() {
     [serverUrl],
   );
 
+  const updateAgentHandoff = useCallback(
+    async (
+      requestId: string,
+      status: RewindAgentHandoffRequest["status"],
+      result?: Record<string, unknown>,
+      error?: string,
+    ) => {
+      await invoke("screen_memory_update_agent_handoff", {
+        requestId,
+        status,
+        result: result ?? null,
+        error: error ?? null,
+      });
+    },
+    [],
+  );
+
+  const previewAgentHandoff = useCallback(
+    async (request: RewindAgentHandoffRequest) => {
+      setAgentHandoffPreviewBusy(true);
+      setAgentHandoffPreviewError(null);
+      try {
+        await invoke("rewind_agent_handoff_preview", {
+          requestId: request.requestId,
+          startedAt: request.startAt,
+          endedAt: request.endAt,
+          includeMic: request.includeMicrophone,
+          includeSystemAudio: request.includeSystemAudio,
+        });
+      } catch (error) {
+        setAgentHandoffPreviewError(
+          error instanceof Error ? error.message : String(error),
+        );
+      } finally {
+        setAgentHandoffPreviewBusy(false);
+      }
+    },
+    [],
+  );
+
+  const processAgentHandoff = useCallback(
+    async (request: RewindAgentHandoffRequest) => {
+      if (agentHandoffProcessingRef.current === request.requestId) return;
+      agentHandoffProcessingRef.current = request.requestId;
+      const processing = { ...request, status: "processing" as const };
+      setAgentHandoff(processing);
+      let recordingId: string | null = null;
+      try {
+        await updateAgentHandoff(request.requestId, "processing");
+        const hasAudio =
+          request.includeMicrophone || request.includeSystemAudio;
+        const recording = await createPrivateAgentRewindRecording(
+          serverUrl,
+          hasAudio,
+          request.startAt,
+        );
+        recordingId = recording.id;
+        await invoke("rewind_agent_handoff_upload", {
+          requestId: request.requestId,
+          startedAt: request.startAt,
+          endedAt: request.endAt,
+          serverUrl,
+          recordingId,
+          authToken: loadDesktopAuthToken(serverUrl),
+          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
+          uploadMode: recording.uploadMode,
+          includeMic: request.includeMicrophone,
+          includeSystemAudio: request.includeSystemAudio,
+        });
+
+        const retentionHours = {
+          forever: null,
+          "24-hours": 24,
+          "7-days": 7 * 24,
+          "30-days": 30 * 24,
+        }[request.agentClipRetention];
+        const autoDeleteAt = retentionHours
+          ? new Date(
+              Date.now() + retentionHours * 60 * 60 * 1_000,
+            ).toISOString()
+          : null;
+        await callClipsAction("update-recording", {
+          id: recordingId,
+          ...(autoDeleteAt ? { expiresAt: autoDeleteAt } : {}),
+        });
+        const link = await callClipsAction<{
+          recordingId: string;
+          url: string;
+          contextUrl: string;
+          expiresAt: string;
+        }>("create-recording-agent-link", { recordingId });
+        const ready: RewindAgentHandoffRequest = {
+          ...processing,
+          status: "ready",
+          recordingId,
+          agentUrl: link.url,
+          contextUrl: link.contextUrl,
+          expiresAt: link.expiresAt,
+        };
+        await updateAgentHandoff(request.requestId, "ready", {
+          recordingId,
+          agentUrl: link.url,
+          contextUrl: link.contextUrl,
+          expiresAt: link.expiresAt,
+          ...(autoDeleteAt ? { autoDeleteAt } : {}),
+        });
+        setAgentHandoff(ready);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (recordingId) {
+          await callClipsAction("trash-recording", {
+            id: recordingId,
+            skipIfReady: true,
+          }).catch(() => {});
+        }
+        await updateAgentHandoff(
+          request.requestId,
+          "failed",
+          undefined,
+          message,
+        ).catch(() => {});
+        setAgentHandoff({ ...processing, status: "failed", error: message });
+      } finally {
+        agentHandoffProcessingRef.current = null;
+      }
+    },
+    [callClipsAction, serverUrl, updateAgentHandoff],
+  );
+
+  const processRewindExtension = useCallback(
+    async (request: RewindExtensionRequest) => {
+      if (rewindExtensionProcessingRef.current.has(request.requestId)) return;
+      rewindExtensionProcessingRef.current.add(request.requestId);
+      let preRollRecordingId: string | null = null;
+      try {
+        const origin = getRewindClipOrigin(request.recordingId);
+        if (!origin) {
+          throw new Error(
+            "Clips Alpha no longer has the local start time for this Clip.",
+          );
+        }
+        const endedAtMs = Date.parse(origin.startedAt);
+        if (!Number.isFinite(endedAtMs)) {
+          throw new Error("The original Clip start time is invalid.");
+        }
+        await callClipsAction("update-rewind-extension-request", {
+          recordingId: request.recordingId,
+          requestId: request.requestId,
+          status: "processing",
+        });
+        const startedAt = new Date(
+          endedAtMs - request.seconds * 1_000,
+        ).toISOString();
+        const recording = await createPrivateAgentRewindRecording(
+          serverUrl,
+          origin.includeMicrophone || origin.includeSystemAudio,
+          startedAt,
+        );
+        preRollRecordingId = recording.id;
+        const upload = await invoke<NativeRewindUploadResult>(
+          "rewind_agent_handoff_upload",
+          {
+            requestId: `handoff-${request.requestId}`,
+            startedAt,
+            endedAt: origin.startedAt,
+            serverUrl,
+            recordingId: recording.id,
+            authToken: loadDesktopAuthToken(serverUrl),
+            cookie:
+              typeof document !== "undefined" ? document.cookie || "" : "",
+            uploadMode: recording.uploadMode,
+            includeMic: origin.includeMicrophone,
+            includeSystemAudio: origin.includeSystemAudio,
+          },
+        );
+        await callClipsAction("update-rewind-extension-request", {
+          recordingId: request.recordingId,
+          requestId: request.requestId,
+          status: "ready",
+          preRollRecordingId: recording.id,
+          actualDurationMs: Math.round(upload.durationMs),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (preRollRecordingId) {
+          await callClipsAction("trash-recording", {
+            id: preRollRecordingId,
+            skipIfReady: true,
+          }).catch(() => {});
+        }
+        await callClipsAction("update-rewind-extension-request", {
+          recordingId: request.recordingId,
+          requestId: request.requestId,
+          status: "failed",
+          error: message,
+        }).catch(() => {});
+      } finally {
+        rewindExtensionProcessingRef.current.delete(request.requestId);
+      }
+    },
+    [callClipsAction, serverUrl],
+  );
+
+  useEffect(() => {
+    if (
+      authStatus !== "authed" ||
+      featureConfig?.screenMemory?.enabled !== true
+    ) {
+      return;
+    }
+    let cancelled = false;
+    const poll = async () => {
+      const result = await callClipsAction<{
+        requests?: RewindExtensionRequest[];
+      }>("list-rewind-extension-requests", {}, { method: "GET" }).catch(
+        () => null,
+      );
+      if (cancelled) return;
+      for (const request of result?.requests ?? []) {
+        void processRewindExtension(request);
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    authStatus,
+    callClipsAction,
+    featureConfig?.screenMemory?.enabled,
+    processRewindExtension,
+  ]);
+
+  useEffect(() => {
+    if (featureConfig?.screenMemory?.enabled !== true || agentHandoff) return;
+    let cancelled = false;
+    const poll = () => {
+      invoke<RewindAgentHandoffRequest | null>(
+        "screen_memory_next_agent_handoff",
+      )
+        .then((request) => {
+          if (cancelled || !request) return;
+          setAgentHandoff(request);
+          getCurrentWindow()
+            .show()
+            .catch(() => {});
+          getCurrentWindow()
+            .setFocus()
+            .catch(() => {});
+          if (!request.reviewRequired) {
+            void processAgentHandoff(request);
+          } else if (
+            featureConfig?.screenMemory?.autoPreviewBeforeSending !== false &&
+            !agentHandoffPreviewedRef.current.has(request.requestId)
+          ) {
+            // Polling and config refreshes can rerender this surface. Mark the
+            // request before preparing QuickTime so one approval request opens
+            // one local preview, while leaving the manual control available.
+            agentHandoffPreviewedRef.current.add(request.requestId);
+            void previewAgentHandoff(request);
+          }
+        })
+        .catch(() => {});
+    };
+    poll();
+    const timer = window.setInterval(poll, 2_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    agentHandoff,
+    featureConfig?.screenMemory?.autoPreviewBeforeSending,
+    featureConfig?.screenMemory?.enabled,
+    previewAgentHandoff,
+    processAgentHandoff,
+  ]);
+
+  useEffect(() => {
+    if (featureConfig?.screenMemory?.enabled !== true) return;
+    let cancelled = false;
+    const sweep = async () => {
+      const due = await invoke<DueRewindAgentHandoff[]>(
+        "screen_memory_due_agent_handoffs",
+      ).catch(() => []);
+      if (cancelled) return;
+      for (const item of due) {
+        try {
+          const cleanup = await callClipsAction<{
+            deleted: boolean;
+            reason: string;
+          }>("delete-agent-recording-if-unpromoted", {
+            id: item.recordingId,
+          });
+          if (cleanup.deleted) {
+            await invoke("screen_memory_mark_agent_handoff_deleted", {
+              requestId: item.requestId,
+            });
+          } else if (cleanup.reason === "promoted") {
+            await invoke("screen_memory_cancel_agent_handoff_cleanup", {
+              requestId: item.requestId,
+            });
+          }
+        } catch (error) {
+          console.warn(
+            "[clips-tray] agent-created Clip cleanup failed:",
+            error,
+          );
+        }
+      }
+    };
+    void sweep();
+    const timer = window.setInterval(() => void sweep(), 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [callClipsAction, featureConfig?.screenMemory?.enabled]);
+
   const fetchUpcomingMeetings = useCallback(async () => {
     if (authStatus !== "authed") {
       setMeetings([]);
@@ -1144,30 +1711,79 @@ export function App() {
     }
   }, [authStatus, callClipsAction]);
 
-  const startMeetingNotes = useCallback((meeting: PopoverMeeting) => {
-    setActiveMeetingId(meeting.id);
-    setMeetingStartMessage(`Starting notes for ${meeting.title}…`);
-    emit("meetings:start-transcription", {
-      meetingId: meeting.id,
-      joinUrl: meeting.joinUrl,
-      reason: "user",
-    }).catch((err) => {
-      console.error("[clips-popover] start meeting notes failed:", err);
-      setActiveMeetingId(null);
-      setMeetingStartMessage("Could not start notes. Try again from Meetings.");
+  useEffect(() => {
+    let cancelled = false;
+    if (popoverView !== "meetings" || meetings.length === 0) {
+      setRewindMeetingHistoryAvailability({});
+      return () => {
+        cancelled = true;
+      };
+    }
+    Promise.all(
+      meetings.map(async (meeting) => {
+        if (!meeting.scheduledStart)
+          return [meeting.id, { available: false }] as const;
+        try {
+          const availability = await invoke<RewindMeetingHistoryAvailability>(
+            "rewind_meeting_history_status",
+            { scheduledStart: meeting.scheduledStart },
+          );
+          return [meeting.id, availability] as const;
+        } catch (error) {
+          return [
+            meeting.id,
+            {
+              available: false,
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : "Earlier local meeting audio is unavailable.",
+            },
+          ] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!cancelled)
+        setRewindMeetingHistoryAvailability(Object.fromEntries(entries));
     });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [meetings, popoverView]);
+
+  const startMeetingNotes = useCallback(
+    (meeting: PopoverMeeting, includeFromMeetingStart = false) => {
+      setActiveMeetingId(meeting.id);
+      setMeetingStartMessage(
+        includeFromMeetingStart
+          ? `Including earlier local audio for ${meeting.title}…`
+          : `Starting notes for ${meeting.title}…`,
+      );
+      emit("meetings:start-transcription", {
+        meetingId: meeting.id,
+        joinUrl: meeting.joinUrl,
+        reason: "user",
+        scheduledStart: meeting.scheduledStart,
+        includeFromMeetingStart,
+      }).catch((err) => {
+        console.error("[clips-popover] start meeting notes failed:", err);
+        setActiveMeetingId(null);
+        setMeetingStartMessage(
+          "Could not start notes. Try again from Meetings.",
+        );
+      });
+    },
+    [],
+  );
 
   const startMeetingNotesAndJoin = useCallback(
-    (meeting: PopoverMeeting) => {
+    (meeting: PopoverMeeting, includeFromMeetingStart = false) => {
       if (meeting.joinUrl) {
-        openExternal(resolveDesktopMeetingJoinUrl(meeting.joinUrl)).catch(
-          (err) => {
-            console.error("[clips-popover] open meeting join url failed:", err);
-          },
-        );
+        openMeetingJoinUrl(meeting.joinUrl).catch((err) => {
+          console.error("[clips-popover] open meeting join url failed:", err);
+        });
       }
-      startMeetingNotes(meeting);
+      startMeetingNotes(meeting, includeFromMeetingStart);
       hidePopover();
     },
     [startMeetingNotes],
@@ -1185,7 +1801,7 @@ export function App() {
   useEffect(() => {
     invoke<string | null>("get_active_meeting_id")
       .then((meetingId) => {
-        if (meetingId) setActiveMeetingId(meetingId);
+        if (meetingId) setActiveMeetingId((current) => current ?? meetingId);
       })
       .catch(() => {});
 
@@ -1208,6 +1824,7 @@ export function App() {
         (event) => {
           if (event.payload?.meetingId) {
             setActiveMeetingId(event.payload.meetingId);
+            setMeetingStartMessage("Meeting notes are live and staying local.");
           }
         },
       ),
@@ -1221,17 +1838,32 @@ export function App() {
               ? null
               : current,
           );
+          setMeetingStartMessage(null);
         },
       ),
     );
     track(
-      listen<{ meetingId?: string | null }>(
+      listen<{ meetingId?: string | null; error?: string }>(
         "meetings:transcription-error",
         (event) => {
           setActiveMeetingId((current) =>
             !event.payload?.meetingId || event.payload.meetingId === current
               ? null
               : current,
+          );
+          setMeetingStartMessage(
+            event.payload?.error || "Could not start meeting notes.",
+          );
+        },
+      ),
+    );
+    track(
+      listen<{ meetingId?: string | null; error?: string }>(
+        "meetings:history-error",
+        (event) => {
+          setMeetingStartMessage(
+            event.payload?.error ||
+              "Meeting notes are live, but the earlier local audio could not be included.",
           );
         },
       ),
@@ -1796,7 +2428,7 @@ export function App() {
   const appRef = useRef<HTMLDivElement | null>(null);
   usePopoverAutoSize(appRef, {
     disabled: !popoverVisible || isRecording || recordingFlowActive,
-    width: popoverView === "settings" ? 440 : 360,
+    width: popoverView === "settings" || popoverView === "memory" ? 440 : 360,
   });
 
   const loadPendingUploads = useCallback(async () => {
@@ -1833,6 +2465,23 @@ export function App() {
       ),
     );
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let cancelled = false;
+    listen("clips:pending-uploads-changed", () => {
+      void loadPendingUploads();
+    })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [loadPendingUploads]);
 
   useEffect(() => {
     if (popoverView === "meetings" && popoverVisible) {
@@ -1894,12 +2543,23 @@ export function App() {
     try {
       const authToken = loadDesktopAuthToken(targetServerUrl);
       if (upload.kind === "native") {
-        await invoke("native_fullscreen_recording_retry_upload", {
-          serverUrl: targetServerUrl,
-          recordingId: upload.recordingId,
-          authToken,
-          cookie: typeof document !== "undefined" ? document.cookie || "" : "",
-        });
+        const result = await invoke<{ verificationPending?: boolean }>(
+          "native_fullscreen_recording_retry_upload",
+          {
+            serverUrl: targetServerUrl,
+            recordingId: upload.recordingId,
+            authToken,
+            cookie:
+              typeof document !== "undefined" ? document.cookie || "" : "",
+          },
+        );
+        if (result.verificationPending) {
+          scheduleNativeBackupCleanupAfterProcessing({
+            serverUrl: targetServerUrl,
+            recordingId: upload.recordingId,
+            authToken,
+          });
+        }
       } else {
         await retryBrowserRecordingBackup({
           recordingId: upload.recordingId,
@@ -2498,12 +3158,46 @@ export function App() {
   const showCameraRow = mode !== "screen"; // screen-only has no camera
   const showSourceRow = mode !== "camera"; // camera-only has no screen source
 
-  // During recording the popover is normally hidden — the tray click and the
-  // global shortcut both emit `clips:recorder-stop` directly, and the
-  // floating left-edge toolbar has the canonical Stop button. If the popover
-  // does somehow end up visible (dock reopen, global-shortcut race, etc.),
-  // we just render the normal pre-record panel so the user at least knows
-  // where they are. No recording-only UI lives here.
+  async function setHomeRewindRemembering(remembering: boolean) {
+    if (homeScreenMemoryBusy) return;
+    if (remembering && featureConfig?.screenMemory?.enabled !== true) {
+      setRewindSettingsReturnView("recorder");
+      setPromptRewindEnable(true);
+      setPopoverView("rewind-settings");
+      return;
+    }
+    setHomeScreenMemoryBusy(true);
+    try {
+      const current = await invoke<FeatureConfig>("get_feature_config");
+      await invoke("set_feature_config", {
+        config: {
+          ...current,
+          screenMemory: {
+            ...DEFAULT_SCREEN_MEMORY_CONFIG,
+            ...current.screenMemory,
+            // Once Rewind has been set up, the everyday Home switch is a
+            // pause/resume control. Full disable and capture permissions live
+            // in Rewind Settings, so an accidental Home click never tears
+            // down the configured memory system or asks for consent again.
+            enabled: true,
+            paused: !remembering,
+          },
+        },
+      });
+      // The native producer can take a moment to finish pausing. Do not keep
+      // the Home switch locked while that status request waits; the existing
+      // change event and bounded poll will reconcile it, and this best-effort
+      // refresh can do the same without blocking the next resume action.
+      refreshHomeScreenMemoryStatus();
+    } catch (err) {
+      console.error(
+        "[clips-tray] update Rewind remembering state failed:",
+        err,
+      );
+    } finally {
+      setHomeScreenMemoryBusy(false);
+    }
+  }
 
   const pendingUploadBanner = recordingStopFinalizing ? (
     <FinalizingUploadBanner />
@@ -2521,11 +3215,179 @@ export function App() {
     />
   ) : null;
 
-  if (popoverView === "settings") {
+  async function copyRewindAgentPrompt() {
+    try {
+      await navigator.clipboard.writeText(REWIND_AGENT_PROMPT);
+      setRewindAgentPromptCopied(true);
+      window.setTimeout(() => setRewindAgentPromptCopied(false), 1_500);
+    } catch (err) {
+      console.error("[clips-tray] copy Rewind agent prompt failed:", err);
+    }
+  }
+
+  if (agentHandoff) {
+    const durationSeconds = Math.max(
+      1,
+      Math.round(
+        (new Date(agentHandoff.endAt).getTime() -
+          new Date(agentHandoff.startAt).getTime()) /
+          1_000,
+      ),
+    );
+    return (
+      <div className="app app-settings" ref={appRef}>
+        <div className="setup popover-view rewind-settings-surface">
+          <div className="setup-header">
+            <h2>
+              {agentHandoff.status === "pending"
+                ? "Review before sending"
+                : agentHandoff.status === "processing"
+                  ? "Making a private Clip"
+                  : agentHandoff.status === "ready"
+                    ? "Clip sent to your agent"
+                    : "Clip handoff needs attention"}
+            </h2>
+          </div>
+          <div className="rewind-agent-guide">
+            <div className="rewind-agent-guide-icon">
+              <IconHistory size={17} stroke={1.8} />
+            </div>
+            <div>
+              <strong>{agentHandoff.reason}</strong>
+              <p>
+                {new Date(agentHandoff.startAt).toLocaleString()} –{" "}
+                {new Date(agentHandoff.endAt).toLocaleTimeString()} ·{" "}
+                {durationSeconds} seconds
+              </p>
+            </div>
+          </div>
+          <div className="rewind-local-promise">
+            <IconShieldLock size={17} stroke={1.8} />
+            <p>
+              <strong>Only this interval becomes a private Clip.</strong> The
+              rolling Rewind archive and its local paths stay on this Mac.
+              {agentHandoff.agentClipRetention === "forever"
+                ? " This Clip will be kept in your Library."
+                : ` It uses your ${agentHandoff.agentClipRetention.replace("-", " ")} agent-Clip retention setting.`}
+            </p>
+          </div>
+          {agentHandoff.status === "pending" ? (
+            <>
+              <div className="setup-grid">
+                <div className="setup-mini-field">
+                  <span>Microphone</span>
+                  <Switch
+                    on={agentHandoff.includeMicrophone}
+                    onChange={(includeMicrophone) =>
+                      setAgentHandoff({ ...agentHandoff, includeMicrophone })
+                    }
+                    label="Include microphone audio"
+                  />
+                </div>
+                <div className="setup-mini-field">
+                  <span>Mac audio</span>
+                  <Switch
+                    on={agentHandoff.includeSystemAudio}
+                    onChange={(includeSystemAudio) =>
+                      setAgentHandoff({ ...agentHandoff, includeSystemAudio })
+                    }
+                    label="Include Mac audio"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                className="secondary"
+                disabled={agentHandoffPreviewBusy}
+                onClick={() => void previewAgentHandoff(agentHandoff)}
+              >
+                {agentHandoffPreviewBusy
+                  ? "Preparing preview…"
+                  : "Preview range"}
+              </button>
+              {agentHandoffPreviewError ? (
+                <p className="setup-error" role="alert">
+                  {agentHandoffPreviewError}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className="primary rewind-consent-primary"
+                onClick={() => void processAgentHandoff(agentHandoff)}
+              >
+                Send selected range to agent
+              </button>
+              <button
+                type="button"
+                className="rewind-quiet-button"
+                onClick={async () => {
+                  await updateAgentHandoff(agentHandoff.requestId, "declined");
+                  setAgentHandoff(null);
+                }}
+              >
+                Don’t send
+              </button>
+            </>
+          ) : agentHandoff.status === "processing" ? (
+            <p className="setup-hint" role="status">
+              Materializing the bounded range, uploading it privately, and
+              preparing transcript and frame access for your agent…
+            </p>
+          ) : agentHandoff.status === "ready" ? (
+            <>
+              <p className="setup-hint" role="status">
+                The agent received a temporary access link. The private Clip
+                itself remains in your Library according to your retention
+                setting.
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  if (!agentHandoff.agentUrl) return;
+                  import("@tauri-apps/plugin-shell")
+                    .then(({ open }) => open(agentHandoff.agentUrl!))
+                    .catch(() => {});
+                }}
+              >
+                Open Clip
+              </button>
+              <button
+                type="button"
+                className="primary rewind-consent-primary"
+                onClick={() => setAgentHandoff(null)}
+              >
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="setup-error" role="alert">
+                {agentHandoff.error || "The bounded Clip could not be sent."}
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setAgentHandoff(null)}
+              >
+                Close
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (popoverView === "memory" || popoverView === "rewind-settings") {
     return (
       <div className="app app-settings" ref={appRef}>
         {pendingUploadBanner}
+        {isRecording ? <ActiveRecordingBanner /> : null}
         <Setup
+          surface={popoverView === "memory" ? "memory" : "rewind"}
+          recordingActive={isRecording || recordingFlowActive}
+          promptRewindEnable={promptRewindEnable}
           initial={serverUrl}
           serverUrl={serverUrl}
           signedInAs={signedInAs}
@@ -2550,6 +3412,57 @@ export function App() {
             setServerUrl(url.replace(/\/+$/, ""));
             setPopoverView("recorder");
           }}
+          onOpenRewind={() => setPopoverView("rewind-settings")}
+          onOpenMemory={() => setPopoverView("memory")}
+          onCancel={() => {
+            setPromptRewindEnable(false);
+            setPopoverView(
+              popoverView === "memory"
+                ? "rewind-settings"
+                : rewindSettingsReturnView,
+            );
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (popoverView === "settings") {
+    return (
+      <div className="app app-settings" ref={appRef}>
+        {pendingUploadBanner}
+        {isRecording ? <ActiveRecordingBanner /> : null}
+        <Setup
+          recordingActive={isRecording || recordingFlowActive}
+          initial={serverUrl}
+          serverUrl={serverUrl}
+          signedInAs={signedInAs}
+          voiceShortcut={voiceShortcut}
+          voiceCustomShortcut={voiceCustomShortcut}
+          popoverCustomShortcut={popoverCustomShortcut}
+          recordCustomShortcut={recordCustomShortcut}
+          voiceMode={voiceMode}
+          voiceProvider={voiceProvider}
+          voiceInstructions={voiceInstructions}
+          shortcutRegistrationError={shortcutRegistrationError}
+          onVoiceShortcutChange={updateVoiceShortcut}
+          onVoiceCustomShortcutChange={setVoiceCustomShortcut}
+          onPopoverCustomShortcutChange={setPopoverCustomShortcut}
+          onRecordCustomShortcutChange={setRecordCustomShortcut}
+          onVoiceModeChange={setVoiceMode}
+          onVoiceProviderChange={setVoiceProvider}
+          onVoiceInstructionsChange={setVoiceInstructions}
+          onSignOut={signOut}
+          onConnect={(url) => {
+            saveString(STORAGE_KEY, url.replace(/\/+$/, ""));
+            setServerUrl(url.replace(/\/+$/, ""));
+            setPopoverView("recorder");
+          }}
+          onOpenRewind={() => {
+            setPromptRewindEnable(false);
+            setRewindSettingsReturnView("settings");
+            setPopoverView("rewind-settings");
+          }}
           onCancel={() => setPopoverView("recorder")}
         />
       </div>
@@ -2560,6 +3473,7 @@ export function App() {
     return (
       <div className="app app-popover-view" ref={appRef}>
         {pendingUploadBanner}
+        {isRecording ? <ActiveRecordingBanner /> : null}
         <MeetingsPopoverView
           meetings={meetings}
           loading={meetingsLoading}
@@ -2567,6 +3481,7 @@ export function App() {
           startMessage={meetingStartMessage}
           activeMeetingId={activeMeetingId}
           meetingsEnabled={featureConfig?.meetingsEnabled !== false}
+          rewindHistoryAvailability={rewindMeetingHistoryAvailability}
           onBack={() => setPopoverView("recorder")}
           onRefresh={fetchUpcomingMeetings}
           onOpenMeetings={() => openInBrowser("/meetings")}
@@ -2586,6 +3501,7 @@ export function App() {
     return (
       <div className="app app-popover-view" ref={appRef}>
         {pendingUploadBanner}
+        {isRecording ? <ActiveRecordingBanner /> : null}
         <DictationPopoverView
           voiceEnabled={voiceDictationEnabled}
           voiceShortcut={voiceShortcut}
@@ -2661,141 +3577,209 @@ export function App() {
   }
 
   return (
-    <div className="app" ref={appRef}>
-      <Header mode={mode} onModeChange={setMode} submitterEmail={signedInAs} />
-      <UpdateBanner />
-      {pendingUploadBanner}
-
-      {localRecordingMode !== "off" ? (
-        <LocalRecordingModeBanner mode={localRecordingMode} />
-      ) : null}
-
-      {localRecordingNotice ? (
-        <LocalRecordingSavedBanner
-          notice={localRecordingNotice}
-          onDismiss={() => setLocalRecordingNotice(null)}
-          onOpenFolder={() => {
-            if (!localRecordingNotice.folderPath) return;
-            invoke("open_local_recording_folder", {
-              path: localRecordingNotice.folderPath,
-            }).catch((err) => {
-              console.error("[clips-tray] open local folder failed:", err);
-            });
-          }}
+    <div className="app app-recorder" ref={appRef}>
+      <div className="recorder-home-content">
+        <Header
+          mode={mode}
+          onModeChange={setMode}
+          submitterEmail={signedInAs}
         />
-      ) : null}
+        <UpdateBanner />
 
-      <div className="panel">
-        {showSourceRow ? (
-          <SourceRow
-            value={source}
-            onChange={setSource}
-            includeRegion={isMacPlatform()}
-          />
+        {pendingUploadBanner}
+
+        {isRecording ? <ActiveRecordingBanner /> : null}
+
+        {localRecordingMode !== "off" ? (
+          <LocalRecordingModeBanner mode={localRecordingMode} />
         ) : null}
 
-        {showCameraRow ? (
-          <MediaDeviceRow
-            kind="camera"
-            devices={cameraDevices}
-            selectedId={cameraId}
-            selectedLabel={cameraLabel}
-            onSelect={(id, label) => {
-              setCameraId(id);
-              setCameraLabel(label);
+        {localRecordingNotice ? (
+          <LocalRecordingSavedBanner
+            notice={localRecordingNotice}
+            onDismiss={() => setLocalRecordingNotice(null)}
+            onOpenFolder={() => {
+              if (!localRecordingNotice.folderPath) return;
+              invoke("open_local_recording_folder", {
+                path: localRecordingNotice.folderPath,
+              }).catch((err) => {
+                console.error("[clips-tray] open local folder failed:", err);
+              });
             }}
-            onRefresh={() => requestDeviceAccess("camera")}
-            on={cameraOn}
-            onToggle={setCameraOn}
           />
         ) : null}
 
-        <MediaDeviceRow
-          kind="mic"
-          devices={micDevices}
-          selectedId={selectedMicId}
-          selectedLabel={micLabel}
-          onSelect={(id, label) => {
-            setMicId(id);
-            setMicLabel(label);
-          }}
-          onRefresh={() => requestDeviceAccess("mic")}
-          on={micOn}
-          onToggle={setMicOn}
-          systemAudio={systemAudioOn}
-          onSystemAudioToggle={setSystemAudioOn}
-          meterActive={popoverVisible && !isRecording && !recordingFlowActive}
+        <div className="panel">
+          {showSourceRow ? (
+            <SourceRow
+              value={source}
+              onChange={setSource}
+              includeRegion={isMacPlatform()}
+            />
+          ) : null}
+
+          {showCameraRow ? (
+            <MediaDeviceRow
+              kind="camera"
+              devices={cameraDevices}
+              selectedId={cameraId}
+              selectedLabel={cameraLabel}
+              onSelect={(id, label) => {
+                setCameraId(id);
+                setCameraLabel(label);
+              }}
+              onRefresh={() => requestDeviceAccess("camera")}
+              on={cameraOn}
+              onToggle={setCameraOn}
+            />
+          ) : null}
+
+          <MediaDeviceRow
+            kind="mic"
+            devices={micDevices}
+            selectedId={selectedMicId}
+            selectedLabel={micLabel}
+            onSelect={(id, label) => {
+              setMicId(id);
+              setMicLabel(label);
+            }}
+            onRefresh={() => requestDeviceAccess("mic")}
+            on={micOn}
+            onToggle={setMicOn}
+            systemAudio={systemAudioOn}
+            onSystemAudioToggle={setSystemAudioOn}
+            meterActive={popoverVisible && !isRecording && !recordingFlowActive}
+          />
+        </div>
+
+        <ReadinessPanel
+          mode={mode}
+          cameraOn={cameraOn}
+          micOn={micOn}
+          includeVoicePaste={voiceDictationEnabled}
+          includeFnMonitoring={fnShortcutEnabled}
+          open={readinessOpen}
+          onOpenChange={updateReadinessOpen}
+          onOpenPermission={openPrivacySettings}
         />
-      </div>
 
-      <ReadinessPanel
-        mode={mode}
-        cameraOn={cameraOn}
-        micOn={micOn}
-        includeVoicePaste={voiceDictationEnabled}
-        includeFnMonitoring={fnShortcutEnabled}
-        open={readinessOpen}
-        onOpenChange={updateReadinessOpen}
-        onOpenPermission={openPrivacySettings}
-      />
+        <section className="rewind-home-card" aria-label="Rewind status">
+          <div className="rewind-home-status">
+            <span
+              className={`rewind-home-dot ${homeRewindPresentation.isLive ? "is-live" : ""}`}
+            />
+            <div>
+              <strong>{homeRewindPresentation.title}</strong>
+              {!homeRewindPresentation.isLive ||
+              homeRewindPresentation.hasError ? (
+                <p>{homeRewindPresentation.detail}</p>
+              ) : null}
+            </div>
+            <div className="rewind-home-controls">
+              <button
+                type="button"
+                className="rewind-agent-prompt-copy"
+                onClick={() => void copyRewindAgentPrompt()}
+                aria-label={
+                  rewindAgentPromptCopied
+                    ? "Setup prompt copied — paste it into your agent once"
+                    : "Set up your agent"
+                }
+                title={
+                  rewindAgentPromptCopied
+                    ? "Setup prompt copied — paste it into your agent once"
+                    : "Set up your agent"
+                }
+              >
+                {rewindAgentPromptCopied ? (
+                  <IconCircleCheck size={15} stroke={2} />
+                ) : (
+                  <IconCopy size={15} stroke={1.9} />
+                )}
+              </button>
+              <Switch
+                on={
+                  featureConfig?.screenMemory?.enabled === true &&
+                  featureConfig.screenMemory.paused !== true
+                }
+                disabled={
+                  homeScreenMemoryBusy || isRecording || recordingFlowActive
+                }
+                onChange={(remembering) =>
+                  void setHomeRewindRemembering(remembering)
+                }
+                label={
+                  featureConfig?.screenMemory?.enabled === true
+                    ? "Remember with Rewind"
+                    : "Set up Rewind"
+                }
+              />
+            </div>
+          </div>
+        </section>
 
-      <button
-        className="primary start"
-        disabled={
-          localRecordingMode === "off" && videoStorageStatus === "checking"
-        }
-        onClick={() => {
-          void handleStartRecording();
-        }}
-      >
-        {localRecordingMode === "off" && videoStorageStatus === "checking"
-          ? "Checking storage..."
-          : localRecordingMode === "off"
-            ? "Start recording"
-            : "Start local recording"}
-      </button>
-      {recError ? (
-        recError === MACOS_UPDATE_RESTART_MESSAGE ? (
-          <UpdateRestartBanner message={recError} />
-        ) : recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
-          recError === MACOS_SCREEN_PERMISSION_MESSAGE ||
-          recError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
-          <PermissionRecoveryBanner
-            kind="recording"
-            message={recError}
-            panes={
-              recError === MACOS_SCREEN_PERMISSION_MESSAGE
-                ? ["screen"]
-                : permissionPanesForRecording(mode, cameraOn, micOn)
+        {!isRecording ? (
+          <button
+            className="primary start"
+            disabled={
+              localRecordingMode === "off" && videoStorageStatus === "checking"
             }
-            onRetry={handleStartRecording}
-          />
-        ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
-          <PermissionRecoveryBanner
-            kind="speech"
-            message={recError}
-            panes={["speech", "microphone"]}
-            onRetry={handleStartRecording}
-          />
-        ) : isStorageSetupFailureMessage(recError) ? (
-          <StorageConnectionBanner onConnect={() => openVideoStorageSetup()} />
-        ) : (
-          <div className="error-banner">{recError}</div>
-        )
-      ) : null}
-      {cameraError && !recError ? (
-        cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
-        cameraError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
-          <PermissionRecoveryBanner
-            kind="camera"
-            message={cameraError}
-            panes={["camera"]}
-            onRetry={retryCameraPreview}
-          />
-        ) : (
-          <div className="error-banner">{cameraError}</div>
-        )
-      ) : null}
+            onClick={() => {
+              void handleStartRecording();
+            }}
+          >
+            {localRecordingMode === "off" && videoStorageStatus === "checking"
+              ? "Checking storage..."
+              : localRecordingMode === "off"
+                ? "Start recording"
+                : "Start local recording"}
+          </button>
+        ) : null}
+        {recError ? (
+          recError === MACOS_UPDATE_RESTART_MESSAGE ? (
+            <UpdateRestartBanner message={recError} />
+          ) : recError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+            recError === MACOS_SCREEN_PERMISSION_MESSAGE ||
+            recError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
+            <PermissionRecoveryBanner
+              kind="recording"
+              message={recError}
+              panes={
+                recError === MACOS_SCREEN_PERMISSION_MESSAGE
+                  ? ["screen"]
+                  : permissionPanesForRecording(mode, cameraOn, micOn)
+              }
+              onRetry={handleStartRecording}
+            />
+          ) : recError === MACOS_SPEECH_PERMISSION_MESSAGE ? (
+            <PermissionRecoveryBanner
+              kind="speech"
+              message={recError}
+              panes={["speech", "microphone"]}
+              onRetry={handleStartRecording}
+            />
+          ) : isStorageSetupFailureMessage(recError) ? (
+            <StorageConnectionBanner
+              onConnect={() => openVideoStorageSetup()}
+            />
+          ) : (
+            <div className="error-banner">{recError}</div>
+          )
+        ) : null}
+        {cameraError && !recError ? (
+          cameraError === MACOS_CAPTURE_PERMISSION_MESSAGE ||
+          cameraError === DESKTOP_CAPTURE_PERMISSION_MESSAGE ? (
+            <PermissionRecoveryBanner
+              kind="camera"
+              message={cameraError}
+              panes={["camera"]}
+              onRetry={retryCameraPreview}
+            />
+          ) : (
+            <div className="error-banner">{cameraError}</div>
+          )
+        ) : null}
+      </div>
 
       <div className="bottom-row">
         <BottomButton
@@ -3482,6 +4466,7 @@ function MeetingsPopoverView({
   startMessage,
   activeMeetingId,
   meetingsEnabled,
+  rewindHistoryAvailability,
   onBack,
   onRefresh,
   onOpenMeetings,
@@ -3497,15 +4482,38 @@ function MeetingsPopoverView({
   startMessage: string | null;
   activeMeetingId: string | null;
   meetingsEnabled: boolean;
+  rewindHistoryAvailability: Record<string, RewindMeetingHistoryAvailability>;
   onBack: () => void;
   onRefresh: () => void;
   onOpenMeetings: () => void;
   onOpenMeeting: (meetingId: string) => void;
   onOpenSettings: () => void;
-  onStartNotes: (meeting: PopoverMeeting) => void;
-  onStartNotesAndJoin: (meeting: PopoverMeeting) => void;
+  onStartNotes: (
+    meeting: PopoverMeeting,
+    includeFromMeetingStart?: boolean,
+  ) => void;
+  onStartNotesAndJoin: (
+    meeting: PopoverMeeting,
+    includeFromMeetingStart?: boolean,
+  ) => void;
   onShowActiveMeeting: (meetingId: string) => void;
 }) {
+  const [includeHistoryFor, setIncludeHistoryFor] = useState<Set<string>>(
+    () => new Set(),
+  );
+
+  const consumeIncludeHistoryChoice = (meeting: PopoverMeeting): boolean => {
+    const include = includeHistoryFor.has(meeting.id);
+    // This is intentionally a one-shot choice. It never follows the next
+    // meeting, an automatic start, or a tray action around like a lost duck.
+    setIncludeHistoryFor((current) => {
+      const next = new Set(current);
+      next.delete(meeting.id);
+      return next;
+    });
+    return include;
+  };
+
   return (
     <div className="setup popover-view">
       <PopoverSubViewHeader
@@ -3564,6 +4572,8 @@ function MeetingsPopoverView({
             const canStart = meetingCanStartNotes(meeting);
             const hasJoin = Boolean(meeting.joinUrl);
             const isActive = activeMeetingId === meeting.id;
+            const rewindHistory = rewindHistoryAvailability[meeting.id];
+            const includeHistory = includeHistoryFor.has(meeting.id);
             return (
               <div className="popover-list-item" key={meeting.id}>
                 <div className="popover-list-icon">
@@ -3575,6 +4585,24 @@ function MeetingsPopoverView({
                     {formatMeetingWhen(meeting)}
                     {meeting.platform ? ` · ${meeting.platform}` : ""}
                   </div>
+                  {canStart && rewindHistory?.available ? (
+                    <label className="popover-list-sub">
+                      <input
+                        type="checkbox"
+                        checked={includeHistory}
+                        onChange={(event) => {
+                          const checked = event.currentTarget.checked;
+                          setIncludeHistoryFor((current) => {
+                            const next = new Set(current);
+                            if (checked) next.add(meeting.id);
+                            else next.delete(meeting.id);
+                            return next;
+                          });
+                        }}
+                      />{" "}
+                      Include from meeting start
+                    </label>
+                  ) : null}
                 </div>
                 {isActive ? (
                   <button
@@ -3592,8 +4620,14 @@ function MeetingsPopoverView({
                     className="popover-list-action popover-list-action-primary"
                     onClick={() =>
                       hasJoin
-                        ? onStartNotesAndJoin(meeting)
-                        : onStartNotes(meeting)
+                        ? onStartNotesAndJoin(
+                            meeting,
+                            consumeIncludeHistoryChoice(meeting),
+                          )
+                        : onStartNotes(
+                            meeting,
+                            consumeIncludeHistoryChoice(meeting),
+                          )
                     }
                     title={
                       hasJoin
@@ -3729,6 +4763,30 @@ function BottomButton({
   );
 }
 
+function ActiveRecordingBanner() {
+  return (
+    <section
+      className="active-recording-card active-recording-card-compact"
+      aria-live="polite"
+    >
+      <span className="active-recording-live" aria-label="Live recording">
+        <span className="active-recording-live-dot" aria-hidden="true" />
+        REC
+      </span>
+      <div className="active-recording-copy">
+        <strong>Recording in progress</strong>
+      </div>
+      <button
+        type="button"
+        className="primary rec-active active-recording-stop"
+        onClick={() => emit("clips:recorder-stop").catch(() => {})}
+      >
+        Stop
+      </button>
+    </section>
+  );
+}
+
 // ---- inline icons (Tabler-style, monochrome, stroke=1.75) -----------------
 
 // ---------------------------------------------------------------------------
@@ -3786,6 +4844,9 @@ function desktopUpdateStatusText(status: UpdateStatus): string {
 }
 
 function Setup({
+  surface = "settings",
+  promptRewindEnable = false,
+  recordingActive = false,
   initial,
   serverUrl,
   signedInAs,
@@ -3805,9 +4866,14 @@ function Setup({
   onVoiceProviderChange,
   onVoiceInstructionsChange,
   onConnect,
+  onOpenRewind,
+  onOpenMemory,
   onCancel,
   onSignOut,
 }: {
+  surface?: "settings" | "memory" | "rewind";
+  promptRewindEnable?: boolean;
+  recordingActive?: boolean;
   initial?: string | null;
   serverUrl?: string;
   signedInAs?: string | null;
@@ -3827,6 +4893,8 @@ function Setup({
   onVoiceProviderChange: (value: VoiceProvider) => void;
   onVoiceInstructionsChange: (value: string) => void;
   onConnect: (url: string) => void;
+  onOpenRewind?: () => void;
+  onOpenMemory?: () => void;
   onCancel?: () => void;
   onSignOut?: () => void;
 }) {
@@ -3840,8 +4908,26 @@ function Setup({
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
   const localRecordingMode = featureConfig?.localRecordingMode ?? "off";
-  const screenMemory =
+  const observedScreenMemory =
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
+  const [screenMemory, setScreenMemory] = useState(observedScreenMemory);
+  const [rewindConsentOpen, setRewindConsentOpen] = useState(
+    promptRewindEnable && observedScreenMemory.enabled !== true,
+  );
+  const [rewindConsentMode, setRewindConsentMode] = useState<
+    "visuals" | "visuals-audio"
+  >(observedScreenMemory.captureMode ?? "visuals");
+  const screenMemoryRef = useRef(observedScreenMemory);
+  const screenMemoryMutationRef = useRef(0);
+  const screenMemoryMutationVersionRef = useRef(0);
+  const screenMemoryMutationTailRef = useRef<Promise<void>>(Promise.resolve());
+  const [screenMemoryConfigBusy, setScreenMemoryConfigBusy] = useState(false);
+
+  useEffect(() => {
+    if (screenMemoryMutationRef.current > 0) return;
+    screenMemoryRef.current = observedScreenMemory;
+    setScreenMemory(observedScreenMemory);
+  }, [observedScreenMemory]);
   const regionGuides = featureConfig?.regionGuides ?? {
     enabled: false,
     rects: [],
@@ -3867,18 +4953,83 @@ function Setup({
   );
   const [screenMemoryStatus, setScreenMemoryStatus] =
     useState<ScreenMemoryStatus | null>(null);
+  const screenMemoryStatusRefreshVersionRef = useRef(0);
   const [screenMemoryMessage, setScreenMemoryMessage] = useState<{
     kind: "ok" | "error";
     text: string;
   } | null>(null);
+  const [screenMemoryExportResult, setScreenMemoryExportResult] =
+    useState<ScreenMemoryExportResult | null>(null);
   const [clipDraftsError, setClipDraftsError] = useState<string | null>(null);
   const [screenMemoryBusy, setScreenMemoryBusy] = useState(false);
+  const [rewindEgressEvents, setRewindEgressEvents] = useState<
+    RewindEgressEvent[]
+  >([]);
+  const [rewindEgressOpen, setRewindEgressOpen] = useState(false);
+  const [rewindLocalQuery, setRewindLocalQuery] = useState("");
+  const [rewindLocalResult, setRewindLocalResult] =
+    useState<RewindLocalAskResult | null>(null);
+  const [rewindLocalBusy, setRewindLocalBusy] = useState(false);
+  const [rewindLocalError, setRewindLocalError] = useState<string | null>(null);
+  const [rewindReplayId, setRewindReplayId] = useState<string | null>(null);
+  const [excludedBundleIdsInput, setExcludedBundleIdsInput] = useState("");
+  const [excludedApps, setExcludedApps] = useState<RewindExcludedApplication[]>(
+    [],
+  );
+  const [excludedAppsBusy, setExcludedAppsBusy] = useState(false);
+  const [agentConnectionBusy, setAgentConnectionBusy] = useState<
+    "codex" | "claude-code" | null
+  >(null);
+  const [agentConnectionMessage, setAgentConnectionMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
   const screenMemorySegments = screenMemoryStatus?.recentSegments ?? [];
   const screenMemoryTotalBytes = screenMemorySegments.reduce(
     (sum, segment) => sum + segment.bytes,
     0,
   );
-  const screenMemoryRecording = screenMemoryStatus?.state === "recording";
+  const rewindStatusPresentation = getRewindStatusPresentation({
+    status: screenMemoryStatus,
+    config: screenMemory,
+    clipRecordingActive: recordingActive,
+  });
+  const captureControlsLocked = recordingActive;
+
+  useEffect(() => {
+    setExcludedBundleIdsInput(
+      (screenMemory.excludedBundleIds ?? []).join(", "),
+    );
+    invoke<RewindExcludedApplication[]>("resolve_rewind_excluded_apps", {
+      bundleIds: screenMemory.excludedBundleIds ?? [],
+    })
+      .then(setExcludedApps)
+      .catch(() => {
+        setExcludedApps(
+          (screenMemory.excludedBundleIds ?? []).map((bundleId) => ({
+            bundleId,
+            name: bundleId.split(".").pop() || "Application",
+            installed: false,
+          })),
+        );
+      });
+  }, [screenMemory.excludedBundleIds]);
+
+  const excludedAppGroups = excludedApps.reduce<
+    Array<RewindExcludedApplication & { bundleIds: string[] }>
+  >((groups, app) => {
+    const existing = groups.find(
+      (candidate) => candidate.name.toLowerCase() === app.name.toLowerCase(),
+    );
+    if (existing) {
+      existing.bundleIds.push(app.bundleId);
+      existing.installed ||= app.installed;
+      existing.path ||= app.path;
+    } else {
+      groups.push({ ...app, bundleIds: [app.bundleId] });
+    }
+    return groups;
+  }, []);
 
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
@@ -3953,51 +5104,167 @@ function Setup({
     );
   }
 
-  function setScreenMemoryConfig(
-    patch: Partial<typeof DEFAULT_SCREEN_MEMORY_CONFIG>,
+  async function setScreenMemoryConfig(
+    patch: Partial<ScreenMemoryStatus["config"]>,
   ) {
     if (!featureConfig) return;
     setScreenMemoryMessage(null);
-    invoke("set_feature_config", {
-      config: {
-        ...featureConfig,
-        screenMemory: {
-          ...DEFAULT_SCREEN_MEMORY_CONFIG,
-          ...screenMemory,
-          ...patch,
-        },
-      },
-    }).catch((err) => {
+    const next = {
+      ...DEFAULT_SCREEN_MEMORY_CONFIG,
+      ...screenMemoryRef.current,
+      ...patch,
+    };
+    const version = ++screenMemoryMutationVersionRef.current;
+    screenMemoryMutationRef.current += 1;
+    screenMemoryRef.current = next;
+    setScreenMemory(next);
+    setScreenMemoryConfigBusy(true);
+    let operation!: Promise<void>;
+    operation = screenMemoryMutationTailRef.current
+      .catch(() => {})
+      .then(async () => {
+        // Read the latest complete config at execution time so a queued Rewind
+        // edit cannot overwrite an unrelated setting changed while it waited.
+        const current = await invoke<FeatureConfig>("get_feature_config");
+        await invoke("set_feature_config", {
+          config: { ...current, screenMemory: next },
+        });
+        const committed = await invoke<FeatureConfig>("get_feature_config");
+        if (version === screenMemoryMutationVersionRef.current) {
+          screenMemoryRef.current = committed.screenMemory;
+          setScreenMemory(committed.screenMemory);
+        }
+      });
+    screenMemoryMutationTailRef.current = operation;
+    try {
+      await operation;
+    } catch (err) {
       console.error("[settings] set_feature_config failed", err);
+      if (version === screenMemoryMutationVersionRef.current) {
+        const committed = await invoke<FeatureConfig>(
+          "get_feature_config",
+        ).catch(() => null);
+        if (committed) {
+          screenMemoryRef.current = committed.screenMemory;
+          setScreenMemory(committed.screenMemory);
+        }
+      }
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not update Screen Memory.",
+        text: (err as Error)?.message ?? "Could not update Rewind.",
       });
-    });
+    } finally {
+      screenMemoryMutationRef.current = Math.max(
+        0,
+        screenMemoryMutationRef.current - 1,
+      );
+      if (screenMemoryMutationRef.current === 0) {
+        setScreenMemoryConfigBusy(false);
+      }
+    }
   }
 
-  function refreshScreenMemoryStatus() {
+  async function installRewindAgentConnection(client: "codex" | "claude-code") {
+    setAgentConnectionBusy(client);
+    setAgentConnectionMessage(null);
+    try {
+      const status = await invoke<RewindAgentConnectionStatus>(
+        "screen_memory_install_agent_connection",
+        { client },
+      );
+      setAgentConnectionMessage({
+        kind: "ok",
+        text: `${client === "codex" ? "Codex" : "Claude Code"} is connected to this Rewind store. Restart the agent app once to load it.`,
+      });
+      console.info(
+        `[clips-tray] configured ${status.client} Screen Memory MCP at ${status.configPath}`,
+      );
+    } catch (err) {
+      setAgentConnectionMessage({
+        kind: "error",
+        text: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setAgentConnectionBusy(null);
+    }
+  }
+
+  const refreshScreenMemoryStatus = useCallback(() => {
+    const version = ++screenMemoryStatusRefreshVersionRef.current;
     invoke<ScreenMemoryStatus>("screen_memory_status")
-      .then(setScreenMemoryStatus)
+      .then((status) => {
+        if (version === screenMemoryStatusRefreshVersionRef.current) {
+          setScreenMemoryStatus(status);
+        }
+      })
       .catch(() => {});
+  }, []);
+
+  function refreshRewindEgressLog() {
+    invoke<RewindEgressEvent[]>("rewind_list_evidence_egress", { limit: 20 })
+      .then(setRewindEgressEvents)
+      .catch((err) => {
+        setScreenMemoryMessage({
+          kind: "error",
+          text:
+            (err as Error)?.message ?? "Could not read the Rewind access log.",
+        });
+      });
+  }
+
+  async function askRewindLocally() {
+    const query = rewindLocalQuery.trim();
+    if (!query) return;
+    setRewindLocalBusy(true);
+    setRewindLocalError(null);
+    try {
+      const result = await invoke<RewindLocalAskResult>("rewind_local_ask", {
+        query,
+        limit: 12,
+      });
+      setRewindLocalResult(result);
+    } catch (err) {
+      setRewindLocalError(
+        (err as Error)?.message ?? "Could not search local Rewind evidence.",
+      );
+    } finally {
+      setRewindLocalBusy(false);
+    }
+  }
+
+  async function replayRewindMoment(
+    evidence: RewindLocalAskResult["evidence"][number],
+  ) {
+    setRewindReplayId(evidence.id);
+    setRewindLocalError(null);
+    try {
+      await invoke("rewind_replay_moment", {
+        segmentId: evidence.segmentId,
+        offsetMs: evidence.offsetMs,
+      });
+    } catch (err) {
+      setRewindLocalError(
+        (err as Error)?.message ?? "Could not replay this local moment.",
+      );
+    } finally {
+      setRewindReplayId(null);
+    }
   }
 
   async function exportScreenMemoryRecent() {
     setScreenMemoryBusy(true);
     setScreenMemoryMessage(null);
+    setScreenMemoryExportResult(null);
     try {
       const result = await invoke<ScreenMemoryExportResult>(
         "screen_memory_export_recent",
         { minutes: 5 },
       );
-      setScreenMemoryMessage({
-        kind: "ok",
-        text: `Saved ${result.files.length} segment${result.files.length === 1 ? "" : "s"} to ${result.folderPath}.`,
-      });
+      setScreenMemoryExportResult(result);
     } catch (err) {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not export Screen Memory.",
+        text: err instanceof Error ? err.message : String(err),
       });
     } finally {
       setScreenMemoryBusy(false);
@@ -4012,12 +5279,13 @@ function Setup({
       const status = await invoke<ScreenMemoryStatus>(
         "screen_memory_delete_all",
       );
+      screenMemoryStatusRefreshVersionRef.current += 1;
       setScreenMemoryStatus(status);
-      setScreenMemoryMessage({ kind: "ok", text: "Screen Memory cleared." });
+      setScreenMemoryMessage({ kind: "ok", text: "Rewind cleared." });
     } catch (err) {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not clear Screen Memory.",
+        text: (err as Error)?.message ?? "Could not clear Rewind.",
       });
     } finally {
       setScreenMemoryBusy(false);
@@ -4028,8 +5296,42 @@ function Setup({
     invoke("screen_memory_open_folder").catch((err) => {
       setScreenMemoryMessage({
         kind: "error",
-        text: (err as Error)?.message ?? "Could not open Screen Memory folder.",
+        text: (err as Error)?.message ?? "Could not open Rewind folder.",
       });
+    });
+  }
+
+  async function chooseExcludedApplications() {
+    setExcludedAppsBusy(true);
+    setScreenMemoryMessage(null);
+    try {
+      const chosen = await invoke<RewindExcludedApplication[]>(
+        "choose_rewind_excluded_apps",
+      );
+      if (chosen.length === 0) return;
+      const bundleIds = [
+        ...new Set([
+          ...(screenMemory.excludedBundleIds ?? []),
+          ...chosen.map((app) => app.bundleId),
+        ]),
+      ];
+      await setScreenMemoryConfig({ excludedBundleIds: bundleIds });
+    } catch (err) {
+      setScreenMemoryMessage({
+        kind: "error",
+        text: (err as Error)?.message ?? "Could not choose applications.",
+      });
+    } finally {
+      setExcludedAppsBusy(false);
+    }
+  }
+
+  function removeExcludedApplications(bundleIds: string[]) {
+    const removed = new Set(bundleIds);
+    void setScreenMemoryConfig({
+      excludedBundleIds: (screenMemory.excludedBundleIds ?? []).filter(
+        (candidate) => !removed.has(candidate),
+      ),
     });
   }
 
@@ -4145,13 +5447,10 @@ function Setup({
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      invoke<ScreenMemoryStatus>("screen_memory_status")
-        .then((status) => {
-          if (!cancelled) setScreenMemoryStatus(status);
-        })
-        .catch(() => {});
+      if (!cancelled) refreshScreenMemoryStatus();
     };
     refresh();
+    const timer = window.setInterval(refresh, 5_000);
     const unlistens: Array<() => void> = [];
     const track = (p: Promise<() => void>) => {
       p.then((u) => {
@@ -4169,6 +5468,8 @@ function Setup({
     track(listen("clips:screen-memory-changed", refresh));
     return () => {
       cancelled = true;
+      screenMemoryStatusRefreshVersionRef.current += 1;
+      window.clearInterval(timer);
       unlistens.forEach((u) => {
         try {
           u();
@@ -4177,7 +5478,7 @@ function Setup({
         }
       });
     };
-  }, []);
+  }, [refreshScreenMemoryStatus]);
 
   // Load model status on mount and keep it current via events.
   useEffect(() => {
@@ -4266,8 +5567,7 @@ function Setup({
     };
   }, [serverUrl, initial]);
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  function handleConnect() {
     const trimmed = url.trim();
     if (!trimmed) return;
     onConnect(trimmed);
@@ -4431,8 +5731,706 @@ function Setup({
     });
   }
 
+  if (surface !== "settings" && rewindConsentOpen) {
+    return (
+      <div className="setup rewind-consent">
+        <div className="rewind-consent-mark">
+          <IconHistory size={24} stroke={1.8} />
+        </div>
+        <p className="rewind-kicker">Rewind</p>
+        <h2>Turn on Rewind?</h2>
+        <p className="rewind-consent-copy">
+          Rewind remembers recent moments so you can ask an agent about them or
+          add earlier context to a Clip.
+        </p>
+        <div className="rewind-consent-choices">
+          <button
+            type="button"
+            className={rewindConsentMode === "visuals" ? "selected" : ""}
+            onClick={() => setRewindConsentMode("visuals")}
+          >
+            <strong>Visuals</strong>
+            <span>Screen, app, and readable text</span>
+          </button>
+          <button
+            type="button"
+            className={rewindConsentMode === "visuals-audio" ? "selected" : ""}
+            onClick={() => setRewindConsentMode("visuals-audio")}
+          >
+            <strong>Visuals + audio</strong>
+            <span>Also remember your microphone and sound from the Mac</span>
+          </button>
+        </div>
+        <div className="rewind-local-promise">
+          <IconShieldLock size={17} stroke={1.8} />
+          <p>
+            <strong>Raw Rewind recordings stay on this Mac.</strong> When you
+            ask an agent to search, Clips returns bounded matching context. A
+            media range uploads only through a private Clip handoff.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="primary rewind-consent-primary"
+          disabled={screenMemoryConfigBusy}
+          onClick={async () => {
+            await setScreenMemoryConfig({
+              enabled: true,
+              paused: false,
+              captureMode: rewindConsentMode,
+              retentionHours: 8,
+              maxBytes: 20 * 1024 * 1024 * 1024,
+              reviewBeforeSending: true,
+              agentClipRetention: "forever",
+            });
+            setRewindConsentOpen(false);
+          }}
+        >
+          {screenMemoryConfigBusy ? "Turning on…" : "Turn on Rewind"}
+        </button>
+        <button
+          type="button"
+          className="rewind-quiet-button"
+          onClick={() => {
+            setRewindConsentOpen(false);
+            onCancel?.();
+          }}
+        >
+          Not now
+        </button>
+      </div>
+    );
+  }
+
+  if (surface === "memory") {
+    return (
+      <div className="setup popover-view rewind-memory-surface">
+        <div className="setup-header">
+          <button
+            type="button"
+            className="setup-back"
+            onClick={onCancel}
+            aria-label="Back"
+          >
+            <IconArrowLeft size={18} stroke={1.75} />
+          </button>
+          <h2>Manual search</h2>
+        </div>
+        {screenMemory.enabled ? (
+          <>
+            <p className="rewind-surface-lede">
+              This local fallback helps you verify what Rewind remembers. For
+              everyday retrieval, ask Codex or your connected agent instead.
+            </p>
+            <form
+              className="rewind-search-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void askRewindLocally();
+              }}
+            >
+              <IconSearch size={17} stroke={1.8} />
+              <input
+                autoFocus
+                value={rewindLocalQuery}
+                onChange={(event) => setRewindLocalQuery(event.target.value)}
+                placeholder="Search words you saw or heard…"
+                aria-label="Search memory"
+                maxLength={500}
+              />
+              <button
+                type="submit"
+                disabled={rewindLocalBusy || !rewindLocalQuery.trim()}
+              >
+                {rewindLocalBusy ? "Searching…" : "Search"}
+              </button>
+            </form>
+            {rewindLocalError ? (
+              <p className="setup-warning">{rewindLocalError}</p>
+            ) : null}
+            {rewindLocalResult ? (
+              <div className="rewind-search-results" aria-live="polite">
+                <div className="rewind-result-summary">
+                  <strong>
+                    {rewindLocalResult.evidence.length} moment
+                    {rewindLocalResult.evidence.length === 1 ? "" : "s"} found
+                  </strong>
+                  <span>
+                    {rewindLocalResult.coverage.segmentsConsidered} local
+                    segments searched
+                  </span>
+                </div>
+                {rewindLocalResult.evidence.length === 0 ? (
+                  <div className="popover-empty-card">
+                    <strong>No matching moments</strong>
+                    <p>
+                      Try an app name, a phrase you heard, or text that appeared
+                      on screen.
+                    </p>
+                  </div>
+                ) : (
+                  rewindLocalResult.evidence.map((evidence) => (
+                    <article className="rewind-evidence-card" key={evidence.id}>
+                      <div className="rewind-evidence-meta">
+                        {new Date(evidence.capturedAt).toLocaleString()} ·{" "}
+                        {evidence.sourceType === "ocr"
+                          ? "On-screen text"
+                          : evidence.sourceType === "transcript"
+                            ? "Audio"
+                            : "App context"}
+                      </div>
+                      <p>{evidence.excerpt}</p>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => void replayRewindMoment(evidence)}
+                        disabled={rewindReplayId === evidence.id}
+                      >
+                        <IconPlayerPlay size={14} stroke={1.9} />
+                        {rewindReplayId === evidence.id
+                          ? "Preparing replay…"
+                          : "Replay this moment"}
+                      </button>
+                    </article>
+                  ))
+                )}
+                <details className="setup-advanced rewind-coverage-details">
+                  <summary className="setup-advanced-summary">
+                    Coverage and gaps
+                  </summary>
+                  <div className="setup-advanced-body">
+                    <p className="setup-hint">
+                      {rewindLocalResult.coverage.transcriptIndexesReady} audio
+                      and {rewindLocalResult.coverage.ocrIndexesReady} visual
+                      indexes were ready. Confidence:{" "}
+                      {rewindLocalResult.confidence}.
+                    </p>
+                    {rewindLocalResult.coverage.gaps.length === 0 ? (
+                      <p className="setup-hint">
+                        No known capture or index gaps.
+                      </p>
+                    ) : (
+                      rewindLocalResult.coverage.gaps.map((gap, index) => (
+                        <p
+                          className="setup-hint"
+                          key={`${gap.kind}-${gap.source}-${gap.startedAt ?? index}`}
+                        >
+                          <strong>{gap.source}</strong> · {gap.detail}
+                        </p>
+                      ))
+                    )}
+                  </div>
+                </details>
+              </div>
+            ) : (
+              <div className="popover-empty-card rewind-memory-empty">
+                <IconSearch size={19} stroke={1.7} />
+                <strong>Find the source moment</strong>
+                <p>
+                  Results stay grounded in retained local evidence and always
+                  lead back to Replay.
+                </p>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="popover-empty-card rewind-memory-empty">
+            <IconHistory size={20} stroke={1.7} />
+            <strong>Rewind is off</strong>
+            <p>
+              Turn on a private rolling memory before there is anything to
+              search.
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setRewindConsentOpen(true)}
+            >
+              Turn on Rewind
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (surface === "rewind") {
+    return (
+      <div className="setup popover-view rewind-settings-surface">
+        <div className="setup-header">
+          <button
+            type="button"
+            className="setup-back"
+            onClick={onCancel}
+            aria-label="Back"
+          >
+            <IconArrowLeft size={18} stroke={1.75} />
+          </button>
+          <h2>Rewind settings</h2>
+        </div>
+        <div className="rewind-setting-row">
+          <SettingLabel
+            label="Rewind"
+            hint={
+              !screenMemory.enabled
+                ? "Off"
+                : screenMemory.paused
+                  ? "Paused · existing local memory is still available"
+                  : "Remembering locally"
+            }
+          />
+          <Switch
+            on={screenMemory.enabled}
+            disabled={screenMemoryConfigBusy || captureControlsLocked}
+            onChange={(enabled) => {
+              if (enabled) setRewindConsentOpen(true);
+              else
+                void setScreenMemoryConfig({ enabled: false, paused: false });
+            }}
+            label="Enable Rewind"
+          />
+        </div>
+        {captureControlsLocked ? (
+          <p className="rewind-capture-lock-note" role="status">
+            Rewind capture settings unlock when this Clip ends. This keeps one
+            screen and audio recorder running at a time.
+          </p>
+        ) : null}
+        {screenMemory.enabled ? (
+          <>
+            <div className="rewind-setting-row">
+              <SettingLabel
+                label="Remember"
+                hint="Choose whether audio joins the local screen memory."
+                htmlFor="rewind-capture-mode"
+              />
+              <select
+                id="rewind-capture-mode"
+                className="setup-select rewind-setting-control"
+                disabled={screenMemoryConfigBusy || captureControlsLocked}
+                value={screenMemory.captureMode}
+                onChange={(event) =>
+                  void setScreenMemoryConfig({
+                    captureMode: event.target.value as
+                      | "visuals"
+                      | "visuals-audio",
+                  })
+                }
+              >
+                <option value="visuals">Visuals</option>
+                <option value="visuals-audio">Visuals + audio</option>
+              </select>
+            </div>
+            <div className="rewind-setting-row">
+              <SettingLabel
+                label="Remember the last…"
+                hint={`${formatStorageBytes(screenMemory.maxBytes)} maximum on disk`}
+                htmlFor="rewind-retention"
+              />
+              <select
+                id="rewind-retention"
+                className="setup-select rewind-setting-control"
+                disabled={screenMemoryConfigBusy}
+                value={screenMemory.retentionHours}
+                onChange={(event) =>
+                  void setScreenMemoryConfig({
+                    retentionHours: Number(event.target.value),
+                  })
+                }
+              >
+                <option value={8}>8 hours</option>
+                <option value={24}>24 hours</option>
+              </select>
+            </div>
+            <div className="rewind-setting-row">
+              <SettingLabel
+                label="Keep up to"
+                hint="Older moments are removed automatically when this limit is reached."
+                htmlFor="rewind-disk-cap"
+              />
+              <select
+                id="rewind-disk-cap"
+                className="setup-select rewind-setting-control"
+                disabled={screenMemoryConfigBusy}
+                value={screenMemory.maxBytes}
+                onChange={(event) =>
+                  void setScreenMemoryConfig({
+                    maxBytes: Number(event.target.value),
+                  })
+                }
+              >
+                <option value={5 * 1024 * 1024 * 1024}>5 GB</option>
+                <option value={20 * 1024 * 1024 * 1024}>20 GB</option>
+                <option value={50 * 1024 * 1024 * 1024}>50 GB</option>
+              </select>
+            </div>
+            <div className="rewind-settings-status">
+              <span
+                className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
+              />
+              <span className="rewind-settings-status-copy">
+                <strong>{rewindStatusPresentation.title}</strong>
+                <span>
+                  {rewindStatusPresentation.kind === "recording" &&
+                  !rewindStatusPresentation.hasError
+                    ? `${screenMemorySegments.length} retained segment${screenMemorySegments.length === 1 ? "" : "s"} · ${formatStorageBytes(screenMemoryTotalBytes)}`
+                    : rewindStatusPresentation.detail}
+                </span>
+              </span>
+            </div>
+            <div className="setup-section-heading">Privacy</div>
+            <div className="rewind-excluded-apps">
+              <div className="rewind-excluded-apps-header">
+                <SettingLabel
+                  label="Excluded apps"
+                  hint="Rewind never remembers these applications."
+                />
+                <button
+                  type="button"
+                  className="secondary rewind-choose-apps"
+                  disabled={excludedAppsBusy || screenMemoryConfigBusy}
+                  onClick={() => void chooseExcludedApplications()}
+                >
+                  <IconFolderOpen size={14} stroke={1.9} />
+                  {excludedAppsBusy ? "Choosing…" : "Choose applications…"}
+                </button>
+              </div>
+              {excludedAppGroups.length > 0 ? (
+                <div className="rewind-excluded-app-list">
+                  {excludedAppGroups.map((app) => (
+                    <div
+                      className={`rewind-excluded-app ${app.installed ? "" : "is-missing"}`}
+                      key={app.bundleId}
+                    >
+                      <div
+                        className="rewind-excluded-app-mark"
+                        aria-hidden="true"
+                      >
+                        {app.name.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="rewind-excluded-app-copy">
+                        <strong>{app.name}</strong>
+                        <span>
+                          {app.installed
+                            ? "Excluded"
+                            : "Not currently installed · still excluded"}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="rewind-excluded-app-remove"
+                        aria-label={`Remove ${app.name}`}
+                        disabled={screenMemoryConfigBusy}
+                        onClick={() =>
+                          removeExcludedApplications(app.bundleIds)
+                        }
+                      >
+                        <IconX size={14} stroke={2} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="setup-hint">No additional apps are excluded.</p>
+              )}
+            </div>
+            <div className="setup-section-heading">Agent handoff</div>
+            <div className="rewind-agent-guide">
+              <div className="rewind-agent-guide-icon">
+                <IconHistory size={17} stroke={1.8} />
+              </div>
+              <div>
+                <strong>Set up your agent once</strong>
+                <p>
+                  Copy the setup prompt into any compatible agent. It installs
+                  Rewind's reusable instructions and repairs the local
+                  connection, so later you can simply say “Look at Rewind.”
+                </p>
+              </div>
+            </div>
+            <details className="setup-advanced rewind-agent-repair">
+              <summary className="setup-advanced-summary">
+                Repair an agent connection
+              </summary>
+              <div className="setup-advanced-body">
+                <p className="setup-hint">
+                  Usually your agent can install Rewind from the copied prompt.
+                  These buttons are a manual repair for known clients.
+                </p>
+                <div className="rewind-memory-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={agentConnectionBusy !== null}
+                    onClick={() => void installRewindAgentConnection("codex")}
+                  >
+                    {agentConnectionBusy === "codex"
+                      ? "Repairing…"
+                      : "Repair Codex connection"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={agentConnectionBusy !== null}
+                    onClick={() =>
+                      void installRewindAgentConnection("claude-code")
+                    }
+                  >
+                    {agentConnectionBusy === "claude-code"
+                      ? "Repairing…"
+                      : "Repair Claude Code connection"}
+                  </button>
+                </div>
+                {agentConnectionMessage ? (
+                  <p
+                    className={
+                      agentConnectionMessage.kind === "error"
+                        ? "setup-error"
+                        : "setup-hint"
+                    }
+                    role="status"
+                  >
+                    {agentConnectionMessage.text}
+                  </p>
+                ) : null}
+              </div>
+            </details>
+            <div className="rewind-setting-row rewind-agent-row">
+              <SettingLabel
+                label="Review before sending"
+                hint="Preview and trim any visual or audio range before it becomes a private Clip."
+              />
+              <Switch
+                on={screenMemory.reviewBeforeSending}
+                disabled={screenMemoryConfigBusy}
+                onChange={(enabled) =>
+                  void setScreenMemoryConfig({
+                    reviewBeforeSending: enabled,
+                  })
+                }
+                label="Review visual and audio ranges before sending"
+              />
+            </div>
+            <div className="rewind-setting-row rewind-agent-row">
+              <SettingLabel
+                label="Open local preview automatically"
+                hint="When review is on, prepare the selected range in QuickTime when an agent asks for it."
+              />
+              <Switch
+                on={screenMemory.autoPreviewBeforeSending}
+                disabled={
+                  screenMemoryConfigBusy || !screenMemory.reviewBeforeSending
+                }
+                onChange={(enabled) =>
+                  void setScreenMemoryConfig({
+                    autoPreviewBeforeSending: enabled,
+                  })
+                }
+                label="Open a local preview automatically before sending"
+              />
+            </div>
+            <p className="rewind-boundary-note">
+              Asking your agent authorizes bounded matching text. Raw Rewind
+              files stay local. If this review is off, an agent-requested media
+              range becomes a private Clip immediately and leaves a receipt.
+            </p>
+            <div className="rewind-setting-row">
+              <SettingLabel
+                label="Agent-created Clip retention"
+                hint="Applies to future private Clips created for an agent."
+                htmlFor="rewind-agent-clip-retention"
+              />
+              <select
+                id="rewind-agent-clip-retention"
+                className="setup-select rewind-setting-control"
+                disabled={screenMemoryConfigBusy}
+                value={screenMemory.agentClipRetention}
+                onChange={(event) =>
+                  void setScreenMemoryConfig({
+                    agentClipRetention: event.target.value as
+                      | "forever"
+                      | "24-hours"
+                      | "7-days"
+                      | "30-days",
+                  })
+                }
+              >
+                <option value="forever">Keep forever</option>
+                <option value="24-hours">Delete after 24 hours</option>
+                <option value="7-days">Delete after 7 days</option>
+                <option value="30-days">Delete after 30 days</option>
+              </select>
+            </div>
+            <div className="rewind-agent-guide">
+              <div className="rewind-agent-guide-icon">
+                <IconHistory size={17} stroke={1.8} />
+              </div>
+              <div>
+                <strong>Ask your agent</strong>
+                <p>
+                  Try “What was the Terminal error?” or “Replay Tuesday’s design
+                  review.”
+                </p>
+                <button
+                  type="button"
+                  className="rewind-text-button"
+                  onClick={onOpenMemory}
+                >
+                  Search manually
+                </button>
+              </div>
+            </div>
+            <details
+              className="setup-advanced"
+              open={rewindEgressOpen}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setRewindEgressOpen(open);
+                if (open) refreshRewindEgressLog();
+              }}
+            >
+              <summary className="setup-advanced-summary">
+                Agent activity
+              </summary>
+              <div className="setup-advanced-body">
+                <p className="setup-hint">
+                  See when an agent searched bounded local evidence. Raw Rewind
+                  media remains on this Mac unless you explicitly create a
+                  private Clip.
+                </p>
+                {rewindEgressEvents.length === 0 ? (
+                  <p className="setup-hint">No matching-text requests yet.</p>
+                ) : (
+                  rewindEgressEvents.slice(0, 10).map((event) => (
+                    <p
+                      className="setup-hint"
+                      key={`${event.requestId}-${event.state}`}
+                    >
+                      <strong>
+                        {new Date(event.occurredAt).toLocaleString()}
+                      </strong>
+                      {` · ${event.state} · ${event.evidenceCount} item${event.evidenceCount === 1 ? "" : "s"}`}
+                    </p>
+                  ))
+                )}
+              </div>
+            </details>
+            <details className="setup-advanced">
+              <summary className="setup-advanced-summary">
+                Manage local memory
+              </summary>
+              <div className="setup-advanced-body">
+                <div className="rewind-memory-actions">
+                  <div className="rewind-memory-action">
+                    <div className="rewind-memory-action-copy">
+                      <strong>Save a local Clip</strong>
+                      <p>
+                        Export the previous five minutes as a video on this Mac.
+                        Nothing is uploaded.
+                      </p>
+                      {screenMemoryExportResult ? (
+                        <div className="rewind-inline-receipt" role="status">
+                          <span>Saved locally</span>
+                          <button
+                            type="button"
+                            className="rewind-text-button"
+                            onClick={() =>
+                              void invoke("open_local_recording_folder", {
+                                path: screenMemoryExportResult.folderPath,
+                              })
+                            }
+                          >
+                            Show in Finder
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={
+                        screenMemoryBusy || screenMemorySegments.length === 0
+                      }
+                      onClick={exportScreenMemoryRecent}
+                    >
+                      <IconDownload size={15} stroke={1.9} /> Save previous 5
+                      minutes
+                    </button>
+                  </div>
+                  <div className="rewind-memory-action">
+                    <div>
+                      <strong>View Rewind files</strong>
+                      <p>
+                        Open the private folder where Rewind keeps its temporary
+                        local memory.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={openScreenMemoryFolder}
+                    >
+                      <IconFolderOpen size={15} stroke={1.9} /> Open Rewind
+                      folder
+                    </button>
+                  </div>
+                  <div className="rewind-memory-action is-danger">
+                    <div>
+                      <strong>Erase Rewind memory</strong>
+                      <p>
+                        Permanently delete all retained media and indexes from
+                        this Mac.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary rewind-danger-button"
+                      disabled={
+                        screenMemoryBusy || screenMemorySegments.length === 0
+                      }
+                      onClick={clearScreenMemory}
+                    >
+                      <IconTrash size={15} stroke={1.9} /> Erase all memory…
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </details>
+            {screenMemoryMessage ? (
+              <p
+                className={
+                  screenMemoryMessage.kind === "ok"
+                    ? "setup-success"
+                    : "setup-warning"
+                }
+              >
+                {screenMemoryMessage.text}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <div className="popover-empty-card rewind-memory-empty">
+            <IconHistory size={20} stroke={1.7} />
+            <strong>Nothing is being remembered</strong>
+            <p>
+              Turning Rewind on begins a private rolling memory after you choose
+              what it may remember.
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setRewindConsentOpen(true)}
+            >
+              Choose what to remember
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <form className="setup" onSubmit={handleSubmit}>
+    <div className="setup">
       <div className="setup-header">
         {onCancel ? (
           <button
@@ -4462,7 +6460,11 @@ function Setup({
           onChange={(e) => setUrl(e.target.value)}
           placeholder="http://localhost:8080"
         />
-        <button className="secondary setup-connect-button" type="submit">
+        <button
+          className="secondary setup-connect-button"
+          type="button"
+          onClick={handleConnect}
+        >
           Connect
         </button>
       </div>
@@ -4499,7 +6501,7 @@ function Setup({
         <div className="setup-toggle-row">
           <SettingLabel
             label="Show Clips in screen captures"
-            hint="By default the Clips window and recording overlays are hidden from screenshots and screen recordings so they never leak into your captured video. Turn on for debugging or demos."
+            hint="When off, Clips windows and recording overlays stay out of screenshots, normal screen recordings, and Rewind. Turn on only for debugging or demos."
           />
           <Switch
             on={showInScreenCapture}
@@ -4566,10 +6568,25 @@ function Setup({
 
       <div className="setup-section-heading">Recording</div>
 
+      <div className="setup-section rewind-settings-entry">
+        <div className="rewind-settings-entry-main">
+          <span
+            className={`rewind-home-dot ${rewindStatusPresentation.isLive ? "is-live" : ""}`}
+          />
+          <div>
+            <strong>Rewind</strong>
+            <p className="setup-hint">{rewindStatusPresentation.title}</p>
+          </div>
+        </div>
+        <button type="button" className="secondary" onClick={onOpenRewind}>
+          Rewind settings
+        </button>
+      </div>
+
       <div className="setup-section">
         <SettingLabel
           label="Clip Drafts"
-          hint="Clips dismissed after an upload problem stay in Movies/Clips/Drafts until you remove them in Finder."
+          hint="Only clips you dismiss from the saved-upload card appear in Movies/Clips/Drafts. To retry a failed upload, return to the Clips popover and use Retry."
         />
         <button
           type="button"
@@ -4584,31 +6601,37 @@ function Setup({
         ) : null}
       </div>
 
-      <div className="setup-section">
+      <div className="setup-section setup-rewind-legacy">
         <div className="setup-toggle-row">
           <SettingLabel
-            label="Screen Memory"
-            hint="Keep a rolling local screen buffer and recent app/window context for local agents. Stored only on this Mac."
+            label="Rewind"
+            hint="A disabled-by-default rolling local archive for recent screen and app context. It never becomes a shared Clip on its own."
           />
           <Switch
             on={screenMemory.enabled}
             onChange={(enabled) =>
-              setScreenMemoryConfig({ enabled, paused: false })
+              void setScreenMemoryConfig({ enabled, paused: false })
             }
-            label="Enable Screen Memory"
+            label="Enable Rewind"
+            disabled={screenMemoryConfigBusy || captureControlsLocked}
           />
         </div>
+        <p className="setup-hint">
+          Local-only by default. Media uploads and sharing happen only when you
+          make a normal Clip.
+        </p>
         {screenMemory.enabled ? (
           <>
             <div className="setup-toggle-row">
               <SettingLabel
                 label="Pause capture"
-                hint="Stop recording new Screen Memory segments without clearing the local history."
+                hint="Stop retaining new Rewind segments without clearing the local archive."
               />
               <Switch
                 on={screenMemory.paused}
-                onChange={(paused) => setScreenMemoryConfig({ paused })}
-                label="Pause Screen Memory"
+                onChange={(paused) => void setScreenMemoryConfig({ paused })}
+                label="Pause Rewind"
+                disabled={screenMemoryConfigBusy || captureControlsLocked}
               />
             </div>
             <div className="setup-grid">
@@ -4616,6 +6639,7 @@ function Setup({
                 <span>Retention</span>
                 <select
                   className="setup-select"
+                  disabled={screenMemoryConfigBusy || captureControlsLocked}
                   value={screenMemory.retentionHours}
                   onChange={(event) =>
                     setScreenMemoryConfig({
@@ -4625,13 +6649,13 @@ function Setup({
                 >
                   <option value={8}>8 hours</option>
                   <option value={24}>24 hours</option>
-                  <option value={72}>72 hours</option>
                 </select>
               </label>
               <label className="setup-mini-field">
                 <span>Disk cap</span>
                 <select
                   className="setup-select"
+                  disabled={screenMemoryConfigBusy}
                   value={screenMemory.maxBytes}
                   onChange={(event) =>
                     setScreenMemoryConfig({
@@ -4645,29 +6669,219 @@ function Setup({
                 </select>
               </label>
             </div>
+            <div className="setup-grid">
+              <label className="setup-mini-field">
+                <span>Capture mode</span>
+                <select
+                  className="setup-select"
+                  disabled={screenMemoryConfigBusy}
+                  value={screenMemory.captureMode}
+                  onChange={(event) =>
+                    setScreenMemoryConfig({
+                      captureMode: event.target.value as
+                        | "visuals"
+                        | "visuals-audio",
+                    })
+                  }
+                >
+                  <option value="visuals">Visuals</option>
+                  <option value="visuals-audio">Visuals + audio</option>
+                </select>
+              </label>
+              <label className="setup-mini-field">
+                <span>Agent handoff review</span>
+                <select
+                  className="setup-select"
+                  disabled={screenMemoryConfigBusy}
+                  value={screenMemory.reviewBeforeSending ? "review" : "direct"}
+                  onChange={(event) =>
+                    setScreenMemoryConfig({
+                      reviewBeforeSending: event.target.value === "review",
+                    })
+                  }
+                >
+                  <option value="review">Review before sending</option>
+                  <option value="direct">Send requested range directly</option>
+                </select>
+              </label>
+            </div>
+            <p className="setup-hint">
+              {screenMemory.captureMode === "visuals-audio"
+                ? "Visuals + audio is configured to retain microphone and system audio as separate local tracks."
+                : "Visuals retains screen and app context without selecting audio capture."}
+            </p>
+            <p className="setup-hint">
+              Agents receive bounded matching text when you ask. Raw Rewind
+              media remains local unless a bounded range becomes a private Clip.
+            </p>
+            <label className="setup-mini-field">
+              <span>Excluded apps</span>
+              <input
+                value={excludedBundleIdsInput}
+                onChange={(event) =>
+                  setExcludedBundleIdsInput(event.target.value)
+                }
+                onBlur={() =>
+                  setScreenMemoryConfig({
+                    excludedBundleIds: parseExcludedBundleIds(
+                      excludedBundleIdsInput,
+                    ),
+                  })
+                }
+                placeholder="com.example.private-app, com.example.vault"
+                aria-describedby="rewind-excluded-apps-hint"
+              />
+            </label>
+            <button
+              type="button"
+              className="secondary"
+              disabled={screenMemoryConfigBusy}
+              onClick={() =>
+                void setScreenMemoryConfig({
+                  excludedBundleIds: parseExcludedBundleIds(
+                    excludedBundleIdsInput,
+                  ),
+                })
+              }
+            >
+              Apply exclusions
+            </button>
+            <p id="rewind-excluded-apps-hint" className="setup-hint">
+              Bundle IDs, comma-separated. Password managers are excluded by
+              default. Recognized bundle IDs stop media capture and discard the
+              entire in-flight segment; apps that do not expose a recognized
+              bundle ID cannot be detected.
+            </p>
             <div className="whisper-status">
-              {screenMemoryRecording ? (
+              {rewindStatusPresentation.isLive ? (
                 <IconCircleCheck size={13} className="whisper-status-icon" />
               ) : (
                 <IconAlertTriangle size={13} className="whisper-status-icon" />
               )}
               <span>
-                {screenMemoryRecording
-                  ? `Recording locally - ${screenMemorySegments.length} segment${screenMemorySegments.length === 1 ? "" : "s"}, ${formatStorageBytes(screenMemoryTotalBytes)}.`
-                  : screenMemory.paused
-                    ? "Paused. Existing local history is still available."
-                    : screenMemoryStatus?.lastError
-                      ? screenMemoryStatus.lastError
-                      : "Starting when screen recording permission is available."}
+                {rewindStatusPresentation.kind === "recording" &&
+                !rewindStatusPresentation.hasError
+                  ? `Rewind is retaining local coverage: ${screenMemorySegments.length} segment${screenMemorySegments.length === 1 ? "" : "s"}, ${formatStorageBytes(screenMemoryTotalBytes)}.`
+                  : rewindStatusPresentation.detail}
               </span>
             </div>
             {screenMemorySegments[0] ? (
               <p className="setup-hint">
-                Latest segment:{" "}
+                Latest local coverage:{" "}
                 {new Date(screenMemorySegments[0].endedAt).toLocaleTimeString()}
                 .
               </p>
             ) : null}
+            <div className="setup-advanced-body">
+              <SettingLabel
+                label="Ask Rewind"
+                hint="Searches app context, local transcripts, and local visual text on this Mac. Private mode allows this because no model or network service is called."
+              />
+              <div className="setup-button-row">
+                <input
+                  value={rewindLocalQuery}
+                  onChange={(event) => setRewindLocalQuery(event.target.value)}
+                  placeholder="What was Lilian saying about the audience?"
+                  aria-label="Ask Rewind locally"
+                  maxLength={500}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void askRewindLocally();
+                  }}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={rewindLocalBusy || !rewindLocalQuery.trim()}
+                  onClick={() => void askRewindLocally()}
+                >
+                  {rewindLocalBusy ? "Searching…" : "Search locally"}
+                </button>
+              </div>
+              {rewindLocalError ? (
+                <p className="setup-warning">{rewindLocalError}</p>
+              ) : null}
+              {rewindLocalResult ? (
+                <div aria-live="polite">
+                  <p className="setup-hint">
+                    <strong>Local answer:</strong>{" "}
+                    {rewindLocalResult.answerSummary}
+                  </p>
+                  <p className="setup-hint">
+                    <strong>Confidence:</strong> {rewindLocalResult.confidence}
+                  </p>
+                  <p className="setup-hint">
+                    <strong>Coverage:</strong>{" "}
+                    {rewindLocalResult.coverage.segmentsConsidered} retained
+                    segment
+                    {rewindLocalResult.coverage.segmentsConsidered === 1
+                      ? ""
+                      : "s"}
+                    ; {rewindLocalResult.coverage.transcriptIndexesReady}{" "}
+                    transcript and {rewindLocalResult.coverage.ocrIndexesReady}{" "}
+                    visual indexes ready.
+                    {rewindLocalResult.coverage.gaps.length > 0
+                      ? ` ${rewindLocalResult.coverage.gaps.length} capture or index gap${rewindLocalResult.coverage.gaps.length === 1 ? "" : "s"} may hide matches.`
+                      : " No known capture or index gaps."}
+                  </p>
+                  {rewindLocalResult.coverage.gaps.length > 0 ? (
+                    <details className="setup-advanced">
+                      <summary className="setup-advanced-summary">
+                        Coverage gaps
+                      </summary>
+                      <div className="setup-advanced-body">
+                        {rewindLocalResult.coverage.gaps
+                          .slice(0, 10)
+                          .map((gap, index) => (
+                            <p
+                              className="setup-hint"
+                              key={`${gap.kind}-${gap.source}-${gap.startedAt ?? index}`}
+                            >
+                              <strong>{gap.source}</strong> · {gap.detail}
+                            </p>
+                          ))}
+                      </div>
+                    </details>
+                  ) : null}
+                  {rewindLocalResult.evidence.length === 0 ? (
+                    <p className="setup-hint">No matching evidence to show.</p>
+                  ) : (
+                    rewindLocalResult.evidence.map((evidence) => (
+                      <div className="setup-section" key={evidence.id}>
+                        <p className="setup-hint">
+                          <strong>{evidence.sourceType}</strong> ·{" "}
+                          {new Date(evidence.capturedAt).toLocaleString()}
+                          {typeof evidence.confidence === "number"
+                            ? ` · ${Math.round(evidence.confidence * 100)}% OCR confidence`
+                            : ""}
+                          <br />
+                          {evidence.excerpt}
+                        </p>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => void replayRewindMoment(evidence)}
+                          disabled={rewindReplayId === evidence.id}
+                        >
+                          <IconExternalLink size={14} stroke={1.9} />
+                          {rewindReplayId === evidence.id
+                            ? "Preparing replay…"
+                            : "Replay moment"}
+                        </button>
+                      </div>
+                    ))
+                  )}
+                  {rewindLocalResult.truncated ? (
+                    <p className="setup-hint">
+                      More local matches exist; results are bounded to the
+                      strongest 12.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             <div className="setup-button-row">
               <button
                 type="button"
@@ -4693,9 +6907,89 @@ function Setup({
                 disabled={screenMemoryBusy || screenMemorySegments.length === 0}
               >
                 <IconTrash size={15} stroke={1.9} />
-                Clear
+                Clear Rewind
               </button>
             </div>
+            <details
+              className="setup-advanced"
+              open={rewindEgressOpen}
+              onToggle={(event) => {
+                const open = event.currentTarget.open;
+                setRewindEgressOpen(open);
+                if (open) refreshRewindEgressLog();
+              }}
+            >
+              <summary className="setup-advanced-summary">
+                Agent access log
+              </summary>
+              <div className="setup-advanced-body">
+                <p className="setup-hint">
+                  Every bounded Rewind evidence request is recorded on this Mac
+                  before matching text is returned. Raw media appears only as a
+                  separate private Clip handoff.
+                </p>
+                {rewindEgressEvents.length === 0 ? (
+                  <p className="setup-hint">No evidence requests yet.</p>
+                ) : (
+                  rewindEgressEvents.slice(0, 10).map((event) => (
+                    <details
+                      className="setup-advanced"
+                      key={`${event.requestId}-${event.state}`}
+                    >
+                      <summary className="popover-kv">
+                        <span>
+                          {new Date(event.occurredAt).toLocaleString()} ·{" "}
+                          {event.state}
+                        </span>
+                        <strong>
+                          {event.evidenceCount} item
+                          {event.evidenceCount === 1 ? "" : "s"}
+                        </strong>
+                      </summary>
+                      <div className="setup-advanced-body">
+                        <p className="setup-hint">
+                          <strong>{event.operation ?? "Agent access"}</strong>
+                          {" · "}Request {event.requestId}
+                        </p>
+                        {event.receipt?.evidence?.map((evidence) => (
+                          <p className="setup-hint" key={evidence.id}>
+                            <strong>{evidence.sourceType}</strong>
+                            {evidence.capturedAt
+                              ? ` · ${new Date(evidence.capturedAt).toLocaleTimeString()}`
+                              : ""}
+                            <br />
+                            Evidence {evidence.id} · moment {evidence.momentId}
+                          </p>
+                        ))}
+                        {event.receipt?.frames?.map((frame) => (
+                          <p className="setup-hint" key={frame.timestamp}>
+                            <strong>Local frame</strong>
+                            {` · ${new Date(frame.timestamp).toLocaleTimeString()}`}
+                            <br />
+                            Segment {frame.segmentId}
+                          </p>
+                        ))}
+                        {event.receipt?.mediaInterval ? (
+                          <p className="setup-hint">
+                            <strong>Private Clip range</strong>
+                            {` · ${new Date(event.receipt.mediaInterval.startAt).toLocaleTimeString()}–${new Date(event.receipt.mediaInterval.endAt).toLocaleTimeString()}`}
+                          </p>
+                        ) : null}
+                        {!event.receipt ? (
+                          <p className="setup-hint">
+                            This completion record refers to the prepared
+                            receipt with request ID {event.requestId}.
+                          </p>
+                        ) : null}
+                        {event.error ? (
+                          <p className="setup-warning">{event.error}</p>
+                        ) : null}
+                      </div>
+                    </details>
+                  ))
+                )}
+              </div>
+            </details>
             {screenMemoryMessage ? (
               <p
                 className={
@@ -5159,7 +7453,7 @@ function Setup({
           </button>
         </div>
       ) : null}
-    </form>
+    </div>
   );
 }
 

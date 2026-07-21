@@ -219,6 +219,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     id: "integrations",
     titleKey: "integrations",
     items: [
+      {
+        id: "integration-directory",
+        labelKey: "integrations",
+        slug: "integrations",
+      },
       { id: "messaging", labelKey: "messaging", slug: "messaging" },
       { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
       { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
@@ -279,6 +284,16 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "toolkit-ui",
         labelKey: "toolkitUiPrimitives",
         slug: "toolkit-ui",
+      },
+      {
+        id: "toolkit-editors-canvases",
+        labelKey: "toolkitEditorsCanvases",
+        slug: "toolkit-editors-canvases",
+      },
+      {
+        id: "toolkit-context-knowledge",
+        labelKey: "toolkitContextKnowledge",
+        slug: "toolkit-context-knowledge",
       },
       {
         id: "toolkit-feature-kits",
@@ -344,6 +359,22 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "toolkit-agent-ux",
             labelKey: "toolkitAgentUx",
             slug: "toolkit-agent-ux",
+          },
+        ],
+      },
+      {
+        id: "toolkit-capability-packages",
+        labelKey: "capabilityPackages",
+        children: [
+          {
+            id: "toolkit-capability-packages-overview",
+            labelKey: "capabilityPackagesOverview",
+            slug: "toolkit-capability-packages",
+          },
+          {
+            id: "package-lifecycle",
+            labelKey: "packageLifecycle",
+            slug: "package-lifecycle",
           },
         ],
       },

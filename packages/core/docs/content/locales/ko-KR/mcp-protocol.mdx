@@ -238,6 +238,14 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 Dispatch의 앱 소유 `ask_app`은 제출과 폴링 모두에서 선택된 앱의 권한을
 확인하는, 동일한 내구성 있는 작업 및 상태 계약을 사용합니다.
 
+제한된 일시적 상태 읽기를 사용할 수 없으면 `ask_app_status`는
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, 원래의
+`app`과 `taskId`, 그리고 `pollAfterMs` / `poll`을 반환할 수 있습니다. 이는 상태
+읽기를 사용할 수 없다는 뜻이지 내구성 있는 작업이 실패했다는 뜻은 아닙니다. 정확히 같은
+`app`과 `taskId`로 `ask_app_status`를 재시도하세요. 제출하면 작업이 중복될 수 있으므로
+복구를 위해 `ask_app`을 다시 제출하지 마세요. 영구적인 인증, 찾을 수 없음, 프로토콜
+오류는 계속 오류로 남습니다.
+
 ## 인증 {#authentication}
 
 MCP 엔드포인트는 표준 원격 MCP OAuth와 기존 베어러 토큰 폴백을 지원합니다.

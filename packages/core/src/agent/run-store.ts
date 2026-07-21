@@ -42,6 +42,21 @@ export const RUN_STALE_MS = 15_000;
  */
 export const BACKGROUND_RUN_STALE_MS = 90_000;
 
+/**
+ * A row is `background` only while the platform may still be cold-starting the
+ * worker, so it needs the full 90s handoff allowance above. Once that worker
+ * atomically claims the row (`background-processing`), it has already proved
+ * it started and should be reaped sooner if both heartbeat and real progress
+ * stop. This keeps a silent post-claim worker death from holding the client
+ * for the entire cold-start window before the durable successor is created.
+ *
+ * A real long-running tool or nested agent call still sets `in_flight_since`,
+ * which grants the bounded `IN_FLIGHT_RUN_STALE_GRACE_MS` below. Healthy model
+ * work keeps the normal heartbeat moving every 1.5s, so this is only a faster
+ * recovery path for a worker that has genuinely gone silent.
+ */
+export const BACKGROUND_PROCESSING_RUN_STALE_MS = 45_000;
+
 export const STALE_RUN_ERROR_EVENT = {
   type: "error",
   error:
@@ -601,7 +616,7 @@ function backgroundAwareStaleCutoffSql(): string {
   // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
   // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
   // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
-  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
 }
 
 function terminalRunEventExclusionSql(runIdColumn = "id"): string {
@@ -1358,6 +1373,21 @@ function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function staleRecoveryDispatchPayload(payload: string): string {
+  try {
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return payload;
+    }
+    return JSON.stringify({
+      ...(parsed as Record<string, unknown>),
+      internalContinuation: true,
+    });
+  } catch {
+    return payload;
+  }
+}
+
 /**
  * FIX 3 (durable-background incident): when a stale-run reaper is about to
  * flip a BACKGROUND chat-turn run to errored/stale_run, attempt to keep the
@@ -1451,7 +1481,15 @@ async function attemptStaleRunRecovery(
   const now = Date.now();
   await db.execute({
     sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?) ON CONFLICT (id) DO NOTHING`,
-    args: [successorRunId, threadId, now, now, now, turnId, payload],
+    args: [
+      successorRunId,
+      threadId,
+      now,
+      now,
+      now,
+      turnId,
+      staleRecoveryDispatchPayload(payload),
+    ],
   });
   return { outcome: "recovered", successorRunId, threadId, turnId };
 }
@@ -1757,6 +1795,64 @@ export async function markRunAborted(
   if ((rowsAffected ?? 0) > 0) {
     await safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-aborted");
   }
+}
+
+function turnAbortMarkerRunId(turnId: string): string {
+  return `turn-abort-${turnId}`;
+}
+
+/** Records Stop before a foreground request has created its real run row. */
+export async function markTurnAborted(
+  threadId: string,
+  turnId: string,
+  reason: string = "user",
+): Promise<void> {
+  await ensureRunTables();
+  const now = Date.now();
+  const client = getDbExec();
+  await client.execute({
+    sql: `INSERT INTO agent_runs (id, thread_id, status, abort_reason, started_at, completed_at, heartbeat_at, last_progress_at, turn_id, terminal_reason, dispatch_mode) VALUES (?, ?, 'aborted', ?, ?, ?, ?, ?, ?, ?, 'turn-abort') ON CONFLICT (id) DO NOTHING`,
+    args: [
+      turnAbortMarkerRunId(turnId),
+      threadId,
+      reason,
+      now,
+      now,
+      now,
+      now,
+      turnId,
+      `aborted:${reason}`,
+    ],
+  });
+  const { rows } = await client.execute({
+    sql: `SELECT id FROM agent_runs WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
+    args: [threadId, turnId],
+  });
+  const runIds = rows
+    .map((row) => String((row as { id?: unknown }).id ?? ""))
+    .filter(Boolean);
+  if (runIds.length === 0) return;
+  await client.execute({
+    sql: `UPDATE agent_runs SET status = 'aborted', abort_reason = ?, completed_at = ?, terminal_reason = ? WHERE thread_id = ? AND turn_id = ? AND status = 'running'`,
+    args: [reason, Date.now(), `aborted:${reason}`, threadId, turnId],
+  });
+  await Promise.all(
+    runIds.map((runId) =>
+      safeAppendTerminalRunEvent(runId, { type: "done" }, "mark-turn-aborted"),
+    ),
+  );
+}
+
+export async function isTurnAborted(
+  threadId: string,
+  turnId: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM agent_runs WHERE id = ? AND thread_id = ? AND status = 'aborted' LIMIT 1`,
+    args: [turnAbortMarkerRunId(turnId), threadId],
+  });
+  return rows.length > 0;
 }
 
 export async function isRunAborted(runId: string): Promise<boolean> {

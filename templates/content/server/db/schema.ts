@@ -27,6 +27,8 @@ export const documents = table("documents", {
   sourcePath: text("source_path"),
   sourceRootPath: text("source_root_path"),
   sourceUpdatedAt: text("source_updated_at"),
+  trashedAt: text("trashed_at"),
+  trashRootId: text("trash_root_id"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -202,6 +204,7 @@ export const documentPropertyDefinitions = table(
     ownerEmail: text("owner_email").notNull().default("local@localhost"),
     orgId: text("org_id"),
     databaseId: text("database_id"),
+    systemRole: text("system_role"),
     name: text("name").notNull(),
     type: text("type").notNull(),
     description: text("description").notNull().default(""),
@@ -211,6 +214,12 @@ export const documentPropertyDefinitions = table(
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
+  (property) => [
+    uniqueIndex("document_property_definitions_database_system_role_unique").on(
+      property.databaseId,
+      property.systemRole,
+    ),
+  ],
 );
 
 export const contentDatabases = table(
@@ -226,6 +235,9 @@ export const contentDatabases = table(
     title: text("title").notNull().default("Untitled database"),
     systemRole: text("system_role"),
     viewConfigJson: text("view_config_json").notNull().default("{}"),
+    filesSystemPropertiesSeeded: integer("files_system_properties_seeded")
+      .notNull()
+      .default(0),
     // Single source of truth for the primary "Content" Blocks field — the one
     // backed by `documents.content`. A DB-enforced single-primary invariant: at
     // most one property id lives here, so two concurrent seeds can never produce

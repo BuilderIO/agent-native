@@ -16,7 +16,6 @@ import {
   IconArchive,
   IconActivity,
   IconHeartbeat,
-  IconPin,
   IconPlus,
   IconLock,
   IconLink,
@@ -43,7 +42,6 @@ import {
   useRef,
   useMemo,
   Fragment,
-  type FormEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -84,21 +82,25 @@ function useSettledSyncVersion(version: number): number {
   return settledVersion;
 }
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  LanguagePicker,
-  appApiPath,
-  callAction,
-  appPath,
   navigateWithAgentChatViewTransition,
   useChatThreads,
+  type ChatThreadSummary,
+} from "@agent-native/core/client/agent-chat";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import {
+  callAction,
   useActionMutation,
   useChangeVersions,
-  useT,
-  type ChatThreadSummary,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import {
+  ChatHistoryList,
+  type ChatHistoryItem,
+} from "@agent-native/toolkit/chat-history";
 
 import {
   AlertDialog,
@@ -1326,10 +1328,6 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
     autoCreate: false,
     restoreActiveThread: false,
   });
-  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const committingRenameRef = useRef(false);
 
   const visibleThreads = useMemo(
     () =>
@@ -1339,6 +1337,25 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
         .slice(0, SIDEBAR_PREVIEW_COUNT),
     [threads],
   );
+  const chatItems = useMemo<ChatHistoryItem[]>(
+    () =>
+      visibleThreads.map((thread) => ({
+        id: thread.id,
+        title: threadTitle(thread, t("chat.untitledChat")),
+        titleText: threadTitle(thread, t("chat.untitledChat")),
+        timestamp:
+          isAskRoute &&
+          (thread.id === activeThreadId ||
+            thread.id === persistedAnalyticsThreadId())
+            ? undefined
+            : formatThreadAge(threadUpdatedAt(thread)),
+        pinned: Boolean(thread.pinnedAt),
+      })),
+    [activeThreadId, isAskRoute, t, visibleThreads],
+  );
+  const displayedActiveThreadId = isAskRoute
+    ? (activeThreadId ?? persistedAnalyticsThreadId())
+    : null;
 
   useEffect(() => {
     const refresh = () => refreshThreads();
@@ -1358,14 +1375,6 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
       window.removeEventListener("focus", refresh);
     };
   }, [refreshThreads]);
-
-  useEffect(() => {
-    if (!renamingThreadId) return;
-    requestAnimationFrame(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    });
-  }, [renamingThreadId]);
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -1397,36 +1406,10 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
     }
   }
 
-  function startRenameThread(thread: ChatThreadSummary) {
-    committingRenameRef.current = false;
-    setRenameDraft(threadTitle(thread, t("chat.untitledChat")));
-    setRenamingThreadId(thread.id);
-  }
-
-  function cancelRenameThread() {
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-  }
-
-  async function commitRenameThread() {
-    if (committingRenameRef.current) return;
-    const threadId = renamingThreadId;
-    const title = renameDraft.trim();
-    if (!threadId) return;
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-    if (title) {
-      const renamed = await renameThread(threadId, title);
+  function handleRenameThread(threadId: string, title: string) {
+    void renameThread(threadId, title).then((renamed) => {
       if (!renamed) toast.error(t("chat.renameFailed"));
-    }
-    committingRenameRef.current = false;
-  }
-
-  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void commitRenameThread();
+    });
   }
 
   return (
@@ -1450,124 +1433,32 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
             />
           </div>
         ))}
-      {visibleThreads.map((thread) => {
-        const title = threadTitle(thread, t("chat.untitledChat"));
-        const isActive =
-          isAskRoute &&
-          (thread.id === activeThreadId ||
-            thread.id === persistedAnalyticsThreadId());
-        const isRenaming = thread.id === renamingThreadId;
-        return (
-          <div
-            key={thread.id}
-            className={cn(
-              "group/item relative flex min-w-0 items-center rounded-lg transition-colors",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-primary",
-            )}
-          >
-            {isRenaming ? (
-              <form
-                onSubmit={handleRenameSubmit}
-                className="flex min-w-0 flex-1 items-center px-1"
-              >
-                <Input
-                  ref={renameInputRef}
-                  value={renameDraft}
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  onBlur={() => void commitRenameThread()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      cancelRenameThread();
-                    }
-                  }}
-                  maxLength={160}
-                  aria-label={t("chat.renameThread", { title })}
-                  className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
-                />
-              </form>
-            ) : (
-              <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => openThread(thread.id)}
-                      className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        {thread.pinnedAt ? (
-                          <IconPin
-                            aria-hidden="true"
-                            className="size-3 shrink-0 text-current opacity-60"
-                          />
-                        ) : null}
-                        <span className="block min-w-0 truncate">{title}</span>
-                      </span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{title}</TooltipContent>
-                </Tooltip>
-                <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-                  <span className="pointer-events-none pe-1 text-[11px] text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
-                    {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
-                  </span>
-                  <DropdownMenu>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={t("chat.optionsFor", { title })}
-                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-[opacity,color,background-color] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
-                          >
-                            <IconDots className="h-3 w-3" />
-                          </button>
-                        </DropdownMenuTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        {t("chat.optionsFor", { title })}
-                      </TooltipContent>
-                    </Tooltip>
-                    <DropdownMenuContent
-                      side="right"
-                      align="start"
-                      className="w-44"
-                    >
-                      <DropdownMenuItem
-                        onSelect={() => startRenameThread(thread)}
-                      >
-                        <IconPencil className="me-2 h-3.5 w-3.5" />
-                        {t("chat.renameChat")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void pinThread(thread.id, !thread.pinnedAt)
-                        }
-                      >
-                        <IconPin className="me-2 h-3.5 w-3.5" />
-                        {thread.pinnedAt
-                          ? t("chat.unpinChat")
-                          : t("chat.pinChat")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => void handleArchiveThread(thread.id)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <IconArchive className="me-2 h-3.5 w-3.5" />
-                        {t("chat.archiveChat")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })}
+      {visibleThreads.length > 0 && (
+        <ChatHistoryList
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          variant="rail"
+          className="min-w-0"
+        />
+      )}
       <button
         type="button"
         onClick={() => void handleNewChat()}

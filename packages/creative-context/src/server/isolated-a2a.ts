@@ -95,10 +95,11 @@ const resolvedContextSchema = z
 const resolvePayloadSchema = z
   .object({
     query: z.string().max(1_000).optional(),
-    role: z.enum(["slides", "design", "assets", "content"]),
+    role: z.enum(["slides", "design", "assets", "content", "analytics"]),
     limit: z.number().int().min(1).max(20).optional(),
     contextPackId: boundedId.optional(),
     contextPackSource: z.enum(["explicit", "inherited"]).optional(),
+    selectedContextId: boundedId.nullable().optional(),
   })
   .strict();
 const validatePayloadSchema = z
@@ -387,6 +388,7 @@ export type IsolatedResolvePayload = {
   limit?: number;
   contextPackId?: string;
   contextPackSource?: "explicit" | "inherited";
+  selectedContextId?: string | null;
 };
 
 export function isolatedResolvePayload(
@@ -398,6 +400,7 @@ export function isolatedResolvePayload(
     limit: input.limit,
     contextPackId: input.contextPackId,
     contextPackSource: input.contextPackSource,
+    selectedContextId: input.selectedContextId ?? undefined,
   };
 }
 

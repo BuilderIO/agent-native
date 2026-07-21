@@ -5,7 +5,7 @@ import {
   sharedResourceOwner,
 } from "@agent-native/core/resources/store";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, like, or } from "drizzle-orm";
 
 import { parsePrivateBlobHandle } from "../connectors/private-artifacts.js";
 import { deletePostgresFtsDocuments } from "../search/postgres-fts.js";
@@ -29,12 +29,75 @@ export async function purgeContextSourceArtifacts(sourceId: string) {
     .limit(1);
   const source = sourceRows[0];
   if (!source) throw new Error("Creative context source not found");
-  const items = await getDb()
+  const originalItems = await getDb()
     .select({ id: schema.contextItems.id })
     .from(schema.contextItems)
     .where(eq(schema.contextItems.sourceId, sourceId));
+  const derivedSubmissions = await getDb()
+    .select({
+      id: schema.creativeContextSubmissions.id,
+      membershipId: schema.creativeContextSubmissions.membershipId,
+      stagingItemId: schema.creativeContextSubmissions.stagingItemId,
+      publishedItemId: schema.creativeContextSubmissions.publishedItemId,
+      privateMetadata: schema.creativeContextSubmissions.privateMetadata,
+    })
+    .from(schema.creativeContextSubmissions)
+    .where(
+      like(schema.creativeContextSubmissions.artifactKey, `${sourceId}:%`),
+    );
+  const derivedSubmissionIds = derivedSubmissions.map((row: any) =>
+    String(row.id),
+  );
+  const publishedCopies = derivedSubmissionIds.length
+    ? await getDb()
+        .select({ itemId: schema.creativeContextPublishedSnapshots.itemId })
+        .from(schema.creativeContextPublishedSnapshots)
+        .where(
+          inArray(
+            schema.creativeContextPublishedSnapshots.submissionId,
+            derivedSubmissionIds,
+          ),
+        )
+    : [];
+  const stagedChildIds = derivedSubmissions.flatMap((row: any) => {
+    const metadata = parseJson<Record<string, unknown>>(
+      row.privateMetadata,
+      {},
+    );
+    return Array.isArray(metadata.stagedChildren)
+      ? metadata.stagedChildren.flatMap((child) =>
+          child &&
+          typeof child === "object" &&
+          typeof (child as { itemId?: unknown }).itemId === "string"
+            ? [(child as { itemId: string }).itemId]
+            : [],
+        )
+      : [];
+  });
+  const candidateItemIds = [
+    ...originalItems.map((item: any) => String(item.id)),
+    ...derivedSubmissions.flatMap((row: any) =>
+      [row.stagingItemId, row.publishedItemId].filter(
+        (value): value is string => typeof value === "string",
+      ),
+    ),
+    ...publishedCopies.map((row: any) => String(row.itemId)),
+    ...stagedChildIds,
+  ];
+  const items = candidateItemIds.length
+    ? await getDb()
+        .select({
+          id: schema.contextItems.id,
+          sourceId: schema.contextItems.sourceId,
+        })
+        .from(schema.contextItems)
+        .where(inArray(schema.contextItems.id, [...new Set(candidateItemIds)]))
+    : [];
   const itemIds = items.map((item: any) => item.id as string);
   if (!itemIds.length) return { sourceId, purgedItems: 0, purgedBlobs: 0 };
+  const affectedSourceIds = [
+    ...new Set([sourceId, ...items.map((item: any) => String(item.sourceId))]),
+  ];
   const versions = await getDb()
     .select({
       id: schema.contextItemVersions.id,
@@ -43,6 +106,16 @@ export async function purgeContextSourceArtifacts(sourceId: string) {
     .from(schema.contextItemVersions)
     .where(inArray(schema.contextItemVersions.itemId, itemIds));
   const versionIds = versions.map((version: any) => version.id as string);
+  const referencedMemberships = await getDb()
+    .select({ id: schema.creativeContextMemberships.id })
+    .from(schema.creativeContextMemberships)
+    .where(inArray(schema.creativeContextMemberships.publishedItemId, itemIds));
+  const affectedMembershipIds = [
+    ...new Set([
+      ...referencedMemberships.map((row: any) => String(row.id)),
+      ...derivedSubmissions.map((row: any) => String(row.membershipId)),
+    ]),
+  ];
   const [
     chunks,
     media,
@@ -140,10 +213,24 @@ export async function purgeContextSourceArtifacts(sourceId: string) {
   for (const layout of promotedLayouts) {
     await projections?.layoutTemplate?.demote(layout);
   }
+  const cloneBlobRefs = derivedSubmissions.flatMap((row: any) => {
+    const metadata = parseJson<Record<string, unknown>>(
+      row.privateMetadata,
+      {},
+    );
+    const clone =
+      metadata.clone &&
+      typeof metadata.clone === "object" &&
+      !Array.isArray(metadata.clone)
+        ? (metadata.clone as Record<string, unknown>)
+        : null;
+    return clone?.handle ? [clone.handle] : [];
+  });
   let purgedBlobs = 0;
   for (const reference of [
     ...versions.map((version: any) => version.rawSnapshotBlobRef),
     ...media.map((entry: any) => entry.storageKey),
+    ...cloneBlobRefs,
   ]) {
     const handle = parsePrivateBlobHandle(reference);
     if (!handle) continue;
@@ -161,6 +248,40 @@ export async function purgeContextSourceArtifacts(sourceId: string) {
     chunks.map((chunk: any) => chunk.id),
   ).catch(() => 0);
   await getDb().transaction(async (tx: any) => {
+    if (affectedMembershipIds.length) {
+      await tx
+        .update(schema.creativeContextMemberships)
+        .set({
+          publishedItemId: null,
+          publishedItemVersionId: null,
+          pendingSubmissionId: null,
+          status: "removed",
+          updatedAt: nowIso(),
+        })
+        .where(
+          inArray(schema.creativeContextMemberships.id, affectedMembershipIds),
+        );
+    }
+    await tx
+      .delete(schema.creativeContextPublishedSnapshots)
+      .where(
+        derivedSubmissionIds.length
+          ? or(
+              inArray(schema.creativeContextPublishedSnapshots.itemId, itemIds),
+              inArray(
+                schema.creativeContextPublishedSnapshots.submissionId,
+                derivedSubmissionIds,
+              ),
+            )
+          : inArray(schema.creativeContextPublishedSnapshots.itemId, itemIds),
+      );
+    if (derivedSubmissionIds.length) {
+      await tx
+        .delete(schema.creativeContextSubmissions)
+        .where(
+          inArray(schema.creativeContextSubmissions.id, derivedSubmissionIds),
+        );
+    }
     if (derivedEdges.length) {
       await tx
         .update(schema.contextItems)
@@ -266,11 +387,23 @@ export async function purgeContextSourceArtifacts(sourceId: string) {
     await tx
       .delete(schema.contextItems)
       .where(inArray(schema.contextItems.id, itemIds));
-    await tx
-      .update(schema.contextSources)
-      .set({ itemCount: 0, restrictedItemCount: 0, updatedAt: nowIso() })
-      .where(eq(schema.contextSources.id, sourceId));
   });
+  for (const affectedSourceId of affectedSourceIds) {
+    const remaining = await getDb()
+      .select({ upstreamAccess: schema.contextItems.upstreamAccess })
+      .from(schema.contextItems)
+      .where(eq(schema.contextItems.sourceId, affectedSourceId));
+    await getDb()
+      .update(schema.contextSources)
+      .set({
+        itemCount: remaining.length,
+        restrictedItemCount: remaining.filter(
+          (item: any) => item.upstreamAccess !== "available",
+        ).length,
+        updatedAt: nowIso(),
+      })
+      .where(eq(schema.contextSources.id, affectedSourceId));
+  }
   const profileIds = [
     ...new Set(affectedProfiles.map((row: any) => row.profileId as string)),
   ];

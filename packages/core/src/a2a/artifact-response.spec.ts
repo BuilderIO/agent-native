@@ -5,11 +5,24 @@ import {
   buildA2ARecoverableArtifactMessage,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  guardA2AArtifactResponse,
   stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
   afterEach(() => vi.unstubAllEnvs());
+
+  it("identifies framework-generated unverified artifact rejections", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Created it: https://content.agent-native.com/page/provisional",
+      [],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+    expect(guarded.text).toContain("could not verify the document URL");
+  });
+
   it("appends a document URL from a successful create-document result", () => {
     const text = appendA2AArtifactLinks(
       "Created the brief.",
@@ -146,6 +159,116 @@ describe("appendA2AArtifactLinks", () => {
         },
       ]),
     ).toEqual([]);
+  });
+
+  it("signs and verifies persisted artifacts with an explicit organization secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-artifact-provenance";
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities(
+        [{ tool: "call-agent", result: downstream }],
+        { persistedArtifactSecrets: [orgSecret] },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("carries organization-signed nested artifacts into the outer checkpoint", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-nested-artifact-provenance";
+    const inner = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_nested_org_123",
+            urlPath: "/page/request_nested_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    const outer = appendA2AArtifactLinks(
+      "The delegated agent finished.",
+      [{ tool: "call-agent", result: inner }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([{ tool: "call-agent", result: outer }], {
+        persistedArtifactSecrets: [orgSecret],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_nested_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("uses the global secret when no artifact signing override is provided", () => {
+    const globalSecret = "global-a2a-secret-for-artifact-provenance";
+    vi.stubEnv("A2A_SECRET", globalSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_global_123",
+            urlPath: "/page/request_global_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { includePersistedArtifactMarker: true },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_global_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
   });
 
   it("keeps nested mutation receipts on the target app origin", () => {

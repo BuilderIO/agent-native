@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight, IconBooks } from "@tabler/icons-react";
 
 export function CreativeContextSettingsLink({

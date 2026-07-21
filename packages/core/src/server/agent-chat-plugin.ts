@@ -14,6 +14,7 @@ import {
 } from "h3";
 
 import {
+  appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
@@ -22,11 +23,16 @@ import {
   isLoopbackAddress,
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
+import {
+  sanitizeA2ACorrelationId,
+  sanitizeA2ACorrelationMetadata,
+} from "../a2a/correlation.js";
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import {
   createA2AApproval,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
+import type { Message as A2AMessage } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
@@ -69,7 +75,7 @@ import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import { readBackgroundRunClaim } from "../agent/run-store.js";
+import { markTurnAborted, readBackgroundRunClaim } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -113,6 +119,7 @@ import {
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import { isTransientDatabaseError } from "../db/client.js";
 import {
   verifyInternalToken,
   extractBearerToken,
@@ -183,6 +190,55 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+function withTransientDatabaseFallback(
+  route: string,
+  handler: (event: H3Event) => unknown,
+) {
+  return defineEventHandler(async (event) => {
+    try {
+      return await handler(event);
+    } catch (error) {
+      if (!isTransientDatabaseError(error)) throw error;
+
+      const method = getMethod(event);
+      const retrySafe = method === "GET" || method === "HEAD";
+
+      const databaseError = error as {
+        code?: unknown;
+        cause?: { code?: unknown };
+      };
+      captureError(new Error("Transient database failure in agent chat"), {
+        route,
+        method,
+        tags: {
+          source: "agent-chat",
+          failureClass: "transient-database",
+        },
+        extra: {
+          databaseErrorName: error instanceof Error ? error.name : typeof error,
+          databaseErrorCode:
+            typeof databaseError.code === "string"
+              ? databaseError.code
+              : undefined,
+          databaseCauseCode:
+            typeof databaseError.cause?.code === "string"
+              ? databaseError.cause.code
+              : undefined,
+        },
+      });
+      setResponseStatus(event, 503);
+      if (retrySafe) setResponseHeader(event, "Retry-After", "2");
+      return {
+        error: retrySafe
+          ? "The database is temporarily unavailable. Please retry."
+          : "The database became unavailable while processing this request. Refresh before deciding whether to retry.",
+        code: "database_unavailable",
+        retryable: retrySafe,
+      };
+    }
+  });
+}
+
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
 // that crashes on CF Workers where import.meta.url is undefined.
@@ -208,6 +264,7 @@ import {
   createA2AEngineToolSurface,
   filterAgentTools,
   filterPublicAgentActions,
+  filterDirectA2AActions,
   filterReadOnlyActions,
   resolveInitialToolNames,
   runA2AAgentLoop,
@@ -274,6 +331,87 @@ export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+export function resolveInteractiveAgentRunOptions(
+  options?: Pick<
+    AgentChatPluginOptions,
+    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+  >,
+) {
+  return {
+    runSoftTimeoutMs: options?.runSoftTimeoutMs,
+    runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
+    durableBackgroundRuns: options?.durableBackgroundRuns,
+  };
+}
+
+export function createSerializedA2ATaskStatusWriter(
+  taskId: string,
+  writeStatus: (
+    taskId: string,
+    message: A2AMessage,
+  ) => Promise<void> = updateTaskStatusMessage,
+  onError: (error: unknown) => void = (error) => {
+    console.error(
+      `[A2A] Failed to persist recoverable artifact message for task ${taskId}:`,
+      error,
+    );
+  },
+): {
+  enqueue: (message: A2AMessage) => void;
+  flush: () => Promise<void>;
+} {
+  const maxAttempts = 3;
+  let latestWrite: Promise<void> = Promise.resolve();
+
+  const persistWithRetry = async (message: A2AMessage): Promise<void> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        await writeStatus(taskId, message);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    try {
+      onError(lastError);
+    } catch {
+      // The durable-write error below remains the authoritative failure.
+    }
+    throw lastError;
+  };
+
+  return {
+    enqueue(message) {
+      // A newer checkpoint supersedes an earlier failed checkpoint, so keep
+      // the queue moving. flush() still rejects when the latest write itself
+      // cannot be made durable after bounded retries.
+      latestWrite = latestWrite
+        .catch(() => undefined)
+        .then(() => {
+          return persistWithRetry(message);
+        });
+    },
+    flush() {
+      return latestWrite;
+    },
+  };
+}
+
+export async function resolveA2ARecoverableArtifactSecret(
+  orgId: string | null | undefined = getRequestOrgId(),
+): Promise<string | undefined> {
+  const globalSecret = process.env.A2A_SECRET?.trim();
+  if (globalSecret) return globalSecret;
+  if (!orgId) return undefined;
+  try {
+    const { getOrgA2ASecret } = await import("../org/context.js");
+    return (await getOrgA2ASecret(orgId))?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
@@ -1138,6 +1276,7 @@ export function createAgentChatPlugin(
 
       const { mountA2A } = await import("../a2a/server.js");
       mountA2A(nitroApp, {
+        appId: options?.appId,
         name: options?.appId
           ? options.appId.charAt(0).toUpperCase() + options.appId.slice(1)
           : "Agent",
@@ -1146,6 +1285,38 @@ export function createAgentChatPlugin(
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
+        executeReadOnlyAction: async ({ action, input, invocationId }) => {
+          const actions = filterDirectA2AActions(
+            mcpFullActions ?? allScripts,
+            options ?? {},
+          );
+          const entry = actions[action];
+          if (!entry) {
+            return {
+              status: "failed" as const,
+              output: "Unknown or unavailable read-only action",
+            };
+          }
+
+          const result = await executeAgentToolCall({
+            actions: { [action]: entry },
+            name: action,
+            input,
+            callId: `a2a-action-${invocationId}`,
+            ownerEmail: getRequestUserEmail(),
+            orgId: getRequestOrgId() ?? null,
+            caller: "a2a",
+            networkProtocol: "a2a",
+            networkId: invocationId,
+          });
+          if (result.status === "approval_required") {
+            return {
+              status: "failed" as const,
+              output: "Read-only action unexpectedly requires approval",
+            };
+          }
+          return { status: result.status, output: result.output };
+        },
         executeApproval: async (approval) => {
           const result = await executeAgentToolCall({
             actions: mcpFullActions ?? allScripts,
@@ -1468,7 +1639,16 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
+          const recoverableArtifactSecret =
+            await resolveA2ARecoverableArtifactSecret();
+          const recoverableArtifactStatusWriter =
+            createSerializedA2ATaskStatusWriter(context.taskId);
           const controller = new AbortController();
+          const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
+          const telemetryThreadId =
+            sanitizeA2ACorrelationId(context.contextId) ??
+            correlation.callerThreadId ??
+            context.taskId;
 
           console.log(
             `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
@@ -1493,6 +1673,11 @@ export function createAgentChatPlugin(
                 toolCallCacheKey(approved.tool, approved.input),
               ),
               executionMode: "act",
+              runId: context.taskId,
+              networkProtocol: "a2a",
+              networkId: context.taskId,
+              threadId: context.taskId,
+              turnId: context.taskId,
               send: (event) => {
                 a2aEvents.push(event);
                 if (event.type === "tool_start") {
@@ -1504,16 +1689,28 @@ export function createAgentChatPlugin(
                     isError: event.isError,
                     completedSideEffect: event.completedSideEffect,
                   });
-                  const recoverableArtifactText =
+                  const artifactBaseUrl = resolveArtifactBaseUrl(context.event);
+                  const recoverableArtifactMessage =
                     buildA2ARecoverableArtifactMessage(a2aToolResults, {
-                      baseUrl: resolveArtifactBaseUrl(context.event),
+                      baseUrl: artifactBaseUrl,
                     });
+                  const recoverableArtifactText = recoverableArtifactMessage
+                    ? appendA2AArtifactLinks(
+                        recoverableArtifactMessage,
+                        a2aToolResults,
+                        {
+                          baseUrl: artifactBaseUrl,
+                          includePersistedArtifactMarker: true,
+                          persistedArtifactSecret: recoverableArtifactSecret,
+                        },
+                      )
+                    : null;
                   if (
                     recoverableArtifactText &&
                     recoverableArtifactText !== lastRecoverableArtifactText
                   ) {
                     lastRecoverableArtifactText = recoverableArtifactText;
-                    updateTaskStatusMessage(context.taskId, {
+                    recoverableArtifactStatusWriter.enqueue({
                       role: "agent",
                       metadata: { agentNativeRecoverableArtifacts: true },
                       parts: [
@@ -1522,11 +1719,6 @@ export function createAgentChatPlugin(
                           text: recoverableArtifactText,
                         },
                       ],
-                    }).catch((err) => {
-                      console.error(
-                        `[A2A] Failed to persist recoverable artifact message for task ${context.taskId}:`,
-                        err,
-                      );
                     });
                   }
                 } else if (event.type === "error") {
@@ -1546,7 +1738,31 @@ export function createAgentChatPlugin(
                 options?.durableBackgroundRuns === true &&
                 isInBackgroundFunctionRuntime(),
             },
+            {
+              telemetry: {
+                runId: context.taskId,
+                threadId: telemetryThreadId,
+                userId: userEmail,
+                delegation: {
+                  protocol: "a2a",
+                  taskId: context.taskId,
+                  ...(correlation.callerApp
+                    ? { callerApp: correlation.callerApp }
+                    : {}),
+                  ...(correlation.parentRunId
+                    ? { parentRunId: correlation.parentRunId }
+                    : {}),
+                  ...(correlation.parentTurnId
+                    ? { parentTurnId: correlation.parentTurnId }
+                    : {}),
+                },
+              },
+            },
           );
+
+          // The continuation can observe terminal output immediately, so make
+          // its latest mutation checkpoint durable first.
+          await recoverableArtifactStatusWriter.flush();
 
           const approval = [...a2aEvents]
             .reverse()
@@ -1698,6 +1914,7 @@ export function createAgentChatPlugin(
             : {}),
           askAgent: async (message: string) => {
             const ownerEmail = getRequestUserEmail();
+            const mcpRunId = crypto.randomUUID();
             const { getOwnerActiveApiKey } =
               await import("../agent/production-agent.js");
             const ownerApiKey = ownerEmail
@@ -1826,9 +2043,14 @@ export function createAgentChatPlugin(
                   },
                 ],
                 actions: mcpActions,
-                ownerEmail: getRequestUserEmail(),
+                ownerEmail,
                 orgId: getRequestOrgId() ?? null,
                 executionMode: "act",
+                runId: mcpRunId,
+                networkProtocol: "mcp",
+                networkId: mcpRunId,
+                threadId: mcpRunId,
+                turnId: mcpRunId,
                 send: (event) => {
                   accumulatedText = applyAgentTextEventToBuffer(
                     accumulatedText,
@@ -1845,6 +2067,14 @@ export function createAgentChatPlugin(
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
                   isInBackgroundFunctionRuntime(),
+              },
+              {
+                telemetry: {
+                  runId: mcpRunId,
+                  threadId: mcpRunId,
+                  userId: ownerEmail ?? null,
+                  delegation: { protocol: "mcp" },
+                },
               },
             );
 
@@ -2692,9 +2922,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         model: options?.model,
         appId: options?.appId,
         apiKey: options?.apiKey,
-        runSoftTimeoutMs: options?.runSoftTimeoutMs,
-        runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-        durableBackgroundRuns: options?.durableBackgroundRuns,
+        ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
           if (details.threadId && details.ownerEmail) {
@@ -2800,9 +3028,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               model: options?.model,
               appId: options?.appId,
               apiKey: options?.apiKey,
-              runSoftTimeoutMs: options?.runSoftTimeoutMs,
-              runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-              durableBackgroundRuns: options?.durableBackgroundRuns,
+              ...resolveInteractiveAgentRunOptions(options),
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
@@ -2959,9 +3185,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           model: options?.model,
           appId: options?.appId,
           apiKey: options?.apiKey,
-          runSoftTimeoutMs: options?.runSoftTimeoutMs,
-          runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-          durableBackgroundRuns: options?.durableBackgroundRuns,
+          ...resolveInteractiveAgentRunOptions(options),
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
             if (details.threadId && details.ownerEmail) {
@@ -4118,7 +4342,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // GET /runs/active?threadId=X — check if there's an active run for a thread
       getH3App(nitroApp).use(
         `${routePath}/runs`,
-        defineEventHandler(async (event) => {
+        withTransientDatabaseFallback(`${routePath}/runs`, async (event) => {
           // Auth check — ensure the user is authenticated
           const owner = await getOwnerFromEvent(event);
 
@@ -4137,6 +4361,31 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             callerHasRunAccess(owner, runId, "viewer", { orgId });
           const canEditRun = (runId: string) =>
             callerHasRunAccess(owner, runId, "editor", { orgId });
+          const canEditThread = (threadId: string) =>
+            callerHasThreadAccess(owner, threadId, "editor", { orgId });
+
+          // Route: POST /runs/turn/:turnId/abort
+          // Covers the short window where the client has sent a turn but the
+          // server has not yet created its background run id.
+          const turnAbortMatch =
+            url.match(/\/runs\/turn\/([^/?]+)\/abort/) ||
+            url.match(/^\/turn\/([^/?]+)\/abort/);
+          if (turnAbortMatch && method === "POST") {
+            const turnId = decodeURIComponent(turnAbortMatch[1]);
+            const body = await readBody(event).catch(() => null);
+            const threadId =
+              typeof body?.threadId === "string" ? body.threadId : "";
+            if (
+              !/^[a-zA-Z0-9_-]{1,160}$/.test(turnId) ||
+              !threadId ||
+              !(await canEditThread(threadId))
+            ) {
+              setResponseStatus(event, 404);
+              return { error: "Run not found" };
+            }
+            await markTurnAborted(threadId, turnId);
+            return { ok: true };
+          }
 
           // Route: GET /runs/list?goalId=agent-team|agent-harness
           // Returns background agents in the Code hub-compatible run shape.
@@ -4612,7 +4861,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
       getH3App(nitroApp).use(
         `${routePath}/threads`,
-        defineEventHandler(async (event) => {
+        withTransientDatabaseFallback(`${routePath}/threads`, async (event) => {
           const owner = await getOwnerFromEvent(event);
           const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
@@ -5180,6 +5429,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               workerBody = {
                 ...parsedPayload,
+                ...(prepared.body.internalContinuation === true
+                  ? { internalContinuation: true }
+                  : {}),
                 [AGENT_CHAT_BACKGROUND_RUN_FIELD]: preparedMarker,
               };
             }
@@ -5239,7 +5491,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // earlier-mounted handlers (mode, save-key, files, skills, mentions, threads) handle them.
       getH3App(nitroApp).use(
         routePath,
-        defineEventHandler(async (event) => {
+        withTransientDatabaseFallback(routePath, async (event) => {
           // Skip sub-path requests — they're handled by earlier-mounted handlers
           const url = event.node?.req?.url || event.path || "";
           const afterBase = url.slice(

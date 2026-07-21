@@ -1,0 +1,10 @@
+---
+title: Doctor
+description: فحوصات الأمان والترحيل.
+---
+
+# Doctor
+
+يشغّل `agent-native doctor` ثمانية guards: سبعة للأمان و`migration-manifest`. يجد الأخير الاستيرادات الموجودة في `migration-manifest.json` المثبت ولا يملك opt-out. شغّل `agent-native doctor --only migration-manifest`، وعاين بـ `npx @agent-native/core@latest upgrade --codemods`، ثم طبّق بـ `--yes`. يسرد JSON الأسماء الثمانية في `guardsRun`.
+
+تظهر الإدخالات المعلّمة `planned` كتحذيرات فقط ولا يعيد codemod كتابتها. أما الإدخالات النشطة فتظهر كنتائج، ولا يعيد codemod كتابتها إلا عندما تكون وجهة التصدير مثبتة.

@@ -34,6 +34,7 @@ const DISPATCH_ASK_APP_DEFAULT_INLINE_WAIT_MS = 20_000;
 const DISPATCH_ASK_APP_MAX_INLINE_WAIT_MS = 25_000;
 const DISPATCH_ASK_APP_POLL_INTERVAL_MS = 1_500;
 const DISPATCH_A2A_REQUEST_TIMEOUT_MS = 10_000;
+const DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS = [250, 750, 1_500] as const;
 const DISPATCH_ASK_APP_TERMINAL_STATES = new Set([
   "completed",
   "failed",
@@ -89,10 +90,13 @@ function dispatchTaskText(task: Task): string {
   );
 }
 
-function dispatchAskAppTaskResult(
-  app: string,
-  task: Task,
-): {
+type DispatchAskAppStatusErrorCategory =
+  | "transport"
+  | "timeout"
+  | "upstream_5xx"
+  | "rate_limited";
+
+type DispatchAskAppTaskResult = {
   app: string;
   routedVia: "a2a";
   taskId: string;
@@ -100,10 +104,19 @@ function dispatchAskAppTaskResult(
   response?: string;
   error?: string;
   inputRequired?: string;
+  statusRead?: "unavailable";
+  retryable?: true;
+  errorCategory?: DispatchAskAppStatusErrorCategory;
+  attempts?: number;
   pollAfterMs?: number;
   poll?: { tool: "ask_app_status"; arguments: { app: string; taskId: string } };
   message?: string;
-} {
+};
+
+function dispatchAskAppTaskResult(
+  app: string,
+  task: Task,
+): DispatchAskAppTaskResult {
   const status = String(task.status.state);
   const response = dispatchTaskText(task);
   const base = {
@@ -197,12 +210,76 @@ async function createDispatchA2AClient(input: {
 }
 
 function isTransientDispatchAskAppStatusError(err: unknown): boolean {
+  return dispatchAskAppStatusErrorCategory(err) != null;
+}
+
+function dispatchAskAppStatusErrorCategory(
+  err: unknown,
+): DispatchAskAppStatusErrorCategory | null {
   const message = err instanceof Error ? err.message : String(err ?? "");
-  return (
-    /\bfetch failed\b|failed to fetch|networkerror|socket hang up|econnreset|etimedout|timeout|aborted/i.test(
-      message,
-    ) || /A2A request failed \((?:429|500|502|503|504)\)/i.test(message)
-  );
+  const causeCode = dispatchAskAppStatusErrorCauseCode(err) ?? "";
+  const diagnostic = `${message} ${causeCode}`;
+  if (/A2A request failed \(429\)/i.test(message)) return "rate_limited";
+  if (/A2A request failed \((?:500|502|503|504)\)/i.test(message)) {
+    return "upstream_5xx";
+  }
+  if (/etimedout|timeout|aborted|aborterror/i.test(diagnostic)) {
+    return "timeout";
+  }
+  if (
+    /\bfetch failed\b|failed to fetch|networkerror|socket hang up|econnreset/i.test(
+      diagnostic,
+    )
+  ) {
+    return "transport";
+  }
+  return null;
+}
+
+function dispatchAskAppStatusErrorCauseCode(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const directCode = (err as Error & { code?: unknown }).code;
+  if (typeof directCode === "string" && directCode.trim()) {
+    return directCode.trim();
+  }
+  if (!err.cause || typeof err.cause !== "object") return undefined;
+  const code = (err.cause as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code.trim() : undefined;
+}
+
+function dispatchAskAppStatusOriginHost(origin: string): string {
+  try {
+    return new URL(origin).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+function dispatchAskAppStatusReadUnavailableResult(
+  app: string,
+  taskId: string,
+  errorCategory: DispatchAskAppStatusErrorCategory,
+  attempts: number,
+): DispatchAskAppTaskResult {
+  return {
+    app,
+    routedVia: "a2a",
+    taskId,
+    status: "unknown",
+    statusRead: "unavailable",
+    retryable: true,
+    errorCategory,
+    attempts,
+    pollAfterMs: DISPATCH_ASK_APP_POLL_INTERVAL_MS,
+    poll: {
+      tool: "ask_app_status",
+      arguments: { app, taskId },
+    },
+    message:
+      "The durable ask_app task status could not be read after bounded retries. " +
+      "The task may still be running or completed. Retry ask_app_status " +
+      "with the same app and taskId; do not resubmit ask_app.",
+  };
 }
 
 async function runBeforeDispatchAskAppDeadline<T>(
@@ -539,7 +616,7 @@ export async function askGrantedDispatchMcpApp(
 export async function getGrantedDispatchMcpAppTask(
   app: string,
   taskId: string,
-): Promise<ReturnType<typeof dispatchAskAppTaskResult>> {
+): Promise<DispatchAskAppTaskResult> {
   const trimmedTaskId = taskId.trim();
   if (!trimmedTaskId) throw new Error("taskId is required");
   const target = await resolveGrantedDispatchMcpApp(app);
@@ -559,8 +636,49 @@ export async function getGrantedDispatchMcpAppTask(
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
   });
-  const task = await client.getTask(trimmedTaskId);
-  return dispatchAskAppTaskResult(target.id, task);
+  const maxAttempts = DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS.length + 1;
+  for (
+    let attempt = 0;
+    attempt <= DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS.length;
+    attempt++
+  ) {
+    const startedAt = Date.now();
+    try {
+      const task = await client.getTask(trimmedTaskId);
+      return dispatchAskAppTaskResult(target.id, task);
+    } catch (err) {
+      const delayMs = DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
+      const errorCategory = dispatchAskAppStatusErrorCategory(err);
+      const retryable = errorCategory != null;
+      const willRetry = retryable && delayMs != null;
+      if (retryable) {
+        console.warn("[ask_app_status] tasks/get attempt failed", {
+          app: target.id,
+          routedVia: "a2a",
+          taskId: trimmedTaskId,
+          originHost: dispatchAskAppStatusOriginHost(target.url),
+          attempt: attempt + 1,
+          maxAttempts,
+          elapsedMs: Date.now() - startedAt,
+          errorCategory,
+          errorName: err instanceof Error ? err.name : typeof err,
+          causeCode: dispatchAskAppStatusErrorCauseCode(err),
+          willRetry,
+        });
+      }
+      if (!retryable) throw err;
+      if (delayMs == null) {
+        return dispatchAskAppStatusReadUnavailableResult(
+          target.id,
+          trimmedTaskId,
+          errorCategory,
+          maxAttempts,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error("ask_app_status retry loop exited unexpectedly.");
 }
 
 export async function openGrantedDispatchMcpApp(input: {

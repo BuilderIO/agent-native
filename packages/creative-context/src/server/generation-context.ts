@@ -6,13 +6,18 @@ import {
   recordGenerationCreativeContext as recordGenerationCreativeContextLocal,
 } from "../store/generation.js";
 import {
+  createContextPack,
+  getCreativeContextAppBinding,
+  getCreativeContextById,
   getContextPack,
   getCreativeContextItem,
+  listCreativeContexts,
   listAccessibleSearchDocuments,
 } from "../store/index.js";
 import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
+  CreativeContextSummary,
 } from "../types.js";
 import {
   assertGenerationArtifactAccess,
@@ -32,8 +37,55 @@ import {
   UNTRUSTED_REFERENCE_ROLE,
 } from "./untrusted-reference.js";
 
-export type CreativeGenerationRole = "slides" | "design" | "assets" | "content";
+export type CreativeGenerationRole =
+  | "slides"
+  | "design"
+  | "assets"
+  | "content"
+  | "analytics";
 export type CreativeContextModeOverride = "off";
+
+const SPECIALTY_STOP_WORDS = new Set([
+  "and",
+  "for",
+  "from",
+  "into",
+  "our",
+  "the",
+  "this",
+  "with",
+]);
+
+function specialtyTokens(value: string) {
+  return new Set(
+    value
+      .toLocaleLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((token) => token.length >= 3 && !SPECIALTY_STOP_WORDS.has(token)),
+  );
+}
+
+export function selectSemanticSpecialty(
+  contexts: readonly CreativeContextSummary[],
+  query: string,
+): CreativeContextSummary | null {
+  const queryText = query.toLocaleLowerCase();
+  const queryTokens = specialtyTokens(query);
+  let best: { context: CreativeContextSummary; score: number } | null = null;
+  for (const context of contexts) {
+    if (context.kind !== "specialty") continue;
+    const name = context.name.toLocaleLowerCase().trim();
+    const nameTokens = specialtyTokens(context.name);
+    const descriptionTokens = specialtyTokens(context.description ?? "");
+    let score = name.length >= 3 && queryText.includes(name) ? 4 : 0;
+    for (const token of queryTokens) {
+      if (nameTokens.has(token)) score += 2;
+      else if (descriptionTokens.has(token)) score += 1;
+    }
+    if (score >= 2 && (!best || score > best.score)) best = { context, score };
+  }
+  return best?.context ?? null;
+}
 
 function defaultArtifactAccessTarget(
   identity: GenerationArtifactIdentity,
@@ -110,6 +162,8 @@ export interface ResolveGenerationCreativeContextInput {
   limit?: number;
   contextPackId?: string;
   contextPackSource?: "explicit" | "inherited";
+  /** Forwarded by isolated callers; local callers normally use app state. */
+  selectedContextId?: string | null;
   contextModeOverride?: CreativeContextModeOverride;
 }
 
@@ -201,6 +255,7 @@ export async function resolveGenerationCreativeContext(
     )) as {
       contextMode?: "auto" | "off";
       pinnedPackId?: string | null;
+      selectedContextId?: string | null;
     } | null;
     if (state?.contextMode === "off") {
       return resolveGenerationCreativeContextLocal(input);
@@ -213,6 +268,9 @@ export async function resolveGenerationCreativeContext(
             contextPackId: state.pinnedPackId,
             contextPackSource: "inherited" as const,
           }),
+      ...(state?.selectedContextId
+        ? { selectedContextId: state.selectedContextId }
+        : {}),
     });
   }
   return resolveGenerationCreativeContextLocal(input);
@@ -240,6 +298,7 @@ export async function resolveGenerationCreativeContextLocal(
   const state = (await readAppState("creative-context").catch(() => null)) as {
     contextMode?: "auto" | "off";
     pinnedPackId?: string | null;
+    selectedContextId?: string | null;
   } | null;
   if (state?.contextMode === "off") {
     if (
@@ -265,17 +324,104 @@ export async function resolveGenerationCreativeContextLocal(
       "query is required when no exact contextPackId is supplied",
     );
   }
-  const search = await performCreativeContextSearch({
+  const selectedContextId = input.selectedContextId ?? state?.selectedContextId;
+  const [contexts, selected, bound] = await Promise.all([
+    listCreativeContexts({ limit: 100 }),
+    selectedContextId ? getCreativeContextById(selectedContextId) : null,
+    selectedContextId
+      ? Promise.resolve(null)
+      : getCreativeContextAppBinding(input.role),
+  ]);
+  const base =
+    selected?.kind === "default"
+      ? selected
+      : (contexts.contexts.find((context) => context.kind === "default") ??
+        null);
+  const semantic =
+    !selected && !bound
+      ? selectSemanticSpecialty(contexts.contexts, input.query)
+      : null;
+  const specialty =
+    selected?.kind === "specialty"
+      ? selected
+      : bound?.kind === "specialty"
+        ? bound
+        : semantic;
+  const searchInput = {
     query: input.query,
     limit: Math.max(1, Math.min(20, input.limit ?? 8)),
     maxPerSource: 3,
-    snapshot: true,
-    contextPackName: `${input.role}: ${input.query.slice(0, 100)}`,
+    snapshot: false,
+  };
+  const [baseSearch, specialtySearch] = await Promise.all([
+    base
+      ? performCreativeContextSearch({ ...searchInput, contextId: base.id })
+      : performCreativeContextSearch(searchInput),
+    specialty
+      ? performCreativeContextSearch({
+          ...searchInput,
+          contextId: specialty.id,
+        })
+      : Promise.resolve(null),
+  ]);
+  const fused = new Map<string, (typeof baseSearch.results)[number]>();
+  for (const result of baseSearch.results)
+    fused.set(`${result.itemId}:${result.itemVersionId}`, result);
+  for (const result of specialtySearch?.results ?? []) {
+    const key = `${result.itemId}:${result.itemVersionId}`;
+    const existing = fused.get(key);
+    fused.set(key, {
+      ...result,
+      score: Math.max(
+        result.score + 0.15,
+        existing?.score ?? Number.NEGATIVE_INFINITY,
+      ),
+      reasons: [...(existing?.reasons ?? []), "specialty context boost"],
+    });
+  }
+  const results = [...fused.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, searchInput.limit);
+  if (!results.length) {
+    return {
+      contextMode: "auto" as const,
+      contextPackId: null,
+      reuseLabels: [],
+      results: [],
+    };
+  }
+  const pack = await createContextPack({
+    name: `${input.role}: ${input.query.slice(0, 100)}`,
+    description: "Immutable governed-context generation snapshot.",
+    contextMode: "auto",
+    baseContextId: base?.id ?? null,
+    specialtyContextId: specialty?.id ?? null,
+    selectionReason: specialty
+      ? selected?.id === specialty.id
+        ? "explicit specialty selection"
+        : bound?.id === specialty.id
+          ? "app specialty binding"
+          : "semantic specialty match"
+      : base
+        ? "Default context"
+        : "legacy accessible corpus fallback",
+    request: {
+      query: input.query,
+      role: input.role,
+      baseContextId: base?.id ?? null,
+      specialtyContextId: specialty?.id ?? null,
+    },
+    members: results.map((result) => ({
+      itemId: result.itemId,
+      itemVersionId: result.itemVersionId,
+      reason: result.reasons.join("; ") || "governed context match",
+      score: result.score,
+    })),
   });
   return {
     contextMode: "auto" as const,
-    contextPackId: search.contextPackId,
-    reuseLabels: search.results.map((result) => ({
+    contextPackId: pack.id,
+    reuseLabels: results.map((result) => ({
       itemId: result.itemId,
       itemVersionId: result.itemVersionId,
       kind: result.kind,
@@ -285,7 +431,7 @@ export async function resolveGenerationCreativeContextLocal(
         .trim(),
       dataRole: UNTRUSTED_REFERENCE_ROLE,
     })),
-    results: search.results,
+    results,
   };
 }
 

@@ -1,9 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("./credentials", () => ({
+  resolveCredential: vi.fn(async () => null),
+}));
+
+vi.mock("./credentials-context", () => ({
+  requireRequestCredentialContext: vi.fn(() => ({
+    userEmail: "gong-test@example.test",
+  })),
+  scopedCredentialCacheKey: vi.fn((key: string) => `gong-test:${key}`),
+}));
+
+vi.mock("./provider-credentials", () => ({
+  resolveAnalyticsGongCredentials: vi.fn(async () => ({
+    accessKey: "fake-access-key",
+    accessSecret: "fake-access-secret",
+    sources: [],
+  })),
+}));
 
 import {
   buildGongSearchResult,
   gongSearchVariants,
   matchesGongCallQuery,
+  searchCallsForQueries,
   type GongCall,
 } from "./gong";
 import {
@@ -17,6 +37,10 @@ import {
 function call(id: string, started: string): GongCallLike {
   return { id, started };
 }
+
+beforeEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("Gong call limits", () => {
   it("defaults to a small analysis batch", () => {
@@ -77,6 +101,85 @@ describe("Gong call search matching", () => {
     expect(matchesGongCallQuery(call, "theknot.com")).toBe(true);
     expect(matchesGongCallQuery(call, "Jane Buyer")).toBe(true);
     expect(matchesGongCallQuery(call, "Unrelated Account")).toBe(false);
+  });
+
+  it("uses the date-filtered extensive endpoint once per cursor page", async () => {
+    const requests: Array<Record<string, any>> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        expect(url).toBe("https://api.gong.io/v2/calls/extensive");
+        expect(init?.method).toBe("POST");
+        const body = JSON.parse(String(init?.body));
+        requests.push(body);
+        if (!body.cursor) {
+          return new Response(
+            JSON.stringify({
+              records: { cursor: "next-page" },
+              calls: [
+                {
+                  metaData: {
+                    id: "c1",
+                    title: "Edmunds discovery",
+                    started: "2026-05-03T10:00:00Z",
+                    scope: "External",
+                  },
+                  parties: [],
+                },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            records: {},
+            calls: [
+              {
+                id: "c2",
+                title: "Quarterly planning",
+                started: "2026-05-04T10:00:00Z",
+                scope: "External",
+                parties: [
+                  {
+                    name: "Buyer",
+                    emailAddress: "buyer@edmunds.com",
+                    affiliation: "External",
+                  },
+                ],
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const result = await searchCallsForQueries(["Edmunds"], 90, 8, {
+      exhaustive: true,
+      fromDateTime: "2026-04-18T00:00:00.000Z",
+      toDateTime: "2026-07-12T23:59:59.999Z",
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual({
+      filter: {
+        fromDateTime: "2026-04-18T00:00:00.000Z",
+        toDateTime: "2026-07-12T23:59:59.999Z",
+      },
+      contentSelector: { exposedFields: { parties: true } },
+    });
+    expect(requests[1]).toEqual({
+      filter: {
+        fromDateTime: "2026-04-18T00:00:00.000Z",
+        toDateTime: "2026-07-12T23:59:59.999Z",
+      },
+      contentSelector: { exposedFields: { parties: true } },
+      cursor: "next-page",
+    });
+    expect(result.calls.map((item) => item.id)).toEqual(["c2", "c1"]);
+    expect(result.searchedCallCount).toBe(2);
+    expect(result.coverageTruncated).toBe(false);
   });
 });
 

@@ -1,4 +1,4 @@
-import { useAgentChatGenerating } from "@agent-native/core/client";
+import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useCallback } from "react";
 
 /**
