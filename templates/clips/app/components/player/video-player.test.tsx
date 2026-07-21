@@ -172,6 +172,32 @@ describe("VideoPlayer playback", () => {
     expect(video.paused).toBe(false);
   });
 
+  it("replays from the start when the surface is clicked after the clip ended", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
+
+    // Reaching end of stream can fire "ended" while the browser leaves paused
+    // false (MSE end-of-stream / DB-duration mismatch). The play button must
+    // still restart from the beginning rather than pausing a finished clip.
+    video.currentTime = 10;
+    Object.defineProperty(video, "ended", { configurable: true, value: true });
+    act(() => {
+      video.dispatchEvent(new Event("ended"));
+    });
+
+    act(() => {
+      surface.click();
+    });
+
+    expect(video.currentTime).toBe(0);
+    expect(video.paused).toBe(false);
+  });
+
   it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
     const surface = getPlayerSurface();
     const video = getVideo();

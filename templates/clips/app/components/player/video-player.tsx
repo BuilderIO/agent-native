@@ -646,10 +646,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
       if (!v) return;
-      if (!v.paused || isPlaying) {
-        pauseVideo();
-        return;
-      }
+      // A finished clip must always replay from the start, even when the browser
+      // left `paused` false at end of stream (MSE end-of-stream / DB-duration
+      // mismatch) or `isPlaying` is stale — otherwise the toggle below would
+      // pause an already-ended element and the play button appears to do nothing.
       if (v.ended) {
         try {
           v.currentTime = 0;
@@ -657,6 +657,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         } catch {
           // Let the normal play attempt report a media error if the seek fails.
         }
+        requestPlay();
+        return;
+      }
+      if (!v.paused || isPlaying) {
+        pauseVideo();
+        return;
       }
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
