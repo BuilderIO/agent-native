@@ -1539,6 +1539,7 @@ export class RecorderEngine {
     const resetUrl = `${appBasePath()}/api/uploads/${
       this.opts.recordingId
     }/reset-chunks`;
+    const uploadMimeType = compression?.outputMimeType || this.mimeType;
     let resetRes: Response;
     try {
       resetRes = await fetch(resetUrl, {
@@ -1547,7 +1548,7 @@ export class RecorderEngine {
         body: JSON.stringify({
           compression,
           requestStreaming: this.uploadMode === "streaming",
-          mimeType: this.mimeType,
+          mimeType: uploadMimeType,
         }),
         signal,
       });
