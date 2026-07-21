@@ -1,6 +1,23 @@
 import { emailToName } from "@agent-native/core/client/collab";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   BindContentDatabaseSourceFieldRequest,
@@ -46,6 +63,7 @@ import {
   IconEyeOff,
   IconFileText,
   IconFilter,
+  IconGripVertical,
   IconHash,
   IconLink,
   IconList,
@@ -1200,6 +1218,24 @@ export function PropertyManagementPopover({
       ...metadata,
     });
 
+  const optionDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  function handleOptionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    void updateOptions((options) => {
+      const fromIndex = options.findIndex((option) => option.id === active.id);
+      const toIndex = options.findIndex((option) => option.id === over.id);
+      if (fromIndex < 0 || toIndex < 0) return options;
+      return arrayMove(options, fromIndex, toIndex);
+    });
+  }
+
   async function renameProperty() {
     const nextName = name.trim();
     if (!nextName || nextName === property.definition.name) return;
@@ -1566,21 +1602,34 @@ export function PropertyManagementPopover({
                     {t("editor.properties.options")}
                   </div>
                   <div className="grid gap-1">
-                    {optionsDraft.map((option) => (
-                      <PropertyOptionSettingsRow
-                        key={option.id}
-                        option={option}
-                        disabled={configure.isPending}
-                        onRename={(name) => void renameOption(option.id, name)}
-                        onDescriptionChange={(description) =>
-                          void describeOption(option.id, description)
-                        }
-                        onColorChange={(color) =>
-                          void recolorOption(option.id, color)
-                        }
-                        onRemove={() => void removeOption(option.id)}
-                      />
-                    ))}
+                    <DndContext
+                      sensors={optionDragSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleOptionDragEnd}
+                    >
+                      <SortableContext
+                        items={optionsDraft.map((option) => option.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {optionsDraft.map((option) => (
+                          <PropertyOptionSettingsRow
+                            key={option.id}
+                            option={option}
+                            disabled={configure.isPending}
+                            onRename={(name) =>
+                              void renameOption(option.id, name)
+                            }
+                            onDescriptionChange={(description) =>
+                              void describeOption(option.id, description)
+                            }
+                            onColorChange={(color) =>
+                              void recolorOption(option.id, color)
+                            }
+                            onRemove={() => void removeOption(option.id)}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
                   </div>
                   <form
                     className="flex gap-2"
@@ -1802,6 +1851,14 @@ function PropertyOptionSettingsRow({
   const [draftDescription, setDraftDescription] = useState(
     option.description ?? "",
   );
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: option.id, disabled });
 
   useEffect(() => {
     setDraftName(option.name);
@@ -1820,8 +1877,27 @@ function PropertyOptionSettingsRow({
   }
 
   return (
-    <div className="grid gap-1 rounded px-2 py-1 hover:bg-muted/50">
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "grid gap-1 rounded px-2 py-1 hover:bg-muted/50",
+        isDragging && "relative z-10 bg-muted/50",
+      )}
+    >
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={t("editor.properties.reorderOption", {
+            name: option.name,
+          })}
+          className="size-5 shrink-0 cursor-grab touch-none rounded text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing disabled:opacity-50"
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical className="size-3.5" />
+        </button>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger
             disabled={disabled}
@@ -1904,7 +1980,7 @@ function PropertyOptionSettingsRow({
             onDescriptionChange(nextDescription);
           }
         }}
-        className="ml-7 block min-h-0 w-[calc(100%-1.75rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:resize-y focus:bg-background focus:ring-1 focus:ring-ring"
+        className="ml-14 block min-h-0 w-[calc(100%-3.5rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:resize-y focus:bg-background focus:ring-1 focus:ring-ring"
       />
     </div>
   );

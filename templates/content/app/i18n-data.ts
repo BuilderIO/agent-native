@@ -2498,6 +2498,7 @@ const editorPropertiesMessages = {
   removeOption: "Remove option {{name}}",
   removePerson: "Remove {{name}}",
   renameOption: "Rename option {{name}}",
+  reorderOption: "Reorder option {{name}}",
   save: "Save",
   searchOrAddPerson: "Search or add person",
   searchOrCreateOption: "Search or create option",
