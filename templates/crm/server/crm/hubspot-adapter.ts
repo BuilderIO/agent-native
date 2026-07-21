@@ -30,7 +30,6 @@ const HUBSPOT_CREDENTIAL_KEYS = [
 ] as const;
 const CORE_OBJECT_TYPES = ["companies", "contacts", "deals"] as const;
 const MAX_PAGE_SIZE = 100;
-const MAX_RELATIONSHIP_PAGES = 100;
 
 type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | string;
 
@@ -215,14 +214,31 @@ function toQuery(params: Record<string, string | undefined>): string {
   return value ? `?${value}` : "";
 }
 
+function encodeCursorState(value: { index: number; after?: string }): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
 function decodedCursor(cursor: string | undefined): {
   index: number;
   after?: string;
 } {
   if (!cursor) return { index: 0 };
   try {
+    const padded = cursor.replace(/-/g, "+").replace(/_/g, "/").padEnd(
+      Math.ceil(cursor.length / 4) * 4,
+      "=",
+    );
+    const binary = atob(padded);
     const decoded = JSON.parse(
-      Buffer.from(cursor, "base64url").toString("utf8"),
+      new TextDecoder().decode(
+        Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+      ),
     ) as { index?: unknown; after?: unknown };
     const index = typeof decoded.index === "number" ? decoded.index : 0;
     return {
@@ -239,9 +255,7 @@ function decodedCursor(cursor: string | undefined): {
 
 function encodedCursor(index: number, after?: string): string | undefined {
   if (!after) return undefined;
-  return Buffer.from(JSON.stringify({ index, after }), "utf8").toString(
-    "base64url",
-  );
+  return encodeCursorState({ index, after });
 }
 
 function scopeAllows(
@@ -272,7 +286,10 @@ function accessScopeFor(
   objectType: string,
 ): CrmAccessScope {
   const grantId = connection.appAccess.grantId ?? undefined;
-  const mode = connection.credentialRefs.some((ref) => ref.scope === "user")
+  const mode = [
+    ...connection.credentialRefs,
+    ...(connection.explicitGrant?.credentialRefs ?? []),
+  ].some((ref) => ref.scope === "user")
     ? "user"
     : "service-account";
   const readable = scopeAllows(connection, objectType, "read");

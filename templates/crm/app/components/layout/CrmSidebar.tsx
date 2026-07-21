@@ -67,10 +67,10 @@ export function CrmSidebar({ onNavigate }: { onNavigate?: () => void }) {
           size="sm"
           className="justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
-          <NavLink to="/settings/connections">
+          <a href="/settings/connections">
             <IconSettings className="size-4" />
             Connections
-          </NavLink>
+          </a>
         </Button>
       </div>
     </nav>
