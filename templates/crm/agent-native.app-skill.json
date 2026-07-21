@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "crm",
+  "displayName": "CRM",
+  "description": "Work with a field-policy-aware, HubSpot-connected CRM companion.",
+  "mcp": { "serverName": "agent-native-crm" },
+  "local": {
+    "template": "crm",
+    "sourcePath": ".",
+    "defaultUrl": "http://127.0.0.1:8107",
+    "commands": {
+      "install": "pnpm install",
+      "dev": "pnpm dev",
+      "start": "pnpm start"
+    }
+  },
+  "auth": {
+    "mode": "oauth",
+    "setup": "Connect HubSpot through workspace Connections. CRM never accepts or stores provider credentials."
+  },
+  "surfaces": [
+    { "id": "crm-overview", "action": "get-crm-overview", "path": "/" },
+    { "id": "crm-records", "action": "list-crm-records", "path": "/records" }
+  ],
+  "skills": [
+    { "path": ".agents/skills/crm", "visibility": "both", "exportAs": "crm" }
+  ],
+  "hostAdapters": [
+    "codex-plugin",
+    "claude-marketplace",
+    "vercel-skills",
+    "plain-skill",
+    "claude-skill",
+    "chatgpt-mcp",
+    "generic-mcp"
+  ]
+}
