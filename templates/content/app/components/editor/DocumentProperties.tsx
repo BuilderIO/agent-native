@@ -1980,7 +1980,7 @@ function PropertyOptionSettingsRow({
             onDescriptionChange(nextDescription);
           }
         }}
-        className="ml-14 block min-h-0 w-[calc(100%-3.5rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:resize-y focus:bg-background focus:ring-1 focus:ring-ring"
+        className="block min-h-0 w-full resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:resize-y focus:bg-background focus:ring-1 focus:ring-ring"
       />
     </div>
   );
