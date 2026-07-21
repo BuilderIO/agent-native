@@ -682,6 +682,119 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     });
   });
 
+  it("omits tool error text by default and includes it truncated when captureToolResults is opted in", async () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-ai-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    const loopOpts: any = {
+      engine: { name: "builder" },
+      model: "gpt-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+    const longError = `HubSpot 500: ${"x".repeat(600)}`;
+
+    const runOnce = async (captureToolResults: boolean, result = longError) => {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({ type: "tool_start", tool: "account-deep-dive", input: {} });
+          send({
+            type: "tool_done",
+            tool: "account-deep-dive",
+            result,
+            isError: true,
+          });
+          return {
+            inputTokens: 10,
+            outputTokens: 5,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "gpt-test",
+          };
+        },
+        loopOpts,
+        runId: `run-${captureToolResults}`,
+        threadId: "thread-1",
+        userId: "user@example.com",
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolResults,
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+
+    await runOnce(false);
+    const tools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(tools[0]?.error_message).toBeUndefined();
+
+    events.length = 0;
+    await runOnce(true);
+    const toolsWithCapture = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(toolsWithCapture[0]?.error_message).toBe(
+      `${longError.slice(0, 500)}…`,
+    );
+    expect((toolsWithCapture[0]?.error_message as string).length).toBe(501);
+
+    events.length = 0;
+    const credentialError =
+      "Provider failed: Authorization: Bearer <EXAMPLE_BEARER_TOKEN>; api_key=<EXAMPLE_API_KEY>";
+    await runOnce(true, credentialError);
+    const redactedTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(redactedTools[0]?.error_message).toBe(
+      "Provider failed: Authorization: [REDACTED]; api_key=[REDACTED]",
+    );
+
+    events.length = 0;
+    await runOnce(
+      true,
+      "Provider rejected key sk-proj-example-redaction-value",
+    );
+    const standaloneKeyTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(standaloneKeyTools[0]?.error_message).toBe(
+      "Provider rejected key [REDACTED]",
+    );
+
+    events.length = 0;
+    await runOnce(true, "Stripe rejected key sk_live_1234567890abcdefghijk");
+    const stripeKeyTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(stripeKeyTools[0]?.error_message).toBe(
+      "Stripe rejected key [REDACTED]",
+    );
+
+    events.length = 0;
+    await runOnce(
+      true,
+      'Provider failed: {"cookie":"session-secret","authorization":"Bearer session-token","api_key":"key-value"}',
+    );
+    const jsonCredentialTools = events[0]?.properties?.tools as Array<
+      Record<string, unknown>
+    >;
+    expect(jsonCredentialTools[0]?.error_message).toBe(
+      'Provider failed: {"cookie":"[REDACTED]","authorization":"[REDACTED]","api_key":"[REDACTED]"}',
+    );
+  });
+
   it("no-ops (emits no spans) when no provider is registered", async () => {
     __setAgentTracerForTests(null);
 

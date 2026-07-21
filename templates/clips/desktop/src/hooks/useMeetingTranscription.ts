@@ -828,14 +828,18 @@ export function useMeetingTranscription({
     );
 
     unlistens.push(
-      listen<{ meetingId: string }>("clips:open-meeting", (ev) => {
-        if (!ev.payload?.meetingId) return;
-        openExternal(
-          `${normalizedServerUrl}/meetings/${ev.payload.meetingId}`,
-        ).catch((err) =>
-          console.warn("[clips-popover] open meeting in web failed:", err),
-        );
-      }),
+      listen<{ meetingId: string; openChat?: boolean }>(
+        "clips:open-meeting",
+        (ev) => {
+          if (!ev.payload?.meetingId) return;
+          const query = ev.payload.openChat ? "?chat=1" : "";
+          openExternal(
+            `${normalizedServerUrl}/meetings/${ev.payload.meetingId}${query}`,
+          ).catch((err) =>
+            console.warn("[clips-popover] open meeting in web failed:", err),
+          );
+        },
+      ),
     );
 
     return () => {

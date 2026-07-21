@@ -94,6 +94,19 @@ export function QuickAskSidebar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("chat") !== "1") return;
+    setOpen(true);
+    params.delete("chat");
+    const nextQuery = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`,
+    );
+  }, []);
+
   // Focus the composer whenever the sheet opens.
   useEffect(() => {
     if (open) {

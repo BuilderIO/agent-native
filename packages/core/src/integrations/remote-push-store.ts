@@ -330,7 +330,7 @@ export async function listRemotePushRegistrationsForOwner(input: {
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_remote_push_registrations
           WHERE owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)${statusClause}
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)${statusClause}
           ORDER BY COALESCE(last_seen_at, updated_at) DESC
           LIMIT ?`,
     args: [input.ownerEmail, input.orgId ?? null, input.orgId ?? null, limit],
@@ -352,7 +352,7 @@ export async function unregisterRemotePushRegistrationForOwner(input: {
     sql: `UPDATE integration_remote_push_registrations
           SET status = 'inactive', updated_at = ?
           WHERE owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)
             AND (${input.id ? "id = ?" : "0 = 1"} OR ${
               tokenHash ? "token_hash = ?" : "0 = 1"
             })`,
@@ -432,7 +432,7 @@ export async function listRemotePushNotificationsForOwner(input: {
   const { rows } = await getDbExec().execute({
     sql: `SELECT * FROM integration_remote_push_notifications
           WHERE owner_email = ?
-            AND ((org_id IS NULL AND ? IS NULL) OR org_id = ?)${statusClause}
+            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = ?)${statusClause}
           ORDER BY created_at DESC
           LIMIT ?`,
     args,
