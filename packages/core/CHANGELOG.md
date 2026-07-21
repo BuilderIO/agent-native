@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.114.14
+
+### Patch Changes
+
+- 8df32f6: Improve the integrations picker by removing dead discovery controls, clearly showing the available catalog size, and simplifying provider setup guidance.
+- 8df32f6: Add UTM attribution to Builder.io links opened from Agent Native.
+
 ## 0.114.13
 
 ### Patch Changes
