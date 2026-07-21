@@ -1,5 +1,13 @@
 # @agent-native/skills
 
+## 0.2.381
+
+### Patch Changes
+
+- f8fe58b: Add `VISUAL_RECAP_REQUIRED_LABELS` so PR Visual Recap can run only when a pull request has an opt-in label.
+- Updated dependencies [f8fe58b]
+  - @agent-native/core@0.114.15
+
 ## 0.2.380
 
 ### Patch Changes
