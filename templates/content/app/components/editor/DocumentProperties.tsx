@@ -189,21 +189,6 @@ export const OPTION_COLOR_CLASSES: Record<DocumentPropertyOptionColor, string> =
     red: "bg-rose-500/15 text-rose-800 dark:text-rose-200",
   };
 
-export const OPTION_COLOR_TEXT_CLASSES: Record<
-  DocumentPropertyOptionColor,
-  string
-> = {
-  gray: "text-muted-foreground",
-  brown: "text-amber-900 dark:text-amber-200",
-  orange: "text-orange-800 dark:text-orange-200",
-  yellow: "text-yellow-800 dark:text-yellow-100",
-  green: "text-emerald-800 dark:text-emerald-200",
-  blue: "text-sky-800 dark:text-sky-200",
-  purple: "text-violet-800 dark:text-violet-200",
-  pink: "text-pink-800 dark:text-pink-200",
-  red: "text-rose-800 dark:text-rose-200",
-};
-
 export const OPTION_COLORS: DocumentPropertyOptionColor[] = [
   "gray",
   "blue",
@@ -1858,8 +1843,8 @@ function PropertyOptionSettingsRow({
               >
                 <span
                   className={cn(
-                    "flex-1 font-medium capitalize",
-                    OPTION_COLOR_TEXT_CLASSES[color],
+                    "inline-flex flex-1 items-center rounded px-1.5 py-0.5 text-xs font-medium capitalize",
+                    OPTION_COLOR_CLASSES[color],
                   )}
                 >
                   {t(`editor.propertyOptionColors.${color}`)}
