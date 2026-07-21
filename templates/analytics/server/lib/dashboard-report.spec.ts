@@ -137,7 +137,9 @@ function createPage(
             ready: "true",
             loadingCount: 1,
             text: "Dashboard still loading",
-            url: options.pageUrl ?? "https://analytics.example.test/dashboards/example",
+            url:
+              options.pageUrl ??
+              "https://analytics.example.test/dashboards/example",
           };
         }
         if (script.includes("document.title")) {
@@ -149,7 +151,8 @@ function createPage(
       setViewportSize: vi.fn(async () => {}),
       url: vi.fn(
         () =>
-          options.pageUrl ?? "https://analytics.example.test/dashboards/example",
+          options.pageUrl ??
+          "https://analytics.example.test/dashboards/example",
       ),
       on: vi.fn(),
       context: vi.fn(() => ({ addCookies })),
@@ -339,6 +342,41 @@ describe("dashboard report email", () => {
     expect(result.screenshotError).not.toContain("secret-token");
   });
 
+  it("records redacted page diagnostics when a report chunk never becomes visible", async () => {
+    const page = createPage({
+      waitForFails: true,
+      pageUrl:
+        "https://analytics.example.test/dashboards/example?__an_embed_token=secret-token&embedded=1",
+    });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result.screenshotError).toContain("page state:");
+    expect(result.screenshotError).toContain("Mock Dashboard");
+    expect(result.screenshotError).toContain("__an_embed_token=[REDACTED]");
+    expect(result.screenshotError).not.toContain("secret-token");
+  });
+
+  it("treats a partially loaded chunk as a complete-capture failure", async () => {
+    const page = createPage({ readyWaitFails: true });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      emailsSent: false,
+    });
+    expect(page.locator.screenshot).not.toHaveBeenCalled();
+  });
+
   it("bounds serverless cleanup after a completed capture", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
@@ -377,5 +415,40 @@ describe("dashboard report email", () => {
         force: true,
       },
     );
+  });
+
+  it("closes a browser that finishes launching after the serverless capture deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubEnv("NETLIFY", "true");
+      vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+      mocks.existsSync.mockReturnValue(false);
+      const latePage = createPage();
+      const { browser: lateBrowser } = createBrowser([latePage]);
+      let resolveLateLaunch!: (value: typeof lateBrowser) => void;
+      mocks.launchPersistentContext.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveLateLaunch = resolve;
+          }),
+      );
+
+      const capture = sendDashboardReportSubscription(subscription(), {
+        skipEmailWithoutScreenshot: true,
+      });
+      await vi.advanceTimersByTimeAsync(240_000);
+      const result = await capture;
+      resolveLateLaunch(lateBrowser);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(result).toMatchObject({
+        screenshotAttached: false,
+        emailsSent: false,
+      });
+      expect(lateBrowser.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -640,15 +640,13 @@ async function captureDashboardChunk(
   });
   try {
     try {
-      await page
-        .context()
-        .addCookies([
-          {
-            name: EMBED_SESSION_COOKIE,
-            value: token,
-            url: `${dashboardBaseUrl()}/`,
-          },
-        ]);
+      await page.context().addCookies([
+        {
+          name: EMBED_SESSION_COOKIE,
+          value: token,
+          url: `${dashboardBaseUrl()}/`,
+        },
+      ]);
     } catch (err) {
       console.warn(
         "[dashboard-report] Failed to pre-seed embed session cookie:",
