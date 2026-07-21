@@ -88,11 +88,9 @@ export function Sidebar() {
 
   function handleSkip() {
     setPopoverOpen(false);
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("sidebar.untitledForm") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -171,6 +169,7 @@ export function Sidebar() {
             size="sm"
             className="min-h-10 px-2 text-xs text-muted-foreground active:scale-[0.96] transition-[background-color,color,transform]"
             onClick={handleSkip}
+            disabled={createForm.isPending}
           >
             {t("sidebar.skipPrompt")}
           </Button>

@@ -100,11 +100,9 @@ export function FormsListPage() {
   }, [forms]);
 
   function handleCreate() {
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("forms.untitled") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -114,6 +112,7 @@ export function FormsListPage() {
     () => (
       <Button
         onClick={handleCreate}
+        disabled={createForm.isPending}
         size="sm"
         className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
       >
@@ -123,7 +122,7 @@ export function FormsListPage() {
       </Button>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [createForm.isPending],
   );
   useSetHeaderActions(headerActions);
 
