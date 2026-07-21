@@ -1707,6 +1707,16 @@ body[data-clips-route="recording-pill"] #root {
   margin: -4px 0 0;
 }
 
+.rewind-settings-status-copy {
+  display: grid;
+  gap: 1px;
+}
+
+.rewind-settings-status-copy strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
 .rewind-agent-row {
   border-bottom: none;
 }
