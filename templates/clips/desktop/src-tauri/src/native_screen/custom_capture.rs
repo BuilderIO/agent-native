@@ -2465,8 +2465,15 @@ impl LiveAudioMixer {
     }
 
     /// Emit mixed sample buffers covering `out_pos..safe_end` in
-    /// `MIX_CHUNK_FRAMES` chunks: sum system + mic per frame, clamp, wrap as
-    /// LPCM `CMSampleBuffer`s with contiguous PTS.
+    /// `MIX_CHUNK_FRAMES` chunks: average system + mic per frame, clamp, wrap
+    /// as LPCM `CMSampleBuffer`s with contiguous PTS.
+    ///
+    /// Each source is weighted at 0.5 before summing so that two full-scale
+    /// signals (which occurs when a USB audio interface with software monitoring
+    /// routes the mic back through system audio) can never exceed ±1.0 and
+    /// hard-clip. The standard SCK pipeline applies the same 0.5×L + 0.5×R
+    /// pan-downmix for the same reason; loudnorm restores the target loudness
+    /// in post-processing.
     fn drain_ready(
         &mut self,
         flush: bool,
@@ -2488,8 +2495,8 @@ impl LiveAudioMixer {
                 let frame = a + f as i64;
                 let (sl, sr) = self.system.sample_at(frame);
                 let (ml, mr) = self.mic.sample_at(frame);
-                interleaved[f * 2] = (sl + ml).clamp(-1.0, 1.0);
-                interleaved[f * 2 + 1] = (sr + mr).clamp(-1.0, 1.0);
+                interleaved[f * 2] = (sl * 0.5 + ml * 0.5).clamp(-1.0, 1.0);
+                interleaved[f * 2 + 1] = (sr * 0.5 + mr * 0.5).clamp(-1.0, 1.0);
             }
             emitted.push(self.build_sample_buffer(&interleaved, a)?);
             a = b;
