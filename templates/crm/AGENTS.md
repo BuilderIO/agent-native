@@ -21,22 +21,22 @@ policies, provenance, provider identity, and write policy.
 
 ## Actions
 
-| Action | Purpose |
-| --- | --- |
-| `get-crm-overview` | Read the scoped CRM summary and connection/mirror health. |
-| `list-crm-records` | List a bounded set of CRM records using declared filters. |
-| `get-crm-record` | Read one record and its permitted scoped detail. |
-| `sync-crm` | Refresh a declared mirror cohort; never treat it as an export-all operation. |
-| `list-crm-saved-views` / `save-crm-saved-view` | List or save scoped CRM views. |
-| `list-crm-tasks` / `manage-crm-task` | Read and manage CRM follow-up tasks. |
-| `update-crm-record` | Submit a typed, access-checked, revision-aware record mutation. |
-| `list-crm-proposals` / `apply-crm-proposals` | Review and apply authorized agent/provider mutation proposals. |
-| `attach-call-evidence` | Attach a bounded call evidence reference; never attach a transcript or media. |
-| `view-screen` | Read current navigation, selection, and visible CRM context. |
-| `navigate` | Move the UI to overview, records, tasks, proposals, or settings. |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and make authorized exact provider API requests. |
-| `query-staged-dataset` | Reduce staged, paginated provider results for broad analyses. |
-| data program, automation, extension surfaces | Use shared framework capabilities under their scoped access and data limits. |
+| Action                                                                | Purpose                                                                       |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `get-crm-overview`                                                    | Read the scoped CRM summary and connection/mirror health.                     |
+| `list-crm-records`                                                    | List a bounded set of CRM records using declared filters.                     |
+| `get-crm-record`                                                      | Read one record and its permitted scoped detail.                              |
+| `sync-crm`                                                            | Refresh a declared mirror cohort; never treat it as an export-all operation.  |
+| `list-crm-saved-views` / `save-crm-saved-view`                        | List or save scoped CRM views.                                                |
+| `list-crm-tasks` / `manage-crm-task`                                  | Read and manage CRM follow-up tasks.                                          |
+| `update-crm-record`                                                   | Submit a typed, access-checked, revision-aware record mutation.               |
+| `list-crm-proposals` / `apply-crm-proposals`                          | Review and apply authorized agent/provider mutation proposals.                |
+| `attach-call-evidence`                                                | Attach a bounded call evidence reference; never attach a transcript or media. |
+| `view-screen`                                                         | Read current navigation, selection, and visible CRM context.                  |
+| `navigate`                                                            | Move the UI to overview, records, tasks, proposals, or settings.              |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and make authorized exact provider API requests.                     |
+| `query-staged-dataset`                                                | Reduce staged, paginated provider results for broad analyses.                 |
+| data program, automation, extension surfaces                          | Use shared framework capabilities under their scoped access and data limits.  |
 
 ## Agent behavior
 

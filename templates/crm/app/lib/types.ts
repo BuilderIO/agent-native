@@ -57,14 +57,22 @@ export function recordId(record: unknown): string | undefined {
   if (!record || typeof record !== "object") return undefined;
   const value = record as Record<string, unknown>;
   const ref = value.ref as Record<string, unknown> | undefined;
-  return asText(value.id) ?? asText(value.recordId) ?? asText(ref?.localId) ?? asText(ref?.remoteId);
+  return (
+    asText(value.id) ??
+    asText(value.recordId) ??
+    asText(ref?.localId) ??
+    asText(ref?.remoteId)
+  );
 }
 
 export function asText(value: unknown): string | undefined {
   return typeof value === "string" && value.length ? value : undefined;
 }
 
-export function normalizeRecord(record: unknown, fallbackKind: CrmKind): CrmRecordSummary | null {
+export function normalizeRecord(
+  record: unknown,
+  fallbackKind: CrmKind,
+): CrmRecordSummary | null {
   if (!record || typeof record !== "object") return null;
   const value = record as Record<string, unknown>;
   const id = recordId(value);
@@ -76,7 +84,8 @@ export function normalizeRecord(record: unknown, fallbackKind: CrmKind): CrmReco
     id,
     displayName: asText(value.displayName) ?? asText(value.name) ?? id,
     kind,
-    subtitle: asText(value.subtitle) ?? asText(fields?.domain) ?? asText(fields?.email),
+    subtitle:
+      asText(value.subtitle) ?? asText(fields?.domain) ?? asText(fields?.email),
     owner: asText(value.owner) ?? asText(fields?.owner),
     stage: asText(value.stage) ?? asText(fields?.stage),
     cadence: asText(value.cadence) ?? asText(fields?.cadence),
@@ -86,7 +95,10 @@ export function normalizeRecord(record: unknown, fallbackKind: CrmKind): CrmReco
   };
 }
 
-export function normalizeRecords(data: unknown, kind: CrmKind): CrmRecordSummary[] {
+export function normalizeRecords(
+  data: unknown,
+  kind: CrmKind,
+): CrmRecordSummary[] {
   const values = Array.isArray(data)
     ? data
     : isObject(data) && Array.isArray(data.records)
@@ -109,12 +121,22 @@ export function normalizeTasks(data: unknown): CrmTask[] {
     const id = asText(value.id) ?? asText(value.taskId);
     const title = asText(value.title) ?? asText(value.name);
     if (!id || !title) return [];
-    return [{ id, title, status: asText(value.status) ?? "open", dueAt: asText(value.dueAt), recordId: asText(value.recordId) }];
+    return [
+      {
+        id,
+        title,
+        status: asText(value.status) ?? "open",
+        dueAt: asText(value.dueAt),
+        recordId: asText(value.recordId),
+      },
+    ];
   });
 }
 
 function asKind(value: unknown): CrmKind | undefined {
-  return value === "account" || value === "person" || value === "opportunity" ? value : undefined;
+  return value === "account" || value === "person" || value === "opportunity"
+    ? value
+    : undefined;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

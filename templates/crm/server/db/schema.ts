@@ -52,9 +52,7 @@ export const crmObjects = table("crm_objects", {
   label: text("label").notNull(),
   pluralLabel: text("plural_label").notNull(),
   custom: integer("custom", { mode: "boolean" }).notNull().default(false),
-  queryable: integer("queryable", { mode: "boolean" })
-    .notNull()
-    .default(true),
+  queryable: integer("queryable", { mode: "boolean" }).notNull().default(true),
   searchable: integer("searchable", { mode: "boolean" })
     .notNull()
     .default(true),
@@ -93,9 +91,7 @@ export const crmFieldPolicies = table("crm_field_policies", {
   })
     .notNull()
     .default("remote-only"),
-  sensitive: integer("sensitive", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  sensitive: integer("sensitive", { mode: "boolean" }).notNull().default(false),
   readable: integer("readable", { mode: "boolean" }).notNull().default(true),
   createable: integer("createable", { mode: "boolean" })
     .notNull()
@@ -103,9 +99,7 @@ export const crmFieldPolicies = table("crm_field_policies", {
   updateable: integer("updateable", { mode: "boolean" })
     .notNull()
     .default(false),
-  required: integer("required", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  required: integer("required", { mode: "boolean" }).notNull().default(false),
   metadataJson: text("metadata_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -144,9 +138,7 @@ export const crmRecords = table("crm_records", {
   lastSyncedAt: text("last_synced_at"),
   accessScopeKey: text("access_scope_key").notNull(),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
-  tombstone: integer("tombstone", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  tombstone: integer("tombstone", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -189,9 +181,7 @@ export const crmRelationships = table("crm_relationships", {
   sourceField: text("source_field"),
   remoteRelationshipId: text("remote_relationship_id"),
   remoteRevision: text("remote_revision"),
-  tombstone: integer("tombstone", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  tombstone: integer("tombstone", { mode: "boolean" }).notNull().default(false),
   lastSyncedAt: text("last_synced_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -230,9 +220,7 @@ export const crmInteractions = table("crm_interactions", {
   ...ownableColumns(),
 });
 
-export const crmInteractionShares = createSharesTable(
-  "crm_interaction_shares",
-);
+export const crmInteractionShares = createSharesTable("crm_interaction_shares");
 
 export const crmCallEvidence = table("crm_call_evidence", {
   id: text("id").primaryKey(),
@@ -348,9 +336,7 @@ export const crmSyncRuns = table("crm_sync_runs", {
   cursor: text("cursor"),
   recordsUpserted: integer("records_upserted").notNull().default(0),
   tombstonesApplied: integer("tombstones_applied").notNull().default(0),
-  relationshipsUpserted: integer("relationships_upserted")
-    .notNull()
-    .default(0),
+  relationshipsUpserted: integer("relationships_upserted").notNull().default(0),
   error: text("error"),
   startedAt: text("started_at").notNull(),
   completedAt: text("completed_at"),

@@ -24,6 +24,7 @@ export function viewFromPath(pathname: string): CrmView {
 }
 
 export function pathForView(view?: string, recordId?: string): string {
-  if (view === "record" && recordId) return `/records/${encodeURIComponent(recordId)}`;
+  if (view === "record" && recordId)
+    return `/records/${encodeURIComponent(recordId)}`;
   return CRM_VIEW_PATHS[view as Exclude<CrmView, "record">] ?? "/";
 }

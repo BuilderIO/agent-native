@@ -1,7 +1,3 @@
-import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
-import { useState } from "react";
-import { Link, useSearchParams } from "react-router";
-
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
@@ -12,6 +8,9 @@ import {
   TableHeader,
   TableRow,
 } from "@agent-native/toolkit/ui/table";
+import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
+import { useState } from "react";
+import { Link, useSearchParams } from "react-router";
 
 import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
 import type { CrmKind, CrmRecordSummary } from "@/lib/types";
@@ -72,25 +71,48 @@ export function RecordGrid({
               <TableHead className="hidden md:table-cell">Owner</TableHead>
               <TableHead className="hidden lg:table-cell">Cadence</TableHead>
               <TableHead>Next step</TableHead>
-              <TableHead className="w-8"><span className="sr-only">Open</span></TableHead>
+              <TableHead className="w-8">
+                <span className="sr-only">Open</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filtered.map((record) => (
               <TableRow key={record.id}>
                 <TableCell className="min-w-[220px]">
-                  <Link to={`/records/${encodeURIComponent(record.id)}`} className="block rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <Link
+                    to={`/records/${encodeURIComponent(record.id)}`}
+                    className="block rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
                     <p className="font-medium">{record.displayName}</p>
-                    {record.subtitle ? <p className="mt-0.5 text-xs text-muted-foreground">{record.subtitle}</p> : null}
+                    {record.subtitle ? (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {record.subtitle}
+                      </p>
+                    ) : null}
                   </Link>
                 </TableCell>
-                <TableCell className="hidden text-muted-foreground md:table-cell">{record.owner ?? "—"}</TableCell>
-                <TableCell className="hidden lg:table-cell">
-                  {record.cadence ? <Badge variant="secondary" className="font-normal">{record.cadence}</Badge> : "—"}
+                <TableCell className="hidden text-muted-foreground md:table-cell">
+                  {record.owner ?? "—"}
                 </TableCell>
-                <TableCell className="max-w-[260px] truncate text-muted-foreground">{record.nextStep ?? record.stage ?? "—"}</TableCell>
+                <TableCell className="hidden lg:table-cell">
+                  {record.cadence ? (
+                    <Badge variant="secondary" className="font-normal">
+                      {record.cadence}
+                    </Badge>
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
+                <TableCell className="max-w-[260px] truncate text-muted-foreground">
+                  {record.nextStep ?? record.stage ?? "—"}
+                </TableCell>
                 <TableCell>
-                  <Link to={`/records/${encodeURIComponent(record.id)}`} className="inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label={`Open ${record.displayName}`}>
+                  <Link
+                    to={`/records/${encodeURIComponent(record.id)}`}
+                    className="inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={`Open ${record.displayName}`}
+                  >
                     <IconArrowUpRight className="size-4" />
                   </Link>
                 </TableCell>
@@ -100,7 +122,9 @@ export function RecordGrid({
         </Table>
       </div>
       {records.length > 0 && filtered.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">No matching {labels[kind].toLowerCase()}s.</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          No matching {labels[kind].toLowerCase()}s.
+        </p>
       ) : null}
     </div>
   );

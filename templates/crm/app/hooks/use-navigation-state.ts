@@ -29,7 +29,9 @@ export function useNavigationState() {
       return {
         view: viewFromPath(pathname),
         path: appPath(`${pathname}${search}`),
-        recordId: recordMatch?.[1] ? decodeURIComponent(recordMatch[1]) : undefined,
+        recordId: recordMatch?.[1]
+          ? decodeURIComponent(recordMatch[1])
+          : undefined,
         viewId: params.get("view") ?? undefined,
         query: params.get("q") ?? undefined,
       };

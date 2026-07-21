@@ -1,8 +1,7 @@
-import { IconArrowUpRight, IconDatabaseOff } from "@tabler/icons-react";
-import { Link } from "react-router";
-
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import { IconArrowUpRight, IconDatabaseOff } from "@tabler/icons-react";
+import { Link } from "react-router";
 
 export function PageHeader({
   eyebrow,
@@ -30,7 +29,9 @@ export function PageHeader({
           </p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      ) : null}
     </header>
   );
 }
@@ -59,7 +60,9 @@ export function SetupEmptyState({
           <IconDatabaseOff className="size-5" />
         </div>
         <h2 className="mt-4 text-base font-semibold">{title}</h2>
-        <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {description}
+        </p>
         <Button asChild variant="outline" className="mt-5 gap-2">
           <Link to="/settings/connections">
             Open shared connections <IconArrowUpRight className="size-4" />
