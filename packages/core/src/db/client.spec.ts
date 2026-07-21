@@ -130,6 +130,52 @@ describe("db/client dialect detection", () => {
   });
 });
 
+describe("db/client D1 execution", () => {
+  it("uses D1 batch for atomic statements instead of interactive SQL transactions", async () => {
+    const prepared: Array<{ sql: string; args: unknown[] }> = [];
+    const binding = {
+      prepare: vi.fn((sql: string) => {
+        const statement = {
+          sql,
+          args: [] as unknown[],
+          bind(...args: unknown[]) {
+            statement.args = args;
+            return statement;
+          },
+          all: vi.fn(),
+        };
+        prepared.push(statement);
+        return statement;
+      }),
+      batch: vi.fn(async () => [
+        { results: [{ matched: 1 }], meta: { changes: 0 } },
+        { results: [], meta: { changes: 1 } },
+      ]),
+    };
+    const { createDbExec } = await import("./client.js");
+    const client = await createDbExec({ d1Binding: binding });
+
+    expect(client.transaction).toBeUndefined();
+    await expect(
+      client.atomicBatch?.([
+        { sql: "SELECT value FROM state WHERE key = ?", args: ["pending"] },
+        { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
+      ]),
+    ).resolves.toEqual([
+      { rows: [{ matched: 1 }], rowsAffected: 0 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    expect(binding.batch).toHaveBeenCalledTimes(1);
+    expect(prepared.map(({ sql, args }) => ({ sql, args }))).toEqual([
+      {
+        sql: "SELECT value FROM state WHERE key = ?",
+        args: ["pending"],
+      },
+      { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
+    ]);
+  });
+});
+
 describe("pgliteDataDirFromUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
