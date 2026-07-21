@@ -800,60 +800,77 @@ export class HubSpotCrmAdapter implements CrmAdapter {
   async listRelationships(input: {
     record: CrmRecordRef;
     targetObjectTypes?: string[];
-  }): Promise<CrmRelationship[]> {
+    limit: number;
+    cursor?: string;
+  }): Promise<{
+    relationships: CrmRelationship[];
+    nextCursor?: string;
+    complete: boolean;
+  }> {
     assertOwnedRecord(this.workspaceConnection, input.record);
     const targetObjectTypes = uniqueStrings(
       input.targetObjectTypes?.length
         ? input.targetObjectTypes
         : CORE_OBJECT_TYPES,
     ).filter((objectType) => objectType !== input.record.objectType);
+    if (!targetObjectTypes.length) {
+      return { relationships: [], complete: true };
+    }
+    const state = decodedCursor(input.cursor);
+    const index = Math.min(state.index, targetObjectTypes.length - 1);
+    const targetObjectType = targetObjectTypes[index]!;
+    const response = await this.request<HubSpotAssociationResponse>({
+      path: `/crm/v4/objects/${encodeURIComponent(input.record.objectType)}/${encodeURIComponent(input.record.remoteId)}/associations/${encodeURIComponent(targetObjectType)}${toQuery(
+        {
+          limit: String(Math.max(1, Math.min(MAX_PAGE_SIZE, input.limit))),
+          ...(state.after ? { after: state.after } : {}),
+        },
+      )}`,
+    });
     const relationships: CrmRelationship[] = [];
-    for (const targetObjectType of targetObjectTypes) {
-      let after: string | undefined;
-      for (let page = 0; page < MAX_RELATIONSHIP_PAGES; page++) {
-        const response = await this.request<HubSpotAssociationResponse>({
-          path: `/crm/v4/objects/${encodeURIComponent(input.record.objectType)}/${encodeURIComponent(input.record.remoteId)}/associations/${encodeURIComponent(targetObjectType)}${toQuery(
+    for (const association of response.results ?? []) {
+      const remoteId = association.toObjectId ?? association.id;
+      if (remoteId == null) continue;
+      const types = association.associationTypes?.length
+        ? association.associationTypes
+        : [
             {
-              limit: String(MAX_PAGE_SIZE),
-              ...(after ? { after } : {}),
+              associationCategory: "HUBSPOT_DEFINED",
+              associationTypeId: "default",
             },
-          )}`,
+          ];
+      for (const type of types) {
+        const relationshipType = [
+          type.associationCategory ?? "HUBSPOT_DEFINED",
+          type.associationTypeId == null
+            ? "default"
+            : String(type.associationTypeId),
+        ].join(":");
+        relationships.push({
+          from: input.record,
+          to: recordRef(
+            this.workspaceConnection,
+            targetObjectType,
+            String(remoteId),
+          ),
+          relationshipType,
+          ...(type.label ? { label: type.label } : {}),
         });
-        for (const association of response.results ?? []) {
-          const remoteId = association.toObjectId ?? association.id;
-          if (remoteId == null) continue;
-          const types = association.associationTypes?.length
-            ? association.associationTypes
-            : [
-                {
-                  associationCategory: "HUBSPOT_DEFINED",
-                  associationTypeId: "default",
-                },
-              ];
-          for (const type of types) {
-            const relationshipType = [
-              type.associationCategory ?? "HUBSPOT_DEFINED",
-              type.associationTypeId == null
-                ? "default"
-                : String(type.associationTypeId),
-            ].join(":");
-            relationships.push({
-              from: input.record,
-              to: recordRef(
-                this.workspaceConnection,
-                targetObjectType,
-                String(remoteId),
-              ),
-              relationshipType,
-              ...(type.label ? { label: type.label } : {}),
-            });
-          }
-        }
-        after = response.paging?.next?.after;
-        if (!after) break;
       }
     }
-    return relationships;
+    const after = response.paging?.next?.after;
+    const nextCursor = after
+      ? encodedCursor(index, after)
+      : index + 1 < targetObjectTypes.length
+        ? Buffer.from(JSON.stringify({ index: index + 1 }), "utf8").toString(
+            "base64url",
+          )
+        : undefined;
+    return {
+      relationships,
+      ...(nextCursor ? { nextCursor } : {}),
+      complete: !nextCursor,
+    };
   }
 
   async applyMutation(mutation: Parameters<CrmAdapter["applyMutation"]>[0]) {

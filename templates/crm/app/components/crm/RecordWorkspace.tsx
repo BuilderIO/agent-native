@@ -291,8 +291,8 @@ function EmptyCopy({ text }: { text: string }) {
 function displayFieldName(value: string) {
   return value
     .replace(/([A-Z])/g, " $1")
-    .replaceAll("_", " ")
-    .replace(/^./, (letter) => letter.toUpperCase());
+    .replace(/_/g, " ")
+    .replace(/^./, (letter: string) => letter.toUpperCase());
 }
 function displayValue(value: unknown) {
   if (typeof value === "boolean") return value ? "Yes" : "No";

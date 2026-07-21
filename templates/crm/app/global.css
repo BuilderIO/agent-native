@@ -1,0 +1,155 @@
+@import "@fontsource-variable/inter";
+@import "tailwindcss";
+@import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
+
+@source "./**/*.{ts,tsx}";
+
+:root {
+  --background: 42 25% 98%;
+  --foreground: 215 20% 16%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 20% 16%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 20% 16%;
+  --primary: 212 27% 20%;
+  --primary-foreground: 42 25% 98%;
+  --secondary: 40 22% 94%;
+  --secondary-foreground: 215 20% 16%;
+  --muted: 40 20% 94%;
+  --muted-foreground: 215 10% 43%;
+  --accent: 40 24% 92%;
+  --accent-foreground: 215 20% 16%;
+  --destructive: 1 72% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 34 16% 87%;
+  --input: 34 16% 87%;
+  --ring: 212 27% 37%;
+  --radius: 0.6rem;
+  --sidebar-background: 42 22% 96%;
+  --sidebar-foreground: 215 14% 35%;
+  --sidebar-primary: 212 27% 20%;
+  --sidebar-primary-foreground: 42 25% 98%;
+  --sidebar-accent: 40 24% 91%;
+  --sidebar-accent-foreground: 215 20% 16%;
+  --sidebar-border: 34 16% 87%;
+  --sidebar-ring: 212 27% 37%;
+}
+
+.dark {
+  --background: 215 17% 11%;
+  --foreground: 42 20% 91%;
+  --card: 215 16% 14%;
+  --card-foreground: 42 20% 91%;
+  --popover: 215 16% 14%;
+  --popover-foreground: 42 20% 91%;
+  --primary: 42 20% 91%;
+  --primary-foreground: 215 17% 11%;
+  --secondary: 215 13% 18%;
+  --secondary-foreground: 42 20% 91%;
+  --muted: 215 13% 18%;
+  --muted-foreground: 42 10% 62%;
+  --accent: 215 13% 20%;
+  --accent-foreground: 42 20% 91%;
+  --destructive: 1 64% 52%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 215 12% 24%;
+  --input: 215 12% 24%;
+  --ring: 42 10% 65%;
+  --sidebar-background: 215 17% 9%;
+  --sidebar-foreground: 42 10% 66%;
+  --sidebar-primary: 42 20% 91%;
+  --sidebar-primary-foreground: 215 17% 11%;
+  --sidebar-accent: 215 13% 17%;
+  --sidebar-accent-foreground: 42 20% 91%;
+  --sidebar-border: 215 12% 21%;
+  --sidebar-ring: 42 10% 65%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter Variable", Inter, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: hsl(var(--border));
+}
+
+.crm-chat-intro {
+  display: none;
+}
+.crm-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: center;
+  padding-bottom: clamp(4rem, 12vh, 8rem);
+}
+.crm-chat-panel [data-agent-empty-state="centered"] .crm-chat-intro {
+  display: grid;
+  width: 100%;
+  max-width: min(670px, 90%);
+  gap: 0.5rem;
+  margin: 0 auto 1rem;
+  text-align: center;
+}
+.crm-chat-intro h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 2.5vw, 2.5rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.crm-chat-intro p {
+  margin: 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+.crm-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+  flex: 0 0 auto;
+  min-height: 0;
+  overflow: visible;
+}
+.crm-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+  width: 100%;
+  max-width: min(670px, 90%);
+  padding: 0;
+}
+.crm-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
+  min-height: 7.5rem;
+  border-color: hsl(var(--border));
+  border-radius: 1rem;
+  background: hsl(var(--card));
+  box-shadow: none;
+}
+.crm-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-composer-prosemirror {
+  min-height: 4.75rem;
+  font-size: 1rem;
+  line-height: 1.625rem;
+}
+
+@media (max-width: 767px) {
+  .crm-chat-panel [data-agent-empty-state="centered"] {
+    padding: 1rem;
+    padding-bottom: 5rem;
+  }
+  .crm-chat-panel [data-agent-empty-state="centered"] .agent-composer-area,
+  .crm-chat-panel [data-agent-empty-state="centered"] .crm-chat-intro {
+    max-width: 100%;
+  }
+}
