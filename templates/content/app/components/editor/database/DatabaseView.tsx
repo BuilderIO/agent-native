@@ -4143,25 +4143,6 @@ function DatabaseItemPreview({
             draftVersionsRef.current.set(documentId, null);
           else if (result.draft) {
             draftVersionsRef.current.set(documentId, result.draft.version);
-            if (
-              previewDraftNeedsConflict({
-                returnedDraft: result.draft,
-                pending: controller.pending,
-              })
-            ) {
-              controller.notifyDraftConflict({
-                lastSaved: snapshot.lastSaved,
-                pending: {
-                  title: result.draft.title,
-                  content: result.draft.content,
-                  loadedUpdatedAt:
-                    result.draft.baseDocumentUpdatedAt ?? undefined,
-                  loadedContentWasEmpty:
-                    result.draft.loadedContentWasEmpty === 1,
-                },
-                deferredReason: "conflict",
-              });
-            }
           } else {
             // Another tab already removed the row. Treat the stale delete as
             // converged instead of retaining a version that can never match.
@@ -4186,24 +4167,6 @@ function DatabaseItemPreview({
           draftVersionsRef.current.set(documentId, result.draft.version);
         } else if (result.draft) {
           draftVersionsRef.current.set(documentId, result.draft.version);
-          if (
-            previewDraftNeedsConflict({
-              returnedDraft: result.draft,
-              pending: controller.pending,
-            })
-          ) {
-            controller.notifyDraftConflict({
-              lastSaved: snapshot.lastSaved,
-              pending: {
-                title: result.draft.title,
-                content: result.draft.content,
-                loadedUpdatedAt:
-                  result.draft.baseDocumentUpdatedAt ?? undefined,
-                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
-              },
-              deferredReason: "conflict",
-            });
-          }
         } else {
           // A competing tab deleted the version we tried to update. Reset to
           // create mode and enqueue the latest pending payload once; keeping
@@ -4298,7 +4261,13 @@ function DatabaseItemPreview({
                 );
                 return;
               }
-              resolve(undefined);
+              resolve({
+                outcome: "saved" as const,
+                loadedUpdatedAt: result.updatedAt,
+                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                  result.content,
+                ),
+              });
             },
             onError: reject,
           },
@@ -4410,6 +4379,8 @@ function DatabaseItemPreview({
       }
       return;
     }
+    const previouslyExpectedVersion =
+      draftVersionsRef.current.get(documentId) ?? null;
     draftVersionsRef.current.set(documentId, draft.version);
     const controller = peekPreviewDocumentSaveController(documentId);
     if (!controller) return;
@@ -4431,8 +4402,19 @@ function DatabaseItemPreview({
           ? draft.deferredReason
           : null,
     } as const;
+    // A poll tick simply confirming a version this client's own debounced
+    // write already advanced the ref to is not an external change — it is
+    // this client's typing racing ahead of its own last round trip. Comparing
+    // that echo against the still-live `pending` would flag a conflict on
+    // almost every keystroke. Only treat the draft as having moved out from
+    // under the user when its version is newer than what this client itself
+    // last recorded.
+    const draftAdvancedExternally =
+      previouslyExpectedVersion !== null &&
+      draft.version > previouslyExpectedVersion;
     if (controllerDirty) {
       if (
+        draftAdvancedExternally &&
         previewDraftNeedsConflict({
           returnedDraft: draft,
           pending: controller.pending,
