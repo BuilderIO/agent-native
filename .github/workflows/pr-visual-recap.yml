@@ -6,7 +6,7 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 permissions:
   contents: read
@@ -18,12 +18,14 @@ concurrency:
 env:
   VISUAL_RECAP_AGENT: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
   VISUAL_RECAP_BASE_URL: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}
+  VISUAL_RECAP_REQUIRED_LABELS: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
   VISUAL_RECAP_SKILL_SOURCE: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
   VISUAL_RECAP_SECRET_SCAN: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}
 
 jobs:
   gate:
     name: Gate
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     # A custom plain-label runner is allowed only for trusted same-repo authors.
     # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
     # any step starts. The only fromJSON input is this static association list.
@@ -50,6 +52,7 @@ jobs:
           VISUAL_RECAP_BASE_URL: ${{ env.VISUAL_RECAP_BASE_URL }}
           VISUAL_RECAP_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
           VISUAL_RECAP_RUNS_ON: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+          VISUAL_RECAP_REQUIRED_LABELS: ${{ env.VISUAL_RECAP_REQUIRED_LABELS }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ env.VISUAL_RECAP_SKILL_SOURCE }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
@@ -61,6 +64,19 @@ jobs:
             if (pr && pr.draft) reasons.push('draft PR');
             if (pr && context.payload.action === 'closed' && !pr.merged) {
               reasons.push('closed without merge');
+            }
+            const requiredLabels = (process.env.VISUAL_RECAP_REQUIRED_LABELS || '')
+              .split(',')
+              .map((label) => label.trim().toLowerCase())
+              .filter(Boolean);
+            if (pr && requiredLabels.length > 0) {
+              const prLabels = new Set((Array.isArray(pr.labels) ? pr.labels : [])
+                .map((label) => typeof label === 'string' ? label : label && label.name)
+                .filter(Boolean)
+                .map((label) => String(label).toLowerCase()));
+              if (!requiredLabels.some((label) => prLabels.has(label))) {
+                reasons.push(`missing required recap label (${requiredLabels.join(', ')})`);
+              }
             }
 
             // Fork PRs only receive repo secrets when the org/repo opts into
