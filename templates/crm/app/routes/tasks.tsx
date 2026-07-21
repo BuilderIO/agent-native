@@ -45,18 +45,30 @@ export default function TasksRoute() {
     "manage-crm-task" as never,
   );
   const tasks = normalizeTasks(query.data);
+  const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(new Set());
 
   async function setStatus(
     taskId: string,
     status: "open" | "done" | "cancelled",
   ) {
+    setPendingTaskIds((current) => new Set(current).add(taskId));
     try {
       await manage.mutateAsync({ taskId, status });
       toast.success(status === "done" ? "Task completed." : "Task updated.");
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Task update failed.";
       toast.error(
-        error instanceof Error ? error.message : "Task update failed.",
+        message.includes("mirrored HubSpot task")
+          ? "This is a mirrored HubSpot task. Provider task writeback is not available yet."
+          : message,
       );
+    } finally {
+      setPendingTaskIds((current) => {
+        const next = new Set(current);
+        next.delete(taskId);
+        return next;
+      });
     }
   }
 
@@ -105,7 +117,7 @@ export default function TasksRoute() {
                     variant="outline"
                     size="sm"
                     className="gap-1.5"
-                    disabled={manage.isPending}
+                    disabled={pendingTaskIds.has(task.id)}
                     onClick={() => void setStatus(task.id, "done")}
                   >
                     <IconCheck className="size-4" /> Complete
@@ -114,7 +126,7 @@ export default function TasksRoute() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={manage.isPending}
+                    disabled={pendingTaskIds.has(task.id)}
                     onClick={() => void setStatus(task.id, "open")}
                   >
                     Reopen
@@ -124,7 +136,7 @@ export default function TasksRoute() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    disabled={manage.isPending}
+                    disabled={pendingTaskIds.has(task.id)}
                     aria-label={`Cancel ${task.title}`}
                     onClick={() => void setStatus(task.id, "cancelled")}
                   >

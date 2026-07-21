@@ -6,11 +6,38 @@ templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY 
 templates/clips/app/components/player/transcript-panel.tsx|gsk_…
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
+templates/crm/app/components/crm/RecordActions.tsx|Add evidence
+templates/crm/app/components/crm/RecordActions.tsx|Add record task
+templates/crm/app/components/crm/RecordActions.tsx|Add task
+templates/crm/app/components/crm/RecordActions.tsx|Artifact ID
+templates/crm/app/components/crm/RecordActions.tsx|Attach Clips evidence
+templates/crm/app/components/crm/RecordActions.tsx|Attach evidence
+templates/crm/app/components/crm/RecordActions.tsx|CRM stores only the artifact reference, URL, and a bounded excerpt—never media or a transcript.
+templates/crm/app/components/crm/RecordActions.tsx|CRM update failed.
+templates/crm/app/components/crm/RecordActions.tsx|Call evidence attached.
+templates/crm/app/components/crm/RecordActions.tsx|Choose a value
+templates/crm/app/components/crm/RecordActions.tsx|Clips URL
+templates/crm/app/components/crm/RecordActions.tsx|Connected CRM proposal
+templates/crm/app/components/crm/RecordActions.tsx|Create task
+templates/crm/app/components/crm/RecordActions.tsx|Edit CRM field
+templates/crm/app/components/crm/RecordActions.tsx|Edit field
+templates/crm/app/components/crm/RecordActions.tsx|Enter a valid number.
+templates/crm/app/components/crm/RecordActions.tsx|Evidence could not be attached.
+templates/crm/app/components/crm/RecordActions.tsx|Field name
+templates/crm/app/components/crm/RecordActions.tsx|Follow-up task created.
+templates/crm/app/components/crm/RecordActions.tsx|Human provider edits apply after a revision check. Agent edits still become proposals. Local changes are limited to local-authoritative fields.
+templates/crm/app/components/crm/RecordActions.tsx|Keep a local follow-up next to this CRM record.
+templates/crm/app/components/crm/RecordActions.tsx|Local CRM field
+templates/crm/app/components/crm/RecordActions.tsx|New value
+templates/crm/app/components/crm/RecordActions.tsx|Short excerpt
+templates/crm/app/components/crm/RecordActions.tsx|Task creation failed.
+templates/crm/app/components/crm/RecordActions.tsx|Value type
 templates/crm/app/components/crm/RecordGrid.tsx|Next step
 templates/crm/app/components/crm/RecordWorkspace.tsx|Last updated
 templates/crm/app/components/crm/RecordWorkspace.tsx|Next step
 templates/crm/app/components/crm/RecordWorkspace.tsx|Related records
 templates/crm/app/components/crm/RecordWorkspace.tsx|This CRM record is unavailable
+templates/crm/app/components/crm/SavedViewDataProgram.tsx|Cross-source context
 templates/crm/app/components/crm/Surface.tsx|Open shared connections
 templates/crm/app/components/crm/WorkOverview.tsx|A focused queue from your connected CRM.
 templates/crm/app/components/crm/WorkOverview.tsx|CRM will surface follow-up signals as connected records become available.

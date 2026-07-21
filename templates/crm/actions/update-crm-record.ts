@@ -195,7 +195,7 @@ async function updateLocalFields(input: {
 
 export default defineAction({
   description:
-    "Submit a revision-aware CRM record update. Provider updates are always saved as proposals first; local-authoritative fields may be applied after the applicable approval policy is satisfied.",
+    "Submit a revision-aware CRM record update. Phase 1 always saves provider updates as proposals, including human-initiated routine updates, because HubSpot does not offer an atomic conditional update. Local-authoritative fields may be applied after the applicable approval policy is satisfied.",
   schema: z.object({
     recordId: z.string().trim().min(1).max(128),
     target: z.enum(["local", "provider"]).default("provider"),

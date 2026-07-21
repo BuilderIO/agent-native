@@ -2,15 +2,11 @@ import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
-import {
-  parseCrmAccessScope,
-  readThroughFieldNames,
-  scopesAreCompatible,
-} from "../server/crm/read-through.js";
+import { loadVerifiedReadThroughRecord } from "../server/crm/read-through.js";
 import {
   getCrmRecord,
   getCrmRecordReadContext,
-  persistReadThroughRelationships,
+  getReadThroughRelationshipSummaries,
 } from "../server/db/crm-store.js";
 
 export default defineAction({
@@ -40,57 +36,22 @@ export default defineAction({
       ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
       ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
     });
-    const currentScope = adapter.getAccessScope(context.objectType);
-    const storedScope = parseCrmAccessScope(context.accessScopeJson);
-    if (!scopesAreCompatible(storedScope, currentScope)) {
-      throw new Error(
-        "CRM provider access changed; the local record is withheld until it is refreshed.",
-      );
-    }
-    const remote = await adapter.getRecord({
-      record: {
-        connectionId: adapter.connection.connectionId,
-        provider: "hubspot",
-        objectType: context.objectType,
-        kind: context.kind,
-        remoteId: context.remoteId,
-        localId: context.id,
-      },
-      fields: readThroughFieldNames(context.fieldPolicies),
-    });
-    if (!remote || !scopesAreCompatible(storedScope, remote.accessScope)) {
-      throw new Error(
-        "CRM provider access changed or the record is unavailable; the local record is withheld until it is refreshed.",
-      );
-    }
-    const relationshipPage = await adapter.listRelationships({
-      record: remote.ref,
-      limit: 100,
-    });
-    const targetObjectTypes = Array.from(
-      new Set(
-        relationshipPage.relationships.map(
-          (relationship) => relationship.to.objectType,
-        ),
-      ),
-    ).slice(0, 20);
-    const currentScopes = new Map(
-      targetObjectTypes.map((objectType) => [
-        objectType,
-        adapter.getAccessScope(objectType),
-      ]),
-    );
-    const relatedRecords = await persistReadThroughRelationships({
+    const readThrough = await loadVerifiedReadThroughRecord({
+      adapter,
       context,
-      relationships: relationshipPage.relationships,
-      currentScopes,
+    });
+    const relatedRecords = await getReadThroughRelationshipSummaries({
+      context,
+      relationships: readThrough.relationships,
+      currentScopes: readThrough.currentScopes,
     });
     const record = await getCrmRecord(recordId, {
-      displayName: remote.displayName,
-      fields: remote.fields,
-      remoteUpdatedAt: remote.remoteUpdatedAt,
+      displayName: readThrough.remote.displayName,
+      fields: readThrough.remote.fields,
+      remoteRevision: readThrough.remote.remoteRevision,
+      remoteUpdatedAt: readThrough.remote.remoteUpdatedAt,
       relatedRecords,
-      accessScope: currentScope,
+      accessScope: readThrough.currentScope,
     });
     if (record) return record;
     const error = new Error("CRM record not found") as Error & {

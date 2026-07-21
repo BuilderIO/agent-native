@@ -12,6 +12,7 @@ vi.mock("@agent-native/core/workspace-connections", () => ({
 
 import {
   createHubSpotCrmAdapter,
+  hubSpotRetryDelayMs,
   HubSpotCrmAdapter,
   type HubSpotTransport,
 } from "./hubspot-adapter.js";
@@ -78,6 +79,76 @@ function adapter(
 }
 
 describe("HubSpotCrmAdapter", () => {
+  it("honors numeric and date Retry-After values within the bounded retry budget", () => {
+    expect(
+      hubSpotRetryDelayMs(
+        { status: 429, headers: { "Retry-After": "0.2" } },
+        0,
+        0,
+        0,
+      ),
+    ).toBe(200);
+    expect(
+      hubSpotRetryDelayMs(
+        {
+          status: 503,
+          headers: { "retry-after": new Date(2_000).toUTCString() },
+        },
+        0,
+        0,
+        1_000,
+      ),
+    ).toBe(1_000);
+    expect(hubSpotRetryDelayMs({ status: 429 }, 2, 1_400, 0)).toBe(100);
+  });
+
+  it("retries safe HubSpot reads after a rate limit response", async () => {
+    vi.useFakeTimers();
+    const mockTransport = transport(
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 429,
+          headers: { "retry-after": "0.1" },
+        })
+        .mockResolvedValueOnce({ status: 200, body: { results: [] } }),
+    );
+    const resultPromise = adapter(mockTransport).syncPage({
+      scope: { objectType: "deals" },
+      fieldAllowList: ["dealname"],
+      limit: 1,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      complete: true,
+      records: [],
+    });
+    expect(mockTransport.request).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("does not retry provider mutations because HubSpot PATCH is not conditionally idempotent", async () => {
+    const mockTransport = transport(() => ({ status: 503 }));
+    const crm = adapter(mockTransport);
+
+    await expect(
+      crm.applyMutation({
+        operation: "update",
+        record: {
+          connectionId: "hubspot-connection",
+          provider: "hubspot",
+          objectType: "deals",
+          kind: "opportunity",
+          remoteId: "deal-1",
+        },
+        fields: { dealname: "Changed" },
+        idempotencyKey: "mutation-no-retry",
+      }),
+    ).resolves.toMatchObject({ status: "rejected" });
+    expect(mockTransport.request).toHaveBeenCalledTimes(1);
+  });
+
   it("projects only the requested fields and preserves opaque ids, cursors, and tombstones", async () => {
     const mockTransport = transport((input) => {
       expect(input.path).toContain("/crm/v3/objects/deals?");

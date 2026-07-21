@@ -2,6 +2,7 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useSearchParams } from "react-router";
 
 import { RecordGrid } from "@/components/crm/RecordGrid";
+import { SavedViewDataProgram } from "@/components/crm/SavedViewDataProgram";
 import { PageHeader } from "@/components/crm/Surface";
 import { normalizeRecords } from "@/lib/types";
 
@@ -26,6 +27,7 @@ export default function AccountsRoute() {
             : "Connected accounts in the active CRM mirror."
         }
       />
+      <SavedViewDataProgram data={query.data} />
       <RecordGrid
         kind="account"
         records={normalizeRecords(query.data, "account")}

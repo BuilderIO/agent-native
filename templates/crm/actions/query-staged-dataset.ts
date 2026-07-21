@@ -1,4 +1,4 @@
-import { createQueryStagedDatasetAction as defineActionFactory } from "@agent-native/core/provider-api/actions/staged-datasets";
+import { createQueryStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 
 import { CRM_APP_ID } from "../server/lib/provider-api.js";
@@ -26,7 +26,7 @@ const AggregateSchema = z.object({
   as: z.string().optional(),
 });
 
-export default defineActionFactory({
+export default createQueryStagedDatasetAction({
   description:
     "Filter, project, sort, or aggregate a caller-scoped staged HubSpot dataset without re-fetching the provider. For exhaustive CRM analysis, stage every bounded page first and report the dataset's source scope, row count, pagination status, truncation, and gaps.",
   schema: z.object({

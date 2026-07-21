@@ -9,7 +9,7 @@ import {
   TableRow,
 } from "@agent-native/toolkit/ui/table";
 import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
@@ -35,6 +35,9 @@ export function RecordGrid({
   const [params, setParams] = useSearchParams();
   const [draftQuery, setDraftQuery] = useState(params.get("q") ?? "");
   const query = (params.get("q") ?? "").trim().toLowerCase();
+  useEffect(() => {
+    setDraftQuery(params.get("q") ?? "");
+  }, [params]);
   const filtered = records.filter((record) =>
     `${record.displayName} ${record.subtitle ?? ""} ${record.owner ?? ""}`
       .toLowerCase()

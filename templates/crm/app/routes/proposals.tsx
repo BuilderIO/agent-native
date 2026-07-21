@@ -16,6 +16,7 @@ import {
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconExternalLink, IconShieldCheck } from "@tabler/icons-react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -46,8 +47,12 @@ export default function ProposalsRoute() {
     { proposalId: string }
   >("apply-crm-proposals" as never);
   const proposals = normalizeProposals(query.data);
+  const [pendingProposalIds, setPendingProposalIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   async function applyProposal(proposalId: string) {
+    setPendingProposalIds((current) => new Set(current).add(proposalId));
     try {
       const result = await apply.mutateAsync({ proposalId });
       if (result.status === "applied") toast.success("CRM proposal applied.");
@@ -55,6 +60,12 @@ export default function ProposalsRoute() {
         toast.error(result.message || `Proposal finished as ${result.status}.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Proposal failed.");
+    } finally {
+      setPendingProposalIds((current) => {
+        const next = new Set(current);
+        next.delete(proposalId);
+        return next;
+      });
     }
   }
 
@@ -121,7 +132,7 @@ export default function ProposalsRoute() {
                   proposal.status === "approved" ? (
                     <ApprovalButton
                       proposal={proposal}
-                      pending={apply.isPending}
+                      pending={pendingProposalIds.has(proposal.id)}
                       onApprove={() => void applyProposal(proposal.id)}
                     />
                   ) : null}

@@ -1,4 +1,4 @@
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, exists, inArray, isNull, like } from "drizzle-orm";
 
 import type {
@@ -6,6 +6,10 @@ import type {
   CrmRelationship,
   CrmValue,
 } from "../../shared/crm-contract.js";
+import {
+  isBoundedCrmValue,
+  isSafeCrmMutationFieldName,
+} from "../crm/crm-field-firewall.js";
 import { createHubSpotCrmAdapter } from "../crm/hubspot-adapter.js";
 import {
   parseCrmAccessScope,
@@ -51,6 +55,7 @@ type SavedViewConfig = {
   id: string;
   name: string;
   kind?: CrmListKind;
+  dataProgramId?: string;
   query?: string;
   fieldEquals: Record<string, Primitive>;
   columns: string[];
@@ -161,6 +166,7 @@ function parseSavedViewConfig(input: {
   filtersJson: string;
   columnsJson: string;
   sortJson: string;
+  dataProgramId: string | null;
 }): SavedViewConfig {
   if (
     input.kind !== null &&
@@ -233,6 +239,7 @@ function parseSavedViewConfig(input: {
     id: input.id,
     name: input.name,
     ...(input.kind ? { kind: input.kind } : {}),
+    ...(input.dataProgramId ? { dataProgramId: input.dataProgramId } : {}),
     ...(query ? { query } : {}),
     fieldEquals: Object.fromEntries(fieldEquals) as Record<string, Primitive>,
     columns,
@@ -322,6 +329,7 @@ export async function listCrmRecords(
           filtersJson: schema.crmSavedViews.filtersJson,
           columnsJson: schema.crmSavedViews.columnsJson,
           sortJson: schema.crmSavedViews.sortJson,
+          dataProgramId: schema.crmSavedViews.dataProgramId,
         })
         .from(schema.crmSavedViews)
         .where(
@@ -436,6 +444,9 @@ export async function listCrmRecords(
             name: view.name,
             ...(view.kind ? { kind: view.kind } : {}),
             ...(view.query ? { query: view.query } : {}),
+            ...(view.dataProgramId
+              ? { dataProgramId: view.dataProgramId }
+              : {}),
             fieldEquals: view.fieldEquals,
             columns: view.columns,
             sort: view.sort,
@@ -526,11 +537,30 @@ export async function getCrmRecordReadContext(
   };
 }
 
-export async function persistReadThroughRelationships(input: {
+type ReadThroughRelationshipLocalRecord = {
+  id: string;
+  remoteId: string;
+  objectType: string;
+  displayName: string;
+  kind: string;
+  primaryEmail: string | null;
+  domain: string | null;
+  accessScopeJson: string;
+};
+
+type ReadThroughRelationshipData = {
+  relationships: CrmRelationship[];
+  localRecords: ReadThroughRelationshipLocalRecord[];
+  summaries: Array<
+    RelatedRecordSummary & { localId: string; remoteId: string }
+  >;
+};
+
+async function readThroughRelationshipData(input: {
   context: CrmRecordReadContext;
   relationships: CrmRelationship[];
   currentScopes: Map<string, CrmAccessScope>;
-}): Promise<RelatedRecordSummary[]> {
+}): Promise<ReadThroughRelationshipData> {
   const relationships = input.relationships
     .filter(
       (relationship) =>
@@ -540,7 +570,9 @@ export async function persistReadThroughRelationships(input: {
         relationship.to.connectionId === input.context.connectionId,
     )
     .slice(0, 100);
-  if (!relationships.length) return [];
+  if (!relationships.length) {
+    return { relationships: [], localRecords: [], summaries: [] };
+  }
 
   const db = getDb();
   const remoteIds = Array.from(
@@ -582,8 +614,29 @@ export async function persistReadThroughRelationships(input: {
     relationships,
     localRecords,
   );
+  return { relationships, localRecords, summaries };
+}
+
+export async function getReadThroughRelationshipSummaries(input: {
+  context: CrmRecordReadContext;
+  relationships: CrmRelationship[];
+  currentScopes: Map<string, CrmAccessScope>;
+}): Promise<RelatedRecordSummary[]> {
+  const { summaries } = await readThroughRelationshipData(input);
+  return summaries;
+}
+
+export async function persistReadThroughRelationships(input: {
+  context: CrmRecordReadContext;
+  relationships: CrmRelationship[];
+  currentScopes: Map<string, CrmAccessScope>;
+}): Promise<RelatedRecordSummary[]> {
+  await assertAccess("crm-record", input.context.id, "editor");
+  const { relationships, localRecords, summaries } =
+    await readThroughRelationshipData(input);
   if (!summaries.length) return [];
 
+  const db = getDb();
   const relationshipByTarget = new Map(
     relationships.map((relationship) => [
       `${relationship.to.objectType}:${relationship.to.remoteId}:${relationship.relationshipType}`,
@@ -666,6 +719,7 @@ export async function getCrmRecord(
   readThrough?: {
     displayName?: string;
     fields?: Record<string, CrmValue>;
+    remoteRevision?: string;
     remoteUpdatedAt?: string;
     relatedRecords?: RelatedRecordSummary[];
     accessScope?: CrmAccessScope;
@@ -782,7 +836,11 @@ export async function getCrmRecord(
     ...(readThrough?.remoteUpdatedAt
       ? { updatedAt: readThrough.remoteUpdatedAt }
       : {}),
-    ...(record.remoteRevision ? { remoteRevision: record.remoteRevision } : {}),
+    ...(readThrough?.remoteRevision
+      ? { remoteRevision: readThrough.remoteRevision }
+      : record.remoteRevision
+        ? { remoteRevision: record.remoteRevision }
+        : {}),
     cadence: record.desiredCadenceDays
       ? `Every ${record.desiredCadenceDays} days`
       : undefined,
@@ -896,7 +954,7 @@ export async function listCrmSavedViews(input: { limit: number }) {
   };
 }
 
-function safeProposalValues(value: string): Record<string, Primitive> {
+export function safeProposalValues(value: string): Record<string, Primitive> {
   const parsed = parseJsonObject(value);
   const fields = parsed?.fields;
   const source =
@@ -907,7 +965,10 @@ function safeProposalValues(value: string): Record<string, Primitive> {
     Object.entries(source)
       .filter(
         ([fieldName, fieldValue]) =>
-          fieldName.length <= 120 && parsePrimitive(fieldValue),
+          fieldName.length <= 120 &&
+          isSafeCrmMutationFieldName(fieldName) &&
+          isBoundedCrmValue(fieldValue) &&
+          parsePrimitive(fieldValue),
       )
       .slice(0, 20),
   ) as Record<string, Primitive>;

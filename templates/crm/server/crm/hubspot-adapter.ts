@@ -30,6 +30,9 @@ const HUBSPOT_CREDENTIAL_KEYS = [
 ] as const;
 const CORE_OBJECT_TYPES = ["companies", "contacts", "deals"] as const;
 const MAX_PAGE_SIZE = 100;
+const MAX_RETRY_ATTEMPTS = 3;
+const MAX_RETRY_DELAY_MS = 1_500;
+const MAX_SINGLE_RETRY_DELAY_MS = 1_000;
 
 type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | string;
 
@@ -38,11 +41,13 @@ export interface HubSpotTransportRequest {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
   headers?: Record<string, string>;
+  retrySafe?: boolean;
 }
 
 export interface HubSpotTransportResponse {
   status: number;
   body?: unknown;
+  headers?: Record<string, string | undefined>;
 }
 
 export interface HubSpotTransport {
@@ -477,6 +482,44 @@ function hubSpotErrorMessage(status: number): string {
   return "HubSpot request failed.";
 }
 
+function headerValue(
+  headers: Record<string, string | undefined> | undefined,
+  name: string,
+): string | undefined {
+  if (!headers) return undefined;
+  const expected = name.toLowerCase();
+  return Object.entries(headers).find(
+    ([key]) => key.toLowerCase() === expected,
+  )?.[1];
+}
+
+export function hubSpotRetryDelayMs(
+  response: HubSpotTransportResponse,
+  attempt: number,
+  elapsedMs: number,
+  now = Date.now(),
+): number {
+  const retryAfter = headerValue(response.headers, "retry-after")?.trim();
+  const numericRetryAfter = retryAfter ? Number(retryAfter) : Number.NaN;
+  const requestedDelay = Number.isFinite(numericRetryAfter)
+    ? Math.max(0, numericRetryAfter * 1_000)
+    : retryAfter
+      ? Math.max(0, Date.parse(retryAfter) - now)
+      : 100 * 2 ** attempt;
+  return Math.max(
+    0,
+    Math.min(
+      requestedDelay,
+      MAX_SINGLE_RETRY_DELAY_MS,
+      MAX_RETRY_DELAY_MS - elapsedMs,
+    ),
+  );
+}
+
+function canRetryHubSpotResponse(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
 function assertOwnedRecord(
   connection: WorkspaceConnectionForApp,
   record: CrmRecordRef,
@@ -514,7 +557,13 @@ class FetchHubSpotTransport implements HubSpotTransport {
         body = text;
       }
     }
-    return { status: response.status, body };
+    return {
+      status: response.status,
+      body,
+      headers: {
+        "retry-after": response.headers.get("retry-after") ?? undefined,
+      },
+    };
   }
 }
 
@@ -549,14 +598,35 @@ export class HubSpotCrmAdapter implements CrmAdapter {
   }
 
   private async request<T>(input: HubSpotTransportRequest): Promise<T> {
-    const response = await this.transport.request(input);
-    if (response.status < 200 || response.status >= 300) {
-      throw new HubSpotApiError(
-        response.status,
-        `HubSpot API error ${response.status}: ${hubSpotErrorMessage(response.status)}`,
-      );
+    const retrySafe =
+      input.retrySafe === true ||
+      input.method === undefined ||
+      input.method === "GET";
+    let elapsedDelayMs = 0;
+    for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+      const response = await this.transport.request(input);
+      if (response.status >= 200 && response.status < 300) {
+        return (response.body ?? {}) as T;
+      }
+      const mayRetry =
+        retrySafe &&
+        attempt + 1 < MAX_RETRY_ATTEMPTS &&
+        canRetryHubSpotResponse(response.status) &&
+        elapsedDelayMs < MAX_RETRY_DELAY_MS;
+      if (!mayRetry) {
+        throw new HubSpotApiError(
+          response.status,
+          `HubSpot API error ${response.status}: ${hubSpotErrorMessage(response.status)}`,
+        );
+      }
+      const delay = hubSpotRetryDelayMs(response, attempt, elapsedDelayMs);
+      if (delay <= 0) {
+        continue;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      elapsedDelayMs += delay;
     }
-    return (response.body ?? {}) as T;
+    throw new Error("HubSpot retry budget was exhausted.");
   }
 
   private async schema(objectType: string): Promise<HubSpotSchema | undefined> {
@@ -633,6 +703,7 @@ export class HubSpotCrmAdapter implements CrmAdapter {
     if (input.filterGroups?.length) {
       return this.request<HubSpotListResponse>({
         method: "POST",
+        retrySafe: true,
         path: `/crm/v3/objects/${objectType}/search`,
         body: {
           limit: input.limit,
@@ -712,6 +783,7 @@ export class HubSpotCrmAdapter implements CrmAdapter {
       const offset = Math.min(state.index, recordIds.length);
       page = await this.request<HubSpotListResponse>({
         method: "POST",
+        retrySafe: true,
         path: `/crm/v3/objects/${encodeURIComponent(objectType)}/batch/read`,
         body: {
           inputs: recordIds.slice(offset, offset + limit).map((id) => ({ id })),

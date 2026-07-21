@@ -1,4 +1,4 @@
-import { createProviderApiRequestAction as defineActionFactory } from "@agent-native/core/provider-api/actions/provider-api";
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -24,7 +24,7 @@ const PaginationSchema = z
   })
   .optional();
 
-export default defineActionFactory(getCrmProviderApiRuntime(), {
+export default createProviderApiRequestAction(getCrmProviderApiRuntime(), {
   description:
     "Make an exact authenticated HubSpot API request through a CRM-granted workspace connection. This is the flexible escape hatch for custom objects, fields, filters, associations, pagination, and API versions that CRM convenience actions do not model. It is host-constrained, access-scoped to the granted connection, and redacts secrets. Use stageAs for large results instead of returning raw provider payloads to chat.",
   schema: z.object({

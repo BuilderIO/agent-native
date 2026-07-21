@@ -1,6 +1,9 @@
 import type {
   CrmAccessScope,
+  CrmAdapter,
   CrmFieldStoragePolicy,
+  CrmObjectKind,
+  CrmRecord,
   CrmRelationship,
 } from "../../shared/crm-contract.js";
 
@@ -20,6 +23,26 @@ export type RelatedRecordSummary = {
   relationshipType: string;
   relationshipLabel?: string;
   subtitle?: string;
+};
+
+export type ReadThroughRecordContext = {
+  id: string;
+  objectType: string;
+  kind: CrmObjectKind;
+  remoteId: string;
+  accessScopeJson: string;
+  fieldPolicies: ReadThroughFieldPolicy[];
+};
+
+export type VerifiedReadThroughRecord = {
+  remote: CrmRecord;
+  currentScope: CrmAccessScope;
+  relationships: CrmRelationship[];
+  currentScopes: Map<string, CrmAccessScope>;
+};
+
+type ReadThroughAdapter = CrmAdapter & {
+  getAccessScope(objectType: string): CrmAccessScope;
 };
 
 export function parseCrmAccessScope(value: string): CrmAccessScope | null {
@@ -75,6 +98,57 @@ export function readThroughFieldNames(
     )
     .map((policy) => policy.fieldName)
     .slice(0, 80);
+}
+
+export async function loadVerifiedReadThroughRecord(input: {
+  adapter: ReadThroughAdapter;
+  context: ReadThroughRecordContext;
+}): Promise<VerifiedReadThroughRecord> {
+  const currentScope = input.adapter.getAccessScope(input.context.objectType);
+  const storedScope = parseCrmAccessScope(input.context.accessScopeJson);
+  if (!scopesAreCompatible(storedScope, currentScope)) {
+    throw new Error(
+      "CRM provider access changed; the local record is withheld until it is refreshed.",
+    );
+  }
+  const remote = await input.adapter.getRecord({
+    record: {
+      connectionId: input.adapter.connection.connectionId,
+      provider: input.adapter.connection.provider,
+      objectType: input.context.objectType,
+      kind: input.context.kind,
+      remoteId: input.context.remoteId,
+      localId: input.context.id,
+    },
+    fields: readThroughFieldNames(input.context.fieldPolicies),
+  });
+  if (!remote || !scopesAreCompatible(storedScope, remote.accessScope)) {
+    throw new Error(
+      "CRM provider access changed or the record is unavailable; the local record is withheld until it is refreshed.",
+    );
+  }
+  const relationshipPage = await input.adapter.listRelationships({
+    record: remote.ref,
+    limit: MAX_READ_THROUGH_RELATIONSHIPS,
+  });
+  const targetObjectTypes = Array.from(
+    new Set(
+      relationshipPage.relationships.map(
+        (relationship) => relationship.to.objectType,
+      ),
+    ),
+  ).slice(0, 20);
+  return {
+    remote,
+    currentScope,
+    relationships: relationshipPage.relationships,
+    currentScopes: new Map(
+      targetObjectTypes.map((objectType) => [
+        objectType,
+        input.adapter.getAccessScope(objectType),
+      ]),
+    ),
+  };
 }
 
 export function relatedSummaries<

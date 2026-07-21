@@ -8,6 +8,7 @@ import actionsRegistry from "../../.generated/actions-registry.js";
 
 const INITIAL_TOOL_NAMES = [
   "configure-crm-connection",
+  "list-workspace-connections",
   "get-crm-overview",
   "list-crm-records",
   "get-crm-record",

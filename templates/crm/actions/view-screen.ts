@@ -1,18 +1,16 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
-import {
-  parseCrmAccessScope,
-  scopesAreCompatible,
-} from "../server/crm/read-through.js";
+import { loadVerifiedReadThroughRecord } from "../server/crm/read-through.js";
 import {
   getCrmOverview,
   getCrmRecord,
   getCrmRecordReadContext,
+  getReadThroughRelationshipSummaries,
   listCrmProposals,
   listCrmRecords,
   listCrmSavedViews,
@@ -39,7 +37,7 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   readOnly: true,
-  run: async () => {
+  run: async (_args, ctx?: ActionRunContext) => {
     const navigation = (await readAppStateForCurrentTab("navigation")) as {
       view?: VisibleView;
       recordId?: string;
@@ -52,7 +50,7 @@ export default defineAction({
     switch (navigation?.view) {
       case "record":
         screen.record = navigation.recordId
-          ? await readVisibleRecord(navigation.recordId)
+          ? await readVisibleRecord(navigation.recordId, ctx)
           : null;
         break;
       case "account":
@@ -94,7 +92,7 @@ export default defineAction({
   },
 });
 
-async function readVisibleRecord(recordId: string) {
+async function readVisibleRecord(recordId: string, ctx?: ActionRunContext) {
   const context = await getCrmRecordReadContext(recordId);
   if (
     !context ||
@@ -105,17 +103,28 @@ async function readVisibleRecord(recordId: string) {
   }
   const adapter = await createHubSpotCrmAdapter({
     connectionId: context.workspaceConnectionId,
+    ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+    ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
   });
-  const currentScope = adapter.getAccessScope(context.objectType);
-  if (
-    !scopesAreCompatible(
-      parseCrmAccessScope(context.accessScopeJson),
-      currentScope,
-    )
-  ) {
+  let readThrough;
+  try {
+    readThrough = await loadVerifiedReadThroughRecord({ adapter, context });
+  } catch {
     return null;
   }
-  return getCrmRecord(recordId, { accessScope: currentScope });
+  const relatedRecords = await getReadThroughRelationshipSummaries({
+    context,
+    relationships: readThrough.relationships,
+    currentScopes: readThrough.currentScopes,
+  });
+  return getCrmRecord(recordId, {
+    displayName: readThrough.remote.displayName,
+    fields: readThrough.remote.fields,
+    remoteRevision: readThrough.remote.remoteRevision,
+    remoteUpdatedAt: readThrough.remote.remoteUpdatedAt,
+    relatedRecords,
+    accessScope: readThrough.currentScope,
+  });
 }
 
 async function visibleConnections() {

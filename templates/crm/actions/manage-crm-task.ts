@@ -62,7 +62,7 @@ export default defineAction({
       if (!task) throw new Error("CRM task was not found.");
       if (task.authority !== "local") {
         throw new Error(
-          "Mirrored provider tasks are read-only until provider task mutations are enabled.",
+          "This is a mirrored HubSpot task. Provider task writeback is not available in phase 1.",
         );
       }
       if (args.recordId && args.recordId !== task.recordId) {
