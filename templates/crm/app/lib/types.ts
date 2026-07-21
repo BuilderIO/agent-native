@@ -15,6 +15,7 @@ export interface CrmRecordSummary {
 
 export interface CrmRecordDetail extends CrmRecordSummary {
   description?: string;
+  remoteRevision?: string;
   activity?: Array<{
     id: string;
     title: string;

@@ -683,6 +683,7 @@ export async function getCrmRecord(
       ownerName: schema.crmRecords.ownerName,
       desiredCadenceDays: schema.crmRecords.desiredCadenceDays,
       nextContactAt: schema.crmRecords.nextContactAt,
+      remoteRevision: schema.crmRecords.remoteRevision,
       remoteUpdatedAt: schema.crmRecords.remoteUpdatedAt,
       updatedAt: schema.crmRecords.updatedAt,
       accessScopeJson: schema.crmRecords.accessScopeJson,
@@ -781,6 +782,7 @@ export async function getCrmRecord(
     ...(readThrough?.remoteUpdatedAt
       ? { updatedAt: readThrough.remoteUpdatedAt }
       : {}),
+    ...(record.remoteRevision ? { remoteRevision: record.remoteRevision } : {}),
     cadence: record.desiredCadenceDays
       ? `Every ${record.desiredCadenceDays} days`
       : undefined,

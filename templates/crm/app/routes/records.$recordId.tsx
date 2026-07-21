@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useParams } from "react-router";
 
+import { RecordActions } from "@/components/crm/RecordActions";
 import { RecordWorkspace } from "@/components/crm/RecordWorkspace";
 import { normalizeRecord, type CrmRecordDetail } from "@/lib/types";
 
@@ -14,8 +15,6 @@ export default function RecordRoute() {
     { recordId } as never,
     { enabled: Boolean(recordId) },
   );
-  // Phase-one action assumption: tasks accept a stable id and the desired status.
-  // The action contract remains the source of truth when task payloads are finalized.
   const manageTask = useActionMutation<
     unknown,
     { taskId: string; status: "done" }
@@ -30,6 +29,7 @@ export default function RecordRoute() {
       isLoading={query.isLoading}
       isCompletingTask={manageTask.isPending}
       onCompleteTask={(taskId) => manageTask.mutate({ taskId, status: "done" })}
+      actions={detail ? <RecordActions record={detail} /> : undefined}
     />
   );
 }

@@ -29,11 +29,13 @@ export function RecordWorkspace({
   isLoading,
   onCompleteTask,
   isCompletingTask,
+  actions,
 }: {
   record: CrmRecordDetail | undefined;
   isLoading: boolean;
   onCompleteTask: (taskId: string) => void;
   isCompletingTask: boolean;
+  actions?: React.ReactNode;
 }) {
   const details = useMemo(
     () =>
@@ -78,11 +80,14 @@ export function RecordWorkspace({
               </p>
             ) : null}
           </div>
-          {record.owner ? (
-            <p className="text-sm text-muted-foreground">
-              Owner · {record.owner}
-            </p>
-          ) : null}
+          <div className="grid justify-items-end gap-3">
+            {record.owner ? (
+              <p className="text-sm text-muted-foreground">
+                Owner · {record.owner}
+              </p>
+            ) : null}
+            {actions}
+          </div>
         </div>
       </header>
       <Tabs defaultValue="details" className="px-5 py-5 sm:px-7">
