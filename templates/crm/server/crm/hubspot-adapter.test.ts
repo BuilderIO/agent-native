@@ -128,20 +128,49 @@ describe("HubSpotCrmAdapter", () => {
     vi.useRealTimers();
   });
 
-  it("does not retry provider mutations because HubSpot PATCH is not conditionally idempotent", async () => {
+  it("retries a definitive PATCH rate limit response but not provider 5xx responses", async () => {
+    vi.useFakeTimers();
+    const rateLimitedTransport = transport(
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          status: 429,
+          headers: { "retry-after": "0.1" },
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          body: { id: "deal-1", updatedAt: "revision-2", properties: {} },
+        }),
+    );
+    const record = {
+      connectionId: "hubspot-connection",
+      provider: "hubspot" as const,
+      objectType: "deals",
+      kind: "opportunity" as const,
+      remoteId: "deal-1",
+    };
+    const rateLimitedResult = adapter(rateLimitedTransport).applyMutation({
+      operation: "update",
+      record,
+      fields: { dealname: "Changed" },
+      idempotencyKey: "mutation-rate-limit",
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(rateLimitedResult).resolves.toMatchObject({
+      status: "applied",
+      remoteRevision: "revision-2",
+    });
+    expect(rateLimitedTransport.request).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+
     const mockTransport = transport(() => ({ status: 503 }));
     const crm = adapter(mockTransport);
 
     await expect(
       crm.applyMutation({
         operation: "update",
-        record: {
-          connectionId: "hubspot-connection",
-          provider: "hubspot",
-          objectType: "deals",
-          kind: "opportunity",
-          remoteId: "deal-1",
-        },
+        record,
         fields: { dealname: "Changed" },
         idempotencyKey: "mutation-no-retry",
       }),

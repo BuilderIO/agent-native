@@ -598,10 +598,11 @@ export class HubSpotCrmAdapter implements CrmAdapter {
   }
 
   private async request<T>(input: HubSpotTransportRequest): Promise<T> {
-    const retrySafe =
+    const readRetrySafe =
       input.retrySafe === true ||
       input.method === undefined ||
       input.method === "GET";
+    const rateLimitRetrySafe = input.method === "PATCH";
     let elapsedDelayMs = 0;
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       const response = await this.transport.request(input);
@@ -609,9 +610,9 @@ export class HubSpotCrmAdapter implements CrmAdapter {
         return (response.body ?? {}) as T;
       }
       const mayRetry =
-        retrySafe &&
         attempt + 1 < MAX_RETRY_ATTEMPTS &&
-        canRetryHubSpotResponse(response.status) &&
+        ((readRetrySafe && canRetryHubSpotResponse(response.status)) ||
+          (rateLimitRetrySafe && response.status === 429)) &&
         elapsedDelayMs < MAX_RETRY_DELAY_MS;
       if (!mayRetry) {
         throw new HubSpotApiError(
