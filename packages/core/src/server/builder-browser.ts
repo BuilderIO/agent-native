@@ -8,6 +8,7 @@ import {
 import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
+import { applyBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   getAuthSecret,
   resolveSignupTrackingIdentity,
@@ -920,6 +921,9 @@ export function buildBuilderCliAuthUrl(
   );
   url.searchParams.set("framework", "agent-native");
   applyBuilderConnectTrackingParams(url.searchParams, tracking);
+  applyBuilderUtmTrackingParams(url.searchParams, {
+    content: cleanTrackingParam(tracking.agentNativeConnectSource) ?? null,
+  });
   return url.toString();
 }
 

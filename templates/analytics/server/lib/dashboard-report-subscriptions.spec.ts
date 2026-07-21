@@ -15,8 +15,12 @@ import {
   claimDashboardReportSubscription,
   dashboardReportRetryAt,
   lastDailyRunAt,
+  markDashboardReportResult,
+  MAX_DASHBOARD_REPORT_RECIPIENTS,
   nextDailyRunAt,
+  normalizeDashboardReportRecipients,
   queueDashboardReportSubscriptionNow,
+  truncateDashboardReportError,
 } from "./dashboard-report-subscriptions";
 import type { DashboardReportSubscription } from "./dashboard-report-subscriptions";
 
@@ -35,6 +39,62 @@ function createClaimDbMock(rows: unknown[]) {
 }
 
 describe("dashboard report subscriptions", () => {
+  describe("normalizeDashboardReportRecipients", () => {
+    it("rejects an empty recipient list after normalization", () => {
+      expect(() => normalizeDashboardReportRecipients([" ", ""])).toThrow(
+        "At least one recipient is required",
+      );
+    });
+
+    it("deduplicates before applying the recipient limit", () => {
+      expect(
+        normalizeDashboardReportRecipients([
+          "ONE@example.com",
+          "one@example.com",
+          "two@example.com",
+          "three@example.com",
+          "four@example.com",
+          "five@example.com",
+        ]),
+      ).toEqual([
+        "one@example.com",
+        "two@example.com",
+        "three@example.com",
+        "four@example.com",
+        "five@example.com",
+      ]);
+    });
+
+    it("rejects more than five distinct recipients after deduplication", () => {
+      const recipients = Array.from(
+        { length: MAX_DASHBOARD_REPORT_RECIPIENTS + 1 },
+        (_, index) => `person-${index}@example.com`,
+      );
+
+      expect(() => normalizeDashboardReportRecipients(recipients)).toThrow(
+        "Dashboard reports support at most 5 recipients",
+      );
+    });
+  });
+
+  describe("truncateDashboardReportError", () => {
+    it("preserves short errors", () => {
+      const error = "Dashboard screenshot capture failed";
+
+      expect(truncateDashboardReportError(error)).toBe(error);
+    });
+
+    it("bounds long errors while preserving their beginning and final failure", () => {
+      const error = `first capture attempt\n${"x".repeat(4_000)}\nfinal browser error: page crashed`;
+      const stored = truncateDashboardReportError(error);
+
+      expect(stored).toHaveLength(2_000);
+      expect(stored).toContain("… [truncated] …");
+      expect(stored.startsWith("first capture attempt")).toBe(true);
+      expect(stored.endsWith("final browser error: page crashed")).toBe(true);
+    });
+  });
+
   it("schedules the next daily run in UTC", () => {
     expect(
       nextDailyRunAt("09:00", "UTC", new Date("2026-01-01T08:00:00.000Z")),
@@ -211,5 +271,41 @@ describe("dashboard report subscriptions", () => {
       ownerEmail: "owner@example.com",
       orgId: "org_1",
     });
+  });
+
+  it("persists the bounded diagnostic when a report fails", async () => {
+    const { db, set } = createClaimDbMock([]);
+    getDbMock.mockReturnValue(db);
+    const error = `initial attempt\n${"x".repeat(4_000)}\nfinal screenshot failure`;
+
+    await markDashboardReportResult(
+      {
+        id: "sub_1",
+        dashboardId: "dash_1",
+        name: "Daily",
+        recipients: ["person@example.com"],
+        filters: {},
+        frequency: "daily",
+        timeOfDay: "09:00",
+        timezone: "UTC",
+        enabled: false,
+        nextRunAt: null,
+        lastRunAt: null,
+        lastStatus: "running",
+        lastError: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        ownerEmail: "owner@example.com",
+        orgId: "org_1",
+      },
+      "error",
+      error,
+    );
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lastError: expect.stringMatching(/final screenshot failure$/),
+      }),
+    );
   });
 });

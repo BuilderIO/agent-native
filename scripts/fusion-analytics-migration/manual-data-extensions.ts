@@ -379,7 +379,7 @@ export function onboardingProgressExtension(): string {
                         </div>
                         <p class="mt-1 font-mono text-[10px] text-muted-foreground" x-text="'orgId: ' + selected().orgId"></p>
                       </div>
-                      <a :href="selected().academyUrl || 'https://academy.builder.io'" target="_blank" rel="noreferrer" class="shrink-0 text-xs text-primary hover:underline">Open in Academy</a>
+                      <a :href="selected().academyUrl || 'https://academy.builder.io?utm_source=agent-native&utm_medium=internal&utm_campaign=customer_onboarding&utm_content=manual_data_extensions'" target="_blank" rel="noreferrer" class="shrink-0 text-xs text-primary hover:underline">Open in Academy</a>
                     </div>
                     <div x-show="selected().statusNote" class="mt-3 rounded-md bg-muted/40 p-3 text-sm">
                       <div class="mb-1 text-xs text-muted-foreground">Status note</div>

@@ -3,6 +3,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 
+import { callAppBundleIdsForJoinUrl } from "../lib/meeting-call-app";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -414,6 +415,7 @@ export function useMeetingTranscription({
           silenceThreshold: 0.05,
           silenceMs: 15 * 60 * 1000,
           callEndedMs: 2 * 60 * 1000,
+          callAppBundleIds: callAppBundleIdsForJoinUrl(payload.joinUrl),
           scheduledEndMs,
           watchSleep: true,
           watchCallEnded: true,

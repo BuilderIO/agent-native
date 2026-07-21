@@ -7,7 +7,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
 import { openAgentSettings } from "../CommandMenu.js";
 import {
@@ -60,6 +59,40 @@ export interface McpIntegrationDialogProps {
 interface TestResult {
   ok: boolean;
   message: string;
+}
+
+function IntegrationLogo({ name, logoUrl }: { name: string; logoUrl: string }) {
+  const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    setLoadFailed(false);
+  }, [logoUrl]);
+
+  return (
+    <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground">
+      <span aria-hidden="true" hidden={loaded}>
+        {name.slice(0, 1)}
+      </span>
+      <img
+        src={logoUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="absolute inset-1 h-6 w-6 object-contain"
+        hidden={loadFailed}
+        onLoad={() => {
+          setLoadFailed(false);
+          setLoaded(true);
+        }}
+        onError={() => {
+          setLoadFailed(true);
+          setLoaded(false);
+        }}
+      />
+    </div>
+  );
 }
 
 function parseHeaderLines(text: string): Record<string, string> | undefined {
@@ -412,7 +445,9 @@ export function McpIntegrationDialog({
             <DialogHeader className="shrink-0 px-7 pb-5 pe-14 pt-6">
               <DialogTitle>{t("mcpIntegrations.title")}</DialogTitle>
               <DialogDescription>
-                {t("mcpIntegrations.description")}
+                {t("mcpIntegrations.description", {
+                  count: defaultIntegrations.length,
+                })}
               </DialogDescription>
             </DialogHeader>
             <div className="flex shrink-0 flex-col gap-3 px-7 pb-5 sm:flex-row">
@@ -435,14 +470,6 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.addYourOwn")}
               </button>
-              <AgentAskPopover
-                label={t("mcpIntegrations.addSomething")}
-                title={t("mcpIntegrations.addSomethingTitle")}
-                placeholder={t("mcpIntegrations.addSomethingPlaceholder")}
-                prompt=""
-                context="The user wants to add an MCP or provider integration that is not in the current directory. Research the provider's official remote MCP endpoint and OAuth, client-registration, or allowlist requirements. Prefer Streamable HTTP endpoints over legacy SSE, reuse an existing provider OAuth connector when appropriate, and never ask the user to paste credentials into a prompt. If this should become a reusable preset, update the integration catalog, official docs link, bundled logo, localization, and tests."
-                className="h-9 whitespace-nowrap border-dashed px-3 text-[12px] font-medium"
-              />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-7">
               {error && (
@@ -467,27 +494,16 @@ export function McpIntegrationDialog({
                       className="flex min-h-[128px] flex-col rounded-md border border-border bg-card p-4 transition-colors hover:border-border/80 hover:bg-accent/20"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground">
-                          <span aria-hidden="true">
-                            {integration.name.slice(0, 1)}
-                          </span>
-                          <img
-                            src={integration.logoUrl}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            className="absolute inset-1 h-6 w-6 object-contain"
-                            onError={(event) => {
-                              event.currentTarget.hidden = true;
-                            }}
-                          />
-                        </div>
+                        <IntegrationLogo
+                          name={integration.name}
+                          logoUrl={integration.logoUrl}
+                        />
                         <div className="min-w-0">
                           <h3 className="truncate text-[13px] font-semibold text-foreground">
                             {integration.name}
                           </h3>
                           {integration.availability !== "ready" && (
-                            <span className="mt-0.5 inline-flex rounded-full border border-amber-500/20 bg-amber-500/5 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-300">
+                            <span className="mt-0.5 inline-flex rounded-full border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
                               {integration.availability === "beta"
                                 ? t("mcpIntegrations.status.beta")
                                 : integration.availability ===
@@ -508,11 +524,6 @@ export function McpIntegrationDialog({
                       <p className="mt-1 line-clamp-2 flex-1 text-[12px] leading-relaxed text-muted-foreground">
                         {t(integration.descriptionKey)}
                       </p>
-                      {integration.setupNoteKey && (
-                        <p className="mt-2 line-clamp-3 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
-                          {t(integration.setupNoteKey)}
-                        </p>
-                      )}
                       <div className="mt-3 flex items-center gap-2">
                         {connected ? (
                           <button
@@ -637,7 +648,7 @@ export function McpIntegrationDialog({
               <div className="space-y-3">
                 {renderScopeSelector()}
                 {selected?.setupNoteKey && (
-                  <div className="rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                  <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                     {t(selected.setupNoteKey)}
                   </div>
                 )}

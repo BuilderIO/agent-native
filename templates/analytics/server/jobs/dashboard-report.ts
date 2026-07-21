@@ -51,7 +51,6 @@ export async function runDashboardReportsOnce(): Promise<{
           () =>
             sendDashboardReportSubscription(sub, {
               skipEmailWithoutScreenshot: retryAt !== null,
-              allowLimitedFallback: retryAt === null,
             }),
         );
         if (!result.screenshotAttached) {
@@ -79,13 +78,7 @@ export async function runDashboardReportsOnce(): Promise<{
           await markDashboardReportResult(sub, "error", message);
           continue;
         }
-        if (result.screenshotMode !== "full" && result.screenshotError) {
-          const detail = `sent with ${result.screenshotMode} screenshot; earlier attempts failed: ${result.screenshotError}`;
-          console.warn(`[dashboard-report] Subscription ${sub.id} ${detail}`);
-          await markDashboardReportResult(sub, "success", detail);
-        } else {
-          await markDashboardReportResult(sub, "success");
-        }
+        await markDashboardReportResult(sub, "success");
       } catch (err: any) {
         failed++;
         const message = err?.message ?? String(err);

@@ -725,9 +725,6 @@ const messages = {
     chatIntegrations: "Chat Integrations",
     chatIntegrationsDescription: "Talk to this agent from other platforms",
     addIntegration: "Add integration",
-    addSomething: "Add something not listed",
-    addSomethingTitle: "Add another integration",
-    addSomethingPlaceholder: "Which integration should we add?",
     dispatchEntrypoint:
       "For a central Slack or Telegram entrypoint that can route work across multiple apps, use the",
     sharedMessaging:
@@ -737,12 +734,9 @@ const messages = {
     menuLabel: "Integrations",
     menuDescription: "Connect MCP tools to the agent",
     title: "Connect integrations",
-    description: "Choose a default MCP integration or add a custom server.",
+    description: "Browse {{count}} MCP integrations or add a custom server.",
     searchPlaceholder: "Search integrations",
     addYourOwn: "Add your own",
-    addSomething: "Add something not listed",
-    addSomethingTitle: "Add another integration",
-    addSomethingPlaceholder: "Which MCP or provider should we add?",
     noMatches: "No integrations match that search.",
     connected: "Connected",
     configure: "Configure",

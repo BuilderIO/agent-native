@@ -150,6 +150,7 @@
     "./embedding/react": "./dist/embedding/react.js",
     "./onboarding": "./dist/onboarding/index.js",
     "./shared": "./dist/shared/index.js",
+    "./shared/builder-link-tracking": "./dist/shared/builder-link-tracking.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
     "./guards": {

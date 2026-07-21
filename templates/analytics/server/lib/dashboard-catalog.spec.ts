@@ -13,7 +13,12 @@ import { loadDashboardSeed } from "./dashboard-seeds";
 import { validateFirstPartyDashboardTimeScope } from "./dashboard-time-scope";
 import { parseDemoDescriptor } from "./demo-source";
 import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
-import { buildPanel } from "./first-party-metric-catalog";
+import {
+  buildPanel,
+  LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+  LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+  repairFirstPartyRecurringUserPanels,
+} from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
 
 function interpolate(input: string, values: Record<string, string>): string {
@@ -21,6 +26,14 @@ function interpolate(input: string, values: Record<string, string>): string {
     /{{\s*([A-Za-z0-9_]+)\s*}}/g,
     (_match, key: string) => values[key] ?? "",
   );
+}
+
+function requiredFirstPartyPanel(
+  id: string,
+): NonNullable<ReturnType<typeof buildPanel>> {
+  const panel = buildPanel(id);
+  if (!panel) throw new Error(`Expected first-party metric "${id}" to exist`);
+  return panel;
 }
 
 function collectCssVariables(value: unknown, variables = new Set<string>()) {
@@ -161,9 +174,17 @@ describe("dashboard catalog", () => {
       "recurring-users-by-template",
       "recurring-users-by-template-bar",
     ]) {
-      expect(config.panels.find((panel) => panel.id === id)).toEqual(
-        buildPanel(id),
+      const panel = config.panels.find((candidate) => candidate.id === id);
+      expect(panel).toEqual(buildPanel(id));
+      const sql = panel?.sql ?? "";
+      const allUsersEnd = sql.indexOf("), first_seen");
+      const lookback = sql.indexOf(
+        "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')",
       );
+      expect(lookback).toBeGreaterThan(sql.indexOf("WITH all_users AS"));
+      expect(lookback).toBeLessThan(allUsersEnd);
+      expect(panel?.config?.description).toContain("previous 365 days");
+      expect(panel?.config?.description).not.toContain("all-time first");
     }
     const recurringDaily = config.panels[recurringIndex];
     const recurringWeekly = config.panels[recurringIndex + 1];
@@ -190,6 +211,80 @@ describe("dashboard catalog", () => {
       expect(panel.source).toBe("first-party");
       expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
     }
+  });
+
+  it("repairs only exact legacy recurring panels and preserves custom panel intent", () => {
+    const legacyDaily = requiredFirstPartyPanel("recurring-users-by-template");
+    const legacyWeekly = requiredFirstPartyPanel(
+      "recurring-users-by-template-bar",
+    );
+    const legacyConfig = {
+      name: "Legacy dashboard",
+      panels: [
+        {
+          ...legacyDaily,
+          sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+          config: {
+            ...(legacyDaily.config ?? {}),
+            description:
+              "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.",
+          },
+        },
+        {
+          ...legacyWeekly,
+          sql: LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+          config: {
+            ...(legacyWeekly.config ?? {}),
+            description: "Custom weekly note",
+          },
+        },
+        {
+          id: "recurring-users-by-template-copy",
+          sql: "SELECT * FROM custom_analytics_events",
+          config: { description: "Custom copy" },
+        },
+      ],
+    };
+
+    const repaired = repairFirstPartyRecurringUserPanels(legacyConfig);
+
+    expect(repaired.changed).toBe(true);
+    if (!repaired.config) throw new Error("Expected repaired dashboard config");
+    const panels = repaired.config.panels as Array<{
+      id: string;
+      sql: string;
+      config?: { description?: string };
+    }>;
+    expect(panels[0]!).toMatchObject({
+      sql: requiredFirstPartyPanel("recurring-users-by-template").sql,
+      config: {
+        description: requiredFirstPartyPanel("recurring-users-by-template")
+          .config?.description,
+      },
+    });
+    expect(panels[1]!).toMatchObject({
+      sql: requiredFirstPartyPanel("recurring-users-by-template-bar").sql,
+      config: { description: "Custom weekly note" },
+    });
+    expect(panels[2]!).toEqual(legacyConfig.panels[2]);
+
+    const customSql = repairFirstPartyRecurringUserPanels({
+      panels: [
+        {
+          id: "recurring-users-by-template",
+          sql: "SELECT custom_recurring_users()",
+          config: { description: "Custom SQL" },
+        },
+      ],
+    });
+    expect(customSql.changed).toBe(false);
+    expect(customSql.config.panels).toEqual([
+      {
+        id: "recurring-users-by-template",
+        sql: "SELECT custom_recurring_users()",
+        config: { description: "Custom SQL" },
+      },
+    ]);
   });
 
   it("scopes session panels to the first-party dashboard filters", () => {

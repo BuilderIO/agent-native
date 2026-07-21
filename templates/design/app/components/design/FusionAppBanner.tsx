@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconApps,
@@ -315,7 +316,14 @@ export function FusionAppBanner({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild className="cursor-pointer">
-                <a href={editorUrl} target="_blank" rel="noreferrer">
+                <a
+                  href={withBuilderUtmTrackingParams(editorUrl, {
+                    campaign: "product",
+                    content: "fusion_editor",
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   <IconExternalLink className="me-2 size-3.5" />
                   {
                     "Open in Builder" /* i18n-ignore fusion app banner, flag-gated feature */

@@ -46,6 +46,7 @@ import {
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
@@ -30363,7 +30364,10 @@ function DesignEditor() {
                 )}
                 {migrationResult.url && (
                   <a
-                    href={migrationResult.url}
+                    href={withBuilderUtmTrackingParams(migrationResult.url, {
+                      campaign: "product",
+                      content: "design_migration",
+                    })}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-sm text-[var(--design-editor-accent-color)] hover:underline"

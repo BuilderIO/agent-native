@@ -189,7 +189,8 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("supabase"),
-    docsUrl: "https://www.builder.io/c/docs/fusion-connect-to-supabase",
+    docsUrl:
+      "https://www.builder.io/c/docs/fusion-connect-to-supabase?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=fusion_connect_supabase",
     keywords: ["database", "auth", "postgres", "storage"],
   },
   {
@@ -206,7 +207,8 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     availability: "ready",
     verification: "preflight-only",
     logoUrl: mcpIntegrationLogo("neon"),
-    docsUrl: "https://www.builder.io/c/docs/fusion-connect-to-neon",
+    docsUrl:
+      "https://www.builder.io/c/docs/fusion-connect-to-neon?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=fusion_connect_neon",
     keywords: ["database", "postgres", "serverless", "backend"],
   },
   {
