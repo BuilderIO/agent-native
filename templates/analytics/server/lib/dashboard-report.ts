@@ -15,6 +15,10 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
 
+import {
+  countReportablePanels,
+  REPORT_PANEL_CHUNK_SIZE,
+} from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardFilter,
   FilterType,
@@ -47,7 +51,6 @@ const DEFAULT_SERVERLESS_CHROMIUM_PACK_URL =
 const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
 const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
-const DASHBOARD_REPORT_PANELS_PER_CHUNK = 8;
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
@@ -124,10 +127,6 @@ function dashboardConfigFromRecord(raw: Record<string, unknown>) {
     columns: typeof raw.columns === "number" ? raw.columns : undefined,
     panels: Array.isArray(raw.panels) ? (raw.panels as any[]) : [],
   } satisfies SqlDashboardConfig;
-}
-
-function countReportablePanels(config: SqlDashboardConfig): number {
-  return config.panels.filter((panel) => panel.chartType !== "section").length;
 }
 
 function dashboardBaseUrl(): string {
@@ -211,7 +210,7 @@ async function collectReportSnapshot(
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),
-    panelCount: countReportablePanels(config),
+    panelCount: countReportablePanels(config.panels),
   };
 }
 
@@ -569,8 +568,8 @@ async function collectPageDiagnostics(
 function reportChunkOffsets(panelCount: number): number[] {
   if (panelCount === 0) return [0];
   return Array.from(
-    { length: Math.ceil(panelCount / DASHBOARD_REPORT_PANELS_PER_CHUNK) },
-    (_, index) => index * DASHBOARD_REPORT_PANELS_PER_CHUNK,
+    { length: Math.ceil(panelCount / REPORT_PANEL_CHUNK_SIZE) },
+    (_, index) => index * REPORT_PANEL_CHUNK_SIZE,
   );
 }
 
@@ -588,7 +587,7 @@ function screenshotUrlForChunk(
   targetUrl.searchParams.set("reportPanelOffset", String(offset));
   targetUrl.searchParams.set(
     "reportPanelLimit",
-    String(DASHBOARD_REPORT_PANELS_PER_CHUNK),
+    String(REPORT_PANEL_CHUNK_SIZE),
   );
   const signedTargetPath = `${targetUrl.pathname}${targetUrl.search}`;
   const token = signEmbedSessionToken({
@@ -800,11 +799,6 @@ function errorMessage(err: unknown): string {
   );
 }
 
-function storedAttemptError(message: string): string {
-  const normalized = message.replace(/\s+/g, " ").trim();
-  return normalized.length > 400 ? `${normalized.slice(0, 399)}…` : normalized;
-}
-
 async function captureDashboardPngWithFallback(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
@@ -819,7 +813,7 @@ async function captureDashboardPngWithFallback(
       mode: "full",
     };
   } catch (err) {
-    const error = storedAttemptError(errorMessage(err));
+    const error = errorMessage(err).replace(/\s+/g, " ").trim();
     console.error(
       `[dashboard-report] complete chunked screenshot failed for subscription ${sub.id}:`,
       error,
