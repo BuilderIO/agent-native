@@ -79,8 +79,17 @@ function parseArgs(argv: string[]): Options {
         console.error("--min-age-days requires a non-negative number");
         process.exit(1);
       }
-    } else if (arg === "--project") opts.onlyProject = argv[++i];
-    else if (arg === "--help" || arg === "-h") {
+    } else if (arg === "--project") {
+      opts.onlyProject = argv[++i];
+      if (!opts.onlyProject) {
+        console.error("--project requires a project id");
+        process.exit(1);
+      }
+      if (!PROJECTS.some((p) => p.projectId === opts.onlyProject)) {
+        console.error(`Unknown project id: ${opts.onlyProject}`);
+        process.exit(1);
+      }
+    } else if (arg === "--help" || arg === "-h") {
       console.log(
         "Usage: tsx scripts/cleanup-neon-preview-branches.ts [--delete] [--min-age-days N] [--project <id>]",
       );
