@@ -460,6 +460,7 @@ describe("dashboard report email", () => {
   });
 
   it("records redacted page diagnostics when a report chunk never becomes visible", async () => {
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE", "1024");
     const page = createPage({
       waitForFails: true,
       pageUrl:
@@ -476,6 +477,7 @@ describe("dashboard report email", () => {
     expect(result.screenshotError).toContain("Mock Dashboard");
     expect(result.screenshotError).toContain("__an_embed_token=[REDACTED]");
     expect(result.screenshotError).not.toContain("secret-token");
+    expect(result.screenshotError).toContain("lambdaMemoryMb=1024");
   });
 
   it("reports a renderer hang when the diagnostics probe cannot respond", async () => {
