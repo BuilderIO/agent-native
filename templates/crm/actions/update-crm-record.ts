@@ -153,7 +153,9 @@ async function updateLocalFields(input: {
       }
     }
 
-    if (Object.hasOwn(input.fields, "desiredCadenceDays")) {
+    if (
+      Object.prototype.hasOwnProperty.call(input.fields, "desiredCadenceDays")
+    ) {
       const cadence = input.fields.desiredCadenceDays;
       if (
         cadence !== null &&
@@ -162,7 +164,9 @@ async function updateLocalFields(input: {
           cadence < 1 ||
           cadence > 365)
       ) {
-        throw new Error("desiredCadenceDays must be null or an integer from 1 to 365.");
+        throw new Error(
+          "desiredCadenceDays must be null or an integer from 1 to 365.",
+        );
       }
       await tx
         .update(schema.crmRecords)
