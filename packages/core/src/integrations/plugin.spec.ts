@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { IntegrationIdentityDeclinedError } from "./identity.js";
@@ -36,6 +38,7 @@ const markTaskRetryableMock = vi.hoisted(() => vi.fn());
 const markTaskDeliveryRetryableMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const insertPendingTaskMock = vi.hoisted(() => vi.fn());
+const retryStuckPendingTasksMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -68,6 +71,7 @@ vi.mock("./config-store.js", () => ({
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
   startPendingTasksRetryJob: vi.fn(),
+  retryStuckPendingTasks: retryStuckPendingTasksMock,
 }));
 
 vi.mock("./google-docs-poller.js", () => ({
@@ -100,6 +104,7 @@ vi.mock("./pending-tasks-store.js", () => ({
   markTaskFailed: markTaskFailedMock,
   markTaskRetryable: markTaskRetryableMock,
   markTaskDeliveryRetryable: markTaskDeliveryRetryableMock,
+  recordPendingTaskDispatchAttempt: vi.fn(),
   stageTaskDeliveryPayload: stageTaskDeliveryPayloadMock,
 }));
 
@@ -144,6 +149,7 @@ async function dispatch(
   pathname: string,
   method = "GET",
   body?: unknown,
+  headers?: Record<string, string>,
 ) {
   const url = `https://app.test${pathname}`;
   const requestBody = body === undefined ? undefined : JSON.stringify(body);
@@ -159,6 +165,7 @@ async function dispatch(
         host: "app.test",
         "x-forwarded-proto": "https",
         ...(requestBody ? { "content-type": "application/json" } : {}),
+        ...headers,
       },
     }),
     res: {
@@ -173,6 +180,7 @@ async function dispatch(
           host: "app.test",
           "x-forwarded-proto": "https",
           ...(requestBody ? { "content-type": "application/json" } : {}),
+          ...headers,
         },
       },
       res: {
@@ -241,6 +249,7 @@ describe("integrations plugin routes", () => {
     vi.unstubAllGlobals();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
     process.env.NODE_ENV = originalNodeEnv;
     if (originalA2ASecret === undefined) {
       delete process.env.A2A_SECRET;
@@ -260,6 +269,13 @@ describe("integrations plugin routes", () => {
     resolveSecretMock.mockReset();
     resolveSecretMock.mockReturnValue(null);
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
+    retryStuckPendingTasksMock.mockResolvedValue({
+      selected: 0,
+      dispatched: 0,
+      markedFailed: 0,
+      skipped: 0,
+      dispatchFailed: 0,
+    });
     resourceGetByPathMock.mockImplementation(async () => null);
   });
 
@@ -474,6 +490,68 @@ describe("integrations plugin routes", () => {
     expect(result.body).toEqual({
       error:
         "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
+    });
+  });
+
+  it("rejects unsigned durable recovery sweeps", async () => {
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/retry-stuck-tasks",
+      "POST",
+      { taskId: "integration-pending-tasks-sweep" },
+    );
+
+    expect(result.status).toBe(401);
+    expect(retryStuckPendingTasksMock).not.toHaveBeenCalled();
+  });
+
+  it("runs a bounded durable-only sweep with a valid internal token", async () => {
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const subject = "integration-pending-tasks-sweep";
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${subject}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/retry-stuck-tasks",
+      "POST",
+      { taskId: subject },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(200);
+    expect(retryStuckPendingTasksMock).toHaveBeenCalledWith({
+      webhookBaseUrl: "https://app.test",
+      limit: 20,
+      durableOnly: true,
+    });
+  });
+
+  it("records the durable lease as part of the background worker claim", async () => {
+    process.env.NODE_ENV = "development";
+    claimPendingTaskMock.mockResolvedValueOnce(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "background-task", __agentNativeProcessor: "integration" },
+    );
+
+    expect(claimPendingTaskMock).toHaveBeenCalledWith("background-task", {
+      dispatchOutcome: "background-acknowledged",
     });
   });
 

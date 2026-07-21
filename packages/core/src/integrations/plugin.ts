@@ -9,6 +9,10 @@ import {
 import { getRequestHeader } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import {
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+} from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
@@ -66,17 +70,21 @@ import {
   upsertIntegrationInstallation,
 } from "./installations-store.js";
 import {
+  dispatchPendingIntegrationTask,
+  INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
+  isIntegrationDurableDispatchConfigured,
+} from "./integration-durable-dispatch.js";
+import {
   forgetIntegrationMemory,
   integrationMemoryActions,
   listIntegrationMemory,
   rememberForIntegrationScope,
 } from "./integration-memory.js";
+import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
 import {
-  extractBearerToken,
-  signInternalToken,
-  verifyInternalToken,
-} from "./internal-token.js";
-import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
+  retryStuckPendingTasks,
+  startPendingTasksRetryJob,
+} from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
   failTaskDeliveryTransition,
@@ -731,32 +739,16 @@ export function createIntegrationsPlugin(
         throw err;
       }
 
-      // The SQL row is the durable source of truth. This best-effort self-call
-      // only reduces latency; the recurring pending-task sweep retries a row
-      // if the serverless host freezes this webhook execution immediately.
-      let token: string | undefined;
-      try {
-        token = signInternalToken(taskId);
-      } catch (err) {
-        if (process.env.NODE_ENV === "production") throw err;
-      }
-      void fetch(`${getBaseUrl(event)}${P}/process-task`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      await dispatchPendingIntegrationTask({
+        taskId,
+        task: {
+          platform: incoming.platform,
+          externalThreadId: noticeThreadId,
+          platformContext: incoming.platformContext,
         },
-        body: JSON.stringify({ taskId }),
-      }).catch((err) => {
-        console.warn("[integrations] System notice dispatch failed:", err);
+        event,
+        baseUrl: getBaseUrl(event),
       });
-    }
-
-    async function requireSession(event: any): Promise<boolean> {
-      const session = await getSession(event).catch(() => null);
-      if (session?.email) return true;
-      setResponseStatus(event, 401);
-      return false;
     }
 
     async function requireSessionContext(
@@ -903,9 +895,10 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        if (!(await requireSession(event))) return { error: "unauthorized" };
+        const scope = await requireSessionContext(event);
+        if (!scope) return { error: "unauthorized" };
         try {
-          return await getTaskQueueStats();
+          return await getTaskQueueStats(scope);
         } catch (err: any) {
           setResponseStatus(event, 500);
           return { error: err?.message ?? String(err) };
@@ -1595,10 +1588,53 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Durable pending-task recovery sweep ─────────────────────
+    h3.use(
+      `${P}/retry-stuck-tasks`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const body = (await readBody(event)) as {
+          taskId?: string;
+          [AGENT_BACKGROUND_PROCESSOR_FIELD]?: string;
+        };
+        if (body?.taskId !== INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT) {
+          setResponseStatus(event, 400);
+          return { error: "invalid sweep subject" };
+        }
+        if (!process.env.A2A_SECRET) {
+          setResponseStatus(event, 503);
+          return { error: "durable integration recovery is not configured" };
+        }
+        const token = extractBearerToken(
+          getRequestHeader(event, "authorization"),
+        );
+        if (
+          !token ||
+          !verifyInternalToken(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT, token)
+        ) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid or expired internal token" };
+        }
+        if (!isIntegrationDurableDispatchConfigured()) {
+          return { ok: true, disabled: true };
+        }
+        const result = await retryStuckPendingTasks({
+          webhookBaseUrl: getBaseUrl(event),
+          limit: 20,
+          durableOnly: true,
+        });
+        return { ok: true, ...result };
+      }),
+    );
+
     // ─── Process pending task (cross-platform task queue) ────────
     // POST /_agent-native/integrations/process-task
-    // Internal endpoint invoked via fire-and-forget self-webhook from the
-    // public webhook handler. Auth: HMAC bearer signed with A2A_SECRET.
+    // Internal endpoint invoked from the public webhook handler through either
+    // the portable self-dispatch path or an acknowledged background handoff.
+    // Auth: HMAC bearer signed with A2A_SECRET.
     // Each invocation runs the agent loop in a fresh function execution.
     h3.use(
       `${P}/process-task`,
@@ -1608,7 +1644,10 @@ export function createIntegrationsPlugin(
           return { error: "Method not allowed" };
         }
 
-        const body = (await readBody(event)) as { taskId?: string };
+        const body = (await readBody(event)) as {
+          taskId?: string;
+          [AGENT_BACKGROUND_PROCESSOR_FIELD]?: string;
+        };
         const taskId = body?.taskId;
         if (!taskId) {
           setResponseStatus(event, 400);
@@ -1645,7 +1684,12 @@ export function createIntegrationsPlugin(
         }
 
         // Atomic claim: only one invocation gets to process this task
-        const task = await claimPendingTask(taskId);
+        const dispatchOutcome =
+          body[AGENT_BACKGROUND_PROCESSOR_FIELD] ===
+          AGENT_BACKGROUND_PROCESSOR_INTEGRATION
+            ? "background-acknowledged"
+            : "portable-unconfirmed";
+        const task = await claimPendingTask(taskId, { dispatchOutcome });
         if (!task) {
           setResponseStatus(event, 200);
           return { ok: true, skipped: "already-claimed-or-missing" };
@@ -1784,19 +1828,14 @@ export function createIntegrationsPlugin(
             task.externalThreadId,
           );
           if (nextTaskId) {
-            const nextToken = signInternalToken(nextTaskId);
-            void fetch(`${getBaseUrl(event)}${P}/process-task`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(nextToken ? { Authorization: `Bearer ${nextToken}` } : {}),
+            await dispatchPendingIntegrationTask({
+              taskId: nextTaskId,
+              task: {
+                platform: task.platform,
+                externalThreadId: task.externalThreadId,
               },
-              body: JSON.stringify({ taskId: nextTaskId }),
-            }).catch((err) => {
-              console.error(
-                "[integrations] Failed to dispatch queued thread turn:",
-                err,
-              );
+              event,
+              baseUrl: getBaseUrl(event),
             });
           }
           await processDueA2AContinuations({
@@ -2019,17 +2058,15 @@ export function createIntegrationsPlugin(
             orgId: control.orgId,
             externalEventKey: `control:${control.id}`,
           });
-          const processUrl = `${getBaseUrl(event)}${P}/process-task`;
-          const token = signInternalToken(taskId);
-          void fetch(processUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          await dispatchPendingIntegrationTask({
+            taskId,
+            task: {
+              platform: incoming.platform,
+              externalThreadId: incoming.externalThreadId,
+              platformContext: incoming.platformContext,
             },
-            body: JSON.stringify({ taskId }),
-          }).catch((err) => {
-            console.error("[slack] Approval dispatch failed:", err);
+            event,
+            baseUrl: getBaseUrl(event),
           });
         } catch (err) {
           console.error("[slack] Interaction handling failed:", err);
@@ -2480,6 +2517,8 @@ export function createIntegrationsPlugin(
         if (parts[0] === "remote") return;
         // Already handled by the dedicated /process-task route above
         if (parts[0] === "process-task") return;
+        // Already handled by the signed durable recovery route above
+        if (parts[0] === "retry-stuck-tasks") return;
         // Already handled by the dedicated /process-a2a-continuation route above
         if (parts[0] === "process-a2a-continuation") return;
         // These are framework-owned control-plane routes, not integration

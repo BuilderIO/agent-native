@@ -33,6 +33,9 @@ async function ensureTable(): Promise<void> {
   org_id TEXT,
   status TEXT NOT NULL,
   attempts ${intType()} NOT NULL DEFAULT 0,
+  dispatch_attempts ${intType()} NOT NULL DEFAULT 0,
+  last_dispatch_at ${intType()},
+  last_dispatch_outcome TEXT,
   error_message TEXT,
   created_at ${intType()} NOT NULL,
   updated_at ${intType()} NOT NULL,
@@ -46,6 +49,21 @@ async function ensureTable(): Promise<void> {
           "integration_pending_tasks",
           "external_event_key",
           `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS external_event_key TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_pending_tasks",
+          "dispatch_attempts",
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS dispatch_attempts ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await ensureColumnExists(
+          "integration_pending_tasks",
+          "last_dispatch_at",
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS last_dispatch_at ${intType()}`,
+        );
+        await ensureColumnExists(
+          "integration_pending_tasks",
+          "last_dispatch_outcome",
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS last_dispatch_outcome TEXT`,
         );
         await ensureIndexExists(
           "idx_pending_tasks_status_created",
@@ -69,6 +87,7 @@ async function ensureTable(): Promise<void> {
       // unique index ensures a duplicate INSERT raises an error we can
       // catch as "already-enqueued".
       await ensureExternalEventKey(client);
+      await ensureDispatchColumns(client);
       await client.execute(
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_tasks_event_key ON integration_pending_tasks(platform, external_event_key)`,
       );
@@ -79,6 +98,10 @@ async function ensureTable(): Promise<void> {
     });
   }
   return _initPromise;
+}
+
+export async function ensurePendingTasksTable(): Promise<void> {
+  await ensureTable();
 }
 
 async function ensureExternalEventKey(
@@ -107,6 +130,31 @@ async function ensureExternalEventKey(
   }
 }
 
+async function ensureDispatchColumns(
+  client: ReturnType<typeof getDbExec>,
+): Promise<void> {
+  const columns = [
+    `dispatch_attempts ${intType()} NOT NULL DEFAULT 0`,
+    `last_dispatch_at ${intType()}`,
+    "last_dispatch_outcome TEXT",
+  ];
+  for (const column of columns) {
+    try {
+      await client.execute(
+        `ALTER TABLE integration_pending_tasks ADD COLUMN ${column}`,
+      );
+    } catch (err: any) {
+      if (
+        !String(err?.message ?? err)
+          .toLowerCase()
+          .includes("duplicate")
+      ) {
+        throw err;
+      }
+    }
+  }
+}
+
 /** Status values for an integration pending task. */
 export type PendingTaskStatus =
   | "pending"
@@ -123,6 +171,9 @@ export interface PendingTask {
   orgId: string | null;
   status: PendingTaskStatus;
   attempts: number;
+  dispatchAttempts: number;
+  lastDispatchAt: number | null;
+  lastDispatchOutcome: string | null;
   errorMessage: string | null;
   createdAt: number;
   updatedAt: number;
@@ -164,6 +215,12 @@ function rowToTask(row: Record<string, unknown>): PendingTask {
     orgId: (row.org_id as string | null) ?? null,
     status: row.status as PendingTaskStatus,
     attempts: Number(row.attempts ?? 0),
+    dispatchAttempts: Number(row.dispatch_attempts ?? 0),
+    lastDispatchAt:
+      row.last_dispatch_at == null
+        ? null
+        : Number(row.last_dispatch_at as number),
+    lastDispatchOutcome: (row.last_dispatch_outcome as string | null) ?? null,
     errorMessage: (row.error_message as string | null) ?? null,
     createdAt: Number(row.created_at ?? 0),
     updatedAt: Number(row.updated_at ?? 0),
@@ -238,7 +295,7 @@ export async function getPendingTask(id: string): Promise<PendingTask | null> {
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at
+    sql: `SELECT id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, error_message, created_at, updated_at, completed_at
           FROM integration_pending_tasks WHERE id = ? LIMIT 1`,
     args: [id],
   });
@@ -342,6 +399,7 @@ export async function resolveIntegrationSourceContext(
  */
 export async function claimPendingTask(
   id: string,
+  options?: { dispatchOutcome?: string },
 ): Promise<PendingTask | null> {
   await ensureTable();
   const client = getDbExec();
@@ -352,7 +410,8 @@ export async function claimPendingTask(
   const result = await client.execute({
     sql: isPostgres()
       ? `UPDATE integration_pending_tasks
-         SET status = ?, attempts = attempts + 1, updated_at = ?
+         SET status = ?, attempts = attempts + 1, updated_at = ?,
+             last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
          WHERE id = ? AND status = 'pending'
            AND NOT EXISTS (
              SELECT 1 FROM integration_pending_tasks active
@@ -374,9 +433,10 @@ export async function claimPendingTask(
                  )
                )
            )
-         RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
+         RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
-         SET status = ?, attempts = attempts + 1, updated_at = ?
+         SET status = ?, attempts = attempts + 1, updated_at = ?,
+             last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
          WHERE id = ? AND status = 'pending'
            AND NOT EXISTS (
              SELECT 1 FROM integration_pending_tasks active
@@ -398,7 +458,7 @@ export async function claimPendingTask(
                  )
                )
            )`,
-    args: ["processing", now, id],
+    args: ["processing", now, options?.dispatchOutcome ?? null, id],
   });
   const rows = result.rows ?? [];
 
@@ -416,6 +476,26 @@ export async function claimPendingTask(
   const fetched = await getPendingTask(id);
   if (!fetched || fetched.status !== "processing") return null;
   return fetched;
+}
+
+export async function recordPendingTaskDispatchAttempt(
+  id: string,
+  outcome: string,
+): Promise<void> {
+  await ensureTable();
+  await getDbExec().execute({
+    sql: `UPDATE integration_pending_tasks
+          SET dispatch_attempts = dispatch_attempts + 1,
+              last_dispatch_at = ?,
+              last_dispatch_outcome = CASE
+                WHEN status = 'processing'
+                  AND last_dispatch_outcome = 'background-acknowledged'
+                THEN last_dispatch_outcome
+                ELSE ?
+              END
+          WHERE id = ?`,
+    args: [Date.now(), outcome.slice(0, 80), id],
+  });
 }
 
 /** Next queued turn for a provider thread after its current task completes. */
