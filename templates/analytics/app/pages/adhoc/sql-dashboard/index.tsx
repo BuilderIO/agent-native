@@ -148,6 +148,10 @@ import { dashboardExtensionSlotId } from "./extension-slot";
 import { interpolate } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
+import {
+  parseReportPanelWindow,
+  windowReportPanels,
+} from "./report-panel-window";
 import { SqlChartCard } from "./SqlChartCard";
 import {
   clampDashboardColumns,
@@ -186,31 +190,6 @@ function groupDashboardTabs(tabs: string[]): {
   }
 
   return { groups, hasNestedTabs };
-}
-
-function parseReportPanelLimit(raw: string | null): number | null {
-  if (!raw) return null;
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return Math.min(50, parsed);
-}
-
-function limitReportPanels(panels: SqlPanel[], limit: number | null) {
-  if (!limit) return panels;
-  const limited: SqlPanel[] = [];
-  let chartCount = 0;
-
-  for (const panel of panels) {
-    if (panel.chartType === "section") {
-      if (chartCount < limit) limited.push(panel);
-      continue;
-    }
-    if (chartCount >= limit) continue;
-    chartCount++;
-    limited.push(panel);
-  }
-
-  return limited;
 }
 
 function DashboardDropLine({
@@ -504,8 +483,11 @@ export default function SqlDashboardPage() {
   const dashboardId = searchParams.get("id") || routeId;
   const reportScreenshot = searchParams.get("reportScreenshot") === "1";
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
-  const reportPanelLimit = reportScreenshot
-    ? parseReportPanelLimit(searchParams.get("reportPanelLimit"))
+  const reportPanelWindow = reportScreenshot
+    ? parseReportPanelWindow(
+        searchParams.get("reportPanelOffset"),
+        searchParams.get("reportPanelLimit"),
+      )
     : null;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
@@ -1221,8 +1203,8 @@ export default function SqlDashboardPage() {
     const tabPanels = activeTab
       ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
       : dashboard.panels;
-    return limitReportPanels(tabPanels, reportPanelLimit);
-  }, [dashboard, activeTab, reportPanelLimit]);
+    return windowReportPanels(tabPanels, reportPanelWindow);
+  }, [dashboard, activeTab, reportPanelWindow]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).

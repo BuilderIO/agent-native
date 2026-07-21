@@ -1,3 +1,4 @@
+import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import {
   generateTabId,
   AgentChatSurface,
@@ -30363,7 +30364,10 @@ function DesignEditor() {
                 )}
                 {migrationResult.url && (
                   <a
-                    href={migrationResult.url}
+                    href={withBuilderUtmTrackingParams(migrationResult.url, {
+                      campaign: "product",
+                      content: "design_migration",
+                    })}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-sm text-[var(--design-editor-accent-color)] hover:underline"

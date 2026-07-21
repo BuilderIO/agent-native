@@ -1,3 +1,4 @@
+import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import {
   useActionMutation,
   useActionQuery,
@@ -168,7 +169,10 @@ function MakeItRealCard({
             `Generating ${migrateResult.branchName ?? "React app"}.`}
         </p>
         <a
-          href={migrateResult.url}
+          href={withBuilderUtmTrackingParams(migrateResult.url, {
+            campaign: "product",
+            content: "design_migration",
+          })}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-semibold text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-panel-raised-bg)]"

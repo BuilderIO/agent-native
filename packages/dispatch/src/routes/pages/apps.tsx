@@ -1,3 +1,4 @@
+import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -319,7 +320,10 @@ function OtherAppCard({ app }: { app: ConnectedAppSummary }) {
   const t = useT();
   return (
     <a
-      href={app.url}
+      href={withBuilderUtmTrackingParams(app.url, {
+        campaign: "product",
+        content: "dispatch_app",
+      })}
       target="_blank"
       rel="noopener noreferrer"
       className="group flex min-h-[116px] items-start gap-3 rounded-xl border border-border/60 bg-card/40 p-4 transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

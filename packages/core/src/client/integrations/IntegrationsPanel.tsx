@@ -134,7 +134,8 @@ const PLATFORMS: PlatformInfo[] = [
       "Builder.io discovers each agent's skills via A2A",
       "Chat with one agent that can trigger actions across all your apps",
     ],
-    docsUrl: "https://www.builder.io",
+    docsUrl:
+      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
   },
 ];
 

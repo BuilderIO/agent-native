@@ -1,3 +1,5 @@
+import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
+
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
@@ -22,7 +24,14 @@ export interface WorkspaceAppSummary {
 }
 
 export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
-  if (app.status === "pending") return app.builderUrl || null;
+  if (app.status === "pending") {
+    return app.builderUrl
+      ? withBuilderUtmTrackingParams(app.builderUrl, {
+          campaign: "product",
+          content: "dispatch_branch",
+        })
+      : null;
+  }
   return app.path || app.url || null;
 }
 

@@ -1,3 +1,4 @@
+import { withBuilderUtmTrackingParams } from "@agent-native/core/client";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -100,7 +101,14 @@ export default function WorkspaceAppRoute() {
             ) : null}
             {app.builderUrl ? (
               <Button asChild>
-                <a href={app.builderUrl} target="_blank" rel="noreferrer">
+                <a
+                  href={withBuilderUtmTrackingParams(app.builderUrl, {
+                    campaign: "product",
+                    content: "dispatch_branch",
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   {t("dispatch.pages.openBuilderBranch")}
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>

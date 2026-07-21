@@ -78,6 +78,19 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+const DASHBOARD_REPORT_ERROR_MAX_LENGTH = 2_000;
+const DASHBOARD_REPORT_ERROR_OMISSION = "\n… [truncated] …\n";
+
+export function truncateDashboardReportError(error: string): string {
+  if (error.length <= DASHBOARD_REPORT_ERROR_MAX_LENGTH) return error;
+
+  const retainedLength =
+    DASHBOARD_REPORT_ERROR_MAX_LENGTH - DASHBOARD_REPORT_ERROR_OMISSION.length;
+  const prefixLength = Math.ceil(retainedLength / 2);
+  const suffixLength = Math.floor(retainedLength / 2);
+  return `${error.slice(0, prefixLength)}${DASHBOARD_REPORT_ERROR_OMISSION}${error.slice(-suffixLength)}`;
+}
+
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string") return fallback;
   try {
@@ -539,7 +552,7 @@ export async function markDashboardReportResult(
     .update(schema.dashboardReportSubscriptions)
     .set({
       lastStatus: status,
-      lastError: error ? error.slice(0, 500) : null,
+      lastError: error ? truncateDashboardReportError(error) : null,
       nextRunAt: sub.enabled
         ? (options?.nextRunAt ??
           nextDailyRunAt(sub.timeOfDay, sub.timezone, new Date()))

@@ -410,6 +410,13 @@ describe("Builder callback CSRF state", () => {
         );
         expect(params.get(BUILDER_AGENT_NATIVE_TEMPLATE_PARAM)).toBe("clips");
       }
+      expect(parsed.searchParams.get("utm_source")).toBe("agent-native");
+      expect(parsed.searchParams.get("utm_medium")).toBe("product");
+      expect(parsed.searchParams.get("utm_campaign")).toBe("onboarding");
+      expect(parsed.searchParams.get("utm_content")).toBe(
+        "connect_builder_card",
+      );
+      expect(redirectUrl.searchParams.has("utm_source")).toBe(false);
     });
 
     it("preserves APP_BASE_PATH in the surfaced connect URL", () => {

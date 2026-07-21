@@ -34,6 +34,7 @@ type ReportSnapshot = {
   dashboardUrl: string;
   reportSettingsUrl: string;
   generatedAt: string;
+  panelCount: number;
 };
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
@@ -46,26 +47,23 @@ const DEFAULT_SERVERLESS_CHROMIUM_PACK_URL =
 const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
 const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
+const DASHBOARD_REPORT_PANELS_PER_CHUNK = 8;
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
-// Keep enough room under Netlify's 300s background-function limit for the
-// bounded browser-close/profile-cleanup steps after each failed attempt and
-// for the final email send. The three attempts total 225s; cleanup can spend
-// up to 60s, leaving a small delivery buffer.
-const SERVERLESS_FULL_ATTEMPT_TIMEOUT_MS = 110_000;
-const SERVERLESS_LIGHTWEIGHT_ATTEMPT_TIMEOUT_MS = 70_000;
+// Leave room under Netlify's 300s background-function limit for browser
+// cleanup and delivery after a single complete chunked capture attempt.
+const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 240_000;
 const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 
 type DashboardScreenshotAttempt = {
-  label: "full" | "full-lightweight" | "limited";
+  label: "chunked";
   viewport: { width: number; height: number };
   captureScale?: number;
   readyTimeout?: number;
   secondReadyTimeout?: number;
   totalTimeout?: number;
-  reportPanelLimit?: number;
 };
 
 type LaunchedScreenshotBrowser = {
@@ -126,6 +124,10 @@ function dashboardConfigFromRecord(raw: Record<string, unknown>) {
     columns: typeof raw.columns === "number" ? raw.columns : undefined,
     panels: Array.isArray(raw.panels) ? (raw.panels as any[]) : [],
   } satisfies SqlDashboardConfig;
+}
+
+function countReportablePanels(config: SqlDashboardConfig): number {
+  return config.panels.filter((panel) => panel.chartType !== "section").length;
 }
 
 function dashboardBaseUrl(): string {
@@ -209,6 +211,7 @@ async function collectReportSnapshot(
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),
+    panelCount: countReportablePanels(config),
   };
 }
 
@@ -392,12 +395,6 @@ async function waitForDashboardReportReady(
         };
       })()`)
       .catch(() => null);
-    if (detail?.ready === "true") {
-      console.warn(
-        "[dashboard-report] Dashboard surface stayed partially loaded; capturing the available panels.",
-      );
-      return false;
-    }
     const message = detail
       ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify(detail)}`
       : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
@@ -569,45 +566,159 @@ async function collectPageDiagnostics(
   }
 }
 
-async function captureDashboardPng(
+function reportChunkOffsets(panelCount: number): number[] {
+  if (panelCount === 0) return [0];
+  return Array.from(
+    { length: Math.ceil(panelCount / DASHBOARD_REPORT_PANELS_PER_CHUNK) },
+    (_, index) => index * DASHBOARD_REPORT_PANELS_PER_CHUNK,
+  );
+}
+
+function screenshotUrlForChunk(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
-  attempt: DashboardScreenshotAttempt,
-): Promise<Buffer> {
+  offset: number,
+): { token: string; url: string } {
   const targetPath = buildDashboardPath(
     snapshot.dashboardId,
     snapshot.filters,
-    {
-      reportScreenshot: true,
-    },
+    { reportScreenshot: true },
   );
+  const targetUrl = new URL(targetPath, "https://agent-native.invalid/");
+  targetUrl.searchParams.set("reportPanelOffset", String(offset));
+  targetUrl.searchParams.set(
+    "reportPanelLimit",
+    String(DASHBOARD_REPORT_PANELS_PER_CHUNK),
+  );
+  const signedTargetPath = `${targetUrl.pathname}${targetUrl.search}`;
   const token = signEmbedSessionToken({
     ownerEmail: sub.ownerEmail,
     orgId: sub.orgId,
-    targetPath,
+    targetPath: signedTargetPath,
     scope: `dashboard-report-screenshot:${sub.id}`,
     ttlSeconds: 5 * 60,
   });
-  const screenshotUrl = new URL(targetPath, `${dashboardBaseUrl()}/`);
-  screenshotUrl.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
-  screenshotUrl.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
-  if (attempt.reportPanelLimit) {
-    screenshotUrl.searchParams.set(
-      "reportPanelLimit",
-      String(attempt.reportPanelLimit),
-    );
-  }
+  const url = new URL(signedTargetPath, `${dashboardBaseUrl()}/`);
+  url.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
+  url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+  return { token, url: url.toString() };
+}
 
+async function captureDashboardChunk(
+  page: any,
+  attempt: DashboardScreenshotAttempt,
+  token: string,
+  screenshotUrl: string,
+): Promise<Buffer> {
+  const timeout = screenshotTimeoutMs();
+  let captureStage = "pre-seeding the embed session";
+  const consoleErrors: string[] = [];
+  const failedRequests: string[] = [];
+  page.on("console", (msg: any) => {
+    if (
+      msg.type() !== "error" ||
+      consoleErrors.length >= DIAGNOSTICS_COLLECTOR_LIMIT
+    )
+      return;
+    consoleErrors.push(msg.text().slice(0, 160));
+  });
+  page.on("requestfailed", (req: any) => {
+    if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+    failedRequests.push(
+      `${req.method()} ${req.url().slice(0, 120)}: ${req.failure()?.errorText ?? "failed"}`,
+    );
+  });
+  page.on("response", (res: any) => {
+    if (
+      res.status() < 400 ||
+      failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT
+    )
+      return;
+    failedRequests.push(
+      `${res.request().method()} ${res.url().slice(0, 120)}: HTTP ${res.status()}`,
+    );
+  });
+  try {
+    try {
+      await page
+        .context()
+        .addCookies([
+          {
+            name: EMBED_SESSION_COOKIE,
+            value: token,
+            url: `${dashboardBaseUrl()}/`,
+          },
+        ]);
+    } catch (err) {
+      console.warn(
+        "[dashboard-report] Failed to pre-seed embed session cookie:",
+        errorMessage(err),
+      );
+    }
+    page.setDefaultTimeout(timeout);
+    await page.emulateMedia({ media: "screen", colorScheme: "light" });
+    await page.addInitScript(() =>
+      window.localStorage.setItem("theme", "light"),
+    );
+    captureStage = "navigating to the report chunk";
+    await page.goto(screenshotUrl, { waitUntil: "domcontentloaded", timeout });
+    const capture = page.locator("[data-dashboard-report-capture]");
+    captureStage = "waiting for the report chunk surface";
+    try {
+      await capture.waitFor({ state: "visible", timeout });
+    } catch (err) {
+      const diagnostics = errorMessage(
+        await collectPageDiagnostics(page, consoleErrors, failedRequests),
+      );
+      throw new Error(`${errorMessage(err)}; ${diagnostics}`);
+    }
+    captureStage = "waiting for report chunk queries";
+    await waitForDashboardReportReady(page, attempt.readyTimeout ?? timeout);
+    captureStage = "rendering lazy report chunk panels";
+    await scrollDashboardForLazyRendering(page);
+    captureStage = "waiting for lazy report chunk panels";
+    await waitForDashboardReportReady(
+      page,
+      attempt.secondReadyTimeout ?? secondReadyTimeoutMs(),
+    );
+    captureStage = "sizing the report chunk";
+    await fitViewportWidthToDashboardCapture(page, capture, attempt.viewport);
+    await scaleDashboardCapture(page, attempt.captureScale);
+    await capture.scrollIntoViewIfNeeded();
+    captureStage = "rasterizing the report chunk PNG";
+    const image = await capture.screenshot({
+      type: "png",
+      animations: "disabled",
+    });
+    if (!image?.length) throw new Error("Dashboard screenshot was empty");
+    return Buffer.from(image);
+  } catch (err) {
+    throw new Error(`${captureStage}: ${errorMessage(err)}`);
+  }
+}
+
+async function captureDashboardPngChunks(
+  sub: DashboardReportSubscription,
+  snapshot: ReportSnapshot,
+): Promise<Buffer[]> {
+  const serverless = isServerlessBrowserRuntime();
+  const attempt: DashboardScreenshotAttempt = {
+    label: "chunked",
+    viewport: { width: 1200, height: 1400 },
+    captureScale: 0.7,
+    ...(serverless
+      ? {
+          readyTimeout: 35_000,
+          secondReadyTimeout: 15_000,
+          totalTimeout: SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
+        }
+      : {}),
+  };
   let browser: any;
   let cleanup = async () => {};
-  let newPage = async (): Promise<any> => {
-    throw new Error("Screenshot browser did not provide a page factory");
-  };
   let launchPromise: Promise<LaunchedScreenshotBrowser> | undefined;
   let launchTimeout: ReturnType<typeof setTimeout> | undefined;
-  let captureStage = "launching the screenshot browser";
   let attemptTimedOut = false;
-  let lastDiagnostics: string | null = null;
   const attemptTimeout = attempt.totalTimeout
     ? setTimeout(() => {
         attemptTimedOut = true;
@@ -620,122 +731,42 @@ async function captureDashboardPng(
       ? await Promise.race([
           launchPromise,
           new Promise<never>((_, reject) => {
-            launchTimeout = setTimeout(() => {
-              attemptTimedOut = true;
-              reject(
-                new Error(
-                  `${attempt.label} browser launch exceeded ${attempt.totalTimeout}ms`,
+            launchTimeout = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    `${attempt.label} browser launch exceeded ${attempt.totalTimeout}ms`,
+                  ),
                 ),
-              );
-            }, attempt.totalTimeout);
+              attempt.totalTimeout,
+            );
           }),
         ])
       : await launchPromise;
     browser = launched.browser;
     cleanup = launched.cleanup;
-    newPage = launched.newPage;
-    if (attemptTimedOut) {
-      throw new Error("Screenshot browser launch exceeded attempt timeout");
+    const images: Buffer[] = [];
+    for (const offset of reportChunkOffsets(snapshot.panelCount)) {
+      if (attemptTimedOut)
+        throw new Error(`capture exceeded ${attempt.totalTimeout}ms`);
+      const page = await launched.newPage();
+      try {
+        const { token, url } = screenshotUrlForChunk(sub, snapshot, offset);
+        images.push(await captureDashboardChunk(page, attempt, token, url));
+      } finally {
+        await runBoundedBrowserCleanup("Failed to close screenshot page", () =>
+          page.close(),
+        );
+      }
     }
-
-    const timeout = screenshotTimeoutMs();
-    const page = await newPage();
-
-    // Belt-and-braces auth: the query token authenticates only after the
-    // client-side bootstrap harvests it from the URL, which gives the
-    // stripped-down serverless browser several ways to end up session-less.
-    // Seeding the same signed token as a cookie authenticates every request
-    // server-side with no client cooperation. Never abort the capture over
-    // this — the query token path still exists.
-    try {
-      await page.context().addCookies([
-        {
-          name: EMBED_SESSION_COOKIE,
-          value: token,
-          url: `${dashboardBaseUrl()}/`,
-        },
-      ]);
-    } catch (err) {
-      console.warn(
-        "[dashboard-report] Failed to pre-seed embed session cookie:",
-        errorMessage(err),
-      );
-    }
-
-    // Bounded diagnostics collectors so a failed wait carries evidence of
-    // wrong-page/wedged-renderer/auth-bounce instead of a bare timeout.
-    const consoleErrors: string[] = [];
-    page.on("console", (msg: any) => {
-      if (msg.type() !== "error") return;
-      if (consoleErrors.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
-      consoleErrors.push(msg.text().slice(0, 160));
-    });
-    const failedRequests: string[] = [];
-    page.on("requestfailed", (req: any) => {
-      if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
-      failedRequests.push(
-        `${req.method()} ${req.url().slice(0, 120)}: ${req.failure()?.errorText ?? "failed"}`,
-      );
-    });
-    page.on("response", (res: any) => {
-      if (res.status() < 400) return;
-      if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
-      failedRequests.push(
-        `${res.request().method()} ${res.url().slice(0, 120)}: HTTP ${res.status()}`,
-      );
-    });
-
-    page.setDefaultTimeout(timeout);
-    await page.emulateMedia({ media: "screen", colorScheme: "light" });
-    await page.addInitScript(() => {
-      window.localStorage.setItem("theme", "light");
-    });
-    await page.goto(screenshotUrl.toString(), {
-      waitUntil: "domcontentloaded",
-      timeout,
-    });
-
-    captureStage = "waiting for the report surface";
-    const capture = page.locator("[data-dashboard-report-capture]");
-    try {
-      await capture.waitFor({ state: "visible", timeout });
-    } catch (err) {
-      lastDiagnostics = errorMessage(
-        await collectPageDiagnostics(page, consoleErrors, failedRequests),
-      );
-      throw new Error(`${errorMessage(err)}; ${lastDiagnostics}`);
-    }
-    captureStage = "waiting for dashboard queries";
-    await waitForDashboardReportReady(page, attempt.readyTimeout ?? timeout);
-    captureStage = "rendering lazy dashboard panels";
-    await scrollDashboardForLazyRendering(page);
-    captureStage = "waiting for lazy dashboard panels";
-    await waitForDashboardReportReady(
-      page,
-      attempt.secondReadyTimeout ?? secondReadyTimeoutMs(),
-    );
-
-    captureStage = "sizing the dashboard capture";
-    await fitViewportWidthToDashboardCapture(page, capture, attempt.viewport);
-    await scaleDashboardCapture(page, attempt.captureScale);
-    await capture.scrollIntoViewIfNeeded();
-    captureStage = "rasterizing the dashboard PNG";
-    const image = await capture.screenshot({
-      type: "png",
-      animations: "disabled",
-    });
-    if (!image?.length) {
-      throw new Error("Dashboard screenshot was empty");
-    }
-    return Buffer.from(image);
+    return images;
   } catch (err) {
     if (attemptTimedOut) {
       throw new Error(
-        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms while ${captureStage}` +
-          (lastDiagnostics ? `; ${lastDiagnostics}` : ""),
+        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms: ${errorMessage(err)}`,
       );
     }
-    throw new Error(`${captureStage}: ${errorMessage(err)}`);
+    throw new Error(`${attempt.label}: ${errorMessage(err)}`);
   } finally {
     if (attemptTimeout) clearTimeout(attemptTimeout);
     if (launchTimeout) clearTimeout(launchTimeout);
@@ -751,9 +782,7 @@ async function captureDashboardPng(
             lateBrowser.cleanup,
           );
         },
-        () => {
-          // The launch rejection was already handled by the race above.
-        },
+        () => {},
       );
     }
     if (browser) {
@@ -781,83 +810,24 @@ function storedAttemptError(message: string): string {
 async function captureDashboardPngWithFallback(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
-  options?: { includeLimitedFallback?: boolean },
 ): Promise<{
-  png: Buffer | null;
-  mode: "full" | "full-lightweight" | "limited" | "none";
+  pngs: Buffer[] | null;
+  mode: "full" | "none";
   error?: string;
 }> {
-  const serverless = isServerlessBrowserRuntime();
-  const attempts: DashboardScreenshotAttempt[] = [
-    {
-      label: "full",
-      viewport: { width: 1440, height: 1800 },
-      captureScale: 0.85,
-      ...(serverless
-        ? {
-            readyTimeout: 45_000,
-            secondReadyTimeout: 25_000,
-            totalTimeout: SERVERLESS_FULL_ATTEMPT_TIMEOUT_MS,
-          }
-        : {}),
-    },
-    {
-      label: "full-lightweight",
-      viewport: { width: 1200, height: 1400 },
-      captureScale: 0.7,
-      ...(serverless
-        ? {
-            readyTimeout: 35_000,
-            secondReadyTimeout: 15_000,
-            totalTimeout: SERVERLESS_LIGHTWEIGHT_ATTEMPT_TIMEOUT_MS,
-          }
-        : {}),
-    },
-  ];
-  if (options?.includeLimitedFallback) {
-    // Only added on the final sweep after the 1-hour retry window, when the
-    // alternative is a no-image fallback email. All three serverless attempt
-    // totalTimeouts sum to 225s, leaving room for bounded cleanup and email
-    // delivery under the 300s Netlify background-function timeout.
-    attempts.push({
-      label: "limited",
-      viewport: { width: 1200, height: 1400 },
-      captureScale: 0.7,
-      reportPanelLimit: 8,
-      ...(serverless
-        ? {
-            readyTimeout: 25_000,
-            secondReadyTimeout: 10_000,
-            totalTimeout: 45_000,
-          }
-        : {}),
-    });
+  try {
+    return {
+      pngs: await captureDashboardPngChunks(sub, snapshot),
+      mode: "full",
+    };
+  } catch (err) {
+    const error = storedAttemptError(errorMessage(err));
+    console.error(
+      `[dashboard-report] complete chunked screenshot failed for subscription ${sub.id}:`,
+      error,
+    );
+    return { pngs: null, mode: "none", error };
   }
-  const errors: string[] = [];
-
-  for (const attempt of attempts) {
-    try {
-      const png = await captureDashboardPng(sub, snapshot, attempt);
-      return {
-        png,
-        mode: attempt.label,
-        ...(errors.length ? { error: errors.join(" | ") } : {}),
-      };
-    } catch (err) {
-      const attemptError = errorMessage(err);
-      errors.push(`${attempt.label}: ${storedAttemptError(attemptError)}`);
-      console.error(
-        `[dashboard-report] ${attempt.label} screenshot failed for subscription ${sub.id}:`,
-        attemptError,
-      );
-    }
-  }
-
-  return {
-    png: null,
-    mode: "none",
-    ...(errors.length ? { error: errors.join(" | ") } : {}),
-  };
 }
 
 function reportDate(snapshot: ReportSnapshot): string {
@@ -872,7 +842,7 @@ function renderReportEmailHtml(
   snapshot: ReportSnapshot,
   options: {
     screenshotAttached: boolean;
-    screenshotMode: "full" | "full-lightweight" | "limited" | "none";
+    screenshotCount: number;
   },
 ): string {
   const title = escapeHtml(snapshot.title);
@@ -880,18 +850,18 @@ function renderReportEmailHtml(
   const reportSettingsUrl = escapeHtml(snapshot.reportSettingsUrl);
   const date = escapeHtml(reportDate(snapshot));
   const screenshotBlock = options.screenshotAttached
-    ? `<a href="${dashboardUrl}" style="display:block;text-decoration:none;">
-      <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:0;outline:0;border-radius:0;" />
-    </a>`
+    ? Array.from(
+        { length: options.screenshotCount },
+        (
+          _,
+          index,
+        ) => `<a href="${dashboardUrl}" style="display:block;text-decoration:none;">
+      <img src="cid:${DASHBOARD_REPORT_CID}-${index + 1}" alt="${title}${options.screenshotCount > 1 ? ` (part ${index + 1})` : ""}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:0;outline:0;border-radius:0;" />
+    </a>`,
+      ).join("\n")
     : `<div style="margin:18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#374151;font-size:14px;line-height:1.5;">
       The dashboard image was unavailable for this run. Open the live dashboard to view the latest report.
     </div>`;
-  const limitedScreenshotNotice =
-    options.screenshotMode === "limited"
-      ? `<div style="margin:12px 0 0;padding:12px 14px;border:1px solid #f3c46b;border-radius:8px;background:#fff8e6;color:#6b4f14;font-size:13px;line-height:1.45;">
-      This is a limited fallback image and may omit some dashboard panels. <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open the full dashboard</a> to see every panel.
-    </div>`
-      : "";
 
   return `<!doctype html>
 <html>
@@ -900,7 +870,6 @@ function renderReportEmailHtml(
       Here's your report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}
     </p>
     ${screenshotBlock}
-    ${limitedScreenshotNotice}
     <p style="margin:18px 0 0;color:#525866;font-size:13px;line-height:1.45;">
       <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open dashboard</a>
       <span style="color:#9ca3af;"> · </span>
@@ -914,7 +883,6 @@ function renderReportText(
   snapshot: ReportSnapshot,
   options: {
     screenshotAttached: boolean;
-    screenshotMode: "full" | "full-lightweight" | "limited" | "none";
   },
 ): string {
   const lines = [
@@ -926,21 +894,17 @@ function renderReportText(
   if (!options.screenshotAttached) {
     lines.push("Dashboard image unavailable for this run.");
   }
-  if (options.screenshotMode === "limited") {
-    lines.push(
-      `This is a limited fallback image and may omit some dashboard panels. Open the full dashboard: ${snapshot.dashboardUrl}`,
-    );
-  }
   return lines.join("\n");
 }
 
-function reportFilename(title: string): string {
+function reportFilename(title: string, part: number, total: number): string {
   const slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 64);
-  return `${slug || "dashboard"}-report.png`;
+  const suffix = total > 1 ? `-part-${part}` : "";
+  return `${slug || "dashboard"}-report${suffix}.png`;
 }
 
 export async function sendDashboardReportSubscription(
@@ -948,28 +912,25 @@ export async function sendDashboardReportSubscription(
   options: {
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
-    allowLimitedFallback?: boolean;
   } = {},
 ): Promise<{
   dashboardUrl: string;
   recipientCount: number;
   screenshotAttached: boolean;
-  screenshotMode: "full" | "full-lightweight" | "limited" | "none";
+  screenshotMode: "full" | "none";
   screenshotError?: string;
   emailsSent: boolean;
 }> {
   const snapshot = await collectReportSnapshot(sub);
-  const capture = await captureDashboardPngWithFallback(sub, snapshot, {
-    includeLimitedFallback: options?.allowLimitedFallback,
-  });
-  if (!capture.png && options.requireScreenshot) {
+  const capture = await captureDashboardPngWithFallback(sub, snapshot);
+  if (!capture.pngs && options.requireScreenshot) {
     throw new Error(
       capture.error
         ? `Dashboard screenshot unavailable: ${capture.error}`
         : "Dashboard screenshot unavailable",
     );
   }
-  if (!capture.png && options.skipEmailWithoutScreenshot) {
+  if (!capture.pngs && options.skipEmailWithoutScreenshot) {
     return {
       dashboardUrl: snapshot.dashboardUrl,
       recipientCount: sub.recipients.length,
@@ -979,14 +940,13 @@ export async function sendDashboardReportSubscription(
       ...(capture.error ? { screenshotError: capture.error } : {}),
     };
   }
-  const screenshotAttached = Boolean(capture.png);
+  const screenshotAttached = Boolean(capture.pngs?.length);
   const html = renderReportEmailHtml(snapshot, {
     screenshotAttached,
-    screenshotMode: capture.mode,
+    screenshotCount: capture.pngs?.length ?? 0,
   });
   const text = renderReportText(snapshot, {
     screenshotAttached,
-    screenshotMode: capture.mode,
   });
   const subject = `Daily dashboard: ${snapshot.title}`;
 
@@ -996,16 +956,18 @@ export async function sendDashboardReportSubscription(
       subject,
       html,
       text,
-      attachments: capture.png
-        ? [
-            {
-              filename: reportFilename(snapshot.title),
-              content: capture.png,
-              contentType: "image/png",
-              contentId: DASHBOARD_REPORT_CID,
-              disposition: "inline",
-            },
-          ]
+      attachments: capture.pngs
+        ? capture.pngs.map((png, index) => ({
+            filename: reportFilename(
+              snapshot.title,
+              index + 1,
+              capture.pngs!.length,
+            ),
+            content: png,
+            contentType: "image/png",
+            contentId: `${DASHBOARD_REPORT_CID}-${index + 1}`,
+            disposition: "inline",
+          }))
         : undefined,
     });
   }
