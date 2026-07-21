@@ -835,6 +835,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     loadFailedBody:
       "목록을 불러오는 중 문제가 발생했습니다. 녹화는 안전하게 보관되어 있으니 다시 시도해 보세요.",
     retry: "다시 시도",
+    paginationRange: "{{total}}개 중 {{start}}–{{end}}",
+    paginationPrevious: "이전",
+    paginationNext: "다음",
+    paginationPage: "{{page}} / {{totalPages}} 페이지",
   },
   notificationsRoute: {
     pageTitle: "알림 · Clips",
@@ -1367,6 +1371,8 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
   clipsFinalRaw: {
     splitAtPlayhead: "재생 위치에서 분할 (S)",
     selectedCount: "{{count}}개 선택됨",
+    selectAll: "모두 선택",
+    deselectAll: "모두 선택 해제",
     move: "이동",
     moveSelected: "선택한 {{count}}개 이동",
     current: "현재",
