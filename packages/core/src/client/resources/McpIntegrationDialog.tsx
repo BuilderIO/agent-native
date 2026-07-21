@@ -63,8 +63,12 @@ interface TestResult {
 
 function IntegrationLogo({ name, logoUrl }: { name: string; logoUrl: string }) {
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  useEffect(() => setLoaded(false), [logoUrl]);
+  useEffect(() => {
+    setLoaded(false);
+    setLoadFailed(false);
+  }, [logoUrl]);
 
   return (
     <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-background text-[11px] font-semibold text-muted-foreground">
@@ -77,10 +81,14 @@ function IntegrationLogo({ name, logoUrl }: { name: string; logoUrl: string }) {
         loading="lazy"
         decoding="async"
         className="absolute inset-1 h-6 w-6 object-contain"
-        onLoad={() => setLoaded(true)}
-        onError={(event) => {
+        hidden={loadFailed}
+        onLoad={() => {
+          setLoadFailed(false);
+          setLoaded(true);
+        }}
+        onError={() => {
+          setLoadFailed(true);
           setLoaded(false);
-          event.currentTarget.hidden = true;
         }}
       />
     </div>
