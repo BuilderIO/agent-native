@@ -23,7 +23,7 @@ function getFeatherIcon(iconName: string): keyof typeof Feather.glyphMap {
   return ICON_MAP[iconName] ?? "box";
 }
 
-function AppIcon({
+export function AppIcon({
   iconName,
   size,
   color,

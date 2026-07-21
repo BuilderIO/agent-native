@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { View, ActivityIndicator, Linking, AppState } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, AppState, Linking, View } from "react-native";
 import type { WebView as WebViewRef } from "react-native-webview";
 
 import { WebView } from "@/components/uniwind-interop";
