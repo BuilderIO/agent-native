@@ -131,6 +131,8 @@ const initialSchema = [
   boolean_value INTEGER,
   json_value TEXT,
   provenance_json TEXT NOT NULL DEFAULT '[]',
+  access_scope_key TEXT NOT NULL,
+  access_scope_json TEXT NOT NULL DEFAULT '{}',
   remote_revision TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
