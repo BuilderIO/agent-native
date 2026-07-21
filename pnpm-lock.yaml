@@ -163,6 +163,7 @@ catalogs:
 overrides:
   react: 19.2.7
   react-dom: 19.2.7
+  '@tanstack/react-query': 5.101.2
   '@types/react': ^19.2.14
   '@types/react-dom': ^19.2.3
   rollup: '>=4.59.0'
@@ -553,7 +554,7 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.101.2
+        specifier: 5.101.2
         version: 5.101.2(react@19.2.7)
       '@types/better-sqlite3':
         specifier: ^7.6.13
@@ -884,8 +885,8 @@ importers:
         specifier: ^3.40.0
         version: 3.44.0(react@19.2.7)
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -993,8 +994,8 @@ importers:
         specifier: ^4.1.18
         version: 4.3.1(vite@8.1.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       gray-matter:
         specifier: ^4.0.3
         version: 4.0.3
@@ -1096,8 +1097,8 @@ importers:
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.17))
@@ -1859,8 +1860,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -2082,8 +2083,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -2212,8 +2213,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@25.9.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.100.10
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^25.8.0
         version: 25.9.3
@@ -2405,8 +2406,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -2625,8 +2626,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -2854,8 +2855,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -3440,8 +3441,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -3554,8 +3555,8 @@ importers:
         specifier: 'catalog:'
         version: 3.44.0(react@19.2.7)
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.17))
@@ -3781,8 +3782,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -3980,8 +3981,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/node':
         specifier: ^24.2.1
         version: 24.13.2
@@ -4218,8 +4219,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@tiptap/extension-code-block-lowlight':
         specifier: 'catalog:'
         version: 3.28.0(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/extension-code-block@3.28.0(@tiptap/core@3.28.0(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0))(@tiptap/pm@3.28.0)(highlight.js@11.11.1)(lowlight@3.3.0)
@@ -4850,8 +4851,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@testing-library/react':
         specifier: ^16.3.0
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5097,8 +5098,8 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
       '@tanstack/react-query':
-        specifier: ^5.99.2
-        version: 5.101.1(react@19.2.7)
+        specifier: 5.101.2
+        version: 5.101.2(react@19.2.7)
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
@@ -11751,16 +11752,8 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
-  '@tanstack/query-core@5.101.1':
-    resolution: {integrity: sha512-Y6Y92dkXtNqx67m2pMSxUsA3zOCwv862JexZRP8/EPwvKXMPu9m8rv43spiXWzOUIggQ3SQApttALStzhA8B4g==}
-
   '@tanstack/query-core@5.101.2':
     resolution: {integrity: sha512-hH5MLoJhF7KaIGd7q3xTXGXvslI+GYlM1Z/35aSHHWaCJWB7XvTSHYuV3eM7tw+aE0mT/xMro4M4Q9rCGHT0lw==}
-
-  '@tanstack/react-query@5.101.1':
-    resolution: {integrity: sha512-ZnONUuQKJe1bJMStXUL1s5uKN9FcfC28j5cK+iDZcdSHtUv1wtin1cGc/Oewhf2Oc4eKY7lggtpvT/AbMmhHew==}
-    peerDependencies:
-      react: 19.2.7
 
   '@tanstack/react-query@5.101.2':
     resolution: {integrity: sha512-seDkr6kzGzX1okaaTtZPtgA688CDPlXUz1C6xSg0ESqn04Vuc8tlrYms1s3de+znBqhPVxFRfpAfUf+6XvfPWg==}
@@ -26521,14 +26514,7 @@ snapshots:
       tailwindcss: 4.3.1
       vite: 8.1.0(@types/node@26.1.1)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
 
-  '@tanstack/query-core@5.101.1': {}
-
   '@tanstack/query-core@5.101.2': {}
-
-  '@tanstack/react-query@5.101.1(react@19.2.7)':
-    dependencies:
-      '@tanstack/query-core': 5.101.1
-      react: 19.2.7
 
   '@tanstack/react-query@5.101.2(react@19.2.7)':
     dependencies:
