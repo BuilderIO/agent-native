@@ -1,5 +1,11 @@
 # @agent-native/pinpoint
 
+## 0.1.15
+
+### Patch Changes
+
+- 8df32f6: Publish the latest Builder link tracking updates.
+
 ## 0.1.14
 
 ### Patch Changes
