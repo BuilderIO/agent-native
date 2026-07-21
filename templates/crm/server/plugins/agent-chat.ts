@@ -24,7 +24,9 @@ const INITIAL_TOOL_NAMES = [
   "provider-api-catalog",
   "provider-api-docs",
   "provider-api-request",
+  "list-staged-datasets",
   "query-staged-dataset",
+  "delete-staged-dataset",
 ];
 
 export default createAgentChatPlugin({

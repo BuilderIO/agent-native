@@ -26,6 +26,42 @@ const DEFAULT_FIELDS: Record<(typeof CORE_HUBSPOT_OBJECTS)[number], string[]> =
 const BINARY_OR_TRANSCRIPT_FIELD =
   /(?:attachment|audio|base64|binary|file|image|media|recording|transcript|video)/i;
 
+const CADENCE_FIELDS: CrmFieldDefinition[] = [
+  {
+    name: "desiredCadenceDays",
+    label: "Desired cadence days",
+    valueType: "number",
+    storagePolicy: "local-authoritative",
+    sensitive: false,
+    readable: true,
+    createable: false,
+    updateable: true,
+    required: false,
+  },
+  {
+    name: "lastMeaningfulInteractionAt",
+    label: "Last meaningful interaction",
+    valueType: "datetime",
+    storagePolicy: "derived-local",
+    sensitive: false,
+    readable: true,
+    createable: false,
+    updateable: false,
+    required: false,
+  },
+  {
+    name: "nextContactAt",
+    label: "Next contact",
+    valueType: "datetime",
+    storagePolicy: "derived-local",
+    sensitive: false,
+    readable: true,
+    createable: false,
+    updateable: false,
+    required: false,
+  },
+];
+
 type Ownership = {
   ownerEmail: string;
   orgId: string | null;
@@ -87,6 +123,13 @@ export function storagePolicyFor(
 ): CrmFieldStoragePolicy {
   if (field.sensitive) return "redacted";
   return mirrored.has(field.name) ? "mirrored" : "remote-only";
+}
+
+export function fieldsForPolicyDiscovery(object: CrmObjectDefinition) {
+  if (object.kind !== "account" && object.kind !== "person") {
+    return object.fields;
+  }
+  return [...object.fields, ...CADENCE_FIELDS];
 }
 
 function hasBase64Shape(value: string): boolean {
@@ -264,9 +307,13 @@ async function persistSchema(input: {
   const policyIds = new Map(
     existingPolicies.map((policy) => [policy.fieldName, policy.id]),
   );
-  for (const field of input.object.fields) {
+  for (const field of fieldsForPolicyDiscovery(input.object)) {
     const existing = byName.get(field.name);
-    const discoveredPolicy = storagePolicyFor(field, input.mirrored);
+    const discoveredPolicy =
+      field.storagePolicy === "local-authoritative" ||
+      field.storagePolicy === "derived-local"
+        ? field.storagePolicy
+        : storagePolicyFor(field, input.mirrored);
     const storagePolicy =
       existing?.storagePolicy === "local-authoritative"
         ? "local-authoritative"

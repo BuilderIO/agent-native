@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  fieldsForPolicyDiscovery,
   resolveMirrorFields,
   safeMirroredValue,
   storagePolicyFor,
@@ -88,5 +89,20 @@ describe("CRM mirror firewall", () => {
         allowCustomObject: false,
       }),
     ).toThrow("Custom HubSpot objects");
+  });
+
+  it("keeps CRM-owned cadence policy outside the remote field allow-list", () => {
+    expect(
+      fieldsForPolicyDiscovery(object).map((field) => [
+        field.name,
+        field.storagePolicy,
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        ["desiredCadenceDays", "local-authoritative"],
+        ["lastMeaningfulInteractionAt", "derived-local"],
+        ["nextContactAt", "derived-local"],
+      ]),
+    );
   });
 });
