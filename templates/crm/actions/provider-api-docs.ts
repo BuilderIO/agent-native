@@ -1,4 +1,4 @@
-import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+import { createProviderApiDocsAction as defineActionFactory } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
 import {
@@ -12,7 +12,7 @@ const BooleanFromQuerySchema = z.preprocess(
   z.boolean(),
 );
 
-export default createProviderApiDocsAction(getCrmProviderApiRuntime(), {
+export default defineActionFactory(getCrmProviderApiRuntime(), {
   description:
     "Inspect HubSpot API documentation before an exact provider-api-request when the endpoint, object schema, property, filter operator, association, or pagination contract is uncertain.",
   schema: z.object({
