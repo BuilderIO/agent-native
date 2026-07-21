@@ -8,12 +8,13 @@ import { decideCrmWritePolicy, type CrmValue } from "../shared/crm-contract.js";
 import {
   crmInitiatedBy,
   crmWriteRisk,
-  isBoundedCrmValue,
+  isSafeCrmMutationFields,
   MAX_CRM_FIELDS_PER_MUTATION,
+  scopedCrmIdempotencyKey,
   toJson,
 } from "./_crm-action-utils.js";
 
-const fieldPatchSchema = z
+export const fieldPatchSchema = z
   .record(z.string().trim().min(1).max(120), z.unknown())
   .refine(
     (fields) =>
@@ -22,10 +23,13 @@ const fieldPatchSchema = z
     `Provide between 1 and ${MAX_CRM_FIELDS_PER_MUTATION} fields.`,
   )
   .refine(
-    (fields) =>
-      Object.values(fields).every((value) => isBoundedCrmValue(value)),
-    "CRM field values must be bounded JSON values and cannot contain data URLs.",
+    isSafeCrmMutationFields,
+    "CRM fields and values cannot contain media, transcripts, data URLs, base64, or oversized JSON.",
   );
+
+type CrmTransaction = Parameters<
+  Parameters<ReturnType<typeof getDb>["transaction"]>[0]
+>[0];
 
 function fieldColumns(value: CrmValue) {
   if (typeof value === "string") {
@@ -77,113 +81,116 @@ function needsLocalApproval(args: {
   return risk !== "routine" || Object.keys(args.fields).length > 1;
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /unique constraint|duplicate key|already exists/i.test(message);
+}
+
 async function updateLocalFields(input: {
+  tx: CrmTransaction;
   record: typeof schema.crmRecords.$inferSelect;
   fields: Record<string, CrmValue>;
   policies: Array<typeof schema.crmFieldPolicies.$inferSelect>;
 }) {
-  const db = getDb();
   const now = new Date().toISOString();
   const policyByName = new Map(
     input.policies.map((policy) => [policy.fieldName, policy]),
   );
-  await db.transaction(async (tx) => {
-    for (const [fieldName, value] of Object.entries(input.fields)) {
-      const policy = policyByName.get(fieldName)!;
-      const values = {
-        ...fieldColumns(value),
-        valueType: policy.valueType,
-        storagePolicy: "local-authoritative" as const,
-        provenanceJson: toJson(
-          [
-            {
-              provider: "native",
-              connectionId: input.record.connectionId,
-              objectType: input.record.objectType,
-              remoteId: input.record.remoteId,
-              fieldName,
-              observedAt: now,
-            },
-          ],
-          2_000,
+  for (const [fieldName, value] of Object.entries(input.fields)) {
+    const policy = policyByName.get(fieldName)!;
+    const values = {
+      ...fieldColumns(value),
+      valueType: policy.valueType,
+      storagePolicy: "local-authoritative" as const,
+      provenanceJson: toJson(
+        [
+          {
+            provider: "native",
+            connectionId: input.record.connectionId,
+            objectType: input.record.objectType,
+            remoteId: input.record.remoteId,
+            fieldName,
+            observedAt: now,
+          },
+        ],
+        2_000,
+      ),
+      accessScopeKey: input.record.accessScopeKey,
+      accessScopeJson: input.record.accessScopeJson,
+      updatedAt: now,
+    };
+    const existing = await input.tx
+      .select({ id: schema.crmRecordFields.id })
+      .from(schema.crmRecordFields)
+      .where(
+        and(
+          eq(schema.crmRecordFields.recordId, input.record.id),
+          eq(schema.crmRecordFields.fieldName, fieldName),
+          accessFilter(schema.crmRecordFields, schema.crmRecordFieldShares),
         ),
-        accessScopeKey: input.record.accessScopeKey,
-        accessScopeJson: input.record.accessScopeJson,
-        updatedAt: now,
-      };
-      const existing = await tx
-        .select({ id: schema.crmRecordFields.id })
-        .from(schema.crmRecordFields)
+      )
+      .limit(1);
+    if (existing[0]) {
+      await input.tx
+        .update(schema.crmRecordFields)
+        .set(values)
         .where(
           and(
-            eq(schema.crmRecordFields.recordId, input.record.id),
-            eq(schema.crmRecordFields.fieldName, fieldName),
-            accessFilter(schema.crmRecordFields, schema.crmRecordFieldShares),
-          ),
-        )
-        .limit(1);
-      if (existing[0]) {
-        await tx
-          .update(schema.crmRecordFields)
-          .set(values)
-          .where(
-            and(
-              eq(schema.crmRecordFields.id, existing[0].id),
-              accessFilter(
-                schema.crmRecordFields,
-                schema.crmRecordFieldShares,
-                undefined,
-                "editor",
-              ),
-            ),
-          );
-      } else {
-        await tx.insert(schema.crmRecordFields).values({
-          id: crypto.randomUUID(),
-          recordId: input.record.id,
-          fieldPolicyId: policy.id,
-          fieldName,
-          remoteRevision: null,
-          ...values,
-          ownerEmail: input.record.ownerEmail,
-          orgId: input.record.orgId,
-          visibility: input.record.visibility,
-          createdAt: now,
-        });
-      }
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(input.fields, "desiredCadenceDays")
-    ) {
-      const cadence = input.fields.desiredCadenceDays;
-      if (
-        cadence !== null &&
-        (typeof cadence !== "number" ||
-          !Number.isInteger(cadence) ||
-          cadence < 1 ||
-          cadence > 365)
-      ) {
-        throw new Error(
-          "desiredCadenceDays must be null or an integer from 1 to 365.",
-        );
-      }
-      await tx
-        .update(schema.crmRecords)
-        .set({ desiredCadenceDays: cadence, updatedAt: now })
-        .where(
-          and(
-            eq(schema.crmRecords.id, input.record.id),
+            eq(schema.crmRecordFields.id, existing[0].id),
             accessFilter(
-              schema.crmRecords,
-              schema.crmRecordShares,
+              schema.crmRecordFields,
+              schema.crmRecordFieldShares,
               undefined,
               "editor",
             ),
           ),
         );
+    } else {
+      await input.tx.insert(schema.crmRecordFields).values({
+        id: crypto.randomUUID(),
+        recordId: input.record.id,
+        fieldPolicyId: policy.id,
+        fieldName,
+        remoteRevision: null,
+        ...values,
+        ownerEmail: input.record.ownerEmail,
+        orgId: input.record.orgId,
+        visibility: input.record.visibility,
+        createdAt: now,
+      });
     }
-  });
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(input.fields, "desiredCadenceDays")
+  ) {
+    const cadence = input.fields.desiredCadenceDays;
+    if (
+      cadence !== null &&
+      (typeof cadence !== "number" ||
+        !Number.isInteger(cadence) ||
+        cadence < 1 ||
+        cadence > 365)
+    ) {
+      throw new Error(
+        "desiredCadenceDays must be null or an integer from 1 to 365.",
+      );
+    }
+    await input.tx
+      .update(schema.crmRecords)
+      .set({ desiredCadenceDays: cadence, updatedAt: now })
+      .where(
+        and(
+          eq(schema.crmRecords.id, input.record.id),
+          accessFilter(
+            schema.crmRecords,
+            schema.crmRecordShares,
+            undefined,
+            "editor",
+          ),
+        ),
+      );
+  }
 }
 
 export default defineAction({
@@ -297,36 +304,89 @@ export default defineAction({
         "This CRM update is not authorized by the current write policy.",
       );
 
-    const now = new Date().toISOString();
-    const mutationId = crypto.randomUUID();
-    const idempotencyKey = args.idempotencyKey ?? crypto.randomUUID();
     const ownership = {
       ownerEmail: record.ownerEmail,
       orgId: record.orgId,
       visibility: record.visibility,
     };
-    if (args.target === "local") {
-      await updateLocalFields({ record, fields, policies });
-      await db.insert(schema.crmMutations).values({
-        id: mutationId,
+    const patchJson = toJson({ fields }, 12_000);
+    const expectedRemoteRevision = args.expectedRemoteRevision ?? null;
+    const idempotencyKey = await scopedCrmIdempotencyKey({
+      ...ownership,
+      recordId: record.id,
+      key: args.idempotencyKey ?? crypto.randomUUID(),
+    });
+    const findExisting = async () => {
+      const [existing] = await db
+        .select()
+        .from(schema.crmMutations)
+        .where(
+          and(
+            eq(schema.crmMutations.idempotencyKey, idempotencyKey),
+            accessFilter(schema.crmMutations, schema.crmMutationShares),
+          ),
+        )
+        .limit(1);
+      return existing;
+    };
+    const replay = (existing: typeof schema.crmMutations.$inferSelect) => {
+      if (
+        existing.recordId !== record.id ||
+        existing.target !== args.target ||
+        existing.patchJson !== patchJson ||
+        existing.expectedRemoteRevision !== expectedRemoteRevision
+      ) {
+        throw new Error(
+          "CRM idempotency key was already used for a different mutation.",
+        );
+      }
+      return {
+        mutationId: existing.id,
         recordId: record.id,
-        connectionId: record.connectionId,
-        operation: "update",
-        initiatedBy,
-        target: "local",
-        policyDecision: decision,
-        risk,
-        status: "applied",
-        patchJson: toJson({ fields }, 12_000),
-        beforeJson: "{}",
-        afterJson: toJson({ fields }, 12_000),
-        idempotencyKey,
-        expectedRemoteRevision: args.expectedRemoteRevision ?? null,
-        appliedAt: now,
-        ...ownership,
-        createdAt: now,
-        updatedAt: now,
-      });
+        status: existing.status,
+        decision: existing.policyDecision,
+        replayed: true as const,
+        ownerEmail: record.ownerEmail,
+        orgId: record.orgId,
+        visibility: record.visibility,
+      };
+    };
+    const existing = await findExisting();
+    if (existing) return replay(existing);
+
+    const now = new Date().toISOString();
+    const mutationId = crypto.randomUUID();
+    if (args.target === "local") {
+      try {
+        await db.transaction(async (tx) => {
+          await updateLocalFields({ tx, record, fields, policies });
+          await tx.insert(schema.crmMutations).values({
+            id: mutationId,
+            recordId: record.id,
+            connectionId: record.connectionId,
+            operation: "update",
+            initiatedBy,
+            target: "local",
+            policyDecision: decision,
+            risk,
+            status: "applied",
+            patchJson,
+            beforeJson: "{}",
+            afterJson: patchJson,
+            idempotencyKey,
+            expectedRemoteRevision,
+            appliedAt: now,
+            ...ownership,
+            createdAt: now,
+            updatedAt: now,
+          });
+        });
+      } catch (error) {
+        if (!isUniqueConstraintError(error)) throw error;
+        const raced = await findExisting();
+        if (raced) return replay(raced);
+        throw error;
+      }
       return {
         mutationId,
         recordId: record.id,
@@ -337,25 +397,32 @@ export default defineAction({
       };
     }
 
-    await db.insert(schema.crmMutations).values({
-      id: mutationId,
-      recordId: record.id,
-      connectionId: record.connectionId,
-      operation: "update",
-      initiatedBy,
-      target: "provider",
-      policyDecision: decision,
-      risk,
-      status: "pending",
-      patchJson: toJson({ fields }, 12_000),
-      beforeJson: toJson({ remoteRevision: record.remoteRevision }, 1_000),
-      afterJson: "{}",
-      idempotencyKey,
-      expectedRemoteRevision: args.expectedRemoteRevision ?? null,
-      ...ownership,
-      createdAt: now,
-      updatedAt: now,
-    });
+    try {
+      await db.insert(schema.crmMutations).values({
+        id: mutationId,
+        recordId: record.id,
+        connectionId: record.connectionId,
+        operation: "update",
+        initiatedBy,
+        target: "provider",
+        policyDecision: decision,
+        risk,
+        status: "pending",
+        patchJson,
+        beforeJson: toJson({ remoteRevision: record.remoteRevision }, 1_000),
+        afterJson: "{}",
+        idempotencyKey,
+        expectedRemoteRevision,
+        ...ownership,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      const raced = await findExisting();
+      if (raced) return replay(raced);
+      throw error;
+    }
     return {
       mutationId,
       recordId: record.id,

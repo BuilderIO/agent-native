@@ -6,7 +6,17 @@ import { z } from "zod";
 import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
 import { getDb, schema } from "../server/db/index.js";
 import type { CrmValue } from "../shared/crm-contract.js";
-import { parseJsonRecord, requireCrmScope } from "./_crm-action-utils.js";
+import {
+  isSafeCrmMutationFields,
+  parseJsonRecord,
+  requireCrmScope,
+} from "./_crm-action-utils.js";
+
+function providerMutationMessage(status: "failed" | "conflict" | "rejected") {
+  if (status === "conflict") return "CRM provider revision conflict.";
+  if (status === "rejected") return "CRM provider rejected the mutation.";
+  return "CRM provider mutation could not be completed.";
+}
 
 export default defineAction({
   description:
@@ -122,6 +132,10 @@ export default defineAction({
     if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
       throw new Error("CRM proposal has an invalid field patch.");
     }
+    const fieldPatch = fields as Record<string, unknown>;
+    if (!isSafeCrmMutationFields(fieldPatch)) {
+      throw new Error("CRM proposal contains an unsafe field patch.");
+    }
 
     const scope = requireCrmScope(ctx);
     const now = new Date().toISOString();
@@ -155,15 +169,12 @@ export default defineAction({
           remoteId: record.remoteId,
           localId: record.id,
         },
-        fields: fields as Record<string, CrmValue>,
+        fields: fieldPatch as Record<string, CrmValue>,
         expectedRemoteRevision: proposal.expectedRemoteRevision ?? undefined,
         idempotencyKey: proposal.idempotencyKey,
       });
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "CRM provider mutation failed.";
+      const message = providerMutationMessage("failed");
       await db
         .update(schema.crmMutations)
         .set({
@@ -190,13 +201,15 @@ export default defineAction({
           ? "conflict"
           : "rejected";
     const appliedAt = status === "applied" ? new Date().toISOString() : null;
+    const message =
+      status === "applied" ? undefined : providerMutationMessage(status);
     await db
       .update(schema.crmMutations)
       .set({
         status,
         providerRemoteRevision: result.remoteRevision ?? null,
         ...(status === "applied" ? { appliedAt } : {}),
-        ...(result.message ? { error: result.message.slice(0, 1_000) } : {}),
+        ...(message ? { error: message } : {}),
         updatedAt: new Date().toISOString(),
       })
       .where(eq(schema.crmMutations.id, proposal.id));
@@ -205,7 +218,7 @@ export default defineAction({
       recordId: record.id,
       status,
       remoteRevision: result.remoteRevision,
-      message: result.message,
+      message,
       ownerEmail: record.ownerEmail,
       orgId: record.orgId,
       visibility: record.visibility,

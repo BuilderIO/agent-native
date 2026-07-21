@@ -468,6 +468,15 @@ class HubSpotApiError extends Error {
   }
 }
 
+function hubSpotErrorMessage(status: number): string {
+  if (status === 401 || status === 403)
+    return "HubSpot authentication or authorization failed.";
+  if (status === 404) return "HubSpot resource was not found.";
+  if (status === 429) return "HubSpot rate limit exceeded.";
+  if (status >= 500) return "HubSpot service is temporarily unavailable.";
+  return "HubSpot request failed.";
+}
+
 function assertOwnedRecord(
   connection: WorkspaceConnectionForApp,
   record: CrmRecordRef,
@@ -542,15 +551,9 @@ export class HubSpotCrmAdapter implements CrmAdapter {
   private async request<T>(input: HubSpotTransportRequest): Promise<T> {
     const response = await this.transport.request(input);
     if (response.status < 200 || response.status >= 300) {
-      const detail =
-        typeof response.body === "string"
-          ? response.body
-          : response.body
-            ? JSON.stringify(response.body)
-            : "no response body";
       throw new HubSpotApiError(
         response.status,
-        `HubSpot API error ${response.status}: ${detail}`,
+        `HubSpot API error ${response.status}: ${hubSpotErrorMessage(response.status)}`,
       );
     }
     return (response.body ?? {}) as T;
@@ -610,6 +613,12 @@ export class HubSpotCrmAdapter implements CrmAdapter {
     const normalized = nonEmpty(objectType);
     if (!normalized) throw new Error("HubSpot objectType is required.");
     return this.objectDefinition(normalized);
+  }
+
+  getAccessScope(objectType: string): CrmAccessScope {
+    const normalized = nonEmpty(objectType);
+    if (!normalized) throw new Error("HubSpot objectType is required.");
+    return accessScopeFor(this.workspaceConnection, normalized);
   }
 
   private async listPage(input: {
