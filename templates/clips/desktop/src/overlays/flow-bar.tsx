@@ -2,11 +2,7 @@ import { IconX } from "@tabler/icons-react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
-import {
-  onAudioLevel,
-  onFinalTranscript,
-  onPartialTranscript,
-} from "../lib/transcription-engine";
+import { onAudioLevel } from "../lib/transcription-engine";
 
 type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
 
@@ -20,7 +16,7 @@ type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
  * Events:
  *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete"|"error" }
  *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
- *   - `voice:partial-transcript` / `voice:final-transcript` { text: string }
+ *   - `voice:dictation-preview` { text: string }
  */
 export function FlowBar() {
   // Default to "recording" not "idle" — there's a race between the Rust
@@ -29,8 +25,7 @@ export function FlowBar() {
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
   const [transcript, setTranscript] = useState("");
-  const finalTranscriptPartsRef = useRef<string[]>([]);
-  const transcriptRef = useRef<HTMLSpanElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -56,10 +51,7 @@ export function FlowBar() {
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
         setState(ev.payload.state);
-        if (ev.payload.state === "recording") {
-          finalTranscriptPartsRef.current = [];
-          setTranscript("");
-        }
+        if (ev.payload.state === "recording") setTranscript("");
       }),
     );
 
@@ -70,20 +62,8 @@ export function FlowBar() {
     );
 
     trackListen(
-      onPartialTranscript(({ text }) => {
-        setTranscript(
-          [...finalTranscriptPartsRef.current, text.trim()]
-            .filter(Boolean)
-            .join(" "),
-        );
-      }),
-    );
-
-    trackListen(
-      onFinalTranscript(({ text }) => {
-        const finalText = text.trim();
-        if (finalText) finalTranscriptPartsRef.current.push(finalText);
-        setTranscript(finalTranscriptPartsRef.current.join(" "));
+      listen<{ text: string }>("voice:dictation-preview", (ev) => {
+        setTranscript(ev.payload.text.trim());
       }),
     );
 
@@ -102,7 +82,7 @@ export function FlowBar() {
 
   useEffect(() => {
     const preview = transcriptRef.current;
-    if (preview) preview.scrollLeft = preview.scrollWidth;
+    if (preview) preview.scrollTop = preview.scrollHeight;
   }, [transcript]);
 
   // Waveform canvas rendering loop — only runs during the "recording" state.
@@ -187,8 +167,12 @@ export function FlowBar() {
   return (
     <div className="flow-bar-root">
       {transcript ? (
-        <div className="flow-bar-transcript-preview" aria-live="polite">
-          <span ref={transcriptRef}>{transcript}</span>
+        <div
+          ref={transcriptRef}
+          className="flow-bar-transcript-preview"
+          aria-live="polite"
+        >
+          {transcript}
         </div>
       ) : null}
 

@@ -4915,7 +4915,8 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .flow-bar-transcript-preview {
-  max-width: 280px;
+  max-width: 560px;
+  max-height: 90px;
   padding: 5px 10px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -4924,17 +4925,11 @@ body[data-clips-route="recording-pill"] #root {
   color: rgba(255, 255, 255, 0.9);
   font-size: 12px;
   font-weight: 500;
-  line-height: 16px;
+  line-height: 18px;
   text-align: center;
-  white-space: nowrap;
+  word-break: break-word;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-}
-
-.flow-bar-transcript-preview span {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
 }
 
 .flow-bar {
