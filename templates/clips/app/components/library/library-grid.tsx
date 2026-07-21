@@ -121,11 +121,10 @@ export function LibraryGrid({
   const [page, setPage] = useState(1);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
 
-  // Reset to the first page whenever the underlying scope/filters change so
-  // switching folders/spaces/tags/sort doesn't leave the user stranded on an
-  // out-of-range page from the previous view.
   useEffect(() => {
     setPage(1);
+    setSelected(new Set());
+    setLastSelectedId(null);
   }, [view, folderId, spaceId, tagFilter, sort]);
 
   const countArgs = useMemo(
@@ -250,14 +249,21 @@ export function LibraryGrid({
   );
 
   const allSelected =
-    recordings.length > 0 && selected.size === recordings.length;
+    recordings.length > 0 && recordings.every(({ id }) => selected.has(id));
 
   const toggleSelectAll = useCallback(() => {
-    setSelected((prev) =>
-      prev.size === recordings.length
-        ? new Set()
-        : new Set(recordings.map((r) => r.id)),
-    );
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const visibleIds = recordings.map(({ id }) => id);
+      const allVisibleSelected = visibleIds.every((id) => prev.has(id));
+
+      for (const id of visibleIds) {
+        if (allVisibleSelected) next.delete(id);
+        else next.add(id);
+      }
+
+      return next;
+    });
     setLastSelectedId(null);
   }, [recordings]);
 
