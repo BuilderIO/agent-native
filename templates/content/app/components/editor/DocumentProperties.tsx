@@ -1301,13 +1301,13 @@ export function PropertyManagementPopover({
             onKeyDown={(event) => event.stopPropagation()}
           >
             <Textarea
-              rows={2}
+              rows={1}
               value={description}
               aria-label={t("editor.properties.description")}
               placeholder={t("editor.properties.addPropertyDescription")}
               onChange={(event) => setDescription(event.target.value)}
               onBlur={() => void updateDescription()}
-              className="block w-full resize-none rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
+              className="block min-h-0 w-full resize-y rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
             />
           </div>
 
@@ -1723,7 +1723,7 @@ function PropertyOptionSettingsRow({
             onDescriptionChange(nextDescription);
           }
         }}
-        className="ml-5 block w-[calc(100%-1.25rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:bg-background focus:ring-1 focus:ring-ring"
+        className="ml-5 block min-h-0 w-[calc(100%-1.25rem)] resize-y rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:bg-background focus:ring-1 focus:ring-ring"
       />
     </div>
   );
