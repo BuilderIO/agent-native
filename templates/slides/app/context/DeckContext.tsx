@@ -1524,6 +1524,9 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     return () => {
       document.removeEventListener("visibilitychange", onHidden);
       window.removeEventListener("pagehide", onPageHide);
+      // Flush on unmount (e.g. org switch) so edits made in the previous org
+      // context are not silently dropped or sent under the wrong org.
+      flushPendingSaves();
     };
   }, []);
 

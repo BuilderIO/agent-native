@@ -5,10 +5,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const testState = vi.hoisted(() => ({
   mountCount: 0,
   orgId: "org-a" as string | null,
+  isLoading: false,
 }));
 
 vi.mock("@agent-native/core/client/org", () => ({
-  useOrg: () => ({ data: { orgId: testState.orgId } }),
+  useOrg: () => ({
+    data: { orgId: testState.orgId },
+    isLoading: testState.isLoading,
+  }),
 }));
 
 vi.mock("@/context/DeckContext", async () => {
@@ -31,9 +35,38 @@ afterEach(() => {
   cleanup();
   testState.mountCount = 0;
   testState.orgId = "org-a";
+  testState.isLoading = false;
 });
 
 describe("OrganizationScopedDeckProvider", () => {
+  it("renders nothing while org is loading", () => {
+    testState.isLoading = true;
+    render(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+    expect(screen.queryByTestId("deck-provider")).toBeNull();
+  });
+
+  it("mounts exactly once when org resolves from loading", () => {
+    testState.isLoading = true;
+    const { rerender } = render(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+    expect(testState.mountCount).toBe(0);
+
+    testState.isLoading = false;
+    rerender(
+      <OrganizationScopedDeckProvider version={3}>
+        <span>Decks</span>
+      </OrganizationScopedDeckProvider>,
+    );
+    expect(testState.mountCount).toBe(1);
+  });
+
   it("remounts deck state when the active organization changes", () => {
     const { rerender } = render(
       <OrganizationScopedDeckProvider version={3}>

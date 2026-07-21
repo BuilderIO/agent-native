@@ -10,9 +10,14 @@ export function OrganizationScopedDeckProvider({
   children: ReactNode;
   version: number;
 }) {
-  const { data: org } = useOrg();
-  const organizationScope = org?.orgId ?? "personal";
+  const { data: org, isLoading } = useOrg();
 
+  // Don't render until org is known — avoids mounting with a "personal"
+  // placeholder key that immediately changes once the org query resolves,
+  // which would double-mount DeckProvider and trigger duplicate deck fetches.
+  if (isLoading) return null;
+
+  const organizationScope = org?.orgId ?? "personal";
   return (
     <DeckProvider key={`${version}:${organizationScope}`}>
       {children}
