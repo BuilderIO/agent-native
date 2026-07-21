@@ -330,6 +330,20 @@ describe("writeHttpEntryForClient", () => {
 });
 
 describe("buildLocalMcpEntryForClient", () => {
+  it("can configure a resolvable npx command for a self-installing MCP", () => {
+    expect(
+      buildLocalMcpEntryForClient(
+        "claude-code",
+        ["-y", "@agent-native/core@latest", "mcp", "screen-memory"],
+        {},
+        "npx",
+      ),
+    ).toEqual({
+      command: "npx",
+      args: ["-y", "@agent-native/core@latest", "mcp", "screen-memory"],
+    });
+  });
+
   it("uses the OpenCode local command-array shape", () => {
     expect(
       buildLocalMcpEntryForClient("opencode", ["mcp", "serve"], {

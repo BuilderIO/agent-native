@@ -955,6 +955,18 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     summary: "Résumé",
     keyPoints: "Points clés",
     actionItems: "Actions à faire",
+    sharedContent: "Contenu partagé",
+    summaryIncluded: "Résumé, points clés et actions à faire",
+    includeTranscript: "Inclure la transcription complète",
+    includeTranscriptDescription:
+      "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
+    transcriptUnavailable: "La transcription n’est pas encore prête.",
+    transcript: "Transcription",
+    copyTranscript: "Copier la transcription",
+    transcriptCopied: "Transcription copiée",
+    copyTranscriptFailed: "Impossible de copier la transcription",
+    updateTranscriptSharingFailed:
+      "Impossible de modifier le partage de la transcription",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip déplacé vers la corbeille",
@@ -1522,6 +1534,23 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localisé)",
   },
+  rewindExtension: {
+    title: "Ajouter ce qui s’est passé avant",
+    description:
+      "Choisissez un intervalle du Rewind local et ajoutez-le au début de ce clip. Rien n’est ajouté automatiquement.",
+    progressLabel: "Progression du traitement de l’historique Rewind",
+    privateFirstTitle: "Rendre d’abord ce clip privé",
+    privateFirstDescription:
+      "L’historique Rewind local peut contenir du contexte antérieur au début de l’enregistrement. Le clip deviendra privé. Si quelqu’un dispose encore d’un accès direct, Clips s’arrêtera pour vous laisser le retirer dans Partager.",
+    makePrivateContinue: "Rendre privé et continuer",
+    add30Seconds: "Ajouter les 30 secondes précédentes",
+    add5Minutes: "Ajouter les 5 minutes précédentes",
+    add5MinutesDescription:
+      "Utile pour retrouver le début d’une explication plus longue.",
+    privateReady:
+      "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
+  },
+  timeline: { clipStartedHere: "Le clip commence ici" },
 };
 
 export default messages;

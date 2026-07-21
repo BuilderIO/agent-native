@@ -23,8 +23,8 @@ pub struct TrayMeetings(pub Mutex<Vec<MeetingItem>>);
 pub struct PopoverShownAt(pub Mutex<Option<Instant>>);
 
 /// Whether a recording is currently in progress. Set from JS via
-/// `set_recording_state`. Used to re-purpose the tray icon click as a
-/// stop-recording shortcut while recording, matching Loom.
+/// `set_recording_state`. Keeps the parked popover reachable while recording
+/// and enables the explicit Stop item in the tray menu.
 #[derive(Default)]
 pub struct RecordingActive(pub Mutex<bool>);
 

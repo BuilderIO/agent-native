@@ -439,11 +439,7 @@ export function LibraryGrid({
                     onToggleSelect={
                       canManageRecordings ? handleToggleSelect : undefined
                     }
-                    onShare={
-                      canManageRecordings
-                        ? (rec) => setSharingRec(rec)
-                        : undefined
-                    }
+                    onShare={(rec) => setSharingRec(rec)}
                     moveTargets={moveTargets}
                     onMove={canMoveSelection ? moveSingle : undefined}
                     isMovePending={moveRecording.isPending}

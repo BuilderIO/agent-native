@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -122,11 +124,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
       trigger?.classList.contains("code-agents-multi-frontier-mode-select"),
     ).toBe(true);
     expect(trigger?.classList.contains("desktop-select-trigger")).toBe(true);
-    expect(
-      Array.from(container.querySelectorAll("button")).find(
-        (button) => button.textContent === "Connect",
-      ),
-    ).toBeDefined();
+    expect(container.textContent).not.toContain("Participants");
+    expect(container.textContent).not.toContain("Connect");
     act(() => trigger?.focus());
     expect(document.activeElement).toBe(trigger);
 
@@ -140,12 +139,30 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     const options = Array.from(
       document.querySelectorAll<HTMLElement>('[role="option"]'),
     );
-    expect(options.map((option) => option.textContent)).toContain(
-      "Multi-Frontier",
+    const menu = document.querySelector<HTMLElement>('[role="listbox"]');
+    expect(menu?.classList.contains("code-agents-select-content")).toBe(true);
+    expect(
+      menu?.classList.contains("code-agents-multi-frontier-mode-menu"),
+    ).toBe(true);
+    expect(
+      options.every((option) =>
+        option.classList.contains("code-agents-multi-frontier-mode-menu-item"),
+      ),
+    ).toBe(true);
+    expect(document.body.textContent).toContain(
+      "Codex + Claude plan, review, then one builds",
     );
+    expect(
+      document.querySelector<HTMLElement>("[aria-label='Run mode']")
+        ?.textContent,
+    ).toContain("Auto");
+    expect(
+      document.querySelector<HTMLElement>("[aria-label='Run mode']")
+        ?.textContent,
+    ).not.toContain("One agent plans and builds");
 
-    const multiFrontierOption = options.find(
-      (option) => option.textContent === "Multi-Frontier",
+    const multiFrontierOption = options.find((option) =>
+      option.textContent?.startsWith("Multi-Frontier"),
     );
     expect(multiFrontierOption).toBeDefined();
 
@@ -155,6 +172,32 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     });
 
     expect(onModeChange).toHaveBeenCalledWith("multi-frontier");
+
+    act(() => {
+      root.render(
+        React.createElement(MultiFrontierModeControl, {
+          active: true,
+          permissionMode: "full-auto",
+          subscriptions: {},
+          busy: false,
+          modeLocked: false,
+          autoContinueAfterAgreement: false,
+          defaultAutoContinueAfterAgreement: false,
+          onModeChange,
+          onConnectSubscription: vi.fn(),
+          onRefreshSubscription: vi.fn(),
+          onAutoContinueAfterAgreementChange: vi.fn(),
+          onDefaultAutoContinueAfterAgreementChange: vi.fn(),
+        }),
+      );
+    });
+    expect(container.textContent).toContain("Connect");
+  });
+
+  it("registers toolkit overlay styles in the desktop Tailwind build", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
   it("renders a live provider update in the subscription usage popover", async () => {

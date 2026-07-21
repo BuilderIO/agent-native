@@ -91,6 +91,23 @@ describe("content database migrations", () => {
     );
   });
 
+  it("adds the document trash lifecycle additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT",
+    );
+    expect(source).toContain(
+      "ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT",
+    );
+    expect(source).toContain(
+      "documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)",
+    );
+  });
+
   it("creates Builder MDX sidecar cache table additively", () => {
     const source = readFileSync(
       join(__dirname, "..", "plugins", "db.ts"),

@@ -1,5 +1,25 @@
 # @agent-native/dispatch
 
+## 0.15.7
+
+### Patch Changes
+
+- Updated dependencies [dcd0810]
+  - @agent-native/toolkit@0.8.2
+
+## 0.15.6
+
+### Patch Changes
+
+- Updated dependencies [6d96437]
+  - @agent-native/toolkit@0.8.1
+
+## 0.15.5
+
+### Patch Changes
+
+- f3dcee3: Suppress provisional artifact warnings while delegated work is still running, and preserve verified Slack provenance for cross-app intake through an audience-scoped, fail-closed resolver.
+
 ## 0.15.4
 
 ### Patch Changes

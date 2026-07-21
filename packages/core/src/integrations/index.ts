@@ -196,6 +196,12 @@ export type {
 } from "./scope-store.js";
 
 export {
+  resolveIntegrationSourceContext,
+  sourceContextFromPendingTask,
+  type ResolvedIntegrationSourceContext,
+} from "./pending-tasks-store.js";
+
+export {
   getIntegrationBudgetSnapshot,
   getIntegrationUsageBudget,
   listIntegrationUsageBudgets,

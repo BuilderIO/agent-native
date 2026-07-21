@@ -30,6 +30,7 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "dispatch",
   initialToolNames: INITIAL_TOOL_NAMES,
+  connectorCatalog: ["resolve-integration-source-context"],
   // Without this, AGENT_ORG_ID is never set on agent action calls and every
   // row written through the frontend (vault secrets, destinations, workspace
   // resources) lands with org_id=NULL — breaking data isolation across orgs.

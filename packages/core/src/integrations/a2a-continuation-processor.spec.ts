@@ -393,6 +393,79 @@ describe("A2A continuation processor", () => {
     expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
   });
 
+  it("delivers a verified Content continuation exactly once through the resumed Slack stream", async () => {
+    const downstream = appendA2AArtifactLinks(
+      "Created the Design Ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "design_ask_123",
+            createdDocumentTitle: "Slack correction QA",
+            urlPath: "/page/design_ask_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://content.agent-native.com",
+        includePersistedArtifactMarker: true,
+      },
+    );
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: downstream }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => ({ status: "delivered" as const }));
+    const complete = vi.fn(async () => ({ status: "delivered" as const }));
+    const resumeRunProgress = vi.fn(async () => ({
+      ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      onEvent,
+      complete,
+    }));
+    const resumedAdapter = adapter(sendResponse);
+    resumedAdapter.resumeRunProgress = resumeRunProgress;
+    claimA2AContinuationMock.mockResolvedValueOnce(
+      continuation({
+        agentName: "Content",
+        agentUrl: "https://content.agent-native.com",
+        progressRef: {
+          kind: "slack-stream",
+          streamTs: "1719000000.000001",
+        },
+      }),
+    );
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", resumedAdapter]]),
+    });
+
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining(
+          "https://content.agent-native.com/page/design_ask_123",
+        ),
+      }),
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(claimA2AContinuationDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(completeA2AContinuationMock).toHaveBeenCalledTimes(1);
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(failA2AContinuationMock).not.toHaveBeenCalled();
+  });
+
   it("falls back to a thread reply when finalizing a resumed Slack stream fails", async () => {
     const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const complete = vi.fn(async () => {

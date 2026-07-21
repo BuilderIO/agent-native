@@ -932,6 +932,17 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     summary: "요약",
     keyPoints: "핵심 포인트",
     actionItems: "작업 항목",
+    sharedContent: "공유 콘텐츠",
+    summaryIncluded: "요약, 핵심 포인트 및 작업 항목",
+    includeTranscript: "전체 스크립트 포함",
+    includeTranscriptDescription:
+      "이 회의에 액세스할 수 있는 모든 사용자가 전체 스크립트를 읽을 수 있습니다.",
+    transcriptUnavailable: "스크립트가 아직 준비되지 않았습니다.",
+    transcript: "스크립트",
+    copyTranscript: "스크립트 복사",
+    transcriptCopied: "스크립트가 복사되었습니다",
+    copyTranscriptFailed: "스크립트를 복사하지 못했습니다",
+    updateTranscriptSharingFailed: "스크립트 공유를 업데이트하지 못했습니다",
   },
   deleteRecordingMenu: {
     movedToTrash: "클립이 휴지통으로 이동됨",
@@ -1497,6 +1508,22 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (현지화됨)",
   },
+  rewindExtension: {
+    title: "이전에 있었던 내용 추가",
+    description:
+      "로컬 Rewind에서 특정 구간을 선택해 이 클립의 시작 부분에 추가합니다. 자동으로 추가되는 내용은 없습니다.",
+    progressLabel: "Rewind 기록 처리 진행률",
+    privateFirstTitle: "먼저 이 클립을 비공개로 설정",
+    privateFirstDescription:
+      "로컬 Rewind 기록에는 녹화를 시작하기 전의 맥락이 포함될 수 있습니다. 이 작업은 클립을 비공개로 바꿉니다. 누군가 직접 접근 권한을 갖고 있으면 공유에서 먼저 제거할 수 있도록 Clips가 중지합니다.",
+    makePrivateContinue: "비공개로 설정하고 계속",
+    add30Seconds: "이전 30초 추가",
+    add5Minutes: "이전 5분 추가",
+    add5MinutesDescription: "긴 설명의 도입부를 복구할 때 유용합니다.",
+    privateReady:
+      "이 클립은 비공개입니다. 이제 로컬 Rewind 기록을 추가할 수 있습니다.",
+  },
+  timeline: { clipStartedHere: "클립이 여기서 시작됨" },
 };
 
 export default messages;

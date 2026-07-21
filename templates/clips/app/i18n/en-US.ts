@@ -931,6 +931,17 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     summary: "Summary",
     keyPoints: "Key points",
     actionItems: "Action items",
+    sharedContent: "Shared content",
+    summaryIncluded: "Summary, key points, and action items",
+    includeTranscript: "Include full transcript",
+    includeTranscriptDescription:
+      "Anyone with access to this meeting can read the complete transcript.",
+    transcriptUnavailable: "The transcript isn't ready yet.",
+    transcript: "Transcript",
+    copyTranscript: "Copy transcript",
+    transcriptCopied: "Transcript copied",
+    copyTranscriptFailed: "Couldn't copy the transcript",
+    updateTranscriptSharingFailed: "Couldn't update transcript sharing",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip moved to trash",
@@ -1487,6 +1498,24 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
+  },
+  rewindExtension: {
+    title: "Add what happened before",
+    description:
+      "Pull a specific interval from local Rewind and add it to the start of this Clip. Nothing is added automatically.",
+    progressLabel: "Rewind history processing progress",
+    privateFirstTitle: "Make this Clip private first",
+    privateFirstDescription:
+      "Local Rewind history can contain context from before you chose to record. This changes the Clip to private. If anyone still has direct access, Clips will stop here so you can remove them in Share first.",
+    makePrivateContinue: "Make private and continue",
+    add30Seconds: "Add the previous 30 seconds",
+    add5Minutes: "Add the previous 5 minutes",
+    add5MinutesDescription:
+      "Good for recovering the lead-in to a longer explanation.",
+    privateReady: "This Clip is private. You can now add local Rewind history.",
+  },
+  timeline: {
+    clipStartedHere: "Clip started here",
   },
 };
 

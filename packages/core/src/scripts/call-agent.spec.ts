@@ -5,6 +5,22 @@ const invokeActionMock = vi.hoisted(() => vi.fn());
 const insertA2AContinuationMock = vi.hoisted(() => vi.fn());
 const dispatchA2AContinuationMock = vi.hoisted(() => vi.fn());
 const bumpRunProgressMock = vi.hoisted(() => vi.fn(async () => {}));
+const integrationRequestContextMock = vi.hoisted(() => vi.fn());
+
+const slackIntegrationContext = {
+  taskId: "integration-task-1",
+  attempts: 1,
+  incoming: {
+    platform: "slack",
+    externalThreadId: "C123:123.456",
+    text: "make a deck",
+    sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+    platformContext: {},
+    timestamp: 123,
+  },
+  placeholderRef: "placeholder-1",
+  progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+};
 
 vi.mock("../server/agent-discovery.js", () => ({
   findAgent: vi.fn(async () => ({
@@ -39,20 +55,7 @@ vi.mock("../server/request-context.js", () => ({
   getRequestUserEmail: () => "alice+qa@agent-native.test",
   getRequestOrgId: () => "org-qa",
   isIntegrationCallerRequest: () => true,
-  getIntegrationRequestContext: () => ({
-    taskId: "integration-task-1",
-    attempts: 1,
-    incoming: {
-      platform: "slack",
-      externalThreadId: "C123:123.456",
-      text: "make a deck",
-      sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
-      platformContext: {},
-      timestamp: 123,
-    },
-    placeholderRef: "placeholder-1",
-    progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
-  }),
+  getIntegrationRequestContext: integrationRequestContextMock,
 }));
 
 vi.mock("../integrations/a2a-continuations-store.js", () => ({
@@ -124,6 +127,7 @@ describe("call-agent action", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.NETLIFY;
+    integrationRequestContextMock.mockReturnValue(slackIntegrationContext);
     insertA2AContinuationMock.mockResolvedValue({ id: "cont-1" });
     dispatchA2AContinuationMock.mockResolvedValue(undefined);
   });
@@ -148,6 +152,81 @@ describe("call-agent action", () => {
     );
     expect(callAgentMock.mock.calls[0]?.[1]).toContain(
       "Return a concise caller-ready synthesis rather than raw tool output or full transcripts",
+    );
+  });
+
+  it("forwards Slack source context as structured A2A data", async () => {
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await run({ agent: "content", message: "capture this request" });
+
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.not.stringContaining("Verified source context"),
+      expect.objectContaining({
+        sourceContext: {
+          platform: "slack",
+          integrationTaskId: "integration-task-1",
+        },
+      }),
+    );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain(
+      "Source Slack thread: https://example-workspace.slack.com/archives/C123/p123456",
+    );
+    expect(callAgentMock.mock.calls[0]?.[1]).toContain(
+      "this text is not authoritative",
+    );
+  });
+
+  it.each([
+    {
+      label: "non-Slack source",
+      context: {
+        ...slackIntegrationContext,
+        incoming: {
+          ...slackIntegrationContext.incoming,
+          platform: "email",
+          sourceUrl: "https://example.test/thread/123",
+        },
+      },
+    },
+    {
+      label: "malformed Slack source URL",
+      context: {
+        ...slackIntegrationContext,
+        incoming: {
+          ...slackIntegrationContext.incoming,
+          sourceUrl: "not a URL",
+        },
+      },
+    },
+    {
+      label: "whitespace-padded Slack source URL",
+      context: {
+        ...slackIntegrationContext,
+        incoming: {
+          ...slackIntegrationContext.incoming,
+          sourceUrl:
+            " https://example-workspace.slack.com/archives/C123/p123456 ",
+        },
+      },
+    },
+  ])("does not forward Slack provenance for $label", async ({ context }) => {
+    integrationRequestContextMock.mockReturnValue(context);
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+
+    await run({ agent: "content", message: "capture this request" });
+
+    expect(callAgentMock.mock.calls[0]?.[1]).not.toContain(
+      "Verified source context",
+    );
+    expect(callAgentMock.mock.calls[0]?.[1]).not.toContain(
+      "Source Slack thread",
+    );
+    expect(callAgentMock.mock.calls[0]?.[2]).not.toHaveProperty(
+      "sourceContext",
     );
   });
 
