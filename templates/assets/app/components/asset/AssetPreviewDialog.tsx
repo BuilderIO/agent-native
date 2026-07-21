@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
+import { assetMediaUrl } from "@/lib/asset-urls";
 
 export type PreviewAsset = {
   id: string;
@@ -104,7 +105,8 @@ export function AssetPreviewDialog({
               { assetId: asset.id },
               {
                 onSuccess: (result: any) => {
-                  const url = result?.downloadUrl;
+                  const url =
+                    assetMediaUrl(result?.downloadUrl) ?? result?.downloadUrl;
                   if (url) window.location.href = url;
                   else toast.error(t("assetDetail.downloadFailed"));
                 },

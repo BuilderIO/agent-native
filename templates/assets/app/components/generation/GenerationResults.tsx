@@ -16,6 +16,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -595,6 +596,16 @@ function GenerationPreviewDialog({
                 <IconMessageCircle className="h-4 w-4" />
                 {t("library.refine")}
               </Button>
+              {slot.assetId ? (
+                <Button asChild variant="outline" size="sm">
+                  <Link
+                    to={`/asset/${encodeURIComponent(slot.assetId)}`}
+                    onClick={() => onOpenChange(false)}
+                  >
+                    {t("library.viewDetails")}
+                  </Link>
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="icon"
