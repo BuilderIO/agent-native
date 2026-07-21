@@ -51,28 +51,16 @@
  *
  * Auth-guard reachability:
  *   `/_agent-native/*` is 401'd by the core auth guard when there is no
- *   session, which would break the logged-OUT bounce. So this plugin
- *   registers the exact path `/_agent-native/identity/authorize` as a
- *   `publicPath` via a second `createAuthPlugin({ publicPaths })` call.
- *   When two `createAuthPlugin` calls run in the same server boot on the
- *   same Nitro app, the framework APPENDS publicPaths to the live guard
- *   config (it does not clobber Dispatch's googleOnly/marketing/onboarding
- *   — verified in packages/core/src/server/auth.ts). The path is matched
- *   exactly (or as a `/`-segment prefix), so ONLY the authorize endpoint
- *   becomes public; any future `/_agent-native/identity/*` route stays
- *   protected. The handler then resolves the session ITSELF (exactly the
- *   `/_agent-native/open` pattern) — public-path only means "guard does not
- *   pre-empt", not "no auth": logged-out users are still bounced to login,
- *   and a token is only minted for a real session.
+ *   session, which would break the logged-OUT bounce. Dispatch's primary
+ *   auth plugin therefore receives this exact path through `setupDispatch`.
+ *   A second auth initializer is unsafe because Nitro starts plugin
+ *   initializers concurrently. The handler still resolves the session
+ *   itself: public-path only means "guard does not pre-empt", not "no auth".
  */
 
 import { signA2AToken } from "@agent-native/core/a2a";
 import { getOrgDomain } from "@agent-native/core/org";
-import {
-  createAuthPlugin,
-  getH3App,
-  getSession,
-} from "@agent-native/core/server";
+import { getH3App, getSession } from "@agent-native/core/server";
 import { defineEventHandler, getMethod } from "h3";
 import type { H3Event } from "h3";
 
@@ -227,13 +215,9 @@ const authorizeHandler = defineEventHandler(
 );
 
 /**
- * Dispatch identity-SSO plugin. Mounts the authorize route and registers
- * its exact path as a public path so the core auth guard does not 401 the
- * logged-out bounce. The `createAuthPlugin({ publicPaths })` call is
- * additive — it appends to the live guard config without disturbing the
- * primary Dispatch auth plugin's googleOnly/marketing/onboarding config.
+ * Dispatch identity-SSO plugin. The primary Dispatch auth plugin owns the
+ * route's public-path registration; this plugin owns only its handler.
  */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(AUTHORIZE_PATH, authorizeHandler);
-  return createAuthPlugin({ publicPaths: [AUTHORIZE_PATH] })(nitroApp);
 };

@@ -28,6 +28,7 @@ const dispatchAuthPlugin = async (nitroApp: any) => {
   const plugin = createAuthPlugin({
     googleOnly,
     marketing: marketing as any,
+    publicPaths: authConfig.publicPaths,
   });
   return plugin(nitroApp);
 };

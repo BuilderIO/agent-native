@@ -2,10 +2,11 @@
 
 ```yaml
 stage: work
-authority-source: "Alice: Sweet. Work it."
+authority-source: "Alice: All right. Log that plan to the vault and work it."
 authorized-scope:
   repositories:
     - BuilderIO/agent-native
+    - alicemoore/teenylilthoughts
   product-surfaces:
     - Agent Native Desktop packaged application
     - Core authentication and cross-app identity federation
@@ -16,6 +17,9 @@ allowed-mutations:
   - artifact-write
   - branch
   - commit
+  - push
+  - pull-request
+  - deploy
 write-targets:
   artifacts:
     - packages/desktop-app
@@ -23,7 +27,9 @@ write-targets:
     - docs
     - .agents/skills/authentication
     - .changeset
+    - .github/workflows/desktop-canary.yml
     - plans/desktop-sso-intent/work-ledger.md
+    - /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
 governing-artifact:
   path: /Users/alicemoore/.codex/worktrees/52a5/agent-native/plans/desktop-sso-intent/implementation-brief.md
   revision: desktop-sso-brief-r1
@@ -77,6 +83,9 @@ acceptance-state:
     - Core package build passed on Framework
     - Desktop production compile passed on macOS
     - i18n catalog guard and git diff checks passed
+    - Dispatch package suite: 269 tests passed; package build and typecheck passed on Framework
+    - Dispatch template suite: 40 tests passed; template typecheck passed on Framework
+    - production-shaped Netlify bundle changed the valid logged-out identity authorize request from 401 to the expected 302 sign-in redirect
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -85,11 +94,24 @@ acceptance-state:
     - renderer-safe status and sign-in/sign-out IPC without credential material
     - workspace-wide Desktop sign-out for exact canonical POST logout requests
     - operator docs, all localized counterparts, authentication skill, and Core changeset
+    - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
+    - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
   blockers:
-    - no connected deployment project was available to deploy or inspect a real canary
-    - this Mac has no valid code-signing identity, so a signed package cannot be produced here
+    - signed packaging depends on the repository's GitHub-hosted Apple signing and notarization secrets
+    - production promotion requires green CI, a successful signed candidate, human review, and freshly captured rollback evidence
     - the signed installed-app matrix still needs restart, account switch, standalone browser, custom app, local-development, and hostile-flow verification against the canary
   last-land-packet: null
-ledger-revision: desktop-sso-work-r3
+deployment-boundary:
+  allowed:
+    - branch-scoped GitHub Actions macOS canary build with publish disabled
+    - immutable Dispatch and Mail candidate deploy preparation
+    - short, announced Mail canonical-origin production canary with exact rollback target
+  forbidden:
+    - editing the stable desktop release workflow
+    - tags, updater feeds, or GitHub releases
+    - merge or stable Desktop publication without a separate decision
+    - enabling arbitrary preview hosts, custom apps, or Builder credentials
+vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
+ledger-revision: desktop-sso-work-r5
 status: active
 ```

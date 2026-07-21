@@ -1,0 +1,109 @@
+name: Desktop SSO Canary
+
+on:
+  push:
+    branches:
+      - codex/desktop-workspace-sso
+
+permissions:
+  contents: read
+
+jobs:
+  build-signed-macos-canary:
+    if: github.ref == 'refs/heads/codex/desktop-workspace-sso'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set canary version
+        working-directory: packages/desktop-app
+        env:
+          CANARY_SUFFIX: ${{ github.run_number }}
+        run: |
+          BASE=$(node -p "require('./package.json').version")
+          npm version "${BASE}-desktop-sso-canary.${CANARY_SUFFIX}" --no-git-tag-version
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/desktop-canary-certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/desktop-canary.keychain-db"
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$KEYCHAIN_PATH"
+          rm "$CERTIFICATE_PATH"
+
+      - name: Build signed and notarized canary
+        working-directory: packages/desktop-app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: W3PMF2T3MW
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
+          SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
+          SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
+          SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
+          SENTRY_DESKTOP_ENVIRONMENT: canary
+        run: pnpm build && npx electron-builder --mac --config --publish never
+
+      - name: Verify candidate provenance and trust
+        working-directory: packages/desktop-app
+        env:
+          EXPECTED_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+          VERSION=$(node -p "require('./package.json').version")
+          test -n "$VERSION"
+
+          APP_COUNT=0
+          while IFS= read -r -d '' APP_PATH; do
+            APP_COUNT=$((APP_COUNT + 1))
+            INFO="$APP_PATH/Contents/Info.plist"
+            codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+            xcrun stapler validate "$APP_PATH"
+            spctl --assess --type execute --verbose=4 "$APP_PATH"
+            /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx 'com.agentnative.desktop'
+            /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO" | grep -Fqx "$VERSION"
+          done < <(find dist -type d -name 'Agent Native.app' -print0)
+          test "$APP_COUNT" -eq 2
+
+          {
+            echo "workflow_run=${GITHUB_RUN_ID}"
+            echo "commit=${EXPECTED_COMMIT}"
+            echo "version=${VERSION}"
+            echo "bundle_id=com.agentnative.desktop"
+          } > dist/CANARY-MANIFEST.txt
+          find dist -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -print0 \
+            | sort -z \
+            | xargs -0 shasum -a 256 >> dist/CANARY-MANIFEST.txt
+          grep -q '\.dmg$' < <(find dist -maxdepth 1 -type f -name '*.dmg')
+          grep -q '\.zip$' < <(find dist -maxdepth 1 -type f -name '*.zip')
+
+      - name: Upload short-lived canary artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-sso-canary-${{ github.sha }}
+          path: |
+            packages/desktop-app/dist/*.dmg
+            packages/desktop-app/dist/*.zip
+            packages/desktop-app/dist/CANARY-MANIFEST.txt
+          if-no-files-found: error
+          retention-days: 3
