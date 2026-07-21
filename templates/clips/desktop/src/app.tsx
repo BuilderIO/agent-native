@@ -51,6 +51,7 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
+import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
@@ -4940,17 +4941,20 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
-  const whisperModelEnabled = featureConfig?.whisperModelEnabled !== false;
-  type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
-  interface WhisperModelStatus {
-    state: WhisperModelState;
-    path: string;
-    downloadedMb: number;
-    totalMb: number;
-  }
-  const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
-    null,
+  const whisper = useWhisperSettings(
+    featureConfig,
+    voiceProvider,
+    onVoiceProviderChange,
+    nativeVoiceProvider,
   );
+  const {
+    catalog: whisperModels,
+    status: whisperStatus,
+    enabled: whisperModelEnabled,
+    modelId: whisperModelId,
+    selectedModel: selectedWhisperModel,
+    deletableModels,
+  } = whisper;
   const [screenMemoryStatus, setScreenMemoryStatus] =
     useState<ScreenMemoryStatus | null>(null);
   const screenMemoryStatusRefreshVersionRef = useRef(0);
@@ -5057,24 +5061,6 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
-  }
-
-  function triggerWhisperDownload() {
-    invoke("whisper_model_download").catch(() => {});
-  }
-
-  function setWhisperModelEnabled(enabled: boolean) {
-    if (!featureConfig) return;
-    invoke("set_feature_config", {
-      config: { ...featureConfig, whisperModelEnabled: enabled },
-    }).catch((err) =>
-      console.error("[settings] set_feature_config failed", err),
-    );
-    if (enabled) {
-      triggerWhisperDownload();
-    } else if (voiceProvider === "whisper") {
-      onVoiceProviderChange(nativeVoiceProvider());
-    }
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -5480,47 +5466,6 @@ function Setup({
     };
   }, [refreshScreenMemoryStatus]);
 
-  // Load model status on mount and keep it current via events.
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = () => {
-      invoke<WhisperModelStatus>("whisper_model_status")
-        .then((s) => {
-          if (!cancelled) setWhisperStatus(s);
-        })
-        .catch(() => {});
-    };
-    refresh();
-    const unlistens: Array<() => void> = [];
-    const track = (p: Promise<() => void>) => {
-      p.then((u) => {
-        if (cancelled) {
-          try {
-            u();
-          } catch {
-            /* ignore */
-          }
-          return;
-        }
-        unlistens.push(u);
-      }).catch(() => {});
-    };
-    track(listen("whisper:model-progress", () => refresh()));
-    track(listen("whisper:model-ready", () => refresh()));
-    track(listen("whisper:model-error", () => refresh()));
-    track(listen("whisper:model-enabled-changed", () => refresh()));
-    return () => {
-      cancelled = true;
-      unlistens.forEach((u) => {
-        try {
-          u();
-        } catch {
-          /* ignore */
-        }
-      });
-    };
-  }, []);
-
   useEffect(() => {
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     let cancelled = false;
@@ -5606,7 +5551,7 @@ function Setup({
       onVoiceProviderChange(nativeVoiceProvider());
     } else if (mode === "whisper") {
       onVoiceProviderChange("whisper");
-      if (!whisperModelEnabled) setWhisperModelEnabled(true);
+      if (!whisperModelEnabled) whisper.setEnabled(true);
     } else if (mode === "builder") {
       onVoiceProviderChange("builder-gemini");
     } else {
@@ -7192,15 +7137,58 @@ function Setup({
           />
           <Switch
             on={whisperModelEnabled}
-            onChange={setWhisperModelEnabled}
+            onChange={whisper.setEnabled}
             label="Enable Whisper model"
           />
         </div>
+        <SettingLabel
+          label="Model"
+          hint="Larger models can improve transcription accuracy but use more storage and may run more slowly."
+          htmlFor="whisper-model"
+        />
+        <select
+          id="whisper-model"
+          className="setup-select"
+          value={whisperModelId}
+          onChange={(event) => whisper.setModelId(event.target.value)}
+          disabled={
+            whisperModels.length === 0 || whisperStatus?.state === "downloading"
+          }
+        >
+          {whisperModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.title} · {model.sizeMb} MB — {model.description}
+            </option>
+          ))}
+        </select>
+        {selectedWhisperModel ? (
+          <p className="setup-hint">{selectedWhisperModel.description}</p>
+        ) : null}
         <WhisperModelStatusRow
           status={whisperStatus}
           enabled={whisperModelEnabled}
-          onDownload={triggerWhisperDownload}
+          onDownload={whisper.triggerDownload}
         />
+        {deletableModels.length > 0 ? (
+          <div className="whisper-other-models">
+            <p className="setup-hint">Other downloaded models</p>
+            {deletableModels.map((model) => (
+              <div key={model.id} className="whisper-other-model-row">
+                <span className="whisper-other-model-name">
+                  {model.title} &middot; {model.sizeMb} MB
+                </span>
+                <button
+                  type="button"
+                  className="whisper-delete-btn"
+                  onClick={() => whisper.deleteModel(model.id)}
+                >
+                  <IconTrash size={13} />
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="setup-section-heading">Dictation</div>
@@ -7528,9 +7516,12 @@ function WhisperModelStatusRow({
         <span className="whisper-progress-label">
           Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
         </span>
-        <div className="whisper-progress-bar">
-          <div className="whisper-progress-fill" style={{ width: `${pct}%` }} />
-        </div>
+        <progress
+          className="whisper-progress-bar"
+          value={pct}
+          max={100}
+          aria-label={`Whisper model download ${pct}% complete`}
+        />
       </div>
     );
   }
