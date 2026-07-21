@@ -33,11 +33,11 @@ export function shouldReconcilePersistedRecording(
   return !hasLiveOffscreenSession(sessionId, state);
 }
 
-export function restartUploadResetBody(): {
+export function restartUploadResetBody(mimeType: string): {
   requestStreaming: true;
-  mimeType: "video/webm";
+  mimeType: string;
 } {
-  return { requestStreaming: true, mimeType: "video/webm" };
+  return { requestStreaming: true, mimeType };
 }
 
 export function restartUploadModeFromResponse(

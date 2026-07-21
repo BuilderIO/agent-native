@@ -1394,6 +1394,7 @@ function startRecorderNow(recording: ActiveRecording): void {
       height: recording.dimensions.height,
       hasAudio: recording.hasAudio,
       hasCamera: recording.hasCamera,
+      mimeType: recording.mimeType,
     });
   } catch (err) {
     captureExtensionError(err, {

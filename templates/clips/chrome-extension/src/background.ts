@@ -168,6 +168,7 @@ type NativeRecording = {
   // fallback so it is never lost; these describe that saved file.
   savedToDisk?: boolean;
   savedFilename?: string;
+  mimeType?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -181,6 +182,7 @@ type OffscreenStatusMessage = {
   savedToDisk?: boolean;
   savedFilename?: string;
   recordingStep?: string;
+  mimeType?: string;
 };
 
 type ExtensionErrorMessage = {
@@ -1595,7 +1597,9 @@ async function resetRecordingChunks(
     headers,
     credentials: "include",
     cache: "no-store",
-    body: JSON.stringify(restartUploadResetBody()),
+    body: JSON.stringify(
+      restartUploadResetBody(recording.mimeType ?? "video/webm"),
+    ),
   }).catch(() => undefined);
   if (!response?.ok) return null;
   return restartUploadModeFromResponse(await response.json().catch(() => null));
@@ -2406,6 +2410,9 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
         activeNativeRecording.recordingUrl = recordingUrl(
           activeNativeRecording,
         );
+      }
+      if (typeof status.mimeType === "string") {
+        activeNativeRecording.mimeType = status.mimeType;
       }
       if (status.status === "error") {
         activeNativeRecording.savedToDisk = status.savedToDisk === true;

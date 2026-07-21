@@ -39,9 +39,9 @@ describe("persisted native recording state", () => {
   });
 
   it("requests a new resumable session when restarting a recording", () => {
-    expect(restartUploadResetBody()).toEqual({
+    expect(restartUploadResetBody("video/mp4")).toEqual({
       requestStreaming: true,
-      mimeType: "video/webm",
+      mimeType: "video/mp4",
     });
   });
 
