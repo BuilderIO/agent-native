@@ -233,9 +233,7 @@ export function LibraryGrid({
           const toIndex = ids.indexOf(id);
           if (fromIndex !== -1 && toIndex !== -1) {
             const [start, end] =
-              fromIndex < toIndex
-                ? [fromIndex, toIndex]
-                : [toIndex, fromIndex];
+              fromIndex < toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
             const next = new Set(prev);
             for (let i = start; i <= end; i++) next.add(ids[i]);
             return next;
