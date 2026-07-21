@@ -25,10 +25,10 @@ templates/crm/app/components/crm/RecordActions.tsx|Enter a valid number.
 templates/crm/app/components/crm/RecordActions.tsx|Evidence could not be attached.
 templates/crm/app/components/crm/RecordActions.tsx|Field name
 templates/crm/app/components/crm/RecordActions.tsx|Follow-up task created.
-templates/crm/app/components/crm/RecordActions.tsx|Human provider edits apply after a revision check. Agent edits still become proposals. Local changes are limited to local-authoritative fields.
 templates/crm/app/components/crm/RecordActions.tsx|Keep a local follow-up next to this CRM record.
 templates/crm/app/components/crm/RecordActions.tsx|Local CRM field
 templates/crm/app/components/crm/RecordActions.tsx|New value
+templates/crm/app/components/crm/RecordActions.tsx|Provider edits become reviewable proposals because HubSpot cannot apply an expected revision atomically. Local changes are limited to local-authoritative fields.
 templates/crm/app/components/crm/RecordActions.tsx|Short excerpt
 templates/crm/app/components/crm/RecordActions.tsx|Task creation failed.
 templates/crm/app/components/crm/RecordActions.tsx|Value type
@@ -58,12 +58,11 @@ templates/crm/app/routes/ask.tsx|Ask CRM
 templates/crm/app/routes/ask.tsx|Explore permitted account context, follow-up work, and evidence from connected records.
 templates/crm/app/routes/opportunities.tsx|Opportunities · CRM
 templates/crm/app/routes/people.tsx|People · CRM
-templates/crm/app/routes/proposals.tsx|Apply proposal
-templates/crm/app/routes/proposals.tsx|Apply this provider write?
 templates/crm/app/routes/proposals.tsx|CRM proposal applied.
 templates/crm/app/routes/proposals.tsx|No CRM proposals
 templates/crm/app/routes/proposals.tsx|Proposal failed.
-templates/crm/app/routes/proposals.tsx|Review and apply
+templates/crm/app/routes/proposals.tsx|Review this provider change
+templates/crm/app/routes/proposals.tsx|Review upstream change
 templates/crm/app/routes/proposals.tsx|The field preview is unavailable. Approval remains scoped to this single record.
 templates/crm/app/routes/settings.tsx|CRM settings
 templates/crm/app/routes/settings.tsx|CRM uses workspace Connections for provider authorization. The local mirror stores only allow-listed fields, scoped metadata, and bounded evidence references.
