@@ -10,7 +10,6 @@ import {
   crmWriteRisk,
   isBoundedCrmValue,
   MAX_CRM_FIELDS_PER_MUTATION,
-  requireCrmScope,
   toJson,
 } from "./_crm-action-utils.js";
 
@@ -108,6 +107,8 @@ async function updateLocalFields(input: {
           ],
           2_000,
         ),
+        accessScopeKey: input.record.accessScopeKey,
+        accessScopeJson: input.record.accessScopeJson,
         updatedAt: now,
       };
       const existing = await tx
@@ -236,6 +237,19 @@ export default defineAction({
       );
     }
 
+    const wrongAuthority = fieldNames.filter((fieldName) => {
+      const storagePolicy = policyByName.get(fieldName)?.storagePolicy;
+      return args.target === "local"
+        ? storagePolicy !== "local-authoritative"
+        : storagePolicy === "derived-local" ||
+            storagePolicy === "local-authoritative";
+    });
+    if (wrongAuthority.length) {
+      throw new Error(
+        `${args.target === "local" ? "Local" : "Provider"} authority does not own: ${wrongAuthority.join(", ")}`,
+      );
+    }
+
     const risk = crmWriteRisk(fieldNames);
     const initiatedBy = crmInitiatedBy(ctx);
     const decision = decideCrmWritePolicy({
@@ -261,15 +275,6 @@ export default defineAction({
       visibility: record.visibility,
     };
     if (args.target === "local") {
-      const nonLocal = fieldNames.filter(
-        (fieldName) =>
-          policyByName.get(fieldName)?.storagePolicy !== "local-authoritative",
-      );
-      if (nonLocal.length) {
-        throw new Error(
-          `Only local-authoritative fields may be changed locally. Use a provider proposal for: ${nonLocal.join(", ")}`,
-        );
-      }
       await updateLocalFields({ record, fields, policies });
       await db.insert(schema.crmMutations).values({
         id: mutationId,
