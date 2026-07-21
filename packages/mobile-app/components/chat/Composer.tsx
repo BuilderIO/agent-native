@@ -167,7 +167,13 @@ export function Composer({
     const unsubscribe = navigation.addListener("focus", () => {
       const dictated = getAndClearLastDictatedText();
       if (dictated) {
-        setText((current) => (current ? current + "\n" + dictated : dictated));
+        setText((current) => {
+          const next = current ? current + "\n" + dictated : dictated;
+          // Move the controlled caret to the end so the next keystrokes land
+          // after the dictated text, not before it.
+          setSelection({ start: next.length, end: next.length });
+          return next;
+        });
       }
     });
     return unsubscribe;
