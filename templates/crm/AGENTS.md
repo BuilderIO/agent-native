@@ -31,11 +31,11 @@ policies, provenance, provider identity, and write policy.
 | `list-crm-saved-views` / `save-crm-saved-view`                        | List or save scoped CRM views.                                                |
 | `list-crm-tasks` / `manage-crm-task`                                  | Read and manage CRM follow-up tasks.                                          |
 | `update-crm-record`                                                   | Submit a typed, access-checked, revision-aware record mutation.               |
-| `list-crm-proposals` / `apply-crm-proposals`                          | Review and apply authorized agent/provider mutation proposals.                |
+| `list-crm-proposals` / `apply-crm-proposals`                          | Review provider proposals and record the Phase 1 upstream handoff.            |
 | `attach-call-evidence`                                                | Attach a bounded call evidence reference; never attach a transcript or media. |
 | `view-screen`                                                         | Read current navigation, selection, and visible CRM context.                  |
 | `navigate`                                                            | Move the UI to overview, records, tasks, proposals, or settings.              |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and make authorized exact provider API requests.                     |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and make authorized, read-only exact provider API requests.          |
 | `query-staged-dataset`                                                | Reduce staged, paginated provider results for broad analyses.                 |
 | data program, automation, extension surfaces                          | Use shared framework capabilities under their scoped access and data limits.  |
 
@@ -52,8 +52,9 @@ policies, provenance, provider identity, and write policy.
   source, scope, filters, counts, pagination, and uncertainty.
 - Agent provider changes are normally proposals. Changes involving ownership,
   amounts, stage, deletion, bulk scope, or external side effects require an
-  exact preview and approval. Never overwrite a conflict or claim a provider
-  change succeeded without its returned status.
+  exact preview and approval. Phase 1 never executes HubSpot provider writes:
+  review the proposal, direct the user to make the change in HubSpot, and never
+  claim the upstream change succeeded.
 
 ## Implementation
 

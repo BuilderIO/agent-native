@@ -42,12 +42,14 @@ behavior only. Salesforce transport and native CRM mode are out of scope.
 ## Safe writes and workflows
 
 - Use `update-crm-record` for a scoped typed edit. Provider writes are
-  revision-aware, access-checked, idempotent, and audited; never claim a
-  conflict was applied.
+  prepared as revision-aware, access-checked, idempotent, audited proposals.
+  Phase 1 does not execute them in HubSpot because HubSpot cannot apply the
+  expected revision atomically.
 - Agent provider writes default to proposals. For ownership, amount, stage,
   delete, bulk, or external-side-effect changes, show exact scope and fields,
   then require approval. Use `list-crm-proposals` and
-  `apply-crm-proposals` to review and apply authorized changes.
+  `apply-crm-proposals` to review the change and record the upstream handoff;
+  direct the user to complete it in HubSpot and never claim it was applied.
 - Use `list-crm-saved-views` and `save-crm-saved-view` for saved views. Use
   `list-crm-tasks` and `manage-crm-task` for CRM follow-ups. Use `navigate` to
   show a requested view instead of merely describing it.
