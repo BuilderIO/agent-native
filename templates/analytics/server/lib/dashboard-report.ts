@@ -507,6 +507,15 @@ const DIAGNOSTICS_PROBE_TIMEOUT_MS = 2_000;
 const DIAGNOSTICS_MAX_LENGTH = 700;
 const DIAGNOSTICS_COLLECTOR_LIMIT = 5;
 
+// netlify.toml's memory = "2gb" is plan-gated and can be silently ignored, so
+// capture the actual lambda memory ceiling alongside current RSS.
+function memoryDiagnostics(): string {
+  const lambdaMemoryMb =
+    process.env.AWS_LAMBDA_FUNCTION_MEMORY_SIZE ?? "unknown";
+  const rssMb = Math.round(process.memoryUsage().rss / 1024 / 1024);
+  return `lambdaMemoryMb=${lambdaMemoryMb} rssMb=${rssMb}`;
+}
+
 // Best-effort page inspection used when the report surface never becomes
 // visible, so failures carry enough state to tell wrong-page/wedged-renderer/
 // auth-bounce apart. Must never throw and must stay bounded even if the page
@@ -516,6 +525,7 @@ async function collectPageDiagnostics(
   consoleErrors: string[],
   failedRequests: string[],
 ): Promise<string> {
+  const memory = memoryDiagnostics();
   try {
     let responsive = true;
     let probeTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -536,7 +546,7 @@ async function collectPageDiagnostics(
     }
 
     if (!responsive) {
-      return `page unresponsive (renderer hung or crashed); consoleErrors=${JSON.stringify(
+      return `${memory} page unresponsive (renderer hung or crashed); consoleErrors=${JSON.stringify(
         consoleErrors,
       )} failedRequests=${JSON.stringify(failedRequests)}`.slice(
         0,
@@ -581,7 +591,7 @@ async function collectPageDiagnostics(
       if (detailsTimeout) clearTimeout(detailsTimeout);
     }
 
-    return `page state: ${JSON.stringify({
+    return `${memory} page state: ${JSON.stringify({
       url,
       title,
       bodyText,
@@ -589,7 +599,7 @@ async function collectPageDiagnostics(
       failedRequests,
     })}`.slice(0, DIAGNOSTICS_MAX_LENGTH);
   } catch {
-    return "diagnostics unavailable";
+    return `${memory} diagnostics unavailable`;
   }
 }
 
@@ -805,7 +815,7 @@ async function captureDashboardPngChunks(
   } catch (err) {
     if (attemptTimedOut) {
       throw new Error(
-        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms: ${errorMessage(err)}`,
+        `${memoryDiagnostics()} ${attempt.label} capture exceeded ${attempt.totalTimeout}ms: ${errorMessage(err)}`,
       );
     }
     throw new Error(`${attempt.label}: ${errorMessage(err)}`);
