@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.114.11
+
+### Patch Changes
+
+- b47a1b3: Add extension-data-set and extension-data-get agent actions for reading and writing extensionData from the agent side, with auto-refresh of mounted extension iframes after writes.
+
 ## 0.114.10
 
 ### Patch Changes
