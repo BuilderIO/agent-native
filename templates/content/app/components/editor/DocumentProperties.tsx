@@ -1115,6 +1115,9 @@ export function PropertyManagementPopover({
     property.definition.description,
   );
   const [newOption, setNewOption] = useState("");
+  const [optionsDraft, setOptionsDraft] = useState<DocumentPropertyOption[]>(
+    property.definition.options.options ?? [],
+  );
   const persistMetadataSnapshotRef = useRef<
     (metadata: PropertyMetadataSnapshot) => Promise<unknown>
   >(async () => undefined);
@@ -1141,6 +1144,7 @@ export function PropertyManagementPopover({
     setName(property.definition.name);
     setDescription(property.definition.description);
     setNewOption("");
+    setOptionsDraft(property.definition.options.options ?? []);
     metadataUpdateQueueRef.current.replace({
       name: property.definition.name,
       type: property.definition.type,
@@ -1180,6 +1184,7 @@ export function PropertyManagementPopover({
   async function updateOptions(
     update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
   ) {
+    setOptionsDraft((current) => update(current));
     await metadataUpdateQueueRef.current.enqueue((current) => ({
       ...current,
       options: {
@@ -1319,7 +1324,7 @@ export function PropertyManagementPopover({
         <DropdownMenuContent
           align="start"
           collisionPadding={12}
-          className="relative z-[300] w-72"
+          className="relative z-[300] w-72 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto"
         >
           {view === "quick" && hasColumnMenu ? (
             <>
@@ -1561,25 +1566,21 @@ export function PropertyManagementPopover({
                     {t("editor.properties.options")}
                   </div>
                   <div className="grid gap-1">
-                    {(property.definition.options.options ?? []).map(
-                      (option) => (
-                        <PropertyOptionSettingsRow
-                          key={option.id}
-                          option={option}
-                          disabled={configure.isPending}
-                          onRename={(name) =>
-                            void renameOption(option.id, name)
-                          }
-                          onDescriptionChange={(description) =>
-                            void describeOption(option.id, description)
-                          }
-                          onColorChange={(color) =>
-                            void recolorOption(option.id, color)
-                          }
-                          onRemove={() => void removeOption(option.id)}
-                        />
-                      ),
-                    )}
+                    {optionsDraft.map((option) => (
+                      <PropertyOptionSettingsRow
+                        key={option.id}
+                        option={option}
+                        disabled={configure.isPending}
+                        onRename={(name) => void renameOption(option.id, name)}
+                        onDescriptionChange={(description) =>
+                          void describeOption(option.id, description)
+                        }
+                        onColorChange={(color) =>
+                          void recolorOption(option.id, color)
+                        }
+                        onRemove={() => void removeOption(option.id)}
+                      />
+                    ))}
                   </div>
                   <form
                     className="flex gap-2"
