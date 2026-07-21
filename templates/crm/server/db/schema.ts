@@ -30,7 +30,7 @@ export const crmConnections = table("crm_connections", {
   selectedObjectTypesJson: text("selected_object_types_json")
     .notNull()
     .default("[]"),
-  accessScopeKey: text("access_scope_key").notNull().default("unverified"),
+  accessScopeKey: text("access_scope_key").notNull(),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
   lastSyncedAt: text("last_synced_at"),
   lastError: text("last_error"),
@@ -160,7 +160,7 @@ export const crmRecordFields = table("crm_record_fields", {
   booleanValue: integer("boolean_value", { mode: "boolean" }),
   jsonValue: text("json_value"),
   provenanceJson: text("provenance_json").notNull().default("[]"),
-  accessScopeKey: text("access_scope_key").notNull(),
+  accessScopeKey: text("access_scope_key").notNull().default("unverified"),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
   remoteRevision: text("remote_revision"),
   createdAt: text("created_at").notNull().default(now()),
