@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isDeclinedCalendarEvent,
   type CalendarAccountForEventClassification,
   isPersonalSoloCalendarEvent,
   isSoloCalendarEvent,
@@ -122,5 +123,46 @@ describe("calendar solo event detection", () => {
         }),
       }),
     ).toBe(false);
+  });
+});
+
+describe("calendar declined event detection", () => {
+  it("flags an event declined by the current user even when others accepted", () => {
+    expect(
+      isDeclinedCalendarEvent({
+        account,
+        event: event({
+          attendees: [
+            { email: "user@example.com", responseStatus: "declined" },
+            { email: "teammate@example.com", responseStatus: "accepted" },
+          ],
+        }),
+      }),
+    ).toBe(true);
+  });
+
+  it("does not flag an event declined by another attendee", () => {
+    expect(
+      isDeclinedCalendarEvent({
+        account,
+        event: event({
+          attendees: [
+            { email: "user@example.com", responseStatus: "accepted" },
+            { email: "teammate@example.com", responseStatus: "declined" },
+          ],
+        }),
+      }),
+    ).toBe(false);
+  });
+
+  it("trusts Google's self marker when the attendee email is omitted", () => {
+    expect(
+      isDeclinedCalendarEvent({
+        account,
+        event: event({
+          attendees: [{ responseStatus: "declined", self: true }],
+        }),
+      }),
+    ).toBe(true);
   });
 });

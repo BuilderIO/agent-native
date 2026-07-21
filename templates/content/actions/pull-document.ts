@@ -4,11 +4,8 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
-import {
-  getLocalFileDocument,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
 
 /**
  * Collab-aware "ingest the final" read for external agents.
@@ -65,27 +62,14 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, format }) => {
-    if (await isContentLocalFileMode()) {
-      const doc = await getLocalFileDocument(id);
-      if (doc.source?.kind === "folder") {
-        throw new Error("Folders cannot be pulled as markdown documents");
-      }
-      return {
-        id: doc.id,
-        title: doc.title,
-        description: doc.description ?? "",
-        content: formatDocumentContent(doc.content ?? "", format),
-        format,
-        deepLink: buildDeepLink({
-          app: "content",
-          view: "editor",
-          params: { documentId: doc.id },
-        }),
-      };
-    }
-
     const access = await resolveAccess("document", id);
-    if (!access) throw new Error(`Document "${id}" not found`);
+    if (
+      !access ||
+      access.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(id))
+    ) {
+      throw new Error(`Document "${id}" not found`);
+    }
 
     // If a live Yjs collab session is open, the in-memory editor doc is fresher
     // than the SQL column. Ask the open editor to serialize + save, then wait
@@ -97,7 +81,13 @@ export default defineAction({
 
     // Re-resolve so we read the now-fresh row (and re-check access).
     const fresh = await resolveAccess("document", id);
-    if (!fresh) throw new Error(`Document "${id}" not found`);
+    if (
+      !fresh ||
+      fresh.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(id))
+    ) {
+      throw new Error(`Document "${id}" not found`);
+    }
     const doc = fresh.resource;
     const markdown = (doc.content as string) ?? "";
     const content = formatDocumentContent(markdown, format);

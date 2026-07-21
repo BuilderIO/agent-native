@@ -40,20 +40,8 @@ describe("hubspot-deals action", () => {
             hs_lastmodifieddate: "2026-05-01T00:00:00Z",
           },
         },
-        {
-          id: "deal-hidden",
-          properties: {
-            dealname: "Hidden renewal",
-            dealstage: "stage-hidden",
-            amount: "100000",
-            pipeline: "pipeline-hidden",
-            hubspot_owner_id: "owner-2",
-            createdate: "2026-01-01T00:00:00Z",
-            hs_lastmodifieddate: "2026-05-01T00:00:00Z",
-          },
-        },
       ],
-      total: 2,
+      total: 1,
       nextAfter: null,
       properties: ["dealname", "dealstage", "amount", "pipeline"],
     });
@@ -96,6 +84,17 @@ describe("hubspot-deals action", () => {
     expect(searchHubSpotObjects).toHaveBeenCalledWith({
       objectType: "deals",
       query: "The Knot",
+      filterGroups: [
+        {
+          filters: [
+            {
+              propertyName: "pipeline",
+              operator: "IN",
+              values: ["pipeline-1"],
+            },
+          ],
+        },
+      ],
       properties: undefined,
       limit: 10,
       after: undefined,
@@ -111,64 +110,27 @@ describe("hubspot-deals action", () => {
   });
 
   it("filters deal cohorts by structured product, pipeline, closed status, and close date", async () => {
-    getAllDeals.mockResolvedValue([
-      {
-        id: "publish-won",
-        properties: {
-          dealname: "Browns Shoes",
-          dealstage: "closed-won",
-          amount: "158000",
-          closedate: "2026-02-15",
-          pipeline: "enterprise-new-business",
-          hubspot_owner_id: "owner-1",
-          createdate: "2025-12-01T00:00:00Z",
-          hs_lastmodifieddate: "2026-05-01T00:00:00Z",
-          products: "Publish;Develop",
+    searchHubSpotObjects.mockResolvedValue({
+      records: [
+        {
+          id: "publish-won",
+          properties: {
+            dealname: "Browns Shoes",
+            dealstage: "closed-won",
+            amount: "158000",
+            closedate: "2026-02-15",
+            pipeline: "enterprise-new-business",
+            hubspot_owner_id: "owner-1",
+            createdate: "2025-12-01T00:00:00Z",
+            hs_lastmodifieddate: "2026-05-01T00:00:00Z",
+            products: "Publish;Develop",
+          },
         },
-      },
-      {
-        id: "keyword-only",
-        properties: {
-          dealname: "Publish migration services",
-          dealstage: "closed-won",
-          amount: "90000",
-          closedate: "2026-03-15",
-          pipeline: "enterprise-new-business",
-          hubspot_owner_id: "owner-1",
-          createdate: "2025-12-01T00:00:00Z",
-          hs_lastmodifieddate: "2026-05-01T00:00:00Z",
-          products: "Develop",
-        },
-      },
-      {
-        id: "closed-lost",
-        properties: {
-          dealname: "Publish lost deal",
-          dealstage: "closed-lost",
-          amount: "50000",
-          closedate: "2026-04-15",
-          pipeline: "enterprise-new-business",
-          hubspot_owner_id: "owner-1",
-          createdate: "2025-12-01T00:00:00Z",
-          hs_lastmodifieddate: "2026-05-01T00:00:00Z",
-          products: "Publish",
-        },
-      },
-      {
-        id: "old-publish-won",
-        properties: {
-          dealname: "Old Publish win",
-          dealstage: "closed-won",
-          amount: "40000",
-          closedate: "2024-05-15",
-          pipeline: "enterprise-new-business",
-          hubspot_owner_id: "owner-1",
-          createdate: "2024-01-01T00:00:00Z",
-          hs_lastmodifieddate: "2024-05-01T00:00:00Z",
-          products: "Publish",
-        },
-      },
-    ]);
+      ],
+      total: 1,
+      nextAfter: null,
+      properties: ["dealname", "dealstage", "products", "closedate"],
+    });
     getDealPipelines.mockResolvedValue([
       {
         id: "enterprise-new-business",
@@ -199,7 +161,34 @@ describe("hubspot-deals action", () => {
       closedDateTo: "2026-06-01",
     })) as Record<string, any>;
 
-    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(searchHubSpotObjects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        objectType: "deals",
+        query: undefined,
+        after: "0",
+        filterGroups: [
+          {
+            filters: expect.arrayContaining([
+              {
+                propertyName: "pipeline",
+                operator: "IN",
+                values: ["enterprise-new-business"],
+              },
+              {
+                propertyName: "products",
+                operator: "CONTAINS_TOKEN",
+                value: "Publish",
+              },
+              {
+                propertyName: "dealstage",
+                operator: "IN",
+                values: ["closed-won"],
+              },
+            ]),
+          },
+        ],
+      }),
+    );
     expect(result.count).toBe(1);
     expect(result.deals.map((deal: any) => deal.id)).toEqual(["publish-won"]);
     expect(result.deals[0].properties.is_closed_won).toBe(true);
@@ -229,7 +218,25 @@ describe("hubspot-deals action", () => {
         products: "Publish",
       },
     }));
-    getAllDeals.mockResolvedValue(deals);
+    searchHubSpotObjects
+      .mockResolvedValueOnce({
+        records: deals.slice(0, 10),
+        total: 30,
+        nextAfter: "10",
+        properties: [],
+      })
+      .mockResolvedValueOnce({
+        records: deals.slice(20, 30),
+        total: 30,
+        nextAfter: null,
+        properties: [],
+      })
+      .mockResolvedValueOnce({
+        records: deals,
+        total: 30,
+        nextAfter: null,
+        properties: [],
+      });
     getDealPipelines.mockResolvedValue([
       {
         id: "enterprise-new-business",
@@ -251,7 +258,10 @@ describe("hubspot-deals action", () => {
       limit: 10,
     })) as Record<string, any>;
 
-    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(getAllDeals).not.toHaveBeenCalled();
+    expect(searchHubSpotObjects).toHaveBeenCalledWith(
+      expect.objectContaining({ after: "0", limit: 10 }),
+    );
     expect(result.deals).toHaveLength(10);
     expect(result.count).toBe(10);
     expect(result.total).toBe(30);
@@ -300,7 +310,12 @@ describe("hubspot-deals action", () => {
         hs_lastmodifieddate: "2026-05-01T00:00:00Z",
       },
     }));
-    getAllDeals.mockResolvedValue(deals);
+    searchHubSpotObjects.mockResolvedValue({
+      records: deals.slice(0, 25),
+      total: 40,
+      nextAfter: "25",
+      properties: [],
+    });
     getDealPipelines.mockResolvedValue([
       {
         id: "enterprise-new-business",
@@ -319,12 +334,48 @@ describe("hubspot-deals action", () => {
 
     const result = (await hubspotDeals.run({})) as Record<string, any>;
 
-    expect(searchHubSpotObjects).not.toHaveBeenCalled();
+    expect(getAllDeals).not.toHaveBeenCalled();
+    expect(searchHubSpotObjects).toHaveBeenCalledWith(
+      expect.objectContaining({ after: "0", limit: 25 }),
+    );
     expect(result.count).toBe(25);
     expect(result.total).toBe(40);
     expect(result.truncated).toBe(true);
     expect(result.hasMore).toBe(true);
     expect(result.nextOffset).toBe(25);
+  });
+
+  it("reports HubSpot's 10,000-result search ceiling without exposing an invalid next page", async () => {
+    searchHubSpotObjects.mockResolvedValue({
+      records: [],
+      total: 10_000,
+      nextAfter: "10000",
+      properties: [],
+    });
+    getDealPipelines.mockResolvedValue([
+      {
+        id: "enterprise-new-business",
+        label: "Enterprise: New Business",
+        stages: [],
+      },
+    ]);
+    getDealOwners.mockResolvedValue({});
+
+    const result = (await hubspotDeals.run({
+      limit: 200,
+      offset: 9_900,
+    })) as Record<string, any>;
+
+    expect(searchHubSpotObjects).toHaveBeenCalledWith(
+      expect.objectContaining({ after: "9900", limit: 100 }),
+    );
+    expect(result.searchResultCap).toBe(10_000);
+    expect(result.searchCoverageComplete).toBe(false);
+    expect(result.searchCoverageLimited).toBe(true);
+    expect(result.hasMore).toBe(false);
+    expect(result.nextAfter).toBe(null);
+    expect(result.nextOffset).toBe(null);
+    expect(result.guidance).toContain("non-overlapping closed-date windows");
   });
 
   it("rejects impossible closed date filter boundaries", async () => {

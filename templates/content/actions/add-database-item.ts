@@ -10,6 +10,7 @@ import {
   isComputedPropertyType,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import {
   databaseItemsPositionScope,
@@ -40,6 +41,9 @@ export default defineAction({
         ),
       );
     if (!database) throw new Error(`Database "${databaseId}" not found`);
+    if (database.systemRole === "workspaces") {
+      throw new Error("Use create-content-space to add a workspace");
+    }
 
     const access = await assertAccess(
       "document",
@@ -47,59 +51,41 @@ export default defineAction({
       "editor",
     );
     const databaseDocument = access.resource;
+    if (
+      database.spaceId &&
+      databaseDocument.spaceId &&
+      databaseDocument.spaceId !== database.spaceId
+    ) {
+      throw new Error(
+        `Database "${databaseId}" has inconsistent Content space`,
+      );
+    }
     const now = new Date().toISOString();
+    const databaseSpaceId =
+      database.spaceId ?? (databaseDocument.spaceId as string | null);
+    if (!databaseSpaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
+    if (databaseSpaceId && (!database.spaceId || !databaseDocument.spaceId)) {
+      await db.transaction(async (tx) => {
+        if (!database.spaceId) {
+          await tx
+            .update(schema.contentDatabases)
+            .set({ spaceId: databaseSpaceId, updatedAt: now })
+            .where(eq(schema.contentDatabases.id, databaseId));
+        }
+        if (!databaseDocument.spaceId) {
+          await tx
+            .update(schema.documents)
+            .set({ spaceId: databaseSpaceId, updatedAt: now })
+            .where(eq(schema.documents.id, database.documentId));
+        }
+        await ensureDocumentFilesMembership(tx, database.documentId, now);
+      });
+    }
 
     const documentId = nanoid();
     const itemId = nanoid();
-
-    await withPositionLock(
-      documentsPositionScope(database.ownerEmail, database.documentId),
-      async () => {
-        const [maxDocPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-          .from(schema.documents)
-          .where(
-            and(
-              eq(schema.documents.ownerEmail, database.ownerEmail),
-              eq(schema.documents.parentId, database.documentId),
-            ),
-          );
-
-        await db.insert(schema.documents).values({
-          id: documentId,
-          ownerEmail: database.ownerEmail,
-          orgId: database.orgId,
-          parentId: database.documentId,
-          title: title?.trim() ?? "",
-          content: "",
-          icon: null,
-          position: (maxDocPos?.max ?? -1) + 1,
-          isFavorite: 0,
-          hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-          visibility: databaseDocument.visibility ?? "private",
-          createdAt: now,
-          updatedAt: now,
-        });
-      },
-    );
-
-    await withPositionLock(databaseItemsPositionScope(databaseId), async () => {
-      const [maxItemPos] = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-
-      await db.insert(schema.contentDatabaseItems).values({
-        id: itemId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        databaseId,
-        documentId,
-        position: (maxItemPos?.max ?? -1) + 1,
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
 
     const inheritedShares = await db
       .select({
@@ -110,21 +96,10 @@ export default defineAction({
       .from(schema.documentShares)
       .where(eq(schema.documentShares.resourceId, database.documentId));
 
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: documentId,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: getRequestUserEmail() ?? database.ownerEmail,
-          createdAt: now,
-        })),
-      );
-    }
-
     const initialValues = Object.entries(propertyValues ?? {});
+    const propertyValueRows: Array<
+      typeof schema.documentPropertyValues.$inferInsert
+    > = [];
     if (initialValues.length > 0) {
       const requestedPropertyIds = initialValues.map(
         ([propertyId]) => propertyId,
@@ -153,7 +128,7 @@ export default defineAction({
         const definition = definitionById.get(propertyId);
         const type = definition?.type as DocumentPropertyType | undefined;
         if (!definition || !type || isComputedPropertyType(type)) continue;
-        await db.insert(schema.documentPropertyValues).values({
+        propertyValueRows.push({
           id: nanoid(),
           ownerEmail: database.ownerEmail,
           documentId,
@@ -165,7 +140,78 @@ export default defineAction({
       }
     }
 
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    await withPositionLock(
+      documentsPositionScope(database.ownerEmail, database.documentId),
+      () =>
+        withPositionLock(databaseItemsPositionScope(databaseId), async () => {
+          await db.transaction(async (tx) => {
+            const [maxDocPos] = await tx
+              .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+              .from(schema.documents)
+              .where(
+                and(
+                  eq(schema.documents.ownerEmail, database.ownerEmail),
+                  eq(schema.documents.parentId, database.documentId),
+                ),
+              );
+            const [maxItemPos] = await tx
+              .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+              .from(schema.contentDatabaseItems)
+              .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+
+            await tx.insert(schema.documents).values({
+              id: documentId,
+              spaceId: databaseSpaceId,
+              ownerEmail: database.ownerEmail,
+              orgId: database.orgId,
+              parentId: database.documentId,
+              title: title?.trim() ?? "",
+              content: "",
+              icon: null,
+              position: (maxDocPos?.max ?? -1) + 1,
+              isFavorite: 0,
+              hideFromSearch: databaseDocument.hideFromSearch ?? 0,
+              visibility: databaseDocument.visibility ?? "private",
+              createdAt: now,
+              updatedAt: now,
+            });
+            await tx.insert(schema.contentDatabaseItems).values({
+              id: itemId,
+              ownerEmail: database.ownerEmail,
+              orgId: database.orgId,
+              databaseId,
+              documentId,
+              position: (maxItemPos?.max ?? -1) + 1,
+              createdAt: now,
+              updatedAt: now,
+            });
+            if (inheritedShares.length > 0) {
+              await tx.insert(schema.documentShares).values(
+                inheritedShares.map((share) => ({
+                  id: nanoid(),
+                  resourceId: documentId,
+                  principalType: share.principalType,
+                  principalId: share.principalId,
+                  role: share.role,
+                  createdBy: getRequestUserEmail() ?? database.ownerEmail,
+                  createdAt: now,
+                })),
+              );
+            }
+            if (propertyValueRows.length > 0) {
+              await tx
+                .insert(schema.documentPropertyValues)
+                .values(propertyValueRows);
+            }
+            await ensureDocumentFilesMembership(tx, documentId, now);
+          });
+        }),
+    );
+
+    await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {
+      // The row is already committed; polling will reconcile if a concurrent
+      // SQLite writer briefly blocks this best-effort refresh hint.
+    });
 
     return {
       ...(await getContentDatabaseResponse(databaseId)),

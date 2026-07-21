@@ -1,9 +1,7 @@
-import {
-  useSendToAgentChat,
-  PromptComposer,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertCircle,
   IconCheck,

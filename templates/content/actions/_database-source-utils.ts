@@ -81,6 +81,12 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
+import { ensureDocumentsFilesMembership } from "./_content-files.js";
+import {
+  organizationContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
+import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
@@ -142,6 +148,9 @@ type SourceMetadataRecord = {
   allowPublicationTransitions?: boolean;
   notes?: string | null;
   readMode?: string | null;
+  connectionId?: string | null;
+  connectionLabel?: string | null;
+  truthPolicy?: ContentDatabaseSource["metadata"]["truthPolicy"];
   liveReadConfigured?: boolean;
   lastReadEntryCount?: number;
   lastReadMatchedRowCount?: number;
@@ -213,7 +222,8 @@ function normalizeSourceType(
   if (
     value === "builder-cms" ||
     value === "local-table" ||
-    value === "notion-database"
+    value === "notion-database" ||
+    value === "local-folder"
   )
     return value;
   return "mock-local";
@@ -230,12 +240,9 @@ function normalizeChangeKind(
 }
 
 function normalizeChangeDirection(
-  _value: string | null | undefined,
+  value: string | null | undefined,
 ): ContentDatabaseSourceChangeDirection {
-  // Integrations are the source of truth; change-sets only flow outbound
-  // (local → provider). Any legacy "incoming" rows coerce to outbound and are
-  // pruned by the resync cleanup.
-  return "outbound";
+  return value === "incoming" ? "incoming" : "outbound";
 }
 
 function normalizePushMode(
@@ -296,6 +303,9 @@ function normalizeCapabilities(
     canStageLocalRevision: parsed?.canStageLocalRevision === true,
     liveWritesEnabled: parsed?.liveWritesEnabled === true,
     readOnlyRefresh: parsed?.readOnlyRefresh !== false,
+    canRename: parsed?.canRename === true,
+    canReveal: parsed?.canReveal === true,
+    canUseLocalComponents: parsed?.canUseLocalComponents === true,
   };
 }
 
@@ -306,6 +316,7 @@ function sourceMetadataLabel(
   if (sourceType === "builder-cms") return `builder.cms.${sourceTable}`;
   if (sourceType === "local-table") return `local.table.${sourceTable}`;
   if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
+  if (sourceType === "local-folder") return `local.folder.${sourceTable}`;
   return `mock-local.${sourceTable}`;
 }
 
@@ -3017,6 +3028,7 @@ export async function getContentDatabaseSourceSnapshotById(
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
+  documentIds?: string[],
 ): Promise<ContentDatabaseSource | null> {
   const db = getDb();
   if (sourceId) {
@@ -3032,6 +3044,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
     return source
       ? loadSourceSnapshot(source, database, {
           includeHeavyBuilderBodyValues: true,
+          documentIds,
         })
       : null;
   }
@@ -3046,6 +3059,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
   return source
     ? loadSourceSnapshot(source, database, {
         includeHeavyBuilderBodyValues: true,
+        documentIds,
       })
     : null;
 }
@@ -3086,8 +3100,12 @@ async function readSourceSnapshotRowsOnce(args: {
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
   includeHeavyBuilderBodyValues: boolean;
+  documentIds?: string[];
 }) {
   const db = getDb();
+  const documentScope = args.documentIds?.length
+    ? new Set(args.documentIds)
+    : null;
   const rowRows = await db
     .select(
       sourceSnapshotRowSelection({
@@ -3096,7 +3114,16 @@ async function readSourceSnapshotRowsOnce(args: {
       }),
     )
     .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
+    .where(
+      documentScope
+        ? and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            inArray(schema.contentDatabaseSourceRows.documentId, [
+              ...documentScope,
+            ]),
+          )
+        : eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+    )
     .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
   // For Builder sources, load ALL database items (not just synced source rows)
   // so brand-new local rows (no source link) can become create_draft change-sets.
@@ -3112,6 +3139,13 @@ async function readSourceSnapshotRowsOnce(args: {
           and(
             eq(schema.contentDatabaseItems.databaseId, args.database.id),
             eq(schema.contentDatabaseItems.ownerEmail, args.source.ownerEmail),
+            ...(documentScope
+              ? [
+                  inArray(schema.contentDatabaseItems.documentId, [
+                    ...documentScope,
+                  ]),
+                ]
+              : []),
           ),
         )
     : [];
@@ -3180,8 +3214,12 @@ async function sourceSnapshotConsistencyMarker(args: {
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
   includeHeavyBuilderBodyValues: boolean;
+  documentIds?: string[];
 }) {
   const db = getDb();
+  const documentScope = args.documentIds?.length
+    ? new Set(args.documentIds)
+    : null;
   const [rows] = await db
     .select({
       count: sql<number>`COUNT(*)`,
@@ -3190,7 +3228,16 @@ async function sourceSnapshotConsistencyMarker(args: {
       >`MAX(${schema.contentDatabaseSourceRows.updatedAt})`,
     })
     .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+    .where(
+      documentScope
+        ? and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            inArray(schema.contentDatabaseSourceRows.documentId, [
+              ...documentScope,
+            ]),
+          )
+        : eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+    );
   const [items] = args.isBuilderSource
     ? await db
         .select({
@@ -3204,6 +3251,13 @@ async function sourceSnapshotConsistencyMarker(args: {
           and(
             eq(schema.contentDatabaseItems.databaseId, args.database.id),
             eq(schema.contentDatabaseItems.ownerEmail, args.source.ownerEmail),
+            ...(documentScope
+              ? [
+                  inArray(schema.contentDatabaseItems.documentId, [
+                    ...documentScope,
+                  ]),
+                ]
+              : []),
           ),
         )
     : [{ count: 0, maxUpdatedAt: null }];
@@ -3232,6 +3286,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
   includeHeavyBuilderBodyValues: boolean;
+  documentIds?: string[];
 }) {
   let latest: Awaited<ReturnType<typeof readSourceSnapshotRowsOnce>> | null =
     null;
@@ -3247,7 +3302,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
-  options: { includeHeavyBuilderBodyValues: boolean },
+  options: { includeHeavyBuilderBodyValues: boolean; documentIds?: string[] },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, reviewRows, executionRows, propertyDefs] =
@@ -3260,7 +3315,17 @@ async function loadSourceSnapshot(
       db
         .select()
         .from(schema.contentDatabaseSourceChangeSets)
-        .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id))
+        .where(
+          options.documentIds?.length
+            ? and(
+                eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
+                inArray(
+                  schema.contentDatabaseSourceChangeSets.documentId,
+                  options.documentIds,
+                ),
+              )
+            : eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
+        )
         .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt)),
       db
         .select()
@@ -3341,6 +3406,7 @@ async function loadSourceSnapshot(
     database,
     isBuilderSource,
     includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
+    documentIds: options.documentIds,
   });
   const rows = rowRows.map((row) =>
     serializeSourceRowRecord(row, {
@@ -3655,6 +3721,14 @@ async function loadSourceSnapshot(
         metadata.allowPublicationTransitions === true,
       notes: metadata.notes ?? null,
       readMode: metadata.readMode ?? null,
+      connectionId: metadata.connectionId ?? null,
+      connectionLabel: metadata.connectionLabel ?? null,
+      truthPolicy:
+        metadata.truthPolicy === "database_primary" ||
+        metadata.truthPolicy === "source_primary" ||
+        metadata.truthPolicy === "reviewed_bidirectional"
+          ? metadata.truthPolicy
+          : undefined,
       liveReadConfigured: metadata.liveReadConfigured === true,
       lastReadEntryCount:
         typeof metadata.lastReadEntryCount === "number"
@@ -5050,6 +5124,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
     .select()
     .from(schema.documents)
     .where(eq(schema.documents.id, args.database.documentId));
+  if (!databaseDocument) throw new Error("Database page not found.");
   const currentItems = await db
     .select({
       item: schema.contentDatabaseItems,
@@ -5061,6 +5136,63 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
       eq(schema.documents.id, schema.contentDatabaseItems.documentId),
     )
     .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
+  let resolvedDatabaseSpaceId =
+    args.database.spaceId ?? databaseDocument.spaceId;
+  if (
+    args.database.spaceId &&
+    databaseDocument.spaceId &&
+    args.database.spaceId !== databaseDocument.spaceId
+  ) {
+    throw new Error(
+      "Database page and database belong to different Content spaces.",
+    );
+  }
+  if (!resolvedDatabaseSpaceId) {
+    const provisioned = await provisionContentSpaces(
+      db,
+      args.database.ownerEmail,
+    );
+    const legacyOrgId = args.database.orgId ?? databaseDocument.orgId;
+    resolvedDatabaseSpaceId = legacyOrgId
+      ? organizationContentSpaceId(legacyOrgId)
+      : provisioned.personalSpaceId;
+  }
+  const databaseSpaceId = resolvedDatabaseSpaceId;
+  if (
+    currentItems.some(
+      (row) => row.document.spaceId && row.document.spaceId !== databaseSpaceId,
+    )
+  ) {
+    throw new Error("Database contains a row from a different Content space.");
+  }
+  const legacyDocumentIds = [
+    databaseDocument.id,
+    ...currentItems
+      .filter((row) => !row.document.spaceId)
+      .map((row) => row.document.id),
+  ];
+  if (
+    args.database.spaceId !== databaseSpaceId ||
+    databaseDocument.spaceId !== databaseSpaceId ||
+    legacyDocumentIds.length > 1
+  ) {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.contentDatabases)
+        .set({ spaceId: databaseSpaceId, updatedAt: args.now })
+        .where(eq(schema.contentDatabases.id, args.database.id));
+      await tx
+        .update(schema.documents)
+        .set({ spaceId: databaseSpaceId, updatedAt: args.now })
+        .where(inArray(schema.documents.id, legacyDocumentIds));
+      await ensureDocumentsFilesMembership(
+        tx,
+        legacyDocumentIds,
+        args.now,
+        args.database.ownerEmail,
+      );
+    });
+  }
   const representedDocumentIds = new Set(
     (args.existingSourceRows ?? [])
       .map((row) => row.documentId)
@@ -5141,6 +5273,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
             );
             documentRows.push({
               id: documentId,
+              spaceId: databaseSpaceId,
               ownerEmail: args.database.ownerEmail,
               orgId: args.database.orgId,
               parentId: args.database.documentId,
@@ -5171,7 +5304,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
           await db.transaction(async (tx) => {
             for (const chunk of chunks(
               documentRows,
-              bulkChunkSizeForColumnCount(13),
+              bulkChunkSizeForColumnCount(14),
             )) {
               await tx
                 .insert(schema.documents)
@@ -5187,6 +5320,12 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
                 .values(chunk)
                 .onConflictDoNothing();
             }
+            await ensureDocumentsFilesMembership(
+              tx,
+              documentRows.map((row) => row.id),
+              args.now,
+              args.database.ownerEmail,
+            );
           });
 
           return { imported: itemRows.length, importedEntriesByDocumentId };
@@ -6120,6 +6259,13 @@ export async function ensureDatabaseSourceProperty(args: {
   database: ContentDatabaseRow;
   now: string;
 }) {
+  if (args.database.systemRole === "files") {
+    await ensureFilesSystemPropertyDefinitions({
+      database: args.database,
+      now: args.now,
+    });
+    return;
+  }
   const db = getDb();
   const sources = await db
     .select({

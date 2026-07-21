@@ -1,5 +1,5 @@
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -55,9 +55,23 @@ export async function getDocumentContextPath(
         eq(schema.contentDatabaseItems.documentId, document.id),
         isNull(schema.contentDatabases.deletedAt),
       ),
+    )
+    .orderBy(
+      sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+      asc(schema.contentDatabases.id),
+    );
+  const [backingDatabase] = await db
+    .select({ id: schema.contentDatabases.id })
+    .from(schema.contentDatabases)
+    .where(
+      and(
+        eq(schema.contentDatabases.documentId, document.id),
+        isNull(schema.contentDatabases.deletedAt),
+      ),
     );
   if (
     membership &&
+    !(membership.database.systemRole && backingDatabase) &&
     !path.some((entry) => entry.id === membership.database.id)
   ) {
     const databaseDocumentAccess = await resolveAccess(

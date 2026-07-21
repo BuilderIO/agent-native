@@ -1,10 +1,48 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { refreshAccessTokenWithFallback } from "./google-calendar-client";
+const mocks = vi.hoisted(() => ({
+  resolveGoogleProviderCredentialCandidatesWithReader: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS: {
+    clientIdKey: "GOOGLE_CLIENT_ID",
+    clientSecretKey: "GOOGLE_CLIENT_SECRET",
+  },
+  resolveGoogleProviderCredentialCandidatesWithReader:
+    mocks.resolveGoogleProviderCredentialCandidatesWithReader,
+}));
+
+import {
+  refreshAccessTokenWithFallback,
+  resolveGoogleOAuthCredentialCandidates,
+} from "./google-calendar-client";
 
 describe("Clips Google Calendar OAuth client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    mocks.resolveGoogleProviderCredentialCandidatesWithReader.mockReset();
+  });
+
+  it("restricts Clips Calendar OAuth to the primary Google credential pair", async () => {
+    mocks.resolveGoogleProviderCredentialCandidatesWithReader.mockResolvedValue(
+      [],
+    );
+
+    await expect(resolveGoogleOAuthCredentialCandidates()).resolves.toEqual([]);
+
+    expect(
+      mocks.resolveGoogleProviderCredentialCandidatesWithReader,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentialKeyPairs: [
+          {
+            clientIdKey: "GOOGLE_CLIENT_ID",
+            clientSecretKey: "GOOGLE_CLIENT_SECRET",
+          },
+        ],
+      }),
+    );
   });
 
   it("tries legacy credentials after a permanent refresh failure on the primary client", async () => {

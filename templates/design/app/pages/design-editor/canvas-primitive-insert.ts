@@ -62,6 +62,9 @@ export function nextBlankScreenFilename(files: DesignFile[]): string {
 export function blankScreenHtml(title: string): string {
   const safeTitle = escapeHtmlText(title);
   const safeTitleAttribute = escapeHtmlAttributeValue(title);
+  // Blank screen = free canvas: <body> is the positioned root and drawn shapes
+  // are absolute children (x,y in the HTML). A centering grid / <main> wrapper
+  // trapped shapes at center and got auto-layout-converted on drop.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -77,17 +80,9 @@ export function blankScreenHtml(title: string): string {
       color: var(--color-text, #111827);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    main {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 48px;
-    }
   </style>
 </head>
-<body>
-  <main data-agent-native-layer-name="${safeTitleAttribute}">
-  </main>
+<body data-agent-native-layer-name="${safeTitleAttribute}">
 </body>
 </html>`;
 }

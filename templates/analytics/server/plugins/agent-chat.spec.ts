@@ -19,6 +19,7 @@ import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
+  ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
@@ -41,6 +42,10 @@ function action(readOnly = true): ActionEntry {
 }
 
 describe("Analytics agent Plan mode policy", () => {
+  it("recovers a silent background dashboard run before the long chunk timeout", () => {
+    expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
+  });
+
   it("injects the simple, time-bounded metric fast path into source guidance", () => {
     const guidance = analyticsSourceGuidanceOpening();
 
@@ -145,6 +150,7 @@ describe("Analytics agent Plan mode policy", () => {
       "bigquery",
       "github-repo-files",
       "gong-calls",
+      "gong-native-insights",
       "hubspot-deals",
       "hubspot-pipelines",
       "hubspot-records",
@@ -158,7 +164,7 @@ describe("Analytics agent Plan mode policy", () => {
     ]);
   });
 
-  it("keeps corpus and provider reduction tools in the initial tool surface", () => {
+  it("keeps the generic corpus path and only conceptual provider recipes in the initial tool surface", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
@@ -169,10 +175,20 @@ describe("Analytics agent Plan mode policy", () => {
         "query-staged-dataset",
         "run-code",
         "get-code-execution",
+        "account-deep-dive",
+        "gong-calls",
+        "gong-native-insights",
+        "github-repo-files",
+      ]),
+    );
+    expect(INITIAL_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining([
         "hubspot-deals",
         "hubspot-records",
         "hubspot-pipelines",
-        "github-repo-files",
+        "jira-search",
+        "slack-messages",
+        "sentry",
       ]),
     );
   });

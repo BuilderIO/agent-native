@@ -9,12 +9,15 @@ const clientMocks = vi.hoisted(() => ({
   remove: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentChatSurface: () => <div data-testid="chat" />,
   useAgentChatContext: () => ({
     items: clientMocks.contextItems,
     remove: clientMocks.remove,
   }),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

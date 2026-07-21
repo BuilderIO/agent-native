@@ -1,3 +1,11 @@
+import { TextAttachmentAdapter } from "@agent-native/toolkit/composer/attachment-accept";
+import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
+import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
+import {
+  appendRealtimeVoiceTranscriptToRepository,
+  realtimeVoiceTranscriptRegistry,
+} from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import type { ComposerImageModelMenu } from "@agent-native/toolkit/composer/TiptapComposer";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -37,8 +45,9 @@ import React, {
 
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
-  ACTIVE_RUN_STATE_EVENT,
+  clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
+  getPendingTurn,
   getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
@@ -120,10 +129,12 @@ import {
 } from "./chat/runtime.js";
 import {
   ChatRunningContext,
+  ChatRunDurationContext,
   ApprovalContext,
   type ApprovalContextValue,
   ReconnectStreamMessage,
 } from "./chat/tool-call-display.js";
+import { useAgentChatLifecycleTracking } from "./chat/use-agent-chat-lifecycle-tracking.js";
 import { useReconnectReaderOwner } from "./chat/use-reconnect-reader-owner.js";
 import {
   MessageScroller,
@@ -143,24 +154,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
-import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
-import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
-import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
-  appendRealtimeVoiceTranscriptToRepository,
-  realtimeVoiceTranscriptRegistry,
-} from "./composer/realtime-voice-transcript.js";
-import {
+  AgentComposerFrame,
   TiptapComposer,
+  type AgentComposerLayoutVariant,
   type ComposerSubmitIntent,
-  type ComposerImageModelMenu,
+  type Reference,
   type TiptapComposerHandle,
-} from "./composer/TiptapComposer.js";
-import type {
-  AgentComposerLayoutVariant,
-  Reference,
-} from "./composer/types.js";
+} from "./composer/index.js";
 import { ContextMeter } from "./context-xray/ContextMeter.js";
 import { useNearBottomAutoscroll } from "./conversation/index.js";
 import {
@@ -172,6 +173,7 @@ import {
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
 import { useT } from "./i18n.js";
+import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -1608,6 +1610,29 @@ type QueuedMessage = {
   hideUserMessage?: boolean;
 };
 
+export function queuedMessageImageSources(
+  message: Pick<QueuedMessage, "attachments" | "images">,
+): string[] {
+  const sources = (message.attachments ?? []).flatMap((attachment) =>
+    attachment.content.flatMap((part) =>
+      part.type === "image" &&
+      "image" in part &&
+      typeof part.image === "string" &&
+      part.image.trim().length > 0
+        ? [part.image]
+        : [],
+    ),
+  );
+
+  for (const image of message.images ?? []) {
+    if (image.trim().length > 0 && !sources.includes(image)) {
+      sources.push(image);
+    }
+  }
+
+  return sources;
+}
+
 function AssistantChatUserMessageItem() {
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
@@ -1800,6 +1825,8 @@ export interface AssistantChatProps {
     models: string[];
     configured: boolean;
   }>;
+  /** Whether the model list is still being resolved. */
+  modelListLoading?: boolean;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort from the picker */
@@ -2174,6 +2201,7 @@ const AssistantChatInner = forwardRef<
     defaultModel,
     selectedEffort,
     availableModels,
+    modelListLoading,
     onModelChange,
     onEffortChange,
     imageModelMenu,
@@ -2185,6 +2213,7 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     historyReloadKey,
     externalStreaming = false,
+    agentChatSurface = "app",
   },
   ref,
 ) {
@@ -2236,6 +2265,14 @@ const AssistantChatInner = forwardRef<
   // (unsupported format, size cap, body-size rejection, drop errors).
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [composerText, setComposerText] = useState("");
+  const handleComposerTextChange = useCallback(
+    (text: string) => {
+      setComposerText(text);
+      onComposerTextChange?.(text);
+    },
+    [onComposerTextChange],
+  );
   const dropDepthRef = useRef(0);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
@@ -2354,6 +2391,11 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [authSessionAvailable, setAuthSessionAvailable] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  // The dequeue guard briefly stays locked after appending a queued turn so
+  // the adapter has time to claim the run. Wake the effect when that guard
+  // expires; otherwise a fast-completing turn can leave the remaining queue
+  // pending with no state transition left to trigger another dequeue.
+  const [queueWakeVersion, setQueueWakeVersion] = useState(0);
   const queuedMessagesRef = useRef<QueuedMessage[]>([]);
   const queueDirtyRef = useRef(false);
   const queueMutationVersionRef = useRef(0);
@@ -2554,24 +2596,12 @@ const AssistantChatInner = forwardRef<
   const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
     activeRunMatchesThread(getActiveRun(), threadId),
   );
-  useEffect(() => {
-    const syncActiveRun = (state = getActiveRun()) => {
-      setHasActiveServerRun(activeRunMatchesThread(state, threadId));
-    };
-    syncActiveRun();
-    const handler = (event: Event) => {
-      const state = (event as CustomEvent<{ state?: ActiveRunState | null }>)
-        .detail?.state;
-      syncActiveRun(state ?? null);
-    };
-    const storageHandler = () => syncActiveRun();
-    window.addEventListener(ACTIVE_RUN_STATE_EVENT, handler);
-    window.addEventListener("storage", storageHandler);
-    return () => {
-      window.removeEventListener(ACTIVE_RUN_STATE_EVENT, handler);
-      window.removeEventListener("storage", storageHandler);
-    };
-  }, [threadId]);
+  const trackStoppedRun = useAgentChatLifecycleTracking({
+    surface: agentChatSurface,
+    threadId,
+    tabId,
+    onActiveRunChange: setHasActiveServerRun,
+  });
   // Real running state drives submission/queue gating; UI running also covers
   // short auto-continuation gaps so the latest assistant message does not flash
   // into a done state while the agent is still working.
@@ -2584,6 +2614,25 @@ const AssistantChatInner = forwardRef<
     hasActiveServerRun,
   });
   const textStreaming = showRunningInUI || externalStreaming;
+  const chatRunStartedAtRef = useRef<number | null>(null);
+  const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
+    number | null
+  >(null);
+  useEffect(() => {
+    if (showRunningInUI) {
+      if (chatRunStartedAtRef.current == null) {
+        chatRunStartedAtRef.current = Date.now();
+        setLastChatRunDurationMs(null);
+      }
+      return;
+    }
+    if (chatRunStartedAtRef.current != null) {
+      setLastChatRunDurationMs(
+        Math.max(0, Date.now() - chatRunStartedAtRef.current),
+      );
+      chatRunStartedAtRef.current = null;
+    }
+  }, [showRunningInUI]);
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
   // ongoing work instead of exposing "Reconnecting" mid-chat.
@@ -3188,7 +3237,9 @@ const AssistantChatInner = forwardRef<
           const reconnectErrorCode =
             reconnectTerminalReason === "run_timeout"
               ? "run_timeout"
-              : "reconnect_no_progress";
+              : reconnectTerminalReason === "stream_ended"
+                ? "reconnect_stream_ended"
+                : "reconnect_no_progress";
           captureError(new Error(`agent-chat:${reconnectErrorCode}`), {
             tags: {
               context: "agent-native-chat",
@@ -3260,9 +3311,11 @@ const AssistantChatInner = forwardRef<
           }
           setRunErrorInfo({
             message:
-              reconnectTerminalReason === "run_timeout"
+              reconnectErrorCode === "run_timeout"
                 ? "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here."
-                : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+                : reconnectErrorCode === "reconnect_stream_ended"
+                  ? "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run."
+                  : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
             errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
@@ -4041,6 +4094,7 @@ const AssistantChatInner = forwardRef<
           if (appended) {
             window.setTimeout(() => {
               dequeueInFlightRef.current = false;
+              setQueueWakeVersion((version) => version + 1);
             }, 500);
           } else {
             dequeueInFlightRef.current = false;
@@ -4062,6 +4116,7 @@ const AssistantChatInner = forwardRef<
     applyLocalQueuedMessages,
     isRestoring,
     isRunning,
+    queueWakeVersion,
     queuedMessages,
     threadId,
   ]);
@@ -4262,10 +4317,12 @@ const AssistantChatInner = forwardRef<
       }
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+      const pendingTurn = threadId ? getPendingTurn(threadId) : null;
       userStoppedRunRef.current = {
         at: Date.now(),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
       };
+      trackStoppedRun(runIdToAbort);
       setRunErrorInfo(null);
       setDismissedRunErrorKey(null);
       if (runIdToAbort) {
@@ -4273,6 +4330,16 @@ const AssistantChatInner = forwardRef<
         fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
           method: "POST",
         }).catch(() => {});
+      } else if (pendingTurn && threadId) {
+        clearPendingTurnIfMatches(threadId, pendingTurn.turnId);
+        fetch(
+          `${apiUrl}/runs/turn/${encodeURIComponent(pendingTurn.turnId)}/abort`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threadId }),
+          },
+        ).catch(() => {});
       }
       if (isReconnecting) {
         reconnectAbortRef.current?.abort();
@@ -4319,6 +4386,7 @@ const AssistantChatInner = forwardRef<
       tabId,
       threadId,
       threadRuntime,
+      trackStoppedRun,
     ],
   );
   // Keep the ref current so addToQueue can call it without a stale closure.
@@ -4989,619 +5057,630 @@ const AssistantChatInner = forwardRef<
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ApprovalContext.Provider value={approvalCtx}>
-          <ChatRunningContext.Provider value={showRunningInUI}>
-            <TextStreamingContext.Provider value={textStreaming}>
-              <div
-                data-agent-empty-state={
-                  centeredEmptyState
-                    ? "centered"
-                    : compactMissingKeyEmptyState
-                      ? "compact-setup"
-                      : undefined
-                }
-                className={cn(
-                  "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
-                  className,
-                )}
-                onDragEnter={handleChatDragEnter}
-                onDragOver={handleChatDragOver}
-                onDragLeave={handleChatDragLeave}
-                onDropCapture={handleChatDropCapture}
-                onDrop={handleChatDrop}
-              >
-                {dropActive && (
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
-                  >
-                    <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
-                      Drop to attach
-                    </span>
-                  </div>
-                )}
-                {showHeader && (
-                  <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
-                    <span className="text-[13px] font-medium text-muted-foreground">
-                      Agent
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {onSwitchToCli && (
-                        <TooltipProvider delayDuration={200}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={onSwitchToCli}
-                                aria-label="Switch to CLI"
-                                className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-                              >
-                                <IconTerminal className="h-3.5 w-3.5" />
-                                CLI
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Switch to CLI</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Messages area */}
-                <MessageScrollerProvider
-                  key={chatScrollResetKey}
-                  autoScroll={false}
+          <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
+            <ChatRunningContext.Provider value={showRunningInUI}>
+              <TextStreamingContext.Provider value={textStreaming}>
+                <div
+                  data-agent-empty-state={
+                    centeredEmptyState
+                      ? "centered"
+                      : compactMissingKeyEmptyState
+                        ? "compact-setup"
+                        : undefined
+                  }
+                  className={cn(
+                    "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
+                    className,
+                  )}
+                  onDragEnter={handleChatDragEnter}
+                  onDragOver={handleChatDragOver}
+                  onDragLeave={handleChatDragLeave}
+                  onDropCapture={handleChatDropCapture}
+                  onDrop={handleChatDrop}
                 >
-                  <MessageScroller className="agent-chat-scroll">
-                    <MessageScrollerViewport ref={scrollRef}>
-                      {authError ? (
-                        <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            {authSessionAvailable ? (
-                              <IconRefresh className="h-5 w-5 text-muted-foreground" />
-                            ) : (
-                              <IconMessage className="h-5 w-5 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="text-center max-w-[280px]">
-                            <p className="text-sm font-medium text-foreground mb-1">
-                              {authSessionAvailable
-                                ? "Chat session needs refresh"
-                                : authError.sessionExpired
-                                  ? "Session expired"
-                                  : "Authentication required"}
-                            </p>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                              {authSessionAvailable
-                                ? "You're signed in, but this chat connection needs to reconnect."
-                                : authError.sessionExpired
-                                  ? "Your session may have expired. Log out and log back in to reconnect."
-                                  : "You need to log in to use the agent."}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            {!authError.sessionExpired &&
-                              !authSessionAvailable && (
+                  {dropActive && (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
+                    >
+                      <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                        Drop to attach
+                      </span>
+                    </div>
+                  )}
+                  {showHeader && (
+                    <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+                      <span className="text-[13px] font-medium text-muted-foreground">
+                        Agent
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {onSwitchToCli && (
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
                                 <button
-                                  onClick={() => {
-                                    const ret =
-                                      window.location.pathname +
-                                      window.location.search;
-                                    window.location.href =
-                                      agentNativePath(
-                                        "/_agent-native/sign-in",
-                                      ) + `?return=${encodeURIComponent(ret)}`;
-                                  }}
-                                  className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                  onClick={onSwitchToCli}
+                                  aria-label="Switch to CLI"
+                                  className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
                                 >
-                                  Log in
+                                  <IconTerminal className="h-3.5 w-3.5" />
+                                  CLI
                                 </button>
+                              </TooltipTrigger>
+                              <TooltipContent>Switch to CLI</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Messages area */}
+                  <MessageScrollerProvider
+                    key={chatScrollResetKey}
+                    autoScroll={false}
+                  >
+                    <MessageScroller className="agent-chat-scroll">
+                      <MessageScrollerViewport ref={scrollRef}>
+                        {authError ? (
+                          <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                              {authSessionAvailable ? (
+                                <IconRefresh className="h-5 w-5 text-muted-foreground" />
+                              ) : (
+                                <IconMessage className="h-5 w-5 text-muted-foreground" />
                               )}
-                            {authError.sessionExpired &&
-                              !authSessionAvailable && (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await fetch(
+                            </div>
+                            <div className="text-center max-w-[280px]">
+                              <p className="text-sm font-medium text-foreground mb-1">
+                                {authSessionAvailable
+                                  ? "Chat session needs refresh"
+                                  : authError.sessionExpired
+                                    ? "Session expired"
+                                    : "Authentication required"}
+                              </p>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                {authSessionAvailable
+                                  ? "You're signed in, but this chat connection needs to reconnect."
+                                  : authError.sessionExpired
+                                    ? "Your session may have expired. Log out and log back in to reconnect."
+                                    : "You need to log in to use the agent."}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              {!authError.sessionExpired &&
+                                !authSessionAvailable && (
+                                  <button
+                                    onClick={() => {
+                                      const ret =
+                                        window.location.pathname +
+                                        window.location.search;
+                                      window.location.href =
                                         agentNativePath(
-                                          "/_agent-native/auth/logout",
-                                        ),
-                                        {
-                                          method: "POST",
-                                        },
-                                      );
-                                    } catch {}
-                                    window.location.reload();
-                                  }}
-                                  className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
-                                >
-                                  Log out
-                                </button>
-                              )}
-                            <button
-                              onClick={() => {
-                                setAuthError(null);
-                                window.location.reload();
-                              }}
-                              className={
-                                authSessionAvailable
-                                  ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
-                                  : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
-                              }
-                            >
-                              Refresh chat
-                            </button>
-                          </div>
-                        </div>
-                      ) : isRestoring && centeredRestoringState ? (
-                        <div
-                          className={cn(
-                            "agent-empty-state",
-                            emptyStateDisplay === "hidden"
-                              ? "sr-only"
-                              : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
-                          )}
-                          aria-busy="true"
-                        >
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <IconMessage className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <p className="sr-only">
-                            {emptyStateText ?? "Loading chat..."}
-                          </p>
-                        </div>
-                      ) : isRestoring ? (
-                        <div className="flex flex-col gap-3 p-4">
-                          <div className="flex justify-end">
-                            <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <div className="h-4 w-48 rounded bg-muted animate-pulse" />
-                            <div className="h-4 w-64 rounded bg-muted animate-pulse" />
-                            <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-                          </div>
-                        </div>
-                      ) : showEmptyState ? (
-                        <div
-                          className={cn(
-                            "agent-empty-state",
-                            emptyStateDisplay === "hidden"
-                              ? "sr-only"
-                              : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
-                          )}
-                        >
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <IconMessage className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <p className="sr-only">
-                            {emptyStateText ?? "How can I help you?"}
-                          </p>
-                          {emptyStateAddon}
-                          {resolvedSuggestions &&
-                          resolvedSuggestions.length > 0 ? (
-                            <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                              {resolvedSuggestions.map((suggestion) => (
-                                <button
-                                  key={suggestion}
-                                  onClick={() => {
-                                    if (missingApiKey) {
-                                      requestMissingKeySetup();
-                                      return;
-                                    }
-                                    void addToQueue(suggestion);
-                                  }}
-                                  className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                                >
-                                  {suggestion}
-                                </button>
-                              ))}
+                                          "/_agent-native/sign-in",
+                                        ) +
+                                        `?return=${encodeURIComponent(ret)}`;
+                                    }}
+                                    className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                  >
+                                    Log in
+                                  </button>
+                                )}
+                              {authError.sessionExpired &&
+                                !authSessionAvailable && (
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        await fetch(
+                                          agentNativePath(
+                                            "/_agent-native/auth/logout",
+                                          ),
+                                          {
+                                            method: "POST",
+                                          },
+                                        );
+                                      } catch {}
+                                      window.location.reload();
+                                    }}
+                                    className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                                  >
+                                    Log out
+                                  </button>
+                                )}
+                              <button
+                                onClick={() => {
+                                  setAuthError(null);
+                                  window.location.reload();
+                                }}
+                                className={
+                                  authSessionAvailable
+                                    ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                    : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+                                }
+                              >
+                                Refresh chat
+                              </button>
                             </div>
-                          ) : null}
-                          {showInlineEmptyThreadFooterSlot ? (
-                            <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
-                              {resolvedThreadFooterSlot}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
-                          <AssistantMessageListErrorBoundary
-                            resetKey={messageListResetKey}
+                          </div>
+                        ) : isRestoring && centeredRestoringState ? (
+                          <div
+                            className={cn(
+                              "agent-empty-state",
+                              emptyStateDisplay === "hidden"
+                                ? "sr-only"
+                                : "flex h-full flex-col items-center justify-center gap-3 px-4 py-16",
+                            )}
+                            aria-busy="true"
                           >
-                            <ThreadPrimitive.Messages
-                              components={{
-                                UserMessage: AssistantChatUserMessageItem,
-                                AssistantMessage:
-                                  AssistantChatAssistantMessageItem,
-                              }}
-                            />
-                          </AssistantMessageListErrorBoundary>
-                          {visibleLoopLimit && !showRunningInUI && (
-                            <MessageScrollerItem>
-                              <LoopLimitContinueCard
-                                info={visibleLoopLimit}
-                                onContinue={() => {
-                                  setShowContinue(false);
-                                  setLoopLimitInfo(null);
-                                  addToQueue(
-                                    "Continue from where you left off.",
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    "queued",
-                                    "continue",
-                                  );
-                                }}
-                              />
-                            </MessageScrollerItem>
-                          )}
-                          {shouldShowRunError && visibleRunError && (
-                            <MessageScrollerItem>
-                              <RunErrorRecoveryCard
-                                info={visibleRunError}
-                                onContinue={() => {
-                                  setRunErrorInfo(null);
-                                  addToQueue(
-                                    RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    "queued",
-                                    "continue",
-                                  );
-                                }}
-                                onRetry={() => {
-                                  setRunErrorInfo(null);
-                                  addToQueue(
-                                    lastUserText
-                                      ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
-                                      : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    "queued",
-                                    "retry",
-                                  );
-                                }}
-                                onFork={onForkChat}
-                                onDismiss={() => {
-                                  if (visibleRunErrorKey) {
-                                    setDismissedRunErrorKey(visibleRunErrorKey);
-                                  }
-                                  setRunErrorInfo(null);
-                                }}
-                              />
-                            </MessageScrollerItem>
-                          )}
-                          {(isReconnecting ||
-                            reconnectFrozen ||
-                            adapterHandoffPending) &&
-                            visibleReconnectContent.length > 0 && (
-                              <MessageScrollerItem>
-                                <ReconnectStreamMessage
-                                  content={visibleReconnectContent}
-                                />
-                              </MessageScrollerItem>
+                            <IconMessage className="h-5 w-5 text-muted-foreground/60" />
+                            <p className="sr-only">
+                              {emptyStateText ?? "Loading chat..."}
+                            </p>
+                          </div>
+                        ) : isRestoring ? (
+                          <div className="flex flex-col gap-3 p-4">
+                            <div className="flex justify-end">
+                              <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+                              <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+                              <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+                            </div>
+                          </div>
+                        ) : showEmptyState ? (
+                          <div
+                            className={cn(
+                              "agent-empty-state",
+                              emptyStateDisplay === "hidden"
+                                ? "sr-only"
+                                : "flex h-full flex-col items-center justify-center gap-3 px-4 py-16",
                             )}
-                          {(isReconnecting ||
-                            reconnectFrozen ||
-                            adapterHandoffPending) &&
-                            visibleReconnectContent.length === 0 &&
-                            reconnectContent.length === 0 &&
-                            reconnectActivityContent.length > 0 && (
-                              <MessageScrollerItem>
-                                <ReconnectStreamMessage
-                                  content={reconnectActivityContent}
-                                />
-                              </MessageScrollerItem>
-                            )}
-                          {showGlobalRunningStatus && (
-                            <MessageScrollerItem>
-                              <RunningActivityStatus
-                                label={runningStatusLabel}
-                              />
-                            </MessageScrollerItem>
-                          )}
-                          {queuedMessages
-                            .filter((msg) => !msg.hideUserMessage)
-                            .map((msg) => {
-                              const displayText = displayableUserMessageText(
-                                msg.text,
-                              );
-                              return (
-                                <MessageScrollerItem
-                                  key={msg.id}
-                                  messageId={msg.id}
-                                >
-                                  <div className="group flex items-start justify-end gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        applyLocalQueuedMessages((prev) =>
-                                          prev.filter((m) => m.id !== msg.id),
-                                        )
+                          >
+                            <IconMessage className="h-5 w-5 text-muted-foreground/60" />
+                            <p className="sr-only">
+                              {emptyStateText ?? "How can I help you?"}
+                            </p>
+                            {emptyStateAddon}
+                            {resolvedSuggestions &&
+                            resolvedSuggestions.length > 0 ? (
+                              <div className="flex w-full max-w-[280px] flex-col gap-1">
+                                {resolvedSuggestions.map((suggestion) => (
+                                  <button
+                                    key={suggestion}
+                                    onClick={() => {
+                                      if (missingApiKey) {
+                                        requestMissingKeySetup();
+                                        return;
                                       }
-                                      aria-label="Remove from queue"
-                                      className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                    >
-                                      <IconX className="h-3 w-3" />
-                                    </button>
-                                    <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
-                                      {displayText}
-                                      {msg.images && msg.images.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                          {msg.images.map((img, j) => (
-                                            <img
-                                              key={j}
-                                              src={img}
-                                              alt=""
-                                              className="h-12 w-12 rounded object-cover border border-border/50"
-                                            />
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </MessageScrollerItem>
-                              );
-                            })}
-                          {resolvedThreadFooterSlot ? (
-                            <MessageScrollerItem>
-                              <div className="agent-thread-footer-slot">
+                                      void addToQueue(suggestion);
+                                    }}
+                                    className="w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                  >
+                                    {suggestion}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                            {showInlineEmptyThreadFooterSlot ? (
+                              <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
                                 {resolvedThreadFooterSlot}
                               </div>
-                            </MessageScrollerItem>
-                          ) : null}
-                        </MessageScrollerContent>
-                      )}
-                    </MessageScrollerViewport>
-                    {!authError &&
-                    !isRestoring &&
-                    !showEmptyState &&
-                    showScrollToBottom ? (
-                      <div className="shrink-0 flex justify-center -mb-1">
-                        <button
-                          type="button"
-                          onClick={scrollToBottom}
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
-                          aria-label="Scroll to bottom"
-                        >
-                          <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                        </button>
-                      </div>
-                    ) : null}
-                  </MessageScroller>
-                </MessageScrollerProvider>
-
-                {showComposerSlot ? composerSlot : null}
-                {showCenteredEmptyThreadFooterSlot ? (
-                  <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
-                    {resolvedThreadFooterSlot}
-                  </div>
-                ) : null}
-                {guidedQuestions && guidedQuestions.length > 0 && (
-                  <div className="shrink-0 px-3 pb-2">
-                    <GuidedQuestionFlow
-                      questions={guidedQuestions}
-                      onSubmit={handleGuidedQuestionsSubmit}
-                      onSkip={handleGuidedQuestionsSkip}
-                      {...(guidedQuestionsTitle
-                        ? { title: guidedQuestionsTitle }
-                        : {})}
-                      {...(guidedQuestionsDescription
-                        ? { description: guidedQuestionsDescription }
-                        : {})}
-                      {...(guidedQuestionsSkipLabel
-                        ? { skipLabel: guidedQuestionsSkipLabel }
-                        : {})}
-                      {...(guidedQuestionsSubmitLabel
-                        ? { submitLabel: guidedQuestionsSubmitLabel }
-                        : {})}
-                      className="h-auto items-stretch justify-stretch bg-transparent"
-                    />
-                  </div>
-                )}
-                {/* Inline attachment / body-size error */}
-                {composerError && (
-                  <div
-                    role="alert"
-                    className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                  >
-                    <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span className="flex-1 leading-snug">{composerError}</span>
-                    <button
-                      type="button"
-                      aria-label="Dismiss error"
-                      onClick={() => setComposerError(null)}
-                      className="shrink-0 opacity-70 hover:opacity-100"
-                    >
-                      <IconX className="h-3 w-3" />
-                    </button>
-                  </div>
-                )}
-                <div
-                  className="agent-composer-stack"
-                  data-agent-composer-adjacent-ui={
-                    hasComposerAccessoryAboveStack ? "true" : undefined
-                  }
-                >
-                  <SelectionAttachedPill />
-                  {showPlanModeCallout && (
-                    <PlanModeCallout
-                      canImplementPlan={canImplementPlan}
-                      onImplementPlan={handleImplementPlan}
-                      onSwitchToAct={handleSwitchToAct}
-                    />
-                  )}
-                  {/* Input area */}
-                  <Popover
-                    open={showMissingKeySetup && missingKeySetupOpen}
-                    onOpenChange={setMissingKeySetupOpen}
-                  >
-                    <AgentComposerFrame
-                      layoutVariant={composerLayoutVariant}
-                      className={cn(
-                        composerAreaClassName,
-                        isComposerDisabled &&
-                          !showMissingKeySetup &&
-                          "opacity-70",
-                      )}
-                      rootClassName={cn(
-                        showMissingKeySetup &&
-                          "agent-composer-root--missing-key",
-                      )}
-                    >
-                      {showMissingKeySetup ? (
-                        <PopoverTrigger asChild>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
+                            <AssistantMessageListErrorBoundary
+                              resetKey={messageListResetKey}
+                            >
+                              <ThreadPrimitive.Messages
+                                components={{
+                                  UserMessage: AssistantChatUserMessageItem,
+                                  AssistantMessage:
+                                    AssistantChatAssistantMessageItem,
+                                }}
+                              />
+                            </AssistantMessageListErrorBoundary>
+                            {visibleLoopLimit && !showRunningInUI && (
+                              <MessageScrollerItem>
+                                <LoopLimitContinueCard
+                                  info={visibleLoopLimit}
+                                  onContinue={() => {
+                                    setShowContinue(false);
+                                    setLoopLimitInfo(null);
+                                    addToQueue(
+                                      "Continue from where you left off.",
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      "queued",
+                                      "continue",
+                                    );
+                                  }}
+                                />
+                              </MessageScrollerItem>
+                            )}
+                            {shouldShowRunError && visibleRunError && (
+                              <MessageScrollerItem>
+                                <RunErrorRecoveryCard
+                                  info={visibleRunError}
+                                  onContinue={() => {
+                                    setRunErrorInfo(null);
+                                    addToQueue(
+                                      RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      "queued",
+                                      "continue",
+                                    );
+                                  }}
+                                  onRetry={() => {
+                                    setRunErrorInfo(null);
+                                    addToQueue(
+                                      lastUserText
+                                        ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+                                        : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      "queued",
+                                      "retry",
+                                    );
+                                  }}
+                                  onFork={onForkChat}
+                                  onDismiss={() => {
+                                    if (visibleRunErrorKey) {
+                                      setDismissedRunErrorKey(
+                                        visibleRunErrorKey,
+                                      );
+                                    }
+                                    setRunErrorInfo(null);
+                                  }}
+                                />
+                              </MessageScrollerItem>
+                            )}
+                            {(isReconnecting ||
+                              reconnectFrozen ||
+                              adapterHandoffPending) &&
+                              visibleReconnectContent.length > 0 && (
+                                <MessageScrollerItem>
+                                  <ReconnectStreamMessage
+                                    content={visibleReconnectContent}
+                                  />
+                                </MessageScrollerItem>
+                              )}
+                            {(isReconnecting ||
+                              reconnectFrozen ||
+                              adapterHandoffPending) &&
+                              visibleReconnectContent.length === 0 &&
+                              reconnectContent.length === 0 &&
+                              reconnectActivityContent.length > 0 && (
+                                <MessageScrollerItem>
+                                  <ReconnectStreamMessage
+                                    content={reconnectActivityContent}
+                                  />
+                                </MessageScrollerItem>
+                              )}
+                            {showGlobalRunningStatus && (
+                              <MessageScrollerItem>
+                                <RunningActivityStatus
+                                  label={runningStatusLabel}
+                                />
+                              </MessageScrollerItem>
+                            )}
+                            {queuedMessages
+                              .filter((msg) => !msg.hideUserMessage)
+                              .map((msg) => {
+                                const displayText = displayableUserMessageText(
+                                  msg.text,
+                                );
+                                const imageSources =
+                                  queuedMessageImageSources(msg);
+                                return (
+                                  <MessageScrollerItem
+                                    key={msg.id}
+                                    messageId={msg.id}
+                                  >
+                                    <div className="group flex items-start justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          applyLocalQueuedMessages((prev) =>
+                                            prev.filter((m) => m.id !== msg.id),
+                                          )
+                                        }
+                                        aria-label="Remove from queue"
+                                        className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                      >
+                                        <IconX className="h-3 w-3" />
+                                      </button>
+                                      <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
+                                        {displayText}
+                                        {imageSources.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {imageSources.map((img, j) => (
+                                              <img
+                                                key={j}
+                                                src={img}
+                                                alt=""
+                                                className="h-12 w-12 rounded object-cover border border-border/50"
+                                              />
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </MessageScrollerItem>
+                                );
+                              })}
+                            {resolvedThreadFooterSlot ? (
+                              <MessageScrollerItem>
+                                <div className="agent-thread-footer-slot">
+                                  {resolvedThreadFooterSlot}
+                                </div>
+                              </MessageScrollerItem>
+                            ) : null}
+                          </MessageScrollerContent>
+                        )}
+                      </MessageScrollerViewport>
+                      {!authError &&
+                      !isRestoring &&
+                      !showEmptyState &&
+                      showScrollToBottom ? (
+                        <div className="shrink-0 flex justify-center -mb-1">
                           <button
                             type="button"
-                            className="agent-composer-missing-key-trigger"
-                            aria-label="Connect AI to start chatting"
+                            onClick={scrollToBottom}
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+                            aria-label="Scroll to bottom"
                           >
-                            <span className="agent-composer-missing-key-copy">
-                              <span className="agent-composer-missing-key-title">
-                                {missingApiKeySetupLayout === "sidebar"
-                                  ? "Connect AI to chat"
-                                  : "Connect AI to start chatting"}
-                              </span>
-                              {missingApiKeySetupLayout !== "sidebar" ? (
-                                <span className="agent-composer-missing-key-description">
-                                  Builder.io includes free credits, or use your
-                                  own API key.
-                                </span>
-                              ) : null}
-                            </span>
+                            <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                           </button>
-                        </PopoverTrigger>
-                      ) : (
-                        <>
-                          <ComposerAttachmentPreviewStrip />
-                          <TiptapComposer
-                            focusRef={tiptapRef}
-                            onTextChange={
-                              isActiveComposer
-                                ? onComposerTextChange
-                                : undefined
-                            }
-                            disabled={isComposerDisabled}
-                            placeholder={
-                              missingApiKey
-                                ? "Connect AI to start chatting..."
-                                : isProviderStatusChecking
-                                  ? t("agentPanel.checkingAiConnection")
-                                  : composerDisabled
-                                    ? (composerDisabledPlaceholder ??
-                                      "Open Desktop to use this chat.")
-                                    : isRunning
-                                      ? queuedMessages.length > 0
-                                        ? `${queuedMessages.length} queued — send a follow-up...`
-                                        : "Send a follow-up..."
-                                      : composerPlaceholder
-                            }
-                            onSubmit={
-                              isRunning || composerContextItems.length > 0
-                                ? (text, references, attachments, options) =>
-                                    void addToQueue(
-                                      text,
-                                      undefined,
-                                      references.length > 0
-                                        ? references
-                                        : undefined,
-                                      attachments,
-                                      undefined,
-                                      resolveAssistantChatSubmitIntent({
-                                        isRunning,
-                                        requestedIntent: options?.intent,
-                                      }),
-                                      undefined,
-                                      true,
-                                    )
-                                : undefined
-                            }
-                            onSlashCommand={onSlashCommand}
-                            execMode={execMode}
-                            onExecModeChange={onExecModeChange}
-                            planModeDisabled={planModeDisabled}
-                            planModeDisabledReason={planModeDisabledReason}
-                            selectedModel={selectedModel ?? defaultModel}
-                            selectedEffort={selectedEffort}
-                            availableModels={availableModels}
-                            onModelChange={onModelChange}
-                            onEffortChange={onEffortChange}
-                            imageModelMenu={imageModelMenu}
-                            onConnectProvider={onConnectProvider}
-                            onConnectLocalRuntime={onConnectLocalRuntime}
-                            toolbarSlot={composerToolbarSlot}
-                            contextItems={composerContextItems}
-                            onRemoveContextItem={removeComposerContextItem}
-                            plusMenuMode={plusMenuMode}
-                            layoutVariant={composerLayoutVariant}
-                            providerConnectStatusEnabled={
-                              providerStatusChecksEnabled
-                            }
-                            voiceEnabled
-                            draftScope={threadId || tabId}
-                            interceptBuildRequestsForBuilder
-                            onAttachmentError={setComposerError}
-                            extraActionButton={
-                              contextXRayEnabled ||
-                              composerExtraActionButton ? (
-                                <>
-                                  {contextXRayEnabled && (
-                                    <ContextMeter threadId={threadId} />
-                                  )}
-                                  {composerExtraActionButton}
-                                </>
-                              ) : undefined
-                            }
-                            stopButton={
-                              showRunningInUI ? (
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <button
-                                      type="button"
-                                      onClick={() => stopActiveRun()}
-                                      aria-label="Stop response"
-                                      data-agent-composer-slot="stop-button"
-                                      className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                    >
-                                      <IconPlayerStopFilled className="h-3 w-3" />
-                                    </button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Stop response</TooltipContent>
-                                </Tooltip>
-                              ) : undefined
-                            }
-                          />
-                        </>
-                      )}
-                    </AgentComposerFrame>
-                    {showMissingKeySetup ? (
-                      <PopoverContent
-                        side={
-                          missingApiKeySetupLayout === "sidebar"
-                            ? "top"
-                            : "bottom"
-                        }
-                        align="center"
-                        sideOffset={8}
-                        collisionPadding={12}
-                        data-agent-native-composer-popover="true"
-                        className="z-[260] box-border w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,26rem),26rem)] rounded-lg border-border p-3 shadow-lg"
+                        </div>
+                      ) : null}
+                    </MessageScroller>
+                  </MessageScrollerProvider>
+
+                  {showComposerSlot ? composerSlot : null}
+                  {isActiveComposer && (
+                    <McpConnectionSuggestion text={composerText} />
+                  )}
+                  {showCenteredEmptyThreadFooterSlot ? (
+                    <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
+                      {resolvedThreadFooterSlot}
+                    </div>
+                  ) : null}
+                  {guidedQuestions && guidedQuestions.length > 0 && (
+                    <div className="shrink-0 px-3 pb-2">
+                      <GuidedQuestionFlow
+                        questions={guidedQuestions}
+                        onSubmit={handleGuidedQuestionsSubmit}
+                        onSkip={handleGuidedQuestionsSkip}
+                        {...(guidedQuestionsTitle
+                          ? { title: guidedQuestionsTitle }
+                          : {})}
+                        {...(guidedQuestionsDescription
+                          ? { description: guidedQuestionsDescription }
+                          : {})}
+                        {...(guidedQuestionsSkipLabel
+                          ? { skipLabel: guidedQuestionsSkipLabel }
+                          : {})}
+                        {...(guidedQuestionsSubmitLabel
+                          ? { submitLabel: guidedQuestionsSubmitLabel }
+                          : {})}
+                        className="h-auto items-stretch justify-stretch bg-transparent"
+                      />
+                    </div>
+                  )}
+                  {/* Inline attachment / body-size error */}
+                  {composerError && (
+                    <div
+                      role="alert"
+                      className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                    >
+                      <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span className="flex-1 leading-snug">
+                        {composerError}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Dismiss error"
+                        onClick={() => setComposerError(null)}
+                        className="shrink-0 opacity-70 hover:opacity-100"
                       >
-                        <BuilderSetupContent
-                          onConnected={handleBuilderConnected}
-                          layout={missingApiKeySetupLayout}
-                        />
-                      </PopoverContent>
-                    ) : null}
-                  </Popover>
+                        <IconX className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  <div
+                    className="agent-composer-stack"
+                    data-agent-composer-adjacent-ui={
+                      hasComposerAccessoryAboveStack ? "true" : undefined
+                    }
+                  >
+                    <SelectionAttachedPill />
+                    {showPlanModeCallout && (
+                      <PlanModeCallout
+                        canImplementPlan={canImplementPlan}
+                        onImplementPlan={handleImplementPlan}
+                        onSwitchToAct={handleSwitchToAct}
+                      />
+                    )}
+                    {/* Input area */}
+                    <Popover
+                      open={showMissingKeySetup && missingKeySetupOpen}
+                      onOpenChange={setMissingKeySetupOpen}
+                    >
+                      <AgentComposerFrame
+                        layoutVariant={composerLayoutVariant}
+                        className={cn(
+                          composerAreaClassName,
+                          isComposerDisabled &&
+                            !showMissingKeySetup &&
+                            "opacity-70",
+                        )}
+                        rootClassName={cn(
+                          showMissingKeySetup &&
+                            "agent-composer-root--missing-key",
+                        )}
+                      >
+                        {showMissingKeySetup ? (
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="agent-composer-missing-key-trigger"
+                              aria-label="Connect AI to start chatting"
+                            >
+                              <span className="agent-composer-missing-key-copy">
+                                <span className="agent-composer-missing-key-title">
+                                  {missingApiKeySetupLayout === "sidebar"
+                                    ? "Connect AI to chat"
+                                    : "Connect AI to start chatting"}
+                                </span>
+                                {missingApiKeySetupLayout !== "sidebar" ? (
+                                  <span className="agent-composer-missing-key-description">
+                                    Builder.io includes free credits, or use
+                                    your own API key.
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                          </PopoverTrigger>
+                        ) : (
+                          <>
+                            <ComposerAttachmentPreviewStrip />
+                            <TiptapComposer
+                              focusRef={tiptapRef}
+                              onTextChange={
+                                isActiveComposer
+                                  ? handleComposerTextChange
+                                  : undefined
+                              }
+                              disabled={isComposerDisabled}
+                              placeholder={
+                                missingApiKey
+                                  ? "Connect AI to start chatting..."
+                                  : isProviderStatusChecking
+                                    ? t("agentPanel.checkingAiConnection")
+                                    : composerDisabled
+                                      ? (composerDisabledPlaceholder ??
+                                        "Open Desktop to use this chat.")
+                                      : isRunning
+                                        ? queuedMessages.length > 0
+                                          ? `${queuedMessages.length} queued — send a follow-up...`
+                                          : "Send a follow-up..."
+                                        : composerPlaceholder
+                              }
+                              onSubmit={
+                                isRunning || composerContextItems.length > 0
+                                  ? (text, references, attachments, options) =>
+                                      void addToQueue(
+                                        text,
+                                        undefined,
+                                        references.length > 0
+                                          ? references
+                                          : undefined,
+                                        attachments,
+                                        undefined,
+                                        resolveAssistantChatSubmitIntent({
+                                          isRunning,
+                                          requestedIntent: options?.intent,
+                                        }),
+                                        undefined,
+                                        true,
+                                      )
+                                  : undefined
+                              }
+                              onSlashCommand={onSlashCommand}
+                              execMode={execMode}
+                              onExecModeChange={onExecModeChange}
+                              planModeDisabled={planModeDisabled}
+                              planModeDisabledReason={planModeDisabledReason}
+                              selectedModel={selectedModel ?? defaultModel}
+                              selectedEffort={selectedEffort}
+                              availableModels={availableModels}
+                              modelListLoading={modelListLoading}
+                              onModelChange={onModelChange}
+                              onEffortChange={onEffortChange}
+                              imageModelMenu={imageModelMenu}
+                              onConnectProvider={onConnectProvider}
+                              onConnectLocalRuntime={onConnectLocalRuntime}
+                              toolbarSlot={composerToolbarSlot}
+                              contextItems={composerContextItems}
+                              onRemoveContextItem={removeComposerContextItem}
+                              plusMenuMode={plusMenuMode}
+                              layoutVariant={composerLayoutVariant}
+                              providerConnectStatusEnabled={
+                                providerStatusChecksEnabled
+                              }
+                              voiceEnabled
+                              draftScope={threadId || tabId}
+                              interceptBuildRequestsForBuilder
+                              onAttachmentError={setComposerError}
+                              extraActionButton={
+                                contextXRayEnabled ||
+                                composerExtraActionButton ? (
+                                  <>
+                                    {contextXRayEnabled && (
+                                      <ContextMeter threadId={threadId} />
+                                    )}
+                                    {composerExtraActionButton}
+                                  </>
+                                ) : undefined
+                              }
+                              stopButton={
+                                showRunningInUI ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() => stopActiveRun()}
+                                        aria-label="Stop response"
+                                        data-agent-composer-slot="stop-button"
+                                        className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                      >
+                                        <IconPlayerStopFilled className="h-3 w-3" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Stop response
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : undefined
+                              }
+                            />
+                          </>
+                        )}
+                      </AgentComposerFrame>
+                      {showMissingKeySetup ? (
+                        <PopoverContent
+                          side={
+                            missingApiKeySetupLayout === "sidebar"
+                              ? "top"
+                              : "bottom"
+                          }
+                          align="center"
+                          sideOffset={8}
+                          collisionPadding={12}
+                          data-agent-native-composer-popover="true"
+                          className="z-[260] box-border w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,26rem),26rem)] rounded-lg border-border p-3 shadow-lg"
+                        >
+                          <BuilderSetupContent
+                            onConnected={handleBuilderConnected}
+                            layout={missingApiKeySetupLayout}
+                          />
+                        </PopoverContent>
+                      ) : null}
+                    </Popover>
+                  </div>
                 </div>
-              </div>
-            </TextStreamingContext.Provider>
-          </ChatRunningContext.Provider>
+              </TextStreamingContext.Provider>
+            </ChatRunningContext.Provider>
+          </ChatRunDurationContext.Provider>
         </ApprovalContext.Provider>
       </MessageActionsContext.Provider>
     </CheckpointContext.Provider>

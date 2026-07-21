@@ -231,6 +231,14 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 タスクが最終状態に達するまで、これらの引数を使用して `ask_app_status` を呼び出してください。Dispatch のアプリ所有の `ask_app` は同じ永続的なタスクとステータスの契約を使用し、選択されたアプリの許可は送信時とポーリング時の両方でチェックされます。
 
+制限された一時的なステータス取得を利用できない場合、`ask_app_status` は
+`status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、元の
+`app` と `taskId`、および `pollAfterMs` / `poll` を返すことがあります。これは
+ステータス取得が利用できないことを意味し、永続タスクが失敗したことを意味しません。
+まったく同じ `app` と `taskId` で `ask_app_status` を再試行してください。送信により
+作業が重複する可能性があるため、復旧のために `ask_app` を再送信してはいけません。
+永続的な認証、未検出、プロトコルのエラーは引き続きエラーです。
+
 ## 認証 {#authentication}
 
 MCP エンドポイントは、標準のリモート MCP OAuth に加えて、既存のベアラー トークン フォールバックをサポートします。

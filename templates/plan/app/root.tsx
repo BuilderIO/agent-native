@@ -1,17 +1,17 @@
-import { useDbSync } from "@agent-native/core/client";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
-  getLocaleInitScript,
-  getThemeInitScript,
-  markAgentChatHomeHandoff,
-  navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
   useCommandMenuShortcut,
-  useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
   IconBrain,
   IconMoon,
@@ -153,7 +153,6 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
     (path: string) => {
-      if (path !== "/") markAgentChatHomeHandoff("plans");
       navigateWithAgentChatViewTransition(navigate, path);
       setCmdkOpen(false);
     },
@@ -257,4 +256,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

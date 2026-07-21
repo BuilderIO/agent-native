@@ -35,7 +35,7 @@ vi.mock("../AgentPanel.js", () => ({
   AgentToggleButton: () => <button type="button">Agent</button>,
 }));
 
-vi.mock("../composer/PromptComposer.js", () => ({
+vi.mock("../composer/index.js", () => ({
   PromptComposer: () => <div />,
 }));
 

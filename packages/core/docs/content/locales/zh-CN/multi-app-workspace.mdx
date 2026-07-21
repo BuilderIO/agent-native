@@ -5,7 +5,7 @@ description: "在一个单一存储库中托管许多代理本机应用程序，
 
 # 多应用工作区
 
-> **哪个工作区文档？** 此页面涵盖 **部署形状** - 一个单一存储库、许多应用程序、共享身份验证和统一部署。对于工作空间*是什么*（自定义层：`AGENTS.md`、`LEARNINGS.md`、个人内存、skills、自定义代理），请参阅 [Workspace](/docs/workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
+> **哪个工作区文档？** 此页面涵盖 **部署形状** - 一个单一存储库、许多应用程序、共享身份验证和统一部署。对于代理自定义层（代理资源：`AGENTS.md`、内存、skills、自定义代理），请参阅 [代理资源](/docs/workspace)；有关治理（谁审查、批准和拥有什么），请参阅 [Workspace Governance](/docs/workspace-management)。
 
 当对内部工具进行振动编码需要一个下午时，您不会停下来。一个团队最终得到了一个 CRM、一个支持收件箱、一个仪表板、一个操作控制台——十个小应用程序，每个应用程序都是独立搭建的。这很好，直到您需要更改所有内容为止。
 
@@ -218,7 +218,7 @@ pnpm dev
 
 使用 `packages/shared` 作为应随存储库附带的代码级默认值：插件、共享 actions、共享 React 代码、文件系统 `AGENTS.md` 和文件系统 skills。将 Dispatch 工作区资源用于管理员希望在不更改代码的情况下进行管理的运行时可编辑全局上下文。
 
-调度资源的范围为**所有应用程序**（每个应用程序在运行时继承它们，没有复制或同步步骤）或**选定的应用程序**（为每个应用程序授予特定于应用程序的上下文）。请参阅 [Workspace](/docs/workspace#global-resources) 了解完整的资源模型表、路径约定和推荐的入门包。
+调度资源的范围为**所有应用程序**（每个应用程序在运行时继承它们，没有复制或同步步骤）或**选定的应用程序**（为每个应用程序授予特定于应用程序的上下文）。请参阅 [代理资源](/docs/workspace#global-resources) 了解完整的资源模型表、路径约定和推荐的入门包。
 
 ## 身份验证和RBAC {#auth-and-rbac}
 
@@ -415,7 +415,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ## 另请参阅 {#see-also}
 
-- [Workspace](/docs/workspace) - 工作区中每个应用共享的自定义层（`AGENTS.md`、`LEARNINGS.md`、个人内存、skills、自定义代理）。
+- [代理资源](/docs/workspace) - 工作区中每个应用共享的自定义层（`AGENTS.md`、`LEARNINGS.md`、个人内存、skills、自定义代理）。
 - [Workspace Governance](/docs/workspace-management) — 分支、CODEOWNERS、一个存储库中多个应用的 PR 审核。
 - [Multi-Tenancy](/docs/multi-tenancy) — 组织、角色和每个组织的数据隔离。
 - [Cross-App SSO](/docs/cross-app-sso) — 用于单独域部署的身份联合。

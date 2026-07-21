@@ -363,8 +363,9 @@ interface AuthSession {
 클라이언트에서는 `useSession()` 후크를 사용합니다.
 
 ```ts
-import { useSession } from "@agent-native/core/client";
-
+import {
+  useSession,
+} from "@agent-native/core/client/hooks"
 function MyComponent() {
   const { session, isLoading } = useSession();
   if (isLoading) return <p>Loading...</p>;

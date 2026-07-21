@@ -10,6 +10,7 @@
 
 import {
   getSetting,
+  mutateSetting,
   putSetting,
   deleteSetting,
   getAllSettings,
@@ -38,6 +39,18 @@ export async function putOrgSetting(
   options?: StoreWriteOptions,
 ): Promise<void> {
   return putSetting(orgKey(orgId, key), value, options);
+}
+
+/** Atomically derive and persist an org-scoped setting. */
+export async function mutateOrgSetting(
+  orgId: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  options?: StoreWriteOptions,
+): Promise<Record<string, unknown>> {
+  return mutateSetting(orgKey(orgId, key), updater, options);
 }
 
 /** Delete an org-scoped setting. */

@@ -575,6 +575,7 @@ describe("content database source actions", () => {
     expect(
       prepareReview.schema.parse({
         documentId: "database-page",
+        documentIds: ["document-1"],
         changeSetIds: ["change-set"],
         pushModeConfirmation: "publish",
         transitions: {
@@ -586,6 +587,7 @@ describe("content database source actions", () => {
       }),
     ).toEqual({
       documentId: "database-page",
+      documentIds: ["document-1"],
       changeSetIds: ["change-set"],
       pushModeConfirmation: "publish",
       transitions: {

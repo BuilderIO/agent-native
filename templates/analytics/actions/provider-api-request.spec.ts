@@ -72,7 +72,7 @@ describe("provider API escape hatch", () => {
     expect(result.providers).toHaveLength(1);
     expect(result.providers[0]).toMatchObject({
       id: "hubspot",
-      auth: "bearer",
+      auth: "oauth-bearer:hubspot-or-bearer-key:HUBSPOT_PRIVATE_APP_TOKEN,HUBSPOT_ACCESS_TOKEN",
       credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
     });
     expect(result.providers[0].docsUrls[0]).toContain("hubspot");
@@ -105,6 +105,32 @@ describe("provider API escape hatch", () => {
       ]),
     );
     expect(JSON.stringify(result)).not.toContain("secret-token");
+  });
+
+  it("routes Slack and Notion exhaustive reads through paginated corpus recipes", async () => {
+    const slack = (await providerApiCatalog.run({
+      provider: "slack",
+    })) as Record<string, any>;
+    const notion = (await providerApiCatalog.run({
+      provider: "notion",
+    })) as Record<string, any>;
+
+    expect(slack.providers[0].corpusRecipes[0]).toMatchObject({
+      request: { method: "GET", path: "/conversations.history" },
+      pagination: {
+        itemsPath: "messages",
+        nextCursorPath: "response_metadata.next_cursor",
+        cursorParam: "cursor",
+      },
+    });
+    expect(notion.providers[0].corpusRecipes[0]).toMatchObject({
+      request: { method: "POST", path: "/data_sources/<data-source-id>/query" },
+      pagination: {
+        itemsPath: "results",
+        nextCursorPath: "next_cursor",
+        cursorBodyPath: "start_cursor",
+      },
+    });
   });
 
   it("makes arbitrary authenticated provider requests and redacts secrets", async () => {

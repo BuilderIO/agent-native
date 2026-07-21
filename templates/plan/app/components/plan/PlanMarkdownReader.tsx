@@ -1,5 +1,5 @@
 import { CodeSurface } from "@agent-native/core/blocks";
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLink } from "@tabler/icons-react";
 import type { ComponentPropsWithoutRef, ElementType, ReactNode } from "react";
 import { isValidElement, useCallback, useRef } from "react";

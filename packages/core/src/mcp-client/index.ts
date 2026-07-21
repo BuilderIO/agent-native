@@ -24,6 +24,7 @@ export {
 export {
   listRemoteServers,
   addRemoteServer,
+  addOAuthRemoteServer,
   addFirstPartyRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
   removeRemoteServer,
@@ -38,6 +39,19 @@ export {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+
+export {
+  finishMcpOAuthAuthorization,
+  getMcpOAuthAccessToken,
+  readMcpOAuthCredentials,
+  saveMcpOAuthCredentials,
+  startMcpOAuthAuthorization,
+  type McpOAuthCallbackResult,
+  type McpOAuthCredentialBundle,
+  type McpOAuthDiscoveryState,
+  type McpOAuthProviderOptions,
+  type McpOAuthStartResult,
+} from "./oauth-client.js";
 
 export {
   areBuiltinMcpCapabilitiesSupported,
@@ -80,6 +94,13 @@ export {
 export { fetchHubServers } from "./hub-client.js";
 
 export { isMcpToolAllowedForRequest } from "./visibility.js";
+export {
+  callMcpTool,
+  listVisibleMcpTools,
+  McpAppApiError,
+  type AppMcpTool,
+  type ListVisibleMcpToolsOptions,
+} from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 export {
   classifyMcpToolCall,
@@ -92,12 +113,21 @@ export {
 } from "./tool-policy.js";
 export {
   configureScreenMemory,
+  queryScreenMemoryForAgent,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
   type ScreenMemoryConfig,
+  type ScreenMemoryAgentQueryResult,
   type ScreenMemoryContextItem,
+  type ScreenMemoryCoverageGap,
+  type ScreenMemoryEvidenceItem,
+  type ScreenMemoryEvidenceSourceType,
   type ScreenMemoryQueryResult,
+  type ScreenMemoryRetrievalCoverage,
+  type ScreenMemorySegmentReference,
   type ScreenMemoryStatus,
+  type ScreenMemoryTimeRange,
+  type ScreenMemoryTruncation,
 } from "./screen-memory-local.js";
 export {
   MCP_ACTION_RESULT_MARKER,

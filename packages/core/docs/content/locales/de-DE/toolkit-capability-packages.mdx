@@ -1,0 +1,21 @@
+---
+title: "Capability-Pakete"
+description: "Verwalten Sie fachliche Fähigkeiten und ihren manifestgesteuerten Lebenszyklus, ohne sie in Toolkit einzugliedern."
+---
+
+# Capability-Pakete
+
+Toolkit liefert bereichsübergreifende Produktgrundlagen; Capability-Pakete liefern ein abgegrenztes Domänenmodell, Actions, Skills und Lebenszyklus-Metadaten. Scheduling und Creative Context bleiben separate Capability-Pakete, keine Toolkit-Feature-Kits.
+
+`@agent-native/scheduling` nimmt am Pilot für das generische Manifest teil. Lesen Sie die paketlokale Dokumentation und das Manifest für Erweiterungspunkte und Zuständigkeit.
+
+- [Scheduling-Paketdokumentation](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative-Context-Paketdokumentation](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Die Regeln für Prüfung, Dry Run und Eject stehen unter [Package Lifecycle](/docs/package-lifecycle).

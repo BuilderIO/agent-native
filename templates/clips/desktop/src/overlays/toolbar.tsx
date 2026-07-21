@@ -6,6 +6,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -58,6 +59,8 @@ export function Toolbar() {
   // Stop / Pause are disabled until the recorder actually begins, at which
   // point `clips:toolbar-enabled` fires with `true` from the recorder.
   const [enabled, setEnabled] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [popoverVisible, setPopoverVisible] = useState(true);
   const [diskSpaceLevel, setDiskSpaceLevel] = useState<
     "ok" | "warning" | "critical"
   >("ok");
@@ -121,12 +124,23 @@ export function Toolbar() {
     trackListen(
       listen<boolean>("clips:toolbar-enabled", (ev) => {
         setEnabled(!!ev.payload);
+        setPreparing(false);
         setPendingAction(null);
         if (!ev.payload) {
           setDiskSpaceLevel("ok");
           setPaused(false);
           setElapsed(0);
         }
+      }),
+    );
+    trackListen(
+      listen<boolean>("clips:toolbar-preparing", (ev) => {
+        setPreparing(!!ev.payload);
+      }),
+    );
+    trackListen(
+      listen<boolean>("clips:popover-visible", (ev) => {
+        setPopoverVisible(!!ev.payload);
       }),
     );
     trackListen(
@@ -205,6 +219,8 @@ export function Toolbar() {
     // left with a zombie pill floating over their screen. The recorder
     // closing us first is a no-op on the already-closed window.
   }
+
+  const isPreparing = preparing || (!enabled && !popoverVisible);
   function togglePause() {
     if (!enabled || pendingAction) return;
     const transition = paused ? "resume" : "pause";
@@ -319,13 +335,22 @@ export function Toolbar() {
           }
           data-no-drag
         >
-          {pendingAction === "stop" ? (
+          {pendingAction === "stop" || isPreparing ? (
             <IconLoader2 className="toolbar-v-spinner" size={18} />
           ) : (
             <span className="toolbar-v-stop-square" />
           )}
         </button>
-        <div className="toolbar-v-time">{formatTime(elapsed)}</div>
+        <button
+          type="button"
+          className={`toolbar-v-time ${isPreparing ? "toolbar-v-time-preparing" : ""}`}
+          onClick={() => invoke("show_popover").catch(() => {})}
+          aria-label="Open Clips"
+          title="Open Clips"
+          data-no-drag
+        >
+          {isPreparing ? "Preparing…" : formatTime(elapsed)}
+        </button>
         {diskSpaceLevel !== "ok" && (
           <div
             className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}

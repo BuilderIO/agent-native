@@ -1,4 +1,5 @@
-import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
@@ -10,6 +11,8 @@ import {
   IconH2,
   IconH3,
   IconH4,
+  IconH5,
+  IconH6,
   IconList,
   IconListNumbers,
   IconSquareCheck,
@@ -77,7 +80,7 @@ interface EquationDraft {
   position: EditorMenuPosition;
 }
 
-interface CommandItem {
+export interface CommandItem {
   title: string;
   description: string;
   searchText?: string;
@@ -114,9 +117,79 @@ function waitForEditorUpdateFrame() {
   });
 }
 
-interface CommandTemplate extends Omit<CommandItem, "title" | "description"> {
+export interface CommandTemplate extends Omit<
+  CommandItem,
+  "title" | "description"
+> {
   titleKey: string;
   descriptionKey: string;
+}
+
+export const CONTENT_HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
+
+const headingCommandMetadata = [
+  {
+    level: 1,
+    titleKey: "editor.heading1",
+    descriptionKey: "editor.slash.heading1Description",
+    shortcut: "#",
+    icon: IconH1,
+  },
+  {
+    level: 2,
+    titleKey: "editor.heading2",
+    descriptionKey: "editor.slash.heading2Description",
+    shortcut: "##",
+    icon: IconH2,
+  },
+  {
+    level: 3,
+    titleKey: "editor.heading3",
+    descriptionKey: "editor.slash.heading3Description",
+    shortcut: "###",
+    icon: IconH3,
+  },
+  {
+    level: 4,
+    titleKey: "editor.heading4",
+    descriptionKey: "editor.slash.heading4Description",
+    shortcut: "####",
+    icon: IconH4,
+  },
+  {
+    level: 5,
+    titleKey: "editor.heading5",
+    descriptionKey: "editor.slash.heading5Description",
+    shortcut: "#####",
+    icon: IconH5,
+  },
+  {
+    level: 6,
+    titleKey: "editor.heading6",
+    descriptionKey: "editor.slash.heading6Description",
+    shortcut: "######",
+    icon: IconH6,
+  },
+] as const satisfies ReadonlyArray<{
+  level: (typeof CONTENT_HEADING_LEVELS)[number];
+  titleKey: string;
+  descriptionKey: string;
+  shortcut: string;
+  icon: React.ElementType;
+}>;
+
+export function buildHeadingCommands(
+  behavior: "toggle" | "set",
+): CommandTemplate[] {
+  return headingCommandMetadata.map((heading) => ({
+    ...heading,
+    action: (editor) => {
+      const chain = editor.chain().focus();
+      return behavior === "toggle"
+        ? chain.toggleHeading({ level: heading.level }).run()
+        : chain.setHeading({ level: heading.level }).run();
+    },
+  }));
 }
 
 export function setPlainTextBlock(editor: Editor) {
@@ -239,38 +312,7 @@ const commands: CommandTemplate[] = [
     icon: IconTypography,
     action: setPlainTextBlock,
   },
-  {
-    titleKey: "editor.heading1",
-    descriptionKey: "editor.slash.heading1Description",
-    shortcut: "#",
-    icon: IconH1,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 1 }).run(),
-  },
-  {
-    titleKey: "editor.heading2",
-    descriptionKey: "editor.slash.heading2Description",
-    shortcut: "##",
-    icon: IconH2,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 2 }).run(),
-  },
-  {
-    titleKey: "editor.heading3",
-    descriptionKey: "editor.slash.heading3Description",
-    shortcut: "###",
-    icon: IconH3,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 3 }).run(),
-  },
-  {
-    titleKey: "editor.heading4",
-    descriptionKey: "editor.slash.heading4Description",
-    shortcut: "####",
-    icon: IconH4,
-    action: (editor) =>
-      editor.chain().focus().toggleHeading({ level: 4 }).run(),
-  },
+  ...buildHeadingCommands("toggle"),
   {
     titleKey: "editor.slash.bulletedList",
     descriptionKey: "editor.slash.bulletedListDescription",
@@ -367,34 +409,7 @@ const turnIntoCommands: CommandTemplate[] = [
     icon: IconTypography,
     action: setPlainTextBlock,
   },
-  {
-    titleKey: "editor.heading1",
-    descriptionKey: "editor.slash.heading1Description",
-    shortcut: "#",
-    icon: IconH1,
-    action: (editor) => editor.chain().focus().setHeading({ level: 1 }).run(),
-  },
-  {
-    titleKey: "editor.heading2",
-    descriptionKey: "editor.slash.heading2Description",
-    shortcut: "##",
-    icon: IconH2,
-    action: (editor) => editor.chain().focus().setHeading({ level: 2 }).run(),
-  },
-  {
-    titleKey: "editor.heading3",
-    descriptionKey: "editor.slash.heading3Description",
-    shortcut: "###",
-    icon: IconH3,
-    action: (editor) => editor.chain().focus().setHeading({ level: 3 }).run(),
-  },
-  {
-    titleKey: "editor.heading4",
-    descriptionKey: "editor.slash.heading4Description",
-    shortcut: "####",
-    icon: IconH4,
-    action: (editor) => editor.chain().focus().setHeading({ level: 4 }).run(),
-  },
+  ...buildHeadingCommands("set"),
   {
     titleKey: "editor.slash.bulletedList",
     descriptionKey: "editor.slash.bulletedListDescription",

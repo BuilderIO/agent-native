@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq, lte, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 
 const queueStatuses = ["queued", "processing", "done", "failed"] as const;
@@ -118,27 +119,45 @@ export async function readDistillationQueue(
   const staleCutoff = staleProcessingCutoff(now);
   const issue = args.staleOnly ? "stale" : (args.issue ?? "all");
   const limit = args.limit ?? 100;
+  const accessibleAudienceIds = await listAccessibleAudienceIds();
+  const captureVisibility = or(
+    isNull(schema.brainIngestQueue.captureId),
+    accessibleAudienceIds.length
+      ? and(
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+          inArray(
+            schema.brainCaptureAudiences.audienceId,
+            accessibleAudienceIds,
+          ),
+        )
+      : undefined,
+  );
   const baseClauses = [
     eq(schema.brainIngestQueue.operation, "distill"),
     accessFilter(schema.brainSources, schema.brainSourceShares),
+    captureVisibility,
   ];
   if (args.sourceId) {
     baseClauses.push(eq(schema.brainSources.id, args.sourceId));
   }
 
   const summaryRows = await db
-    .select({
+    .selectDistinct({
       status: schema.brainIngestQueue.status,
       updatedAt: schema.brainIngestQueue.updatedAt,
     })
     .from(schema.brainIngestQueue)
     .innerJoin(
+      schema.brainSources,
+      eq(schema.brainIngestQueue.sourceId, schema.brainSources.id),
+    )
+    .leftJoin(
       schema.brainRawCaptures,
       eq(schema.brainIngestQueue.captureId, schema.brainRawCaptures.id),
     )
-    .innerJoin(
-      schema.brainSources,
-      eq(schema.brainRawCaptures.sourceId, schema.brainSources.id),
+    .leftJoin(
+      schema.brainCaptureAudiences,
+      eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
     )
     .where(and(...baseClauses));
 
@@ -164,7 +183,7 @@ export async function readDistillationQueue(
   }
 
   const rows = await db
-    .select({
+    .selectDistinct({
       id: schema.brainIngestQueue.id,
       sourceId: schema.brainIngestQueue.sourceId,
       captureId: schema.brainIngestQueue.captureId,
@@ -184,12 +203,16 @@ export async function readDistillationQueue(
     })
     .from(schema.brainIngestQueue)
     .innerJoin(
+      schema.brainSources,
+      eq(schema.brainIngestQueue.sourceId, schema.brainSources.id),
+    )
+    .leftJoin(
       schema.brainRawCaptures,
       eq(schema.brainIngestQueue.captureId, schema.brainRawCaptures.id),
     )
-    .innerJoin(
-      schema.brainSources,
-      eq(schema.brainRawCaptures.sourceId, schema.brainSources.id),
+    .leftJoin(
+      schema.brainCaptureAudiences,
+      eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
     )
     .where(and(...clauses))
     .orderBy(desc(schema.brainIngestQueue.updatedAt))
@@ -223,11 +246,13 @@ export async function readDistillationQueue(
         provider: row.sourceProvider,
         status: row.sourceStatus,
       },
-      capture: {
-        id: row.captureId,
-        title: redactSensitiveText(row.captureTitle),
-        status: row.captureStatus,
-      },
+      capture: row.captureId
+        ? {
+            id: row.captureId,
+            title: redactOptionalText(row.captureTitle),
+            status: row.captureStatus,
+          }
+        : null,
     };
   });
 

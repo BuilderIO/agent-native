@@ -161,6 +161,9 @@ const messages = {
     chapterQueued: "Chapter request queued",
     fillerQueued: "Filler-word removal queued",
     silenceQueued: "Silence removal queued",
+    silenceWorking: "Removing silences…",
+    silenceCompleted: "Silence removal complete",
+    silenceFailed: "Silence removal failed",
     workflowQueued: "Workflow request queued",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -171,7 +174,7 @@ const messages = {
       "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.",
     retryLibrary: "You can retry from the library.",
     processingStuck:
-      "Processing has not completed after 30 seconds (status={{status}}). The clip may not have finished uploading — check the server logs for chunk/finalize messages.",
+      "Saving is taking longer than expected (status={{status}}). If you recorded in the desktop app, open Clips from the menu bar to retry or download a saved local copy, then check again.",
     uploadingAssembling:
       "Uploading and assembling your video — this usually takes just a few seconds.",
     connectStorageImportLoom: "Connect storage to import this Loom.",
@@ -440,6 +443,7 @@ const messages = {
     invite: "Invite",
     embed: "Embed",
     shareLink: "Share link",
+    shareWithHumans: "Share with humans",
     shareWithAgents: "Share with agents",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
@@ -450,6 +454,8 @@ const messages = {
     retryAgentLink: "Retry",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
+    chooseFile: "Choose file",
+    remove: "Remove",
     downloadMp4: "Download MP4",
     embedsNeedPublic: "Embeds need a public clip",
     embedPublicDescription:
@@ -533,6 +539,9 @@ const messages = {
     brandingUpdated: "Branding updated",
     saveFailed: "Failed to save",
     organizationName: "Organization name",
+    defaultVisibility: "Default recording visibility",
+    defaultVisibilityDescription:
+      "Applied to new recordings unless you choose a different visibility.",
     brandColor: "Brand color",
     brandColorPicker: "Brand color picker",
     useColor: "Use {{color}}",
@@ -599,10 +608,10 @@ const messages = {
     pageTitle: "Join team · Clips",
   },
   settings: {
-    openAgentSettings: "Open agent settings",
+    openAgentSettings: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    agentTitle: "Manage agent",
     title: "Settings",
     pageTitle: "Settings · Clips",
     intro: "Preferences and connected services for this Clips workspace.",
@@ -610,6 +619,16 @@ const messages = {
     languageDescription:
       "Choose the interface language for this account. Clips remembers it across devices.",
     languageLabel: "Interface language",
+    uploadWorkspaceTitle: "Active workspace",
+    uploadWorkspaceDescription:
+      "Choose the workspace Clips uses for new recordings, including desktop uploads.",
+    uploadWorkspaceLabel: "Current workspace",
+    uploadWorkspacePlaceholder: "Choose a workspace",
+    uploadWorkspaceHint:
+      "Switching this also updates workspace-scoped Clips views.",
+    uploadWorkspaceSaving: "Saving workspace…",
+    uploadWorkspaceSaved: "Active workspace updated",
+    uploadWorkspaceSaveFailed: "Could not update active workspace",
     whatsNew: "What's new",
     changelogEmpty: "No updates yet.",
     viewAllUpdates: "View all updates",
@@ -908,6 +927,17 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     summary: "Summary",
     keyPoints: "Key points",
     actionItems: "Action items",
+    sharedContent: "Shared content",
+    summaryIncluded: "Summary, key points, and action items",
+    includeTranscript: "Include full transcript",
+    includeTranscriptDescription:
+      "Anyone with access to this meeting can read the complete transcript.",
+    transcriptUnavailable: "The transcript isn't ready yet.",
+    transcript: "Transcript",
+    copyTranscript: "Copy transcript",
+    transcriptCopied: "Transcript copied",
+    copyTranscriptFailed: "Couldn't copy the transcript",
+    updateTranscriptSharingFailed: "Couldn't update transcript sharing",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip moved to trash",
@@ -1093,6 +1123,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     desktopTitle: "Desktop app",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    openDesktopApp: "Open desktop app",
   },
   editableTitle: {
     untitled: "Untitled Clip",
@@ -1218,9 +1249,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     visibilityOrg: "Organization",
     visibilityPublic: "Public",
     passwordProtection: "Password protection",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear",
+    passwordSetPlaceholder: "Password is set — type to replace",
     noPasswordPlaceholder: "No password",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password.",
+    removePassword: "Remove",
     expiry: "Expiry",
     viewerOptions: "Viewer options",
     comments: "Comments",
@@ -1346,7 +1378,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     savedLocally: "Saved locally",
     uploadFailed: "Upload failed",
     connectStorageToFinish: "Open to connect storage and finish saving.",
-    retryFromClipsMenu: "Retry from the Clips menu; no need to re-record.",
+    retryFromClipsMenu:
+      "Open Clips from the menu bar to retry this saved upload; no need to re-record.",
     removeFailedClip: "Remove this failed clip.",
     remove: "Remove",
     viewsCount: "{{count}} views",
@@ -1459,6 +1492,24 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     guideStartTitle: "Click Start notes",
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.",
+  },
+  rewindExtension: {
+    title: "Add what happened before",
+    description:
+      "Pull a specific interval from local Rewind and add it to the start of this Clip. Nothing is added automatically.",
+    progressLabel: "Rewind history processing progress",
+    privateFirstTitle: "Make this Clip private first",
+    privateFirstDescription:
+      "Local Rewind history can contain context from before you chose to record. This changes the Clip to private. If anyone still has direct access, Clips will stop here so you can remove them in Share first.",
+    makePrivateContinue: "Make private and continue",
+    add30Seconds: "Add the previous 30 seconds",
+    add5Minutes: "Add the previous 5 minutes",
+    add5MinutesDescription:
+      "Good for recovering the lead-in to a longer explanation.",
+    privateReady: "This Clip is private. You can now add local Rewind history.",
+  },
+  timeline: {
+    clipStartedHere: "Clip started here",
   },
 };
 

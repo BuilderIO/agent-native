@@ -36,3 +36,5 @@ packages/core/src/server/og-fonts-data.ts
 # Generated file — formatting flips between runs
 packages/docs/app/components/searchIndex.ts
 packages/docs/public/source-index.json
+# Generated file — rewritten by uniwind's metro plugin in its own style
+packages/mobile-app/uniwind-types.d.ts

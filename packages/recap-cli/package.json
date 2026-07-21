@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/recap-cli",
-  "version": "0.4.1",
+  "version": "0.4.7",
   "description": "Dependency-light PR visual recap CLI for Agent-Native workflows.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -30,7 +30,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node dist/copy-recap-workflow.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run --passWithNoTests",
     "prepublishOnly": "npm run build"

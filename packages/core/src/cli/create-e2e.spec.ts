@@ -33,10 +33,13 @@ import {
   _getToolkitDependencyVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
+  _githubTarballUrl,
+  _findLocalTemplateFrom,
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
 import { setupAgentSymlinks } from "./setup-agents.js";
+import { runSkills } from "./skills.js";
 import { workspacifyApp } from "./workspacify.js";
 
 let tmpDir: string;
@@ -125,7 +128,7 @@ function readAllTextFiles(dir: string): string {
  * Standalone scaffold with a real template
  * ───────────────────────────────────────────────────────────────────────── */
 
-describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
+describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
   it("rewrites the copied chat tracking app id to the generated app id", async () => {
     await createApp("test-app", { template: "chat" });
     const root = fs.readFileSync(
@@ -189,6 +192,48 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
     expect(pkg.description).toBe("Workspace app for Test App.");
   });
 
+  it("teaches generated chat apps to discover and customize Toolkit features", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    const pkg = readPkg(root);
+    const toolkitSkill = path.join(
+      root,
+      ".agents",
+      "skills",
+      "agent-native-toolkit",
+      "SKILL.md",
+    );
+
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
+    expect(pkg["agent-native"]?.scaffold).toEqual({
+      template: "chat",
+      frameworkSkills: "default",
+    });
+    expect(fs.existsSync(toolkitSkill)).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "customizing-agent-native",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+
+    fs.writeFileSync(toolkitSkill, "outdated framework guidance\n");
+    await runSkills(["update", "scaffold", "--scope", "project"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+    expect(fs.readFileSync(toolkitSkill, "utf-8")).toContain(
+      "# Agent-Native Toolkit",
+    );
+  });
+
   it("resolves all workspace:* deps for standalone install", async () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
@@ -246,6 +291,24 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
   });
 });
 
+describe("installed package template discovery", () => {
+  it("finds source templates included in an installed core package", () => {
+    const packageRoot = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    const sourceTemplate = path.join(packageRoot, "src", "templates", "chat");
+    const compiledCli = path.join(packageRoot, "dist", "cli");
+    fs.mkdirSync(sourceTemplate, { recursive: true });
+    fs.mkdirSync(compiledCli, { recursive: true });
+    fs.writeFileSync(path.join(sourceTemplate, "package.json"), "{}\n");
+
+    expect(_findLocalTemplateFrom(compiledCli, "chat")).toBe(sourceTemplate);
+  });
+});
+
 describe("standalone scaffold — headless template", { timeout: 60000 }, () => {
   it("creates an action-first app without UI template files or UI dependencies", async () => {
     await createApp("test-app", { template: "headless" });
@@ -280,10 +343,38 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     }
 
     const agents = fs.readFileSync(path.join(root, "AGENTS.md"), "utf-8");
+    expect(readPkg(root)["agent-native"]?.scaffold).toEqual({
+      template: "headless",
+      frameworkSkills: "headless",
+    });
     expect(agents).toContain("This is a headless Agent Native app");
     expect(agents).toContain("This app is not stateless");
     expect(agents).toContain("Chat template");
     expect(agents).toContain("integration blueprints");
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "agent-native-toolkit",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(
+          root,
+          ".agents",
+          "skills",
+          "customizing-agent-native",
+          "SKILL.md",
+        ),
+      ),
+    ).toBe(true);
 
     const workspaceYaml = fs.readFileSync(
       path.join(root, "pnpm-workspace.yaml"),
@@ -293,6 +384,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
     expect(workspaceYaml).toContain('"@typescript/*"');
     expect(workspaceYaml).toContain('"@sentry/*"');
+    expect(workspaceYaml).toContain("fast-xml-parser");
     expect(workspaceYaml).toContain("typescript-7");
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });
@@ -585,7 +677,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         .replaceAll("\\", "/");
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
-      expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).toContain("agent-native-toolkit-");
+      expect(workspaceYaml).toContain(".tgz");
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
@@ -596,7 +689,7 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
       }
     }
-  });
+  }, 180_000);
 
   it("overrides toolkit for workspace installs during local core development", async () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -618,7 +711,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
         .replaceAll("\\", "/");
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
-      expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).toContain("agent-native-toolkit-");
+      expect(workspaceYaml).toContain(".tgz");
       expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
       expect(workspaceYaml).toContain("/packages/recap-cli");
     } finally {
@@ -918,6 +1012,8 @@ describe("template/core version compatibility", () => {
     try {
       expect(_getCoreDependencyVersion()).toMatch(/^file:\/\//);
       expect(_getToolkitDependencyVersion()).toMatch(/^file:\/\//);
+      expect(_getCoreDependencyVersion()).toMatch(/\.tgz$/);
+      expect(_getToolkitDependencyVersion()).toMatch(/\.tgz$/);
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -942,6 +1038,18 @@ describe("template/core version compatibility", () => {
     // Never fall back to mutable `main`: it can be newer than the installed
     // core package and produce a scaffold that fails during SSR startup.
     expect(candidates).not.toContain("main");
+  });
+
+  it("downloads GitHub tarballs from codeload instead of the GitHub API", () => {
+    expect(
+      _githubTarballUrl(
+        "BuilderIO/agent-native",
+        "@agent-native/core@0.101.13",
+        "tag",
+      ),
+    ).toBe(
+      "https://codeload.github.com/BuilderIO/agent-native/tar.gz/refs/tags/%40agent-native%2Fcore%400.101.13",
+    );
   });
 });
 
@@ -976,6 +1084,8 @@ describe("workspace scaffold defaults", () => {
 
     expect(agents).toContain("My Ws Workspace Instructions");
     expect(agents).toContain("WORKSPACE_ORG_NAME");
+    expect(agents).toContain("agent-native-toolkit");
+    expect(agents).toContain("customizing-agent-native");
     expect(fs.existsSync(claudePath)).toBe(true);
 
     const claudeStat = fs.lstatSync(claudePath);
@@ -1011,6 +1121,16 @@ describe("workspace scaffold defaults", () => {
       fs.existsSync(path.join(sharedSkillsDir, "sharing", "SKILL.md")),
     ).toBe(true);
     expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "agent-native-toolkit", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(sharedSkillsDir, "customizing-agent-native", "SKILL.md"),
+      ),
+    ).toBe(true);
+    expect(
       fs.existsSync(path.join(sharedSkillsDir, "shadcn-ui", "SKILL.md")),
     ).toBe(true);
     expect(
@@ -1018,6 +1138,11 @@ describe("workspace scaffold defaults", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(rootSkillsDir, "shadcn-ui", "SKILL.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(rootSkillsDir, "agent-native-toolkit", "SKILL.md"),
+      ),
     ).toBe(true);
     expect(fs.existsSync(path.join(wsDir, ".claude", "skills"))).toBe(true);
     expect(

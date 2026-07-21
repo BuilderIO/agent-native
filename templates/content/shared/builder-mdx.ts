@@ -1850,10 +1850,14 @@ function nodeSlice(body: string, node: MdxNode) {
 
 function freshTextBlock(markdown: string): unknown {
   const text = markdownToBuilderTextHtml(markdown);
+  return freshTextHtmlBlock(text, markdown);
+}
+
+function freshTextHtmlBlock(text: string, stableSource: string): unknown {
   return {
     "@type": "@builder.io/sdk:Element",
     "@version": 2,
-    id: `builder-mdx-${stableHash(markdown).slice(0, 16)}`,
+    id: `builder-mdx-${stableHash(stableSource).slice(0, 16)}`,
     component: {
       name: "Text",
       options: { text },
@@ -1866,6 +1870,91 @@ function freshTextBlock(markdown: string): unknown {
       },
     },
   };
+}
+
+function assertSafeFreshCalloutNode(node: MdxNode) {
+  for (const child of node.children ?? []) {
+    if (
+      child.type === "mdxFlowExpression" ||
+      child.type === "mdxTextExpression" ||
+      child.type === "mdxjsEsm" ||
+      child.type === "mdxJsxFlowElement" ||
+      child.type === "mdxJsxTextElement"
+    ) {
+      throw new Error("Unsupported dynamic syntax inside Builder callout.");
+    }
+    assertSafeFreshCalloutNode(child);
+  }
+}
+
+function findMdxOpeningTagEnd(raw: string) {
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote) {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === ">") return index;
+  }
+  return -1;
+}
+
+function freshCalloutBlock(
+  node: MdxNode,
+  raw: string,
+  occurrence: number,
+): unknown {
+  let icon = "💡";
+  for (const attribute of node.attributes ?? []) {
+    if (
+      attribute.type !== "mdxJsxAttribute" ||
+      !attribute.name ||
+      (attribute.value !== null && typeof attribute.value !== "string")
+    ) {
+      throw new Error("Builder callout attributes must be literal values.");
+    }
+    if (attribute.name === "icon") {
+      icon = attribute.value || "💡";
+      continue;
+    }
+    if (attribute.name === "color") continue;
+    throw new Error(
+      `Unsupported Builder callout attribute: ${attribute.name}.`,
+    );
+  }
+  assertSafeFreshCalloutNode(node);
+
+  const openingEnd = findMdxOpeningTagEnd(raw);
+  const closingStart = raw.lastIndexOf("</callout>");
+  if (openingEnd < 0 || closingStart < openingEnd) {
+    throw new Error("Builder callout must have an explicit closing tag.");
+  }
+  const markdown = raw
+    .slice(openingEnd + 1, closingStart)
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^(?:\t| {2})/, ""))
+    .join("\n")
+    .trim();
+  const content = markdownToBuilderTextHtml(markdown);
+  const iconHtml = icon ? `<p><strong>${escapeHtml(icon)}</strong></p>` : "";
+  return freshTextHtmlBlock(
+    `<blockquote>${iconHtml}${content}</blockquote>`,
+    `${raw}\n@source:${node.position?.start?.offset ?? occurrence}`,
+  );
 }
 
 const BUILDER_TABLE_TAGS = new Set([
@@ -2510,7 +2599,7 @@ export async function builderMdxBodyToBuilderBlocks(
 ) {
   const root = await parseMdxRoot(body);
   const blocks: unknown[] = [];
-  for (const child of root.children ?? []) {
+  for (const [childIndex, child] of (root.children ?? []).entries()) {
     const raw = nodeSlice(body, child);
     if (!raw) continue;
     if (
@@ -2526,6 +2615,10 @@ export async function builderMdxBodyToBuilderBlocks(
       }
       if (child.name === "table") {
         blocks.push(freshTableBlock(child, raw));
+        continue;
+      }
+      if (child.name === "callout") {
+        blocks.push(freshCalloutBlock(child, raw, childIndex));
         continue;
       }
       const block = await blockFromMdxComponent(raw, sidecars);
@@ -2775,24 +2868,78 @@ function inlineMarkdownToHtml(value: string) {
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/_([^_]+)_/g, "<em>$1</em>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, destination) => {
+      const href = destination.trim();
+      const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(href);
+      const hasSafeScheme = /^(?:https?:\/\/|mailto:|tel:)/i.test(href);
+      const isNetworkPath = /^(?:\/\/|\\\\)/.test(href);
+      const hasControlCharacter = /[\u0000-\u001f\u007f]/.test(href);
+      if (
+        !href ||
+        isNetworkPath ||
+        hasControlCharacter ||
+        (hasScheme && !hasSafeScheme)
+      ) {
+        return label;
+      }
+      return `<a href="${href}">${label}</a>`;
+    });
+}
+
+type MarkdownListNode = {
+  type: "ul" | "ol";
+  value: string;
+  children: MarkdownListNode[];
+};
+
+function renderMarkdownListNodes(nodes: MarkdownListNode[]): string {
+  const html: string[] = [];
+  for (let index = 0; index < nodes.length; ) {
+    const type = nodes[index].type;
+    const items: string[] = [];
+    while (index < nodes.length && nodes[index].type === type) {
+      const node = nodes[index];
+      items.push(
+        `<li>${inlineMarkdownToHtml(node.value)}${renderMarkdownListNodes(node.children)}</li>`,
+      );
+      index += 1;
+    }
+    html.push(`<${type}>${items.join("")}</${type}>`);
+  }
+  return html.join("");
 }
 
 export function markdownToBuilderTextHtml(markdown: string) {
   const lines = markdown.trim().split(/\r?\n/);
   const html: string[] = [];
-  let listItems: string[] = [];
-  let listType: "ul" | "ol" | null = null;
+  let listItems: MarkdownListNode[] = [];
+  let listStack: Array<{ indent: number; node: MarkdownListNode }> = [];
   const flushList = () => {
-    if (!listItems.length || !listType) return;
-    html.push(`<${listType}>${listItems.join("")}</${listType}>`);
+    if (!listItems.length) return;
+    html.push(renderMarkdownListNodes(listItems));
     listItems = [];
-    listType = null;
+    listStack = [];
   };
-  const appendListItem = (type: "ul" | "ol", value: string) => {
-    if (listType && listType !== type) flushList();
-    listType = type;
-    listItems.push(`<li>${inlineMarkdownToHtml(value)}</li>`);
+  const appendListItem = (
+    type: "ul" | "ol",
+    value: string,
+    whitespace: string,
+  ) => {
+    const indent = [...whitespace].reduce(
+      (width, character) => width + (character === "\t" ? 2 : 1),
+      0,
+    );
+    while (
+      listStack.length &&
+      listStack[listStack.length - 1].indent >= indent
+    ) {
+      listStack.pop();
+    }
+    const node: MarkdownListNode = { type, value, children: [] };
+    const parent = listStack[listStack.length - 1]?.node;
+    if (parent) parent.children.push(node);
+    else listItems.push(node);
+    listStack.push({ indent, node });
   };
   for (const line of lines) {
     const trimmed = line.trim();
@@ -2815,14 +2962,14 @@ export function markdownToBuilderTextHtml(markdown: string) {
       );
       continue;
     }
-    const unorderedList = trimmed.match(/^[-*]\s+(.+)$/);
+    const unorderedList = line.match(/^(\s*)[-*]\s+(.+)$/);
     if (unorderedList) {
-      appendListItem("ul", unorderedList[1]);
+      appendListItem("ul", unorderedList[2], unorderedList[1]);
       continue;
     }
-    const orderedList = trimmed.match(/^\d+\.\s+(.+)$/);
+    const orderedList = line.match(/^(\s*)\d+\.\s+(.+)$/);
     if (orderedList) {
-      appendListItem("ol", orderedList[1]);
+      appendListItem("ol", orderedList[2], orderedList[1]);
       continue;
     }
     flushList();

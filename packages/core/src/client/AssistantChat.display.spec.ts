@@ -8,10 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const analyticsMock = vi.hoisted(() => ({
   captureError: vi.fn(),
+  trackAgentChatLifecycle: vi.fn(),
 }));
 
 vi.mock("./analytics.js", () => ({
   captureError: analyticsMock.captureError,
+  trackAgentChatLifecycle: analyticsMock.trackAgentChatLifecycle,
   configureTracking: vi.fn(),
   setSentryUser: vi.fn(),
   trackEvent: vi.fn(),
@@ -38,9 +40,50 @@ import {
   settleInterruptedAssistantToolCallsInRepo,
   shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
+  queuedMessageImageSources,
   useAutoResumeStatus,
   waitForThreadRunToClear,
 } from "./AssistantChat.js";
+
+describe("queuedMessageImageSources", () => {
+  it("renders images serialized into queued attachment content", () => {
+    const image = "data:image/png;base64,queued-image";
+
+    expect(
+      queuedMessageImageSources({
+        images: undefined,
+        attachments: [
+          {
+            id: "attachment-1",
+            type: "image",
+            name: "screenshot.png",
+            content: [{ type: "image", image }],
+            status: { type: "complete" },
+          },
+        ],
+      }),
+    ).toEqual([image]);
+  });
+
+  it("does not duplicate legacy image values also present in attachments", () => {
+    const image = "data:image/png;base64,queued-image";
+
+    expect(
+      queuedMessageImageSources({
+        images: [image],
+        attachments: [
+          {
+            id: "attachment-1",
+            type: "image",
+            name: "screenshot.png",
+            content: [{ type: "image", image }],
+            status: { type: "complete" },
+          },
+        ],
+      }),
+    ).toEqual([image]);
+  });
+});
 
 describe("installAssistantUiMessageRepositoryRecovery", () => {
   it("patches replacement repositories exposed by a stable thread binding", () => {
@@ -1647,6 +1690,28 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("resetRunningActivity()");
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
+    expect(helperSource).toContain("getPendingTurn(threadId)");
+    expect(helperSource).toContain("clearPendingTurnIfMatches(");
+    expect(helperSource).toContain("/runs/turn/${encodeURIComponent(");
+  });
+
+  it("wakes the dequeue loop after its startup guard expires", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("// Auto-dequeue:");
+    const end = source.indexOf(
+      "// Clear frozen reconnect content + forceStopped",
+    );
+    const dequeueSource = source.slice(start, end);
+
+    expect(source).toContain(
+      "const [queueWakeVersion, setQueueWakeVersion] = useState(0);",
+    );
+    expect(dequeueSource).toContain(
+      "setQueueWakeVersion((version) => version + 1);",
+    );
+    expect(dequeueSource).toContain("queueWakeVersion,");
   });
 });
 

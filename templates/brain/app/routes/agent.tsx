@@ -1,4 +1,4 @@
-import { AgentTabsPage } from "@agent-native/core/client";
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
 
 import { messagesByLocale } from "@/i18n-data";
 

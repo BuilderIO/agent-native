@@ -1,41 +1,9 @@
-/**
- * GlslShaderPanel — the code-backed "Shader" paint-type / effect-type picker.
- *
- * Mirrors Figma UI3's Shader picker structure:
- *   • "Created by you"  — shaders already saved in this design's screen HTML
- *     (parsed live from the source via shared/shader-fills.ts), plus the
- *     "Create new" AI tile that prefills the agent chat.
- *   • "Presets"         — the curated GLSL preset library from
- *     shared/shader-presets.ts (our "By Figma" equivalent).
- *
- * Unlike the legacy ShaderFillsPanel (paper-design GPU presets persisted as
- * CSS gradient approximations), applying a shader here persists the real GLSL
- * fragment source + uniforms manifest into the screen HTML — readable and
- * editable in the Code panel — and the embedded WebGL runtime renders it live
- * in the editor and in exported standalone HTML.
- *
- * Persistence path (no new actions):
- *   read-source-file → applyShaderToHtml() → apply-source-edit(full-replace,
- *   expectedVersionHash) → onApplied(fileId, content) so the host editor can
- *   sync its local/collab state (same contract as component prop edits).
- *
- * Live preview path: postMessage broadcast to every screen iframe; the
- * shader-fill-preview bridge forwards to the injected runtime, which only
- * mounts on the iframe that actually contains the target node.
- *
- * See the "Cross-pipeline write-race guard" section below for why this
- * picker's persist flow registers itself in a small exclusion registry that
- * DesignEditor.tsx's commitVisualStyles checks before its own competing
- * content write (Fill section Add layer / Remove layer, concurrent with an
- * in-flight shader apply, otherwise corrupts the document).
- */
-
 import {
   callAction,
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   applyShaderToHtml,
   annotateNodeWithShader,

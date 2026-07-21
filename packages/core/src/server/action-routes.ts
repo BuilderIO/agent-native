@@ -9,8 +9,10 @@ import {
   getRequestURL,
 } from "h3";
 
+import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -24,10 +26,32 @@ import {
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
+import { captureError } from "./capture-error.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+
+declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
+declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
+
+function requiredClientCompatibilityVersion(): string {
+  const configured =
+    typeof __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__ === "string"
+      ? __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__
+      : process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
+  return configured?.trim() ?? "";
+}
+
+function currentBuildId(): string {
+  const configured =
+    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
+      ? __AGENT_NATIVE_BUILD_ID__
+      : process.env.AGENT_NATIVE_BUILD_ID;
+  return configured?.trim() || "unknown";
+}
+
 /**
  * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
  *
@@ -38,6 +62,30 @@ import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+
+async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
+  const required =
+    actionName === "list-feature-flags"
+      ? "flags:read"
+      : actionName === "set-feature-flag"
+        ? "flags:write"
+        : null;
+  if (!required) return null;
+  const authorization = getHeader(event, "authorization");
+  if (!authorization?.startsWith("Bearer ")) return null;
+  const token = authorization.slice(7);
+  if (!declaresFeatureFlagDelegation(token)) return null;
+  const claims = await verifyA2ATokenWithClaims(token, event);
+  if (!claims || !claims.scope.includes(required))
+    throw new Error("Invalid feature flag delegation");
+  return {
+    owner: claims.email,
+    orgId: claims.orgId,
+    anonymous: false,
+    delegationJti: claims.jti,
+    delegationIssuer: claims.issuer,
+  } as ActionRouteResolvedCaller;
+}
 
 export function parseActionSearchParams(
   searchParams: URLSearchParams,
@@ -161,8 +209,8 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,${EMBED_TARGET_HEADER}`
-        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend`,
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
 
@@ -189,6 +237,9 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * must not leak into the token caller's request context.
    */
   orgId?: string;
+  /** Verified A2A correlation and issuer metadata for the audit row. */
+  delegationJti?: string;
+  delegationIssuer?: string;
 };
 
 export interface ActionRouteAuthAdapter {
@@ -291,11 +342,41 @@ export function mountActionRoutes(
         }
 
         setResponseHeader(event, "Cache-Control", "no-store");
+        setResponseHeader(
+          event,
+          "Access-Control-Expose-Headers",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+        );
 
         // Allow the declared method
         if (effectiveMethod !== method) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
+        }
+
+        const requiredCompatibility = requiredClientCompatibilityVersion();
+        if (isFrontendActionRequest(event) && requiredCompatibility) {
+          const receivedCompatibility = getHeader(
+            event,
+            "x-agent-native-client-compatibility",
+          );
+          if (receivedCompatibility !== requiredCompatibility) {
+            const serverBuildId = currentBuildId();
+            setResponseStatus(event, 409);
+            setResponseHeader(event, "X-Agent-Native-Client-Mismatch", "1");
+            setResponseHeader(event, "X-Agent-Native-Build-Id", serverBuildId);
+            setResponseHeader(
+              event,
+              "X-Agent-Native-Client-Compatibility",
+              requiredCompatibility,
+            );
+            return {
+              error: "This browser tab must reload before it can use this app.",
+              code: "client_build_mismatch",
+              serverBuildId,
+              requiredCompatibility,
+            };
+          }
         }
 
         // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe
@@ -336,10 +417,14 @@ export function mountActionRoutes(
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
-        if (options?.actionRouteAuth?.resolveCaller) {
+        {
           let caller: ActionRouteResolvedCaller | null;
           try {
-            caller = await options.actionRouteAuth.resolveCaller(event);
+            caller = options?.actionRouteAuth?.resolveCaller
+              ? await options.actionRouteAuth.resolveCaller(event)
+              : null;
+            if (!caller)
+              caller = await resolveFeatureFlagA2ACaller(event, name);
           } catch {
             throw createError({
               statusCode: 401,
@@ -463,14 +548,23 @@ export function mountActionRoutes(
             // userEmail / orgId mirror the request context resolved above (do
             // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
-              const caller = isFrontendActionRequest(event)
-                ? "frontend"
-                : "http";
+              const caller = resolvedCaller
+                ? "a2a"
+                : isFrontendActionRequest(event)
+                  ? "frontend"
+                  : "http";
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
                 caller,
                 actionName: name,
+                ...(resolvedCaller?.delegationJti
+                  ? {
+                      networkProtocol: "a2a",
+                      networkId: resolvedCaller.delegationJti,
+                      networkPeer: resolvedCaller.delegationIssuer,
+                    }
+                  : {}),
               });
 
               // Auto-refresh the UI after a successful mutating action. GET
@@ -548,7 +642,27 @@ export function mountActionRoutes(
               if (isUserFacing) {
                 return { error: msg };
               }
-              console.error(`[agent-native] action '${name}' failed:`, err);
+              const requestId = getHttpRequestTelemetryId(event);
+              const captureId = captureError(err, {
+                route: routePath,
+                method: reqMethod,
+                tags: {
+                  action: name,
+                  caller: resolvedCaller
+                    ? "a2a"
+                    : isFrontendActionRequest(event)
+                      ? "frontend"
+                      : "http",
+                  status_code: String(status),
+                },
+                ...(requestId ? { extra: { request_id: requestId } } : {}),
+              });
+              console.error(`[agent-native] action '${name}' failed:`, {
+                action: name,
+                ...(requestId ? { requestId } : {}),
+                ...(captureId ? { captureId } : {}),
+                error: err?.stack ?? String(err),
+              });
               return { error: "Internal server error" };
             }
           },

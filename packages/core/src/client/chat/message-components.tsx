@@ -2,6 +2,8 @@
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
 // RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
 
+import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
+import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
   useThread,
   useMessageRuntime,
@@ -59,9 +61,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
-import { PastedTextChip } from "../composer/PastedTextChip.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
+import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import { cn } from "../utils.js";
 import {
@@ -71,7 +72,10 @@ import {
 import {
   ToolCallFallback,
   FilesChangedSummary,
+  ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunDurationContext,
+  RanToolsSummary,
   ReasoningCell,
   WorkedForSummary,
 } from "./tool-call-display.js";
@@ -819,6 +823,33 @@ function assistantMessageStatusIsTerminal(message: {
   return statusType === "complete" || statusType === "incomplete";
 }
 
+export function messageTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const record = part as {
+        type?: unknown;
+        text?: unknown;
+      };
+      return record.type === "text" && typeof record.text === "string"
+        ? [record.text]
+        : [];
+    })
+    .join("\n");
+}
+
+function latestUserMessageText(messages: readonly unknown[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role === "user") return messageTextFromContent(record.content);
+  }
+  return "";
+}
+
 export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   return content.some((part): boolean => {
@@ -842,10 +873,10 @@ export function shouldShowAssistantMessageFooter({
   hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
-  if (chatRunning) return false;
   if (!isLast) return true;
+  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
-  return !chatRunning && statusIsTerminal;
+  return statusIsTerminal;
 }
 
 export function shouldShowAssistantWorkSummary({
@@ -901,6 +932,7 @@ function ReasoningMessagePart() {
     <ReasoningCell
       text={part.text}
       isStreaming={isStreaming}
+      resetKey={`message-reasoning-${partIndex}`}
       durationMs={durationMs}
       defaultOpen={partIndex === latestReasoningPartIndex}
       collapseWhenReplaced={partIndex < latestReasoningPartIndex}
@@ -908,13 +940,88 @@ function ReasoningMessagePart() {
   );
 }
 
-function groupAssistantWorkParts(part: {
+const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
+
+export function isCollapsibleAssistantWorkPart(part: {
   type?: string;
-}): ["group-work"] | null {
-  if (part.type === "reasoning" || part.type === "tool-call") {
+  toolName?: string;
+}): boolean {
+  if (part.type === "reasoning") return true;
+  return (
+    part.type === "tool-call" &&
+    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "")
+  );
+}
+
+export function getAssistantToolSummaryInfo(
+  parts: readonly { type?: string; toolName?: string }[],
+): { startIndex: number; hiddenToolCount: number } {
+  const toolCallIndices = parts.reduce<number[]>((indices, part, index) => {
+    if (part.type === "tool-call" && isCollapsibleAssistantWorkPart(part)) {
+      indices.push(index);
+    }
+    return indices;
+  }, []);
+
+  if (toolCallIndices.length <= ASSISTANT_VISIBLE_TOOL_CALL_LIMIT) {
+    return { startIndex: -1, hiddenToolCount: 0 };
+  }
+
+  const startIndex =
+    toolCallIndices[
+      toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT
+    ]!;
+  return {
+    startIndex,
+    hiddenToolCount: toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
+  };
+}
+
+function groupAssistantWorkParts(
+  part: {
+    type?: string;
+    toolName?: string;
+  },
+  index: number,
+  parts: readonly { type?: string; toolName?: string }[],
+): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  if (isCollapsibleAssistantWorkPart(part)) {
+    const { startIndex } = getAssistantToolSummaryInfo(parts);
+    if (isAssistantToolSummaryPart(parts, index, startIndex)) {
+      return ["group-work", "group-ran-tools"];
+    }
     return ["group-work"];
   }
   return null;
+}
+
+function isAssistantToolSummaryPart(
+  parts: readonly { type?: string; toolName?: string }[],
+  index: number,
+  startIndex: number,
+): boolean {
+  if (startIndex < 0 || index >= startIndex) return false;
+  if (!isCollapsibleAssistantWorkPart(parts[index]!)) return false;
+
+  let segmentStart = index;
+  while (
+    segmentStart > 0 &&
+    isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
+  ) {
+    segmentStart--;
+  }
+
+  let segmentEnd = index + 1;
+  while (
+    segmentEnd < startIndex &&
+    isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
+  ) {
+    segmentEnd++;
+  }
+
+  return parts
+    .slice(segmentStart, segmentEnd)
+    .some((candidate) => candidate.type === "tool-call");
 }
 
 export function AssistantMessage() {
@@ -924,6 +1031,7 @@ export function AssistantMessage() {
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
+  const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
@@ -931,6 +1039,8 @@ export function AssistantMessage() {
     thread.messages[thread.messages.length - 1].id === msg.id;
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
+  const responseConnectionText = messageTextFromContent(msg.content);
+  const responseConnectionContext = latestUserMessageText(thread.messages);
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
@@ -952,16 +1062,17 @@ export function AssistantMessage() {
       }
       return;
     }
-    if (
-      !chatRunning &&
-      isLast &&
-      runStartedAtRef.current != null &&
-      capturedDurationMs == null
-    ) {
-      setCapturedDurationMs(Date.now() - runStartedAtRef.current);
+    if (!chatRunning && isLast && capturedDurationMs == null) {
+      const durationMs =
+        lastRunDurationMs ??
+        (runStartedAtRef.current == null
+          ? null
+          : Date.now() - runStartedAtRef.current);
+      if (durationMs == null) return;
+      setCapturedDurationMs(durationMs);
       runStartedAtRef.current = null;
     }
-  }, [chatRunning, isLast, capturedDurationMs]);
+  }, [chatRunning, isLast, capturedDurationMs, lastRunDurationMs]);
 
   // Animate collapse only when this message just finished running in-session.
   const wasRunningRef = useRef(false);
@@ -1043,8 +1154,8 @@ export function AssistantMessage() {
     Array.isArray(msgContent) &&
     msgContent.some(
       (p) =>
-        p.type === "reasoning" ||
-        (p.type === "tool-call" && p.activity !== true),
+        (p.type !== "tool-call" || p.activity !== true) &&
+        isCollapsibleAssistantWorkPart(p),
     );
 
   if (!hasRenderableContent) return null;
@@ -1075,6 +1186,16 @@ export function AssistantMessage() {
                   </WorkedForSummary>
                 );
               }
+              case "group-ran-tools": {
+                const toolCount = part.indices.filter(
+                  (index) => msgContent?.[index]?.type === "tool-call",
+                ).length;
+                return (
+                  <RanToolsSummary toolCount={toolCount}>
+                    {children}
+                  </RanToolsSummary>
+                );
+              }
               case "text":
                 return <MarkdownText />;
               case "reasoning":
@@ -1088,6 +1209,13 @@ export function AssistantMessage() {
         </MessagePrimitive.GroupedParts>
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
+        )}
+        {isComplete && isLast && (
+          <McpConnectionSuggestion
+            text={responseConnectionText}
+            contextText={responseConnectionContext}
+            variant="response"
+          />
         )}
         {isLast && hasUnresolvedTool && !chatRunning && (
           <RunningActivityStatus label="Thinking" />

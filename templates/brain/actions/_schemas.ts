@@ -49,16 +49,22 @@ export const evidenceSchema = z.object({
     .describe("Optional timestamp for meeting/call citations"),
 });
 
+const MAX_JSON_STRING_UNWRAPS = 2;
+
 export function parseJsonCliInput(value: unknown) {
   if (value === undefined) return undefined;
-  if (typeof value !== "string") return value;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    return value;
+  let parsed = value;
+  for (let attempt = 0; attempt < MAX_JSON_STRING_UNWRAPS; attempt += 1) {
+    if (typeof parsed !== "string") return parsed;
+    const trimmed = parsed.trim();
+    if (!trimmed) return undefined;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return parsed;
+    }
   }
+  return parsed;
 }
 
 export const jsonRecordSchema = z.preprocess(

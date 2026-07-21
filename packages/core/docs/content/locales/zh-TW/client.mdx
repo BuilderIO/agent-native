@@ -65,8 +65,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/hooks";
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -83,8 +82,7 @@ await callAction("archive-lead", { leadId });
 透過 postMessage 向代理聊天傳送訊息——這是從 UI 互動中委派 AI 工作的常用方法。傳遞 `context` 來隱藏模型脈絡，傳遞 `submit: true` 來立即傳送，或者傳遞 `submit: false` 來預先填寫使用者首先審閱的草稿。
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -174,8 +172,7 @@ overwrite the user's active conversation. Use the returned `tabId` if the UI
 `"automations"`、`"voice"` 或 `"limits"` 開啟特定部分。
 
 ```ts
-import { openAgentSettings } from "@agent-native/core/client";
-
+import { openAgentSettings } from "@agent-native/core/client/navigation";
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -183,8 +180,7 @@ openAgentSettings("secrets");
 更喜歡這個助手而不是直接調度 `agent-panel:open-settings`。
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core/client";
-
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -242,8 +238,10 @@ function SelectionContextButton({ record }: { record: { id: string } }) {
 用於自由形式細節的組合器，以及用於多欄位輸入的表單/快顯框。
 
 ```tsx
-import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  askUserQuestion,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat";
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -286,7 +284,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 ```
 
 `getMcpAppHostContext()`讀取最新推送的主機脈絡快照；
@@ -321,8 +319,9 @@ import {
 React 鉤子，透過載入狀態跟蹤包裝 sendToAgentChat：
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core/client";
-
+import {
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat"
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
 
@@ -348,7 +347,9 @@ function GenerateButton() {
 React 掛鉤（以前稱為 `useFileWatcher`），用於偵聽 SSE 上的資料庫更改，回退到輪詢，並使保持 UI 與代理寫入保持一致的框架查詢快取無效：
 
 ```ts
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -393,8 +394,7 @@ function App() {
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import { useChangeVersion } from "@agent-native/core/client";
-
+import { useChangeVersion } from "@agent-native/core/client/hooks";
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");
@@ -459,8 +459,9 @@ function DashboardView({ id }) {
 合併類名的實用程式（clsx + tailwind-merge）：
 
 ```ts
-import { cn } from "@agent-native/core/client";
-
+import {
+  cn,
+} from "@agent-native/toolkit/utils"
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",

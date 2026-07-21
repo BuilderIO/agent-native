@@ -30,10 +30,10 @@ const messages = {
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
     openTeamSettings: "Teameinstellungen öffnen",
     openResourceSettings: "Ressourceneinstellungen öffnen",
-    agentTitle: "Agent-Einstellungen",
+    agentTitle: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    openAgentSettings: "Agent-Einstellungen öffnen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    openAgentSettings: "Agent verwalten",
   },
   agent: {
     emptyState: "Sag mir, was du gegessen hast - ich schatze die Makros",

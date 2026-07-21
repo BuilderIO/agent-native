@@ -1,18 +1,22 @@
 import {
-  useDbSync,
-  AppProviders,
-  CommandMenu,
-  appPath,
-  createAgentNativeQueryClient,
-  getLocaleInitScript,
-  useCommandMenuShortcut,
-  getThemeInitScript,
-  configureTracking,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  useDbSync,
+  AppProviders,
+  createAgentNativeQueryClient,
   setClientAppState,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -199,7 +203,11 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (location.pathname === "/ask" && path !== "/ask") {
+      if (
+        location.pathname === "/ask" &&
+        path !== "/ask" &&
+        isAgentChatHomeHandoffActive("forms")
+      ) {
         markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);
@@ -303,4 +311,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

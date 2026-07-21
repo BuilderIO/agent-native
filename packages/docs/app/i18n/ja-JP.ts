@@ -39,6 +39,7 @@ const jaJP = {
   theme: {
     light: "ライト",
     dark: "ダーク",
+    toggle: "テーマを切り替え",
     label: "テーマ: {{theme}}",
   },
   docs: {
@@ -1475,6 +1476,8 @@ const jaJP = {
     agentNativeToolkit: "ツールキット",
     toolkitOverview: "概要",
     toolkitUiPrimitives: "UIプリミティブ",
+    toolkitEditorsCanvases: "エディターとキャンバス",
+    toolkitContextKnowledge: "コンテキストと知識",
     toolkitSharing: "共有",
     toolkitCollaboration: "コラボレーション",
     toolkitSettings: "設定",
@@ -1488,6 +1491,9 @@ const jaJP = {
     toolkitObservability: "可観測性",
     featureKits: "機能キット",
     appChrome: "アプリの外枠",
+    capabilityPackages: "Capability パッケージ",
+    capabilityPackagesOverview: "概要",
+    packageLifecycle: "パッケージライフサイクル",
     templatesOverview: "テンプレート",
     pureAgentApps: "自動化ファーストアプリ",
     faq: "FAQ",

@@ -90,4 +90,22 @@ describe("executeAgentToolCall", () => {
       output: "Unknown or unavailable tool: hidden",
     });
   });
+
+  it("attributes direct cross-app execution to the a2a caller", async () => {
+    const run = vi.fn(async (_args, context) => context?.caller);
+
+    const result = await executeAgentToolCall({
+      actions: { inspect: action(run) },
+      name: "inspect",
+      input: { value: "ready" },
+      callId: "call-a2a",
+      caller: "a2a",
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      { value: "ready" },
+      expect.objectContaining({ caller: "a2a" }),
+    );
+    expect(result).toMatchObject({ status: "completed", output: "a2a" });
+  });
 });

@@ -299,11 +299,11 @@ This replaces the old hack of relying on Claude Code only reading `.claude/skill
 
 </Callout>
 
-If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Workspace Memory](/docs/workspace#memory) for the full treatment.
+If the knowledge applies to _everyone_ working in the app ("always prefer CTEs over subqueries"), it's a skill or shared `LEARNINGS.md`. If it's about _this particular user_ ("Steve likes concise answers"), it belongs in `memory/MEMORY.md`. See [Agent Resources — Memory](/docs/workspace#memory) for the full treatment.
 
 ## Skills vs SQL resources {#skills-vs-resources}
 
-This page frames a skill as a file at `.agents/skills/<name>/SKILL.md`. [Workspace](/docs/workspace#skills) frames the same skill as a SQL resource at path `skills/<slug>/SKILL.md`, scoped workspace/shared/personal. These are the same concept from two angles: Code mode reads and writes the file directly; App mode stores it as a resource row so it works without a filesystem. Author the content using this page's format either way.
+This page frames a skill as a file at `.agents/skills/<name>/SKILL.md`. [Agent Resources](/docs/workspace#skills) frames the same skill as a SQL resource at path `skills/<slug>/SKILL.md`, scoped workspace/shared/personal. These are the same concept from two angles: Code mode reads and writes the file directly; App mode stores it as a resource row so it works without a filesystem. Author the content using this page's format either way.
 
 ## App-backed skills — full details {#app-backed-skills-full}
 
@@ -428,6 +428,6 @@ the same instructions without maintaining a second copy.
 ## What's next {#whats-next}
 
 - [**Writing Agent Instructions**](/docs/writing-agent-instructions) — word skill descriptions and split guidance across AGENTS.md, skills, and memory
-- [**Workspace**](/docs/workspace#skills) — where skills live as SQL resources in App mode
+- [**Agent Resources**](/docs/workspace#skills) — where skills live as SQL resources in App mode
 - [**Agent Mentions**](/docs/agent-mentions) — the `/`-command trigger that invokes a skill in chat
 - [**Plan plugin & marketplace**](/docs/plan-plugin) — a real app-backed skill's end-to-end install and auto-update flow

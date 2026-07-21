@@ -97,6 +97,8 @@ describe("threadDataToEngineMessages", () => {
     expect(text.text).toContain("What Slack participants saw");
     expect(text.text).toContain("request_123");
     expect(text.text).toContain("IDs remain stable");
+    expect(text.text).toContain("titleAtAction are historical aliases");
+    expect(text.text).toContain("omit fields the user did not explicitly ask");
     expect(text.text).not.toContain("raw result must not be replayed");
     expect(text.text).not.toContain("Raw model response");
   });

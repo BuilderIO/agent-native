@@ -1,5 +1,8 @@
 # @agent-native/dispatch
 
+Dispatch is the Agent-Native workspace control plane and a separate product.
+It is not a Toolkit capability module.
+
 Workspace control plane for agent-native apps — vault, integrations,
 destinations, cross-app workspace resources, recurring "dream" report jobs,
 and cross-app delegation, shipped as a single drop-in package.

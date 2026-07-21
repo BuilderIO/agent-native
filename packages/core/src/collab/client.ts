@@ -45,12 +45,11 @@ import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
-import { AGENT_CLIENT_ID } from "./agent-identity.js";
-
 export {
   dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
+  isReconcileLeadClient,
   type CollabUser,
 } from "@agent-native/toolkit/collab-ui";
 
@@ -117,57 +116,6 @@ function collabUsersEqual(a: CollabUser[], b: CollabUser[]): boolean {
     }
   }
   return true;
-}
-
-/**
- * Leader election for applying authoritative external snapshots into a shared
- * collaborative document.
- *
- * When the agent (or a Notion pull, or any full-document rewrite) writes new
- * content to SQL, the open editor reconciles it into the live Y.Doc with
- * `setContent`. If EVERY connected client did that independently, each would
- * diff the same snapshot into the CRDT and the changed region would be inserted
- * N times (concurrent inserts at the same position → duplicated text). So only
- * ONE client — the "lead" — applies the snapshot; every other client receives
- * the result through normal Yjs sync.
- *
- * The lead is the present client with the lowest Yjs `clientID`. The agent's
- * awareness entry uses `AGENT_CLIENT_ID` (max int) so it can never be the lead,
- * and a client editing alone is always the lead. This is deterministic across
- * clients with no coordination round-trip.
- */
-export function isReconcileLeadClient(
-  awareness: Awareness | null | undefined,
-  localClientId: number | null | undefined,
-): boolean {
-  if (localClientId == null) return false;
-  if (!awareness) return true; // standalone / tests — act alone
-
-  let hasPeer = false;
-  let minVisible = localClientId;
-  awareness.getStates().forEach((state, clientId) => {
-    if (clientId === AGENT_CLIENT_ID) return; // agent never leads
-    if (clientId === localClientId) return;
-    const s = state as { user?: unknown; visible?: boolean };
-    if (!s || !s.user) return; // skip empty/stale entries
-    hasPeer = true;
-    // Only VISIBLE peers can act; a peer published `visible: false` (backgrounded)
-    // is skipped. A peer that hasn't published the field is treated as visible.
-    if (s.visible !== false && clientId < minVisible) minVisible = clientId;
-  });
-
-  // Sole client: always the applier — no other client can duplicate the edit,
-  // so single-user agent edits apply even if this tab reports hidden.
-  if (!hasPeer) return true;
-
-  // With peers present, exactly one VISIBLE client applies (the lowest clientId
-  // among visible ones). A backgrounded tab pauses its poll and can't reliably
-  // act, so it yields — otherwise an agent edit would never reach the tab the
-  // user is actually looking at. The caller re-elects on visibility change.
-  const localHidden =
-    typeof document !== "undefined" && document.visibilityState === "hidden";
-  if (localHidden) return false;
-  return localClientId <= minVisible;
 }
 
 export interface RemoteAwarenessSnapshot {

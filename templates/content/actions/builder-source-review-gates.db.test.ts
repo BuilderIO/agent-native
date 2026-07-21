@@ -19,6 +19,7 @@ const heavySnapshotReads = vi.hoisted(() => ({
   target: 0,
   allSources: 0,
   omitTargetRows: false,
+  documentScopes: [] as Array<string[] | null>,
 }));
 vi.mock("./_database-source-utils.js", async (importOriginal) => {
   const original =
@@ -31,6 +32,7 @@ vi.mock("./_database-source-utils.js", async (importOriginal) => {
       >
     ) => {
       heavySnapshotReads.target += 1;
+      heavySnapshotReads.documentScopes.push(args[2] ? [...args[2]] : null);
       const snapshot = await original.getContentDatabaseSourceSnapshotForWrite(
         ...args,
       );
@@ -252,6 +254,7 @@ describe("Builder source review execution gates", () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
     });
+    heavySnapshotReads.documentScopes = [];
     heavySnapshotReads.omitTargetRows = true;
     try {
       const response = await asOwner(() =>
@@ -259,6 +262,7 @@ describe("Builder source review execution gates", () => {
           documentId: seeded.databaseDocumentId,
           sourceId: seeded.sourceId,
           changeSetIds: [seeded.changeSetId],
+          documentIds: [seeded.rowDocumentId],
           pushModeConfirmation: "autosave",
         }),
       );
@@ -283,6 +287,10 @@ describe("Builder source review execution gates", () => {
         documentId: expect.stringMatching(/^doc_row_/),
       });
       expect(JSON.parse(execution.payloadJson).request.method).toBe("PATCH");
+      expect(heavySnapshotReads.documentScopes).toEqual([
+        [seeded.rowDocumentId],
+        [seeded.rowDocumentId],
+      ]);
     } finally {
       heavySnapshotReads.omitTargetRows = false;
     }

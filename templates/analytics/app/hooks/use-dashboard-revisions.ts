@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export interface DashboardRevision {

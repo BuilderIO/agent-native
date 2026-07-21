@@ -28,6 +28,7 @@ import {
 } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
 
@@ -294,6 +295,7 @@ const API_KEY_PROVIDERS: Array<{
 ];
 
 export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
+  const t = useT();
   const [provider, setProvider] = useState<AgentEngineProvider>("anthropic");
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
@@ -318,7 +320,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
   return (
     <div className="rounded-md border border-border bg-background/60 p-3">
       <div className="mb-2 text-[11px] font-medium text-foreground">
-        Use your own API key
+        {t("agentPanel.addOwnKeys", { defaultValue: "Add your own keys" })}
       </div>
       <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
         Stored securely for this app only.
@@ -405,6 +407,7 @@ export function BuilderSetupContent({
   onConnected?: () => void;
   layout?: BuilderSetupCardLayout;
 }) {
+  const t = useT();
   const [keyOpen, setKeyOpen] = useState(false);
   const sidebarLayout = layout === "sidebar";
 
@@ -423,10 +426,13 @@ export function BuilderSetupContent({
       >
         <div className="agent-builder-setup-card__copy min-w-0">
           <h3 className="text-[13px] font-medium text-foreground">
-            Connect AI
+            {t("agentPanel.connectAi", { defaultValue: "Connect AI" })}
           </h3>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            Use Builder.io (free credits), or add an Anthropic/OpenAI key.
+            {t("agentPanel.builderOrOwnKeys", {
+              defaultValue:
+                "Use Builder.io (free credits), or add your own provider keys.",
+            })}
           </p>
         </div>
         <div
@@ -449,7 +455,9 @@ export function BuilderSetupContent({
             )}
             aria-expanded={keyOpen}
           >
-            Use API key
+            {t("agentPanel.addOwnKeys", {
+              defaultValue: "Add your own keys",
+            })}
           </button>
         </div>
       </div>

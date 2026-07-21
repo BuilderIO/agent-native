@@ -23,7 +23,9 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
+  and: (...args: unknown[]) => args,
   eq: (...args: unknown[]) => args,
+  isNull: (...args: unknown[]) => args,
 }));
 
 vi.mock("h3", () => ({

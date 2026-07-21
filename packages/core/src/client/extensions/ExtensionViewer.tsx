@@ -31,7 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
 import { useT } from "../i18n.js";
 import { ShareButton } from "../sharing/ShareButton.js";

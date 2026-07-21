@@ -17,6 +17,7 @@ import {
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
   hasDashboardConstructionAttempt,
+  hasDashboardMutationAttempt,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
@@ -33,6 +34,11 @@ import {
 } from "../lib/real-data-actions";
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+// A background job may legitimately spend minutes inside a provider/tool call,
+// which the shared watchdog already excludes. Outside a tool call, however,
+// silence means the model transport or worker has wedged; recover the chunk
+// promptly instead of holding the dashboard composer for the 12-minute default.
+export const ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 3 * 60_000;
 
 const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   app: "analytics",
@@ -525,6 +531,20 @@ export function realDataFinalGuard(
         "I can't make a confident exhaustive analytics claim yet because part of the source evidence was aborted, truncated, or still paginated. I need to recover the missing coverage or state the answer as partial with the inspected sample size.",
     };
   }
+  // Dashboard EDIT turns: the user asked to change an existing dashboard and
+  // the agent actually saved a mutation (mutate-dashboard/update-dashboard/
+  // etc.). This is a legitimate non-query completion regardless of how the
+  // request was phrased ("update the panels" does not match the construction
+  // intent regex), so it must not be steered into a data-source query. Anchor
+  // on tool evidence, not user wording, and still block any draft that states
+  // invented numbers via draftClaimsAnalyticsMetrics. A saved SQL panel the
+  // user runs themselves is not a fabricated metric.
+  if (
+    hasDashboardMutationAttempt(context.toolResults) &&
+    !draftClaimsAnalyticsMetrics(context.text)
+  ) {
+    return null;
+  }
   // Dashboard construction/template-clone turns may inspect and clone an
   // existing dashboard/extension without running a metric query, as long as
   // the draft does not invent numbers. Check this before the generic
@@ -669,10 +689,11 @@ export default createAgentChatPlugin({
   // standard serverless request budget without orphaning the task.
   durableBackgroundRuns: true,
   runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
+  runNoProgressTimeoutMs: ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
   externalAgents: {
     // Keep the direct MCP surface deliberately curated. External agents
-    // should use ask_app for multi-step investigation; these six actions are
+    // should use ask_app for multi-step investigation; cataloged actions are
     // bounded fallback reads for callers that already know what they need.
     authenticatedReads: "off",
     writes: "ask_app_only",
@@ -689,6 +710,8 @@ export default createAgentChatPlugin({
       analyticsSourceGuidanceOpening() +
       "DASHBOARD CREATION RULE — You may create dashboards, analyses, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'create a new analysis', 'add a chart for...'). Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
       "DASHBOARD MUTATION RULE — For dashboard edits, default to `mutate-dashboard` with the typed `dashboard.*` script API so the main payload is a string and avoids native-array serialization traps. It can move panels by id, edit titles/SQL/config, insert, duplicate, remove, and patch dashboard fields in one atomic save. The script API is constrained: no variables/imports/loops/functions, only JSON-compatible arguments on documented dashboard methods. Do not count shifting `/panels/<index>` positions for ordinary dashboard edits unless the user specifically asks for low-level JSON-pointer operations. " +
+      'DASHBOARD EXTENSION BOX RULE — Analytics dashboards support extension boxes. For ordinary requests such as "put X in this dashboard," insert a `chartType: "extension"` panel with `config.extensionId`; this author-selected embed is shared with the dashboard, appears in scheduled reports, and receives dashboard/panel/current-filter context. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot. Slot ids use `analytics.dashboard.<dashboard-id>.panel.<panel-id>` and require `add-extension-slot-target` plus `install-extension`; installs are per-user, so viewers can see different content and report identities may see an empty slot. Use `get-sql-dashboard` panel summaries to inspect an existing box. ' +
+      "EXTENSION DATA-REPAIR RULE — When fixing data in an existing extension-backed dashboard or migrated surface such as Risk Meeting, inspect the current dashboard and extension first, then use `update-extension` `patches`/`edits` that change only the data-loading seam. Preserve the existing layout, CSS, copy, and interactions; never reconstruct the full HTML body for a data-only fix. Full-body replacement is blocked unless `allowFullReplacement=true`. A request that combines a visual rewrite such as compacting, removing sections, renaming, or changing padding with a data repair is a broad rewrite; after inspecting the current extension, use `allowFullReplacement=true` for the complete replacement. If a focused edit fails, change the target instead of retrying identical arguments. " +
       'FIRST-PARTY DASHBOARD TIME RULE — AI-generated `source: "first-party"` panels are dashboard-time-bound by default: set `config.timeScope` to `dashboard` and include a matching dashboard time predicate. `{{timeRange}}` requires a matching `filters` entry with `id: "timeRange"` and `type: "select"`; `{{<id>Start}}`/`{{<id>End}}` require a matching `type: "date-range"` filter with that id. Allowed `timeScope` values are `dashboard`, `fixed-window`, `cohort-history`, and `all-time`; use `all-time` only when the user requests full available history and put all-time, lifetime, or historical in the title or description. Server validation rejects unbound first-party SQL. ' +
       "DASHBOARD READ RULE — `get-sql-dashboard` is compact by default: use its `panels` summaries plus `layout.panelOrder`, `layout.firstPanelIds`, and `layout.groups[].rows[].rowNumber/panelIds` for orientation and verification. Pass `includeConfig: true` only when you truly need full panel SQL/config. " +
       'DASHBOARD REORDER RULE — For simple chart/section moves, use `mutate-dashboard` code such as `dashboard.panels(["panel-a","panel-b"]).moveToTop();`. For visible placement requests like "second row" or "next to return rates", use row-aware placement such as `dashboard.insertPanel({...}).nextTo("retention-over-time")`, `.atRow(2)`, or `dashboard.panel("panel-a").moveNextTo("panel-b")`; these keep panels in the intended rendered row and expand/rebalance that row when needed. Never count shifting `/panels/<index>` positions for ordinary \'move this chart\' requests. Use `get-sql-dashboard.layout.groups[].rows` as proof of visible row placement, not only flat `panelOrder`. ' +

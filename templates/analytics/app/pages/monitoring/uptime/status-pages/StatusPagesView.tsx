@@ -1,13 +1,7 @@
-/**
- * Status-pages config sub-view. Query-param driven, consistent with the monitor
- * sub-views:
- *   - index:  ?view=uptime&statuspage=list
- *   - create: ?view=uptime&statuspage=new
- *   - edit:   ?view=uptime&statuspage=<id>
- * The index lists existing pages (with copy-link / open / edit / delete); the
- * editor (StatusPageEditor) handles create + edit with a live preview.
- */
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   IconArrowLeft,
   IconCheck,

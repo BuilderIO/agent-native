@@ -52,6 +52,7 @@ import {
   markdownModule,
   remarkGfmFn,
   markdownUrlTransform,
+  useSmoothStreamingText,
 } from "./markdown-renderer.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
@@ -62,6 +63,8 @@ import {
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunDurationContext = React.createContext<number | null>(null);
+export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
 
 /**
  * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
@@ -897,6 +900,7 @@ export function ReconnectStreamMessage({
   content: ContentPart[];
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  const toolSummary = getReconnectToolSummaryInfo(content);
   const latestReasoningPartIndex = content.reduce(
     (latestIndex, part, index) =>
       part.type === "reasoning" ? index : latestIndex,
@@ -907,58 +911,146 @@ export function ReconnectStreamMessage({
   const streamingReasoningPartIndex =
     content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
 
+  const renderPart = (part: ContentPart, i: number) => {
+    if (part.type === "text") {
+      const partStreaming = chatRunning && i === streamingTextPartIndex;
+      return (
+        <SmoothMarkdownText
+          key={`reconnect-text-${i}`}
+          text={part.text}
+          streaming={partStreaming}
+          resetKey={`reconnect-text-${i}`}
+          statusType={partStreaming ? "running" : "complete"}
+        />
+      );
+    }
+    if (part.type === "reasoning") {
+      return (
+        <ReasoningCell
+          key={`reconnect-reasoning-${i}`}
+          text={part.text}
+          isStreaming={chatRunning && i === streamingReasoningPartIndex}
+          resetKey={`reconnect-reasoning-${i}`}
+          defaultOpen={i === latestReasoningPartIndex}
+          collapseWhenReplaced={i < latestReasoningPartIndex}
+        />
+      );
+    }
+    return (
+      <ToolCallDisplay
+        key={`reconnect-tool-${i}`}
+        toolName={part.toolName}
+        argsText={part.argsText}
+        args={part.args}
+        result={part.result}
+        mcpApp={part.mcpApp}
+        chatUI={part.chatUI}
+        structuredMeta={part.structuredMeta}
+        isRunning={
+          part.result === undefined && (chatRunning || part.activity === true)
+        }
+        approval={part.approval}
+        repeatCount={part.repeatCount}
+      />
+    );
+  };
+
+  const renderedParts: React.ReactNode[] = [];
+  let summaryStartIndex = -1;
+  let summaryToolCount = 0;
+  const flushSummary = (endIndex: number) => {
+    if (summaryStartIndex < 0) return;
+    renderedParts.push(
+      <RanToolsSummary
+        key={`reconnect-tool-summary-${summaryStartIndex}`}
+        toolCount={summaryToolCount}
+      >
+        {content
+          .slice(summaryStartIndex, endIndex)
+          .map((part, offset) => renderPart(part, summaryStartIndex + offset))}
+      </RanToolsSummary>,
+    );
+    summaryStartIndex = -1;
+    summaryToolCount = 0;
+  };
+
+  for (let i = 0; i < content.length; i++) {
+    const part = content[i]!;
+    const isOlderToolWork =
+      toolSummary.startIndex >= 0 &&
+      i < toolSummary.startIndex &&
+      isReconnectToolSummaryPart(content, i, toolSummary.startIndex);
+    if (isOlderToolWork) {
+      summaryStartIndex = summaryStartIndex < 0 ? i : summaryStartIndex;
+      if (part.type === "tool-call") summaryToolCount++;
+      continue;
+    }
+    flushSummary(i);
+    renderedParts.push(renderPart(part, i));
+  }
+  flushSummary(content.length);
+
   return (
     <div className="flex justify-start">
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
-        {content.map((part, i) => {
-          if (part.type === "text") {
-            const partStreaming = chatRunning && i === streamingTextPartIndex;
-            return (
-              <SmoothMarkdownText
-                key={`reconnect-text-${i}`}
-                text={part.text}
-                streaming={partStreaming}
-                resetKey={`reconnect-text-${i}`}
-                statusType={partStreaming ? "running" : "complete"}
-              />
-            );
-          }
-          if (part.type === "reasoning") {
-            return (
-              <ReasoningCell
-                key={`reconnect-reasoning-${i}`}
-                text={part.text}
-                isStreaming={chatRunning && i === streamingReasoningPartIndex}
-                defaultOpen={i === latestReasoningPartIndex}
-                collapseWhenReplaced={i < latestReasoningPartIndex}
-              />
-            );
-          }
-          if (part.type === "tool-call") {
-            return (
-              <ToolCallDisplay
-                key={`reconnect-tool-${i}`}
-                toolName={part.toolName}
-                argsText={part.argsText}
-                args={part.args}
-                result={part.result}
-                mcpApp={part.mcpApp}
-                chatUI={part.chatUI}
-                structuredMeta={part.structuredMeta}
-                isRunning={
-                  part.result === undefined &&
-                  (chatRunning || part.activity === true)
-                }
-                approval={part.approval}
-                repeatCount={part.repeatCount}
-              />
-            );
-          }
-          return null;
-        })}
+        {renderedParts}
       </div>
     </div>
   );
+}
+
+function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
+  const toolCallIndices = content.reduce<number[]>((indices, part, index) => {
+    if (part.type === "tool-call" && isReconnectSummarizablePart(part)) {
+      indices.push(index);
+    }
+    return indices;
+  }, []);
+  if (toolCallIndices.length <= ASSISTANT_VISIBLE_TOOL_CALL_LIMIT) {
+    return { startIndex: -1 };
+  }
+  return {
+    startIndex:
+      toolCallIndices[
+        toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT
+      ]!,
+  };
+}
+
+function isReconnectSummarizablePart(part: ContentPart): boolean {
+  return (
+    part.type === "reasoning" ||
+    (part.type === "tool-call" && part.toolName !== "connect-builder")
+  );
+}
+
+function isReconnectToolSummaryPart(
+  content: readonly ContentPart[],
+  index: number,
+  startIndex: number,
+): boolean {
+  if (startIndex < 0 || index >= startIndex) return false;
+  if (!isReconnectSummarizablePart(content[index]!)) return false;
+
+  let segmentStart = index;
+  while (
+    segmentStart > 0 &&
+    isReconnectSummarizablePart(content[segmentStart - 1]!)
+  ) {
+    segmentStart--;
+  }
+
+  let segmentEnd = index + 1;
+  while (
+    segmentEnd < startIndex &&
+    isReconnectSummarizablePart(content[segmentEnd]!)
+  ) {
+    segmentEnd++;
+  }
+
+  return content
+    .slice(segmentStart, segmentEnd)
+    .some((candidate) => candidate.type === "tool-call");
 }
 
 // ─── Reasoning / Thinking cell ────────────────────────────────────────────────
@@ -973,6 +1065,7 @@ const WorkSummaryContentContext = React.createContext(false);
 export function ReasoningCell({
   text,
   isStreaming = false,
+  resetKey,
   defaultOpen,
   autoCollapse = false,
   collapseWhenReplaced = false,
@@ -980,6 +1073,8 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
+  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  resetKey?: string;
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
   autoCollapse?: boolean;
@@ -998,6 +1093,11 @@ export function ReasoningCell({
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
+  const visibleText = useSmoothStreamingText(
+    trimmed,
+    isStreaming,
+    resetKey ?? "reasoning",
+  );
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {
@@ -1018,7 +1118,7 @@ export function ReasoningCell({
   if (embeddedInWorkSummary) {
     return (
       <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-        {trimmed || (isStreaming ? "…" : "")}
+        {visibleText || (isStreaming ? "…" : "")}
       </div>
     );
   }
@@ -1055,7 +1155,7 @@ export function ReasoningCell({
       <AnimatedCollapse open={open}>
         <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
           <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {trimmed || (isStreaming ? "…" : "")}
+            {visibleText || (isStreaming ? "…" : "")}
           </div>
         </div>
       </AnimatedCollapse>
@@ -1126,6 +1226,39 @@ export function WorkedForSummary({
         <WorkSummaryContentContext.Provider value>
           <div className="pt-1">{children}</div>
         </WorkSummaryContentContext.Provider>
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+export function RanToolsSummary({
+  toolCount,
+  children,
+}: {
+  toolCount: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = `Ran ${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
+
+  return (
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span>{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="pt-1">{children}</div>
       </AnimatedCollapse>
     </div>
   );

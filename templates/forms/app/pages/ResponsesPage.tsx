@@ -1,4 +1,4 @@
-import { useFormatters, useT } from "@agent-native/core/client";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { FormField } from "@shared/types";
 import {
   IconArrowLeft,
@@ -428,10 +428,10 @@ export function ResponsesPage() {
                     key={response.id}
                     className="border-b border-border transition-[background-color] duration-150 hover:bg-muted/20 motion-reduce:transition-none"
                   >
-                    <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                    <td className="px-4 py-2.5 align-top text-xs text-muted-foreground">
                       {filteredSorted.length - idx}
                     </td>
-                    <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                    <td className="min-w-36 px-4 py-2.5 align-top text-xs text-muted-foreground whitespace-nowrap">
                       {formatDate(response.submittedAt, {
                         month: "short",
                         day: "numeric",

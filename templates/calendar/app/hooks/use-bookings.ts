@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import type { Booking } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 

@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",
@@ -18,10 +21,9 @@ const messages = {
     collapseSidebar: "收起側邊欄",
   },
   settings: {
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     title: "設定",
     description: "資產生成、儲存和品牌套件存取。",
     connections: "連線",
@@ -698,6 +700,27 @@ const messages = {
       "清除即時候選面板並刪除所有未儲存的候選行。",
     couldNotClearLiveCandidates: "無法清除即時候選項。",
     liveCandidatesActions: "即時候選項操作",
+    settingsTitle: "品牌套件設定",
+    unsavedChangesTitle: "未儲存的變更",
+    unsavedChangesDescription:
+      "此品牌套件有未儲存的變更。要放棄變更還是繼續編輯？",
+    discardChanges: "放棄變更",
+    keepEditing: "繼續編輯",
+    setupGuide: "設定指南",
+    setupGuideDescription:
+      "為了從此套件獲得最一致、最符合品牌調性的生成結果的建議。",
+    setupGuideReferences: "上傳參考素材",
+    setupGuideReferencesHint:
+      "將 3-5 個強而有力的範例標記為參考，讓分析品牌能從真實作品中學習調色板和視覺特徵，而非猜測。",
+    setupGuideStyleDescription: "撰寫具體的風格描述",
+    setupGuideStyleDescriptionHint:
+      "使用具體特徵（光線、構圖、質感）而非模糊的形容詞，讓每次生成都符合品牌調性。",
+    setupGuideInstructions: "使用自訂指令來設定硬性限制",
+    setupGuideInstructionsHint:
+      "將必須始終成立的事項（標誌位置、禁用顏色、法律文字）放在此處，讓代理永遠不會忘記。",
+    setupGuidePresets: "為每種常用格式建立一個預設",
+    setupGuidePresetsHint:
+      "將長寬比、模型和骨架/參考設定儲存為預設，讓每次都重複使用相同的輸出形式。",
   },
   brandKits: {
     title: "品牌套件",

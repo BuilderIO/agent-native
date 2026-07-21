@@ -1,8 +1,9 @@
 import {
-  appBasePath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
 
 import {
@@ -131,7 +132,11 @@ export function useNavigationState() {
     navigateOptions: { flushSync: true, replace: true },
     onNavigate: (_command, path) => {
       void prewarmFormsRoutePath(path);
-      if (location.pathname === "/ask" && path !== "/ask") {
+      if (
+        location.pathname === "/ask" &&
+        path !== "/ask" &&
+        isAgentChatHomeHandoffActive("forms")
+      ) {
         markAgentChatHomeHandoff("forms");
       }
     },

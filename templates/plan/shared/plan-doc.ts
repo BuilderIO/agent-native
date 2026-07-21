@@ -1,53 +1,8 @@
-/**
- * Plan document ⇄ blocks[] serializer.
- *
- * This is the deterministic bridge between a plan's `PlanContent.blocks[]`
- * (the canonical source of truth, stored as normalized JSON in SQL) and the
- * single editable ProseMirror/Tiptap document the browser editor renders. It is
- * the plan analog of the content app's `nfm.ts` — pure functions with no
- * editor/React/DOM dependency so both the editor and any headless caller can use
- * them.
- *
- * The model (read before editing):
- *   - A plan is a flat list of blocks. `rich-text` blocks carry GFM markdown;
- *     every OTHER block type is a structured ("atom") block whose `data` lives in
- *     `blocks[]`, NOT in the document.
- *   - `blocksToProseJSON` turns the block list into one `doc`:
- *       * each `rich-text` block expands (via `gfmToProseJSON`) into its prose
- *         nodes; the FIRST node is stamped with `attrs.runId = block.id` so a
- *         later re-parse can map the prose run back to its originating block id
- *         (stable ids across edits);
- *       * each structured block becomes a single atom `planBlock` node carrying
- *         only `{ blockType, blockId, title, summary }` in attrs — never `data`.
- *         The block's `data` is threaded into the live node view through React
- *         context, sourced from `blocks[]`.
- *   - `proseJSONToBlocks` walks the doc left→right and inverts the mapping:
- *       * every maximal run of NON-`planBlock` nodes collapses (via
- *         `proseJSONToGfm`) into ONE `rich-text` block. Its id is the run's first
- *         node `runId` when present and not already used this pass, otherwise a
- *         freshly minted id. Whitespace-only runs are dropped (no empty
- *         rich-text blocks);
- *       * each `planBlock` node is reconstructed from `prevBlocks` by `blockId`,
- *         taking `data` from the previous block (the document never stores it).
- *         If the editor re-minted a duplicated pasted block id, the node may
- *         carry `sourceBlockId`; data is copied from that previous source once.
- *
- * IMPORTANT — two adjacent `rich-text` blocks legitimately MERGE. Two prose
- * blocks sitting next to each other in `blocks[]` form a single contiguous prose
- * run in the document; on the inverse pass they collapse into ONE `rich-text`
- * block. That is the intended canonical form, not a bug: the first round-trip
- * normalizes the shape and the second round-trip is a true fixed point. Inserting
- * a structured block between two prose blocks is what keeps them separate.
- *
- * Best-effort by contract: `proseJSONToBlocks` never throws. The caller validates
- * the result through `planBlockSchema` / `planContentSchema`.
- */
-
 import {
   gfmToProseJSON,
-  proseJSONToGfm,
   type JSONContent,
-} from "@agent-native/core/client";
+  proseJSONToGfm,
+} from "@agent-native/toolkit/editor";
 
 import {
   createPlanBlockId,

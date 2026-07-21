@@ -1,20 +1,34 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, count, desc, eq, ne } from "drizzle-orm";
+import { and, countDistinct, desc, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nextBrainSourceSyncAt } from "../server/jobs/sync-sources.js";
+import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import { parseJson, serializeSource } from "../server/lib/brain.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCount(sourceId: string): Promise<number> {
+  const audienceIds = await listAccessibleAudienceIds([sourceId]);
+  if (!audienceIds.length) return 0;
+
   // Count only — never load the heavy `content` blob of every capture row
   // just to take `.length`.
   const [row] = await getDb()
-    .select({ value: count() })
+    .select({ value: countDistinct(schema.brainRawCaptures.id) })
     .from(schema.brainRawCaptures)
-    .where(eq(schema.brainRawCaptures.sourceId, sourceId));
+    .innerJoin(
+      schema.brainCaptureAudiences,
+      eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
+    )
+    .where(
+      and(
+        eq(schema.brainRawCaptures.sourceId, sourceId),
+        eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+        inArray(schema.brainCaptureAudiences.audienceId, audienceIds),
+      ),
+    );
   return row?.value ?? 0;
 }
 

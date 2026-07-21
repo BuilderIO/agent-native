@@ -539,6 +539,15 @@ amigável para hosts. A tarefa precisa ser criada antes que a primeira
 resposta possa expirar, então um URL de consulta retornado apenas após uma
 chamada longa não é um contrato de recuperação confiável.
 
+Se uma leitura de status transitória e limitada estiver indisponível,
+`ask_app_status` poderá retornar `status: "unknown"`,
+`statusRead: "unavailable"`, `retryable: true`, o `app` e o `taskId` originais,
+e `pollAfterMs` / `poll`. Isso significa que a leitura de status está
+indisponível, não que a tarefa durável falhou. Tente novamente `ask_app_status`
+com exatamente o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
+pois o envio pode duplicar o trabalho. Erros permanentes de autenticação, de não
+encontrado e de protocolo continuam sendo erros.
+
 ### Tour por aplicativo {#tour}
 
 Cada modelo listado como permitido que produz ou lista um recurso navegável envia um construtor `link`, e os modelos pesados enviam uma ação GET + `publicAgent` para que um agente conectado possa extrair o estado ativo:

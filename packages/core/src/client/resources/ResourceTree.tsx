@@ -8,7 +8,7 @@ import {
   IconFile,
   IconPlus,
   IconTrash,
-  IconMessageChatbot,
+  IconHierarchy2,
   IconPlugConnected,
   IconBrowser,
   IconDeviceDesktop,
@@ -56,7 +56,7 @@ function StatusDot({
 function getFileIcon(node: TreeNode): React.ReactNode {
   if (node.kind === "agent") {
     return (
-      <IconMessageChatbot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      <IconHierarchy2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     );
   }
   if (node.kind === "remote-agent" || node.kind === "mcp-server") {
@@ -97,6 +97,8 @@ function getFileIcon(node: TreeNode): React.ReactNode {
 
 export interface ResourceTreeProps {
   tree: TreeNode[];
+  /** Presentation mode for the resources: nested tree rows or a flat collection. */
+  variant?: "tree" | "collection";
   selectedId: string | null;
   onSelect: (resource: ResourceMeta) => void;
   onCreateFile: (parentPath: string, name: string) => void;
@@ -116,6 +118,10 @@ export interface ResourceTreeProps {
   readOnly?: boolean;
   /** Optional hint shown next to the heading (e.g. "Read only") */
   headingHint?: React.ReactNode;
+  /** Scope-specific action shown beside the section heading. */
+  sectionAction?: React.ReactNode;
+  /** Scope-specific action shown beneath an empty collection message. */
+  emptyStateAction?: React.ReactNode;
 }
 
 interface CreatingState {
@@ -225,6 +231,177 @@ function JobStatusDot({ meta }: { meta: JobMetadata }) {
       className="rounded-full bg-amber-500"
       tooltip="Scheduled (not yet run)"
     />
+  );
+}
+
+type LeafResourceNode = TreeNode & { resource: ResourceMeta };
+
+function getLeafResources(nodes: TreeNode[]): LeafResourceNode[] {
+  return nodes.flatMap((node) => {
+    if (node.type === "folder") {
+      return getLeafResources(node.children ?? []);
+    }
+    return node.resource ? [node as LeafResourceNode] : [];
+  });
+}
+
+function formatResourceSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getCollectionDescriptor(node: LeafResourceNode): string {
+  if (node.kind === "agent") {
+    return (
+      node.agentMeta?.description || node.agentMeta?.model || "Custom agent"
+    );
+  }
+  if (node.kind === "skill") {
+    return node.skillMeta?.description || "Skill";
+  }
+  if (node.kind === "remote-agent") {
+    return (
+      node.remoteAgentMeta?.description ||
+      node.remoteAgentMeta?.url ||
+      "Remote agent"
+    );
+  }
+  if (node.kind === "job") {
+    return (
+      node.jobMeta?.scheduleDescription ||
+      node.jobMeta?.schedule ||
+      "Scheduled job"
+    );
+  }
+  if (node.kind === "mcp-server") return "MCP server";
+  if (node.kind === "mcp-builtin") return "Built-in MCP";
+  return formatResourceSize(node.resource.size);
+}
+
+function CollectionResourceRow({
+  node,
+  selectedId,
+  deletingId,
+  readOnly,
+  onSelect,
+  onDelete,
+}: {
+  node: LeafResourceNode;
+  selectedId: string | null;
+  deletingId?: string | null;
+  readOnly?: boolean;
+  onSelect: (resource: ResourceMeta) => void;
+  onDelete: (id: string) => void;
+}) {
+  const isSelected = node.resource.id === selectedId;
+  const isDeleting = node.resource.id === deletingId;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const descriptor = getCollectionDescriptor(node);
+
+  const selectResource = () => {
+    if (!isDeleting) onSelect(node.resource);
+  };
+
+  return (
+    <div
+      className={cn(
+        "group/collection-row flex w-full items-center gap-3 px-2.5 py-3 text-left transition-[background-color,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        isDeleting
+          ? "pointer-events-none opacity-40"
+          : isSelected
+            ? "bg-accent text-foreground"
+            : "text-foreground hover:bg-accent/50",
+      )}
+      onMouseLeave={() => setConfirmingDelete(false)}
+    >
+      <button
+        type="button"
+        disabled={isDeleting}
+        aria-pressed={isSelected}
+        onClick={selectResource}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/50",
+            isSelected && "bg-background/70",
+          )}
+        >
+          {getFileIcon(node)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[12px] font-medium">
+              {node.name}
+            </span>
+            {node.jobMeta && <JobStatusDot meta={node.jobMeta} />}
+            {node.mcpServerMeta && <McpStatusDot server={node.mcpServerMeta} />}
+            {node.mcpBuiltinMeta && <BuiltinStatusDot node={node} />}
+          </div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px]">
+            <span className="min-w-0 truncate text-muted-foreground/60">
+              {node.resource.path}
+            </span>
+            <span className="shrink-0 text-muted-foreground/30">·</span>
+            <span className="max-w-[40%] shrink-0 truncate text-muted-foreground/80">
+              {descriptor}
+            </span>
+          </div>
+        </div>
+      </button>
+      {!readOnly && node.kind !== "mcp-builtin" && (
+        <div
+          className={cn(
+            "flex shrink-0 items-center opacity-0 transition-opacity group-hover/collection-row:opacity-100 group-focus-within/collection-row:opacity-100",
+            confirmingDelete && "opacity-100",
+          )}
+        >
+          <TooltipProvider delayDuration={200}>
+            {isDeleting ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    aria-label="Deleting…"
+                    className="flex size-6 items-center justify-center rounded text-muted-foreground"
+                  >
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>Deleting…</TooltipContent>
+              </Tooltip>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (confirmingDelete) {
+                        onDelete(node.resource.id);
+                        setConfirmingDelete(false);
+                      } else {
+                        setConfirmingDelete(true);
+                      }
+                    }}
+                    aria-label={confirmingDelete ? "Confirm delete" : "Delete"}
+                    className={cn(
+                      "flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-destructive",
+                      confirmingDelete && "bg-destructive/10 text-destructive",
+                    )}
+                  >
+                    <IconTrash className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {confirmingDelete ? "Click again to delete" : "Delete"}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </TooltipProvider>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -449,6 +626,7 @@ function InlineInput({
 
 export function ResourceTree({
   tree,
+  variant = "tree",
   selectedId,
   onSelect,
   onCreateFile,
@@ -461,10 +639,15 @@ export function ResourceTree({
   deletingId = null,
   readOnly = false,
   headingHint,
+  sectionAction,
+  emptyStateAction,
 }: ResourceTreeProps) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [creating, setCreating] = useState<CreatingState | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const leafResources = variant === "collection" ? getLeafResources(tree) : [];
+  const isEmpty =
+    variant === "collection" ? leafResources.length === 0 : tree.length === 0;
 
   const toggleExpand = useCallback((path: string) => {
     setExpanded((prev) => {
@@ -568,45 +751,71 @@ export function ResourceTree({
               </Tooltip>
             )}
           </span>
-          {!readOnly && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => handleStartCreate("", "file")}
-                  aria-label="New file"
-                  className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover/root:opacity-100 hover:text-foreground hover:bg-accent/50"
-                >
-                  <IconPlus className="h-3 w-3" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>New file</TooltipContent>
-            </Tooltip>
-          )}
+          {sectionAction ??
+            (variant === "tree" && !readOnly && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => handleStartCreate("", "file")}
+                    aria-label="New file"
+                    className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 opacity-0 group-hover/root:opacity-100 hover:text-foreground hover:bg-accent/50"
+                  >
+                    <IconPlus className="h-3 w-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>New file</TooltipContent>
+              </Tooltip>
+            ))}
         </TooltipProvider>
       </div>
 
-      {tree.map((node) => (
-        <TreeNodeRow
-          key={node.resource?.id ?? node.path}
-          node={node}
-          depth={0}
-          expanded={expanded}
-          selectedId={selectedId}
-          deletingId={deletingId}
-          readOnly={readOnly}
-          onToggle={toggleExpand}
-          onSelect={onSelect}
-          onDelete={onDelete}
-          onStartCreate={handleStartCreate}
-        />
-      ))}
+      {variant === "collection"
+        ? leafResources.length > 0 && (
+            <div className="divide-y divide-border/60">
+              {leafResources.map((node) => (
+                <CollectionResourceRow
+                  key={node.resource.id}
+                  node={node}
+                  selectedId={selectedId}
+                  deletingId={deletingId}
+                  readOnly={readOnly}
+                  onSelect={onSelect}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          )
+        : tree.map((node) => (
+            <TreeNodeRow
+              key={node.resource?.id ?? node.path}
+              node={node}
+              depth={0}
+              expanded={expanded}
+              selectedId={selectedId}
+              deletingId={deletingId}
+              readOnly={readOnly}
+              onToggle={toggleExpand}
+              onSelect={onSelect}
+              onDelete={onDelete}
+              onStartCreate={handleStartCreate}
+            />
+          ))}
 
-      {isLoading && tree.length === 0 && (
-        <div className="px-1 py-1">
+      {isLoading && isEmpty && (
+        <div className={cn("px-1 py-1")}>
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-2 px-1.5 py-1">
+            <div
+              key={i}
+              className={cn(
+                "flex items-center gap-2 px-1.5 py-1",
+                variant === "collection" && "gap-3 px-2.5 py-3",
+              )}
+            >
               <div
-                className="h-3.5 w-3.5 rounded bg-muted-foreground/10 animate-pulse"
+                className={cn(
+                  "rounded bg-muted-foreground/10 animate-pulse",
+                  variant === "collection" ? "size-8" : "h-3.5 w-3.5",
+                )}
                 style={{ animationDelay: `${i * 75}ms` }}
               />
               <div
@@ -639,9 +848,17 @@ export function ResourceTree({
         />
       )}
 
-      {tree.length === 0 && !creating && !isLoading && (
-        <div className="px-2 py-1">
-          <p className="text-[11px] text-muted-foreground/40">No files yet</p>
+      {isEmpty && !creating && !isLoading && (
+        <div className="flex items-start gap-2 border-y border-border/60 px-2 py-4">
+          <IconFile className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-xs text-muted-foreground">
+              {variant === "collection"
+                ? "No resources in this collection yet"
+                : "No files yet"}
+            </p>
+            {emptyStateAction}
+          </div>
         </div>
       )}
     </div>

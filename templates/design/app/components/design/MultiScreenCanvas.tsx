@@ -1,8 +1,8 @@
-import { useT } from "@agent-native/core/client";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -84,6 +84,7 @@ import {
 } from "./canvas-primitive-style";
 import { appendHitTestResponder } from "./design-canvas/hit-test";
 import { DesignCanvas } from "./DesignCanvas";
+import { dndHostLog } from "./dnd-debug";
 import {
   gradientToCss,
   parseGradientCss,
@@ -154,6 +155,10 @@ const TRANSFORM_BADGE_MAX_WIDTH = 180;
 // (frame z-order is a small per-design integer) while staying well under the
 // reserved resize-handle stacking range (999_999+).
 const TOP_SCREEN_Z_BOOST = 100_000;
+// A live draw preview must paint above every screen — including the
+// TOP_SCREEN_Z_BOOSTed active one — or its outline hides behind the opaque
+// screen iframe until commit. Stays below the resize-handle range (999_999+).
+const DRAFT_PREVIEW_Z = TOP_SCREEN_Z_BOOST + 50_000;
 const EMPTY_SELECTED_LAYER_SELECTOR_GROUPS_BY_SCREEN: Record<
   string,
   string[][]
@@ -398,6 +403,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   hiddenScreenIds = EMPTY_SCREEN_IDS,
   lockedScreenIds = EMPTY_SCREEN_IDS,
   fullViewScreenIds,
+  pendingReviewScreenIds = EMPTY_SCREEN_IDS,
+  onReviewPendingScreen,
   interactMode = false,
   activeScreenHasHoveredChild = false,
   hoveredChildScreenId,
@@ -524,6 +531,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const lockedScreenIdSet = useMemo(
     () => new Set(lockedScreenIds),
     [lockedScreenIds],
+  );
+  const pendingReviewScreenIdSet = useMemo(
+    () => new Set(pendingReviewScreenIds),
+    [pendingReviewScreenIds],
   );
   const renderedScreens = useMemo(
     () => screens.filter((screen) => !hiddenScreenIdSet.has(screen.id)),
@@ -2263,6 +2274,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
 
+      if (msg.phase !== "move") {
+        dndHostLog("overview:cross-screen", {
+          phase: msg.phase,
+          source: sourceScreenId,
+          selector: msg.selector,
+        });
+      }
       if (msg.phase === "start") {
         setCrossScreenSourceIsBoard(sourceScreenId === boardFileId);
         crossScreenDragMsgRef.current = {
@@ -5161,6 +5179,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             frameGeometryWithOverrides(after, state.originFrames),
             after,
           );
+          dndHostLog("overview:frame-commit", { ids: state.targetIds });
           suppressNextPick.current = true;
         }
         finishDrag();
@@ -7609,6 +7628,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 !isBreakpointSelectionTarget(screen)
               }
               showFullView={fullViewIdSet.has(screen.id)}
+              pendingReview={pendingReviewScreenIdSet.has(screen.id)}
+              onReviewPendingScreen={onReviewPendingScreen}
               interactMode={interactMode}
               isDirectlyHovered={screen.id === directlyHoveredScreenId}
               isFileDragOver={
@@ -8148,7 +8169,7 @@ function DraftPrimitiveLayer({
         ...frameStyleLeftTop(geometry),
         width: geometry.width,
         height: geometry.height,
-        zIndex: geometry.z ?? 40,
+        zIndex: preview ? DRAFT_PREVIEW_Z : (geometry.z ?? 40),
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
           : undefined,
@@ -8898,6 +8919,8 @@ interface ScreenProps {
   isSelected: boolean;
   isTopScreen: boolean;
   showFullView: boolean;
+  pendingReview: boolean;
+  onReviewPendingScreen?: (screenId: string) => void;
   interactMode: boolean;
   isDirectlyHovered: boolean;
   /** True while a native OS file drag is hovering this frame (Figma parity §1). */
@@ -8966,6 +8989,8 @@ const Screen = memo(function Screen({
   isSelected,
   isTopScreen,
   showFullView,
+  pendingReview,
+  onReviewPendingScreen,
   interactMode,
   isDirectlyHovered,
   isFileDragOver,
@@ -9174,6 +9199,27 @@ const Screen = memo(function Screen({
           >
             {display}
           </span>
+          {pendingReview && onReviewPendingScreen ? (
+            <button
+              type="button"
+              data-node-rewrite-review-badge
+              className="flex h-5 shrink-0 items-center gap-1 rounded-full border border-border bg-background/95 px-1.5 !text-[9px] font-medium text-foreground shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title={t("designEditor.nodeRewrite.reviewCandidate")}
+              aria-label={t("designEditor.nodeRewrite.reviewCandidate")}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onReviewPendingScreen(screen.id);
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
+              <span className="size-1.5 rounded-full bg-primary" />
+              {t("designEditor.nodeRewrite.reviewCandidate")}
+            </button>
+          ) : null}
           {metadata.source === "fusion" ? (
             <span
               data-frame-source-badge="fusion"

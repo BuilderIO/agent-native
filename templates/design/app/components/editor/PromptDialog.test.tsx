@@ -18,12 +18,18 @@ interface ComposerStubProps {
   ) => void;
 }
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT:
     () =>
     (key: string, options?: Record<string, unknown>): string =>
       options ? `${key}:${JSON.stringify(options)}` : key,
+}));
+
+vi.mock("@agent-native/core/client/composer", () => ({
   PromptComposer: (props: ComposerStubProps) => (
     <div
       data-testid="prompt-composer"
@@ -58,8 +64,9 @@ vi.mock("@/components/ui/dialog", () => ({
 }));
 
 vi.mock("@/components/ui/popover", () => ({
-  Popover: ({ open, children }: { open: boolean; children: unknown }) =>
-    open ? <div>{children as never}</div> : null,
+  Popover: ({ children }: { children: unknown }) => (
+    <div>{children as never}</div>
+  ),
   PopoverAnchor: ({ children }: { children?: unknown }) => (
     <>{children as never}</>
   ),
@@ -68,6 +75,12 @@ vi.mock("@/components/ui/popover", () => ({
   ),
   PopoverTrigger: ({ children }: { children: unknown }) => (
     <>{children as never}</>
+  ),
+}));
+
+vi.mock("@/components/templates/TemplatePreview", () => ({
+  TemplatePreview: ({ title }: { title: string }) => (
+    <span data-template-preview={title} />
   ),
 }));
 
@@ -275,5 +288,96 @@ describe("PromptPopover skip affordance", () => {
     expect(onSkip).toHaveBeenCalledTimes(2);
     expect(onOpenChange).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("does not close after a successful skip that already navigated", async () => {
+    const onSkip = vi.fn().mockResolvedValue(false);
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "promptDialog.skipPrompt",
+    );
+
+    await act(async () => {
+      skipButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("PromptPopover template picker", () => {
+  const templates = [
+    {
+      id: "built-in-template",
+      title: "Built-in launch",
+      isBuiltIn: true,
+      previewHtml: "<main>Built in</main>",
+    },
+    {
+      id: "saved-template",
+      title: "Saved campaign",
+      isBuiltIn: false,
+      previewHtml: "<main>Saved</main>",
+    },
+  ];
+
+  it("shows the selected preview, name, badge, and grouped saved-first options", async () => {
+    await renderPopover({
+      templateOptions: templates,
+      selectedTemplateId: "built-in-template",
+      onTemplateChange: vi.fn(),
+    });
+
+    const trigger = container!.querySelector("[data-template-picker-trigger]");
+    expect(trigger?.textContent).toContain(
+      "promptDialog.template · Built-in launch",
+    );
+    expect(trigger?.textContent).toContain("promptDialog.builtIn");
+    expect(
+      trigger?.querySelector('[data-template-preview="Built-in launch"]'),
+    ).toBeTruthy();
+
+    const text = container!.textContent ?? "";
+    expect(text.indexOf("promptDialog.blank")).toBeLessThan(
+      text.indexOf("promptDialog.yourTemplates"),
+    );
+    expect(text.indexOf("promptDialog.yourTemplates")).toBeLessThan(
+      text.indexOf("Saved campaign"),
+    );
+    expect(text.indexOf("Saved campaign")).toBeLessThan(
+      text.indexOf("promptDialog.builtInTemplates"),
+    );
+    expect(text.indexOf("promptDialog.builtInTemplates")).toBeLessThan(
+      text.lastIndexOf("Built-in launch"),
+    );
+  });
+
+  it("selects both saved and built-in templates through the shared control", async () => {
+    const onTemplateChange = vi.fn();
+    await renderPopover({
+      templateOptions: templates,
+      selectedTemplateId: null,
+      onTemplateChange,
+    });
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLElement>('[data-template-option="saved-template"]')
+        ?.click();
+    });
+    expect(onTemplateChange).toHaveBeenCalledWith("saved-template");
+
+    await act(async () => {
+      container!
+        .querySelector<HTMLElement>(
+          '[data-template-option="built-in-template"]',
+        )
+        ?.click();
+    });
+    expect(onTemplateChange).toHaveBeenCalledWith("built-in-template");
   });
 });

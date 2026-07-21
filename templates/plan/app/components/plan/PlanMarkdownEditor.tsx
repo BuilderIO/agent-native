@@ -1,13 +1,15 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
-  RichMarkdownEditor,
   useCollaborativeDoc,
-  generateTabId,
-  uploadEditorImage,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import { uploadEditorImage } from "@agent-native/core/client/uploads";
+import {
   createImageSlashCommand,
   DEFAULT_SLASH_COMMANDS,
+  RichMarkdownEditor,
   type RichMarkdownCollabUser,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/editor";
 import { useCallback, useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";

@@ -22,6 +22,7 @@ export interface UseChatModelsResult {
   selectedModel: string;
   selectedEngine: string;
   selectedEffort: ReasoningEffort;
+  isLoading: boolean;
   onModelChange: (model: string, engine: string) => void;
   onEffortChange: (effort: ReasoningEffort) => void;
   refreshEngines: () => void;
@@ -78,6 +79,7 @@ export function useChatModels({
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
+  const [isLoading, setIsLoading] = useState(enabled);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
 
   const initialPersisted = readPersisted(storageKey);
@@ -140,6 +142,7 @@ export function useChatModels({
 
   const refreshEngines = useCallback(() => {
     if (!enabled) return;
+    setIsLoading(true);
     Promise.all([
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
@@ -223,11 +226,15 @@ export function useChatModels({
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
   }, [enabled, storageKey]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
     refreshEngines();
   }, [enabled, refreshEngines]);
 
@@ -237,6 +244,7 @@ export function useChatModels({
     selectedModel,
     selectedEngine,
     selectedEffort,
+    isLoading,
     onModelChange,
     onEffortChange,
     refreshEngines,

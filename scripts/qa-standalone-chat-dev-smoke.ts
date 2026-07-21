@@ -90,6 +90,8 @@ interface ViteReloadTracker {
 interface RunningDev {
   baseUrl: string;
   child: ChildProcessWithoutNullStreams;
+  closed: Promise<void>;
+  isClosed: () => boolean;
   logs: string[];
   dbPath: string;
   viteReload: ViteReloadTracker;
@@ -342,10 +344,9 @@ async function startDevOnce(): Promise<RunningDev> {
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   const child = spawn(
-    "pnpm",
+    nodeBin,
     [
-      "exec",
-      "agent-native",
+      cliEntry,
       "dev",
       "--",
       "--host",
@@ -358,8 +359,16 @@ async function startDevOnce(): Promise<RunningDev> {
       cwd: appDir,
       env: devEnv(baseUrl, dbPath),
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
+  let closed = false;
+  const closePromise = new Promise<void>((resolve) => {
+    child.once("close", () => {
+      closed = true;
+      resolve();
+    });
+  });
 
   child.stdout.on("data", (chunk) =>
     appendDevLog(logs, chunk.toString(), viteReload),
@@ -375,7 +384,15 @@ async function startDevOnce(): Promise<RunningDev> {
     );
   });
 
-  const running = { baseUrl, child, logs, dbPath, viteReload };
+  const running = {
+    baseUrl,
+    child,
+    closed: closePromise,
+    isClosed: () => closed,
+    logs,
+    dbPath,
+    viteReload,
+  };
   try {
     await waitForDevStable(baseUrl, logs);
     log(`dev server stable at ${baseUrl}`);
@@ -409,17 +426,30 @@ async function startDev(): Promise<RunningDev> {
 }
 
 async function stopDev(running: RunningDev): Promise<void> {
-  if (running.child.exitCode != null) return;
-  running.child.kill("SIGTERM");
-  await Promise.race([
-    new Promise<void>((resolve) => running.child.once("exit", () => resolve())),
-    new Promise<void>((resolve) =>
-      setTimeout(() => {
-        if (running.child.exitCode == null) running.child.kill("SIGKILL");
-        resolve();
-      }, 8_000),
-    ),
-  ]);
+  const signal = (name: NodeJS.Signals) => {
+    try {
+      if (process.platform !== "win32" && running.child.pid) {
+        process.kill(-running.child.pid, name);
+      } else {
+        running.child.kill(name);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  };
+  const waitForClose = (timeoutMs: number) =>
+    Promise.race([
+      running.closed.then(() => true),
+      sleep(timeoutMs).then(() => false),
+    ]);
+
+  if (running.isClosed()) return;
+  signal("SIGTERM");
+  if (await waitForClose(8_000)) return;
+  signal("SIGKILL");
+  if (!(await waitForClose(2_000))) {
+    throw new Error("Dev server process tree did not close after SIGKILL");
+  }
 }
 
 async function launchBrowser(): Promise<Browser> {
@@ -659,11 +689,10 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
-async function gotoAndWaitForNavLink(
+async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
   path: string,
-  linkName: string,
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
@@ -681,7 +710,7 @@ async function gotoAndWaitForNavLink(
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("link", { name: linkName })
+        .getByRole("tablist", { name: "Agent sections" })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -704,7 +733,7 @@ async function gotoAndWaitForNavLink(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show ${linkName} link before timeout: ${message}\n` +
+    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }
@@ -772,11 +801,10 @@ async function runBrowserSmoke(
   httpErrors.length = 0;
 
   log("assertion pass: /agent after warmup");
-  await gotoAndWaitForNavLink(
+  await gotoAndWaitForAgentPage(
     page,
     running,
     "/agent",
-    "Agent settings",
     browserErrors,
     httpErrors,
   );
@@ -818,8 +846,20 @@ async function main(): Promise<void> {
 
   const running = await startDev();
   let browser: Browser | null = null;
+  let primaryError: Error | null = null;
+  let cleanupError: unknown;
   const browserErrors: string[] = [];
   const httpErrors: string[] = [];
+
+  const captureCleanupError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.stack || error.message : String(error);
+    if (primaryError) {
+      primaryError.message += `\n\nCleanup error:\n${message}`;
+      return;
+    }
+    cleanupError ??= error;
+  };
 
   try {
     browser = await launchBrowser();
@@ -869,20 +909,36 @@ async function main(): Promise<void> {
       httpErrors.length > 0
         ? `\n\nBrowser HTTP errors:\n${httpErrors.join("\n")}`
         : "";
-    throw new Error(
+    primaryError = new Error(
       `${message}${browserBlock}${httpBlock}\n\nRecent dev logs:\n${logs}`,
     );
   } finally {
-    if (browser) await browser.close();
-    await stopDev(running);
+    try {
+      if (browser) await browser.close();
+    } catch (error) {
+      captureCleanupError(error);
+    }
+    try {
+      await stopDev(running);
+    } catch (error) {
+      captureCleanupError(error);
+    }
     if (!process.env.STANDALONE_CHAT_DEV_SMOKE_DIR && !skipScaffold) {
-      fs.rmSync(scaffoldParent, {
-        recursive: true,
-        force: true,
-        maxRetries: 3,
-      });
+      try {
+        fs.rmSync(scaffoldParent, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 250,
+        });
+      } catch (error) {
+        captureCleanupError(error);
+      }
     }
   }
+
+  if (primaryError) throw primaryError;
+  if (cleanupError) throw cleanupError;
 }
 
 await main();

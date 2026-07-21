@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   createApp,
   _getCoreDependencyVersion,
+  _startShapePromptOptions,
   _workspaceAppNameForTemplateSelection,
 } from "./create.js";
 
@@ -31,6 +32,17 @@ afterEach(() => {
 });
 
 describe("createApp", { timeout: 30000 }, () => {
+  it("makes Chat the first and default create option", () => {
+    const prompt = _startShapePromptOptions();
+
+    expect(prompt.initialValue).toBe("chat");
+    expect(prompt.options.map((option) => option.value)).toEqual([
+      "chat",
+      "template",
+      "headless",
+    ]);
+  });
+
   it("derives workspace app names from GitHub template repo names", () => {
     expect(
       _workspaceAppNameForTemplateSelection("github:acme/customer-portal"),

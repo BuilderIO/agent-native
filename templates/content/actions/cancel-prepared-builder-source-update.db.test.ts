@@ -411,6 +411,79 @@ describe("cancel-prepared-builder-source-update", () => {
     expect(persisted.claims).toHaveLength(1);
   });
 
+  it("bounds heavy Builder write snapshots to selected documents", async () => {
+    const seeded = await seed();
+    const now = "2026-07-15T16:00:00.000Z";
+    const selectedDocumentId = `selected_${seeded.documentId}`;
+    const selectedItemId = `selected_item_${seeded.documentId}`;
+    const otherDocumentId = `other_${seeded.documentId}`;
+    const otherItemId = `other_item_${seeded.documentId}`;
+
+    await getDb()
+      .insert(schema.documents)
+      .values([
+        {
+          id: selectedDocumentId,
+          ownerEmail: OWNER,
+          parentId: seeded.documentId,
+          title: "Selected local draft",
+          content: "Selected rich Builder body.",
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: otherDocumentId,
+          ownerEmail: OWNER,
+          parentId: seeded.documentId,
+          title: "Unselected local draft",
+          content: "This body must not enter the selected heavy snapshot.",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        {
+          id: selectedItemId,
+          ownerEmail: OWNER,
+          databaseId: seeded.databaseId,
+          documentId: selectedDocumentId,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: otherItemId,
+          ownerEmail: OWNER,
+          databaseId: seeded.databaseId,
+          documentId: otherDocumentId,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    const snapshot = await getWriteSnapshot(
+      {
+        id: seeded.databaseId,
+        documentId: seeded.documentId,
+      } as any,
+      seeded.sourceId,
+      [selectedDocumentId],
+    );
+
+    expect(snapshot?.rows).toEqual([]);
+    expect(snapshot?.changeSets).toEqual([
+      expect.objectContaining({
+        databaseItemId: selectedItemId,
+        documentId: selectedDocumentId,
+        localOnly: true,
+        bodyChange: expect.objectContaining({
+          proposedContent: "Selected rich Builder body.",
+        }),
+      }),
+    ]);
+  });
+
   it("suppresses only the identical cancelled diff and resurfaces local or remote changes", async () => {
     const seeded = await seed({
       titleDiff: { remote: "Remote title", local: "Local title" },

@@ -1,4 +1,5 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -456,6 +457,27 @@ const brandKitDetailEnUS = {
     "Clears the live candidates panel and deletes any unsaved candidate rows.",
   couldNotClearLiveCandidates: "Could not clear live candidates.",
   liveCandidatesActions: "Live candidates actions",
+  settingsTitle: "Brand Kit Settings",
+  unsavedChangesTitle: "Unsaved changes",
+  unsavedChangesDescription:
+    "You have unsaved changes to this brand kit. Discard them or keep editing?",
+  discardChanges: "Discard changes",
+  keepEditing: "Keep editing",
+  setupGuide: "Setup guide",
+  setupGuideDescription:
+    "Recommendations for the most consistent, on-brand generations from this kit.",
+  setupGuideReferences: "Upload reference assets",
+  setupGuideReferencesHint:
+    "Mark 3-5 strong examples as References so Analyze brand can learn palette and visual traits from real work, not guesses.",
+  setupGuideStyleDescription: "Write a specific style description",
+  setupGuideStyleDescriptionHint:
+    "Name concrete traits (lighting, composition, texture) instead of vague adjectives so every generation stays on-brand.",
+  setupGuideInstructions: "Use custom instructions for hard constraints",
+  setupGuideInstructionsHint:
+    "Put things that must always be true (logo placement, banned colors, legal copy) here so the agent never forgets them.",
+  setupGuidePresets: "Create a preset per recurring format",
+  setupGuidePresetsHint:
+    "Save aspect ratio, model, and skeleton/reference setup as a preset so the same output shape is reused every time.",
 } satisfies Record<string, string>;
 
 const assetPickerEnUS = {
@@ -573,6 +595,7 @@ const auditEnUS = {
 } satisfies Record<string, string>;
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
@@ -592,10 +615,10 @@ const enUS = {
     collapseSidebar: "Collapse sidebar",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     title: "Settings",
     description: "Asset generation, storage, and brand kit access.",
     connections: "Connections",
@@ -1322,6 +1345,27 @@ const brandKitDetailArSA = {
   videoPromptPlaceholder:
     "يتم الكشف عن المنتج خلال ثماني ثوانٍ مع دفع بطيء للكاميرا",
   viewDetails: "عرض التفاصيل",
+  settingsTitle: "إعدادات مجموعة العلامة التجارية",
+  unsavedChangesTitle: "تغييرات غير محفوظة",
+  unsavedChangesDescription:
+    "لديك تغييرات غير محفوظة على مجموعة العلامة التجارية هذه. هل تريد التراجع عنها أم متابعة التحرير؟",
+  discardChanges: "التراجع عن التغييرات",
+  keepEditing: "متابعة التحرير",
+  setupGuide: "دليل الإعداد",
+  setupGuideDescription:
+    "توصيات للحصول على أكثر النتائج اتساقًا وتوافقًا مع العلامة التجارية من هذه المجموعة.",
+  setupGuideReferences: "تحميل أصول مرجعية",
+  setupGuideReferencesHint:
+    "حدد 3-5 أمثلة قوية كمراجع حتى يتمكن تحليل العلامة التجارية من تعلم لوحة الألوان والسمات المرئية من عمل حقيقي، وليس تخمينات.",
+  setupGuideStyleDescription: "اكتب وصفًا محددًا للأسلوب",
+  setupGuideStyleDescriptionHint:
+    "حدد سمات ملموسة (الإضاءة، التكوين، الملمس) بدلاً من صفات غامضة حتى يبقى كل إنتاج متوافقًا مع العلامة التجارية.",
+  setupGuideInstructions: "استخدم تعليمات مخصصة للقيود الصارمة",
+  setupGuideInstructionsHint:
+    "ضع هنا الأشياء التي يجب أن تكون صحيحة دائمًا (موضع الشعار، الألوان المحظورة، النص القانوني) حتى لا ينساها الوكيل أبدًا.",
+  setupGuidePresets: "أنشئ إعدادًا مسبقًا لكل تنسيق متكرر",
+  setupGuidePresetsHint:
+    "احفظ نسبة العرض إلى الارتفاع والنموذج وإعداد الهيكل/المرجع كإعداد مسبق بحيث يُعاد استخدام نفس شكل الناتج في كل مرة.",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailDeDE = {
@@ -1565,6 +1609,29 @@ const brandKitDetailDeDE = {
   videoPromptPlaceholder:
     "Acht Sekunden lange Produktpräsentation mit langsamem Einfahren der Kamera",
   viewDetails: "Details anzeigen",
+  settingsTitle: "Brand-Kit-Einstellungen",
+  unsavedChangesTitle: "Ungespeicherte Änderungen",
+  unsavedChangesDescription:
+    "Sie haben ungespeicherte Änderungen an diesem Brand Kit. Verwerfen oder weiter bearbeiten?",
+  discardChanges: "Änderungen verwerfen",
+  keepEditing: "Weiter bearbeiten",
+  setupGuide: "Einrichtungsleitfaden",
+  setupGuideDescription:
+    "Empfehlungen für die konsistentesten, markenkonformen Generierungen aus diesem Kit.",
+  setupGuideReferences: "Referenz-Assets hochladen",
+  setupGuideReferencesHint:
+    "Markieren Sie 3-5 starke Beispiele als Referenzen, damit die Markenanalyse Palette und visuelle Merkmale aus echter Arbeit lernen kann, nicht aus Vermutungen.",
+  setupGuideStyleDescription: "Eine konkrete Stilbeschreibung schreiben",
+  setupGuideStyleDescriptionHint:
+    "Benennen Sie konkrete Merkmale (Beleuchtung, Komposition, Textur) statt vager Adjektive, damit jede Generierung markenkonform bleibt.",
+  setupGuideInstructions:
+    "Benutzerdefinierte Anweisungen für feste Vorgaben verwenden",
+  setupGuideInstructionsHint:
+    "Legen Sie hier Dinge fest, die immer gelten müssen (Logoplatzierung, verbotene Farben, rechtliche Texte), damit der Agent sie nie vergisst.",
+  setupGuidePresets:
+    "Für jedes wiederkehrende Format eine Voreinstellung erstellen",
+  setupGuidePresetsHint:
+    "Speichern Sie Seitenverhältnis, Modell und Skelett-/Referenz-Setup als Voreinstellung, damit dieselbe Ausgabeform jedes Mal wiederverwendet wird.",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailEsES = {
@@ -1810,6 +1877,28 @@ const brandKitDetailEsES = {
   videoPromptPlaceholder:
     "Revelación de producto de ocho segundos con cámara lenta",
   viewDetails: "Ver detalles",
+  settingsTitle: "Configuración del kit de marca",
+  unsavedChangesTitle: "Cambios sin guardar",
+  unsavedChangesDescription:
+    "Tienes cambios sin guardar en este kit de marca. ¿Descartarlos o seguir editando?",
+  discardChanges: "Descartar cambios",
+  keepEditing: "Seguir editando",
+  setupGuide: "Guía de configuración",
+  setupGuideDescription:
+    "Recomendaciones para obtener las generaciones más coherentes y fieles a la marca a partir de este kit.",
+  setupGuideReferences: "Subir activos de referencia",
+  setupGuideReferencesHint:
+    "Marca de 3 a 5 ejemplos sólidos como Referencias para que Analizar marca pueda aprender la paleta y los rasgos visuales de trabajo real, no de suposiciones.",
+  setupGuideStyleDescription: "Escribe una descripción de estilo específica",
+  setupGuideStyleDescriptionHint:
+    "Indica rasgos concretos (iluminación, composición, textura) en lugar de adjetivos vagos para que cada generación se mantenga fiel a la marca.",
+  setupGuideInstructions:
+    "Usa instrucciones personalizadas para restricciones estrictas",
+  setupGuideInstructionsHint:
+    "Pon aquí lo que siempre debe cumplirse (ubicación del logotipo, colores prohibidos, textos legales) para que el agente nunca lo olvide.",
+  setupGuidePresets: "Crea un preajuste por cada formato recurrente",
+  setupGuidePresetsHint:
+    "Guarda la relación de aspecto, el modelo y la configuración de esqueleto/referencia como un preajuste para reutilizar la misma forma de salida cada vez.",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailFrFR = {
@@ -2054,6 +2143,28 @@ const brandKitDetailFrFR = {
   videoPromptPlaceholder:
     "Révélation du produit en huit secondes avec introduction lente de la caméra",
   viewDetails: "Afficher les détails",
+  settingsTitle: "Paramètres du kit de marque",
+  unsavedChangesTitle: "Modifications non enregistrées",
+  unsavedChangesDescription:
+    "Vous avez des modifications non enregistrées sur ce kit de marque. Les abandonner ou continuer à modifier ?",
+  discardChanges: "Abandonner les modifications",
+  keepEditing: "Continuer à modifier",
+  setupGuide: "Guide de configuration",
+  setupGuideDescription:
+    "Recommandations pour obtenir les générations les plus cohérentes et fidèles à la marque à partir de ce kit.",
+  setupGuideReferences: "Importer des ressources de référence",
+  setupGuideReferencesHint:
+    "Marquez 3 à 5 exemples solides comme références afin qu'Analyser la marque puisse apprendre la palette et les traits visuels à partir d'un travail réel, pas de suppositions.",
+  setupGuideStyleDescription: "Rédigez une description de style précise",
+  setupGuideStyleDescriptionHint:
+    "Nommez des traits concrets (éclairage, composition, texture) plutôt que des adjectifs vagues afin que chaque génération reste fidèle à la marque.",
+  setupGuideInstructions:
+    "Utilisez des instructions personnalisées pour les contraintes strictes",
+  setupGuideInstructionsHint:
+    "Placez ici les éléments qui doivent toujours être respectés (emplacement du logo, couleurs interdites, mentions légales) pour que l'agent ne les oublie jamais.",
+  setupGuidePresets: "Créez un préréglage par format récurrent",
+  setupGuidePresetsHint:
+    "Enregistrez le format d'image, le modèle et la configuration squelette/référence comme préréglage afin de réutiliser la même forme de sortie à chaque fois.",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailHiIN = {
@@ -2287,6 +2398,27 @@ const brandKitDetailHiIN = {
   videoCandidate: "वीडियो उम्मीदवार",
   videoPromptPlaceholder: "धीमे कैमरा पुश-इन के साथ आठ सेकंड का उत्पाद प्रकट होता है",
   viewDetails: "विवरण देखें",
+  settingsTitle: "ब्रांड किट सेटिंग्स",
+  unsavedChangesTitle: "असहेजे गए परिवर्तन",
+  unsavedChangesDescription:
+    "इस ब्रांड किट में आपके असहेजे गए परिवर्तन हैं। इन्हें छोड़ें या संपादन जारी रखें?",
+  discardChanges: "परिवर्तन छोड़ें",
+  keepEditing: "संपादन जारी रखें",
+  setupGuide: "सेटअप गाइड",
+  setupGuideDescription:
+    "इस किट से सबसे सुसंगत, ब्रांड के अनुरूप जनरेशन पाने के लिए सिफारिशें।",
+  setupGuideReferences: "संदर्भ एसेट अपलोड करें",
+  setupGuideReferencesHint:
+    "3-5 मजबूत उदाहरणों को संदर्भ के रूप में चिह्नित करें ताकि ब्रांड विश्लेषण वास्तविक कार्य से पैलेट और दृश्य विशेषताएँ सीख सके, अनुमानों से नहीं।",
+  setupGuideStyleDescription: "एक विशिष्ट शैली विवरण लिखें",
+  setupGuideStyleDescriptionHint:
+    "अस्पष्ट विशेषणों के बजाय ठोस विशेषताएँ (प्रकाश व्यवस्था, संरचना, बनावट) नाम दें ताकि हर जनरेशन ब्रांड के अनुरूप बनी रहे।",
+  setupGuideInstructions: "कठोर बाधाओं के लिए कस्टम निर्देशों का उपयोग करें",
+  setupGuideInstructionsHint:
+    "जो चीज़ें हमेशा सत्य होनी चाहिए (लोगो प्लेसमेंट, प्रतिबंधित रंग, कानूनी टेक्स्ट) उन्हें यहाँ रखें ताकि एजेंट उन्हें कभी न भूले।",
+  setupGuidePresets: "प्रत्येक बार-बार आने वाले फ़ॉर्मेट के लिए एक प्रीसेट बनाएं",
+  setupGuidePresetsHint:
+    "पहलू अनुपात, मॉडल और स्केलेटन/संदर्भ सेटअप को प्रीसेट के रूप में सहेजें ताकि हर बार वही आउटपुट आकार पुन: उपयोग हो सके।",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailJaJP = {
@@ -2528,6 +2660,27 @@ const brandKitDetailJaJP = {
   videoPromptPlaceholder:
     "ゆっくりとしたカメラの押し込みによる 8 秒間の製品表示",
   viewDetails: "詳細を見る",
+  settingsTitle: "ブランドキット設定",
+  unsavedChangesTitle: "未保存の変更",
+  unsavedChangesDescription:
+    "このブランドキットには未保存の変更があります。破棄しますか、それとも編集を続けますか？",
+  discardChanges: "変更を破棄",
+  keepEditing: "編集を続ける",
+  setupGuide: "セットアップガイド",
+  setupGuideDescription:
+    "このキットから最も一貫性のある、ブランドに沿った生成を得るための推奨事項です。",
+  setupGuideReferences: "参照アセットをアップロード",
+  setupGuideReferencesHint:
+    "強力な例を3〜5点「参照」としてマークすると、ブランド分析が推測ではなく実際の作品からパレットと視覚的特徴を学習できます。",
+  setupGuideStyleDescription: "具体的なスタイル説明を書く",
+  setupGuideStyleDescriptionHint:
+    "曖昧な形容詞ではなく、具体的な特徴（照明、構図、質感）を指定して、すべての生成がブランドに沿うようにします。",
+  setupGuideInstructions: "厳格な制約にはカスタム指示を使用する",
+  setupGuideInstructionsHint:
+    "常に守るべき事項（ロゴの配置、禁止色、法的表記）をここに記載し、エージェントが忘れないようにします。",
+  setupGuidePresets: "繰り返し使う形式ごとにプリセットを作成",
+  setupGuidePresetsHint:
+    "アスペクト比、モデル、スケルトン/参照設定をプリセットとして保存し、毎回同じ出力形式を再利用できるようにします。",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailKoKR = {
@@ -2763,6 +2916,27 @@ const brandKitDetailKoKR = {
   videoCandidate: "영상후보",
   videoPromptPlaceholder: "느린 카메라 푸시인으로 8초 동안 제품 공개",
   viewDetails: "세부정보 보기",
+  settingsTitle: "브랜드 키트 설정",
+  unsavedChangesTitle: "저장되지 않은 변경 사항",
+  unsavedChangesDescription:
+    "이 브랜드 키트에 저장되지 않은 변경 사항이 있습니다. 취소하시겠습니까, 아니면 계속 편집하시겠습니까?",
+  discardChanges: "변경 사항 취소",
+  keepEditing: "계속 편집",
+  setupGuide: "설정 가이드",
+  setupGuideDescription:
+    "이 키트에서 가장 일관되고 브랜드에 맞는 생성을 얻기 위한 권장 사항입니다.",
+  setupGuideReferences: "참조 자산 업로드",
+  setupGuideReferencesHint:
+    "강력한 예시 3~5개를 참조로 표시하면 브랜드 분석이 추측이 아닌 실제 작업에서 팔레트와 시각적 특성을 학습할 수 있습니다.",
+  setupGuideStyleDescription: "구체적인 스타일 설명 작성",
+  setupGuideStyleDescriptionHint:
+    "모호한 형용사 대신 구체적인 특성(조명, 구도, 질감)을 명시하여 모든 생성이 브랜드에 맞게 유지되도록 하세요.",
+  setupGuideInstructions: "엄격한 제약 조건에는 사용자 지정 지침을 사용하세요",
+  setupGuideInstructionsHint:
+    "항상 지켜야 하는 사항(로고 배치, 금지 색상, 법적 문구)을 여기에 입력하면 에이전트가 이를 잊지 않습니다.",
+  setupGuidePresets: "반복되는 형식마다 프리셋을 만드세요",
+  setupGuidePresetsHint:
+    "가로세로 비율, 모델, 스켈레톤/참조 설정을 프리셋으로 저장하여 매번 동일한 출력 형태를 재사용하세요.",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const brandKitDetailPtBR = {
@@ -3008,6 +3182,28 @@ const brandKitDetailPtBR = {
   videoPromptPlaceholder:
     "Revelação do produto em oito segundos com câmera lenta",
   viewDetails: "Ver detalhes",
+  settingsTitle: "Configurações do kit de marca",
+  unsavedChangesTitle: "Alterações não salvas",
+  unsavedChangesDescription:
+    "Você tem alterações não salvas neste kit de marca. Descartá-las ou continuar editando?",
+  discardChanges: "Descartar alterações",
+  keepEditing: "Continuar editando",
+  setupGuide: "Guia de configuração",
+  setupGuideDescription:
+    "Recomendações para obter as gerações mais consistentes e fiéis à marca a partir deste kit.",
+  setupGuideReferences: "Enviar ativos de referência",
+  setupGuideReferencesHint:
+    "Marque de 3 a 5 exemplos fortes como Referências para que a análise de marca aprenda a paleta e os traços visuais a partir de trabalho real, não de suposições.",
+  setupGuideStyleDescription: "Escreva uma descrição de estilo específica",
+  setupGuideStyleDescriptionHint:
+    "Indique traços concretos (iluminação, composição, textura) em vez de adjetivos vagos para que cada geração permaneça fiel à marca.",
+  setupGuideInstructions:
+    "Use instruções personalizadas para restrições rígidas",
+  setupGuideInstructionsHint:
+    "Coloque aqui o que deve sempre ser verdade (posicionamento do logotipo, cores proibidas, textos legais) para que o agente nunca esqueça.",
+  setupGuidePresets: "Crie uma predefinição para cada formato recorrente",
+  setupGuidePresetsHint:
+    "Salve a proporção, o modelo e a configuração de esqueleto/referência como predefinição para reutilizar a mesma forma de saída sempre.",
 } satisfies Partial<Messages["brandKitDetail"]>;
 
 const assetDetailDeDE = {
@@ -3460,13 +3656,27 @@ function mergeMessages(overrides: PartialMessages): Messages {
     },
     brandKits: { ...enUS.brandKits, ...overrides.brandKits },
     library: { ...enUS.library, ...overrides.library },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
   };
+}
+
+function mergeLocalizedMessages(
+  locale: Exclude<LocaleCode, "en-US">,
+  overrides: PartialMessages,
+): Messages {
+  return mergeMessages({
+    ...overrides,
+    creativeContext: creativeContextMessagesByLocale[locale],
+  });
 }
 
 export const messagesByLocale = {
   "en-US": enUS,
-  "zh-TW": mergeMessages(zhTW),
-  "zh-CN": mergeMessages({
+  "zh-TW": mergeLocalizedMessages("zh-TW", zhTW),
+  "zh-CN": mergeLocalizedMessages("zh-CN", {
     library: {
       allLibraries: "所有库",
       noDrafts: "暂无草稿。",
@@ -3700,10 +3910,9 @@ export const messagesByLocale = {
       collapseSidebar: "收起侧边栏",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       title: "设置",
       description: "资产生成、存储和品牌套件访问。",
       connections: "连接",
@@ -4228,6 +4437,27 @@ export const messagesByLocale = {
         "清除实时候选面板并删除所有未保存的候选行。",
       couldNotClearLiveCandidates: "无法清除实时候选项。",
       liveCandidatesActions: "实时候选项操作",
+      settingsTitle: "品牌套件设置",
+      unsavedChangesTitle: "未保存的更改",
+      unsavedChangesDescription:
+        "此品牌套件有未保存的更改。放弃更改还是继续编辑？",
+      discardChanges: "放弃更改",
+      keepEditing: "继续编辑",
+      setupGuide: "设置指南",
+      setupGuideDescription:
+        "为了从此套件获得最一致、最符合品牌调性的生成结果的建议。",
+      setupGuideReferences: "上传参考素材",
+      setupGuideReferencesHint:
+        "将 3-5 个强有力的示例标记为参考，以便品牌分析能从真实作品中学习调色板和视觉特征，而不是猜测。",
+      setupGuideStyleDescription: "撰写具体的风格描述",
+      setupGuideStyleDescriptionHint:
+        "使用具体特征（光线、构图、质感）而不是模糊的形容词，以便每次生成都符合品牌调性。",
+      setupGuideInstructions: "使用自定义指令来设定硬性约束",
+      setupGuideInstructionsHint:
+        "将必须始终成立的事项（徽标位置、禁用颜色、法律文本）放在此处，以便代理永远不会忘记。",
+      setupGuidePresets: "为每种常用格式创建一个预设",
+      setupGuidePresetsHint:
+        "将宽高比、模型和骨架/参考设置保存为预设，以便每次都重复使用相同的输出形式。",
     },
     create: {
       imageModel: "图像模型",
@@ -4277,7 +4507,7 @@ export const messagesByLocale = {
       yourBrandKits: "您的品牌套件",
     },
   }),
-  "es-ES": mergeMessages({
+  "es-ES": mergeLocalizedMessages("es-ES", {
     library: {
       allLibraries: "Todas las bibliotecas",
       noDrafts: "Aún no hay borradores.",
@@ -4478,10 +4708,10 @@ export const messagesByLocale = {
       collapseSidebar: "Contraer barra lateral",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       title: "Ajustes",
       description: "Generación, almacenamiento y acceso a kits de marca.",
       connections: "Conexiones",
@@ -4747,7 +4977,7 @@ export const messagesByLocale = {
       daysAgo: "hace {{count}} d",
     },
   }),
-  "fr-FR": mergeMessages({
+  "fr-FR": mergeLocalizedMessages("fr-FR", {
     library: {
       allLibraries: "Toutes les bibliothèques",
       noDrafts: "Aucun brouillon pour l'instant.",
@@ -4941,10 +5171,10 @@ export const messagesByLocale = {
       collapseSidebar: "Réduire la barre latérale",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       title: "Paramètres",
       description: "Génération d'assets, stockage et accès aux kits de marque.",
       connections: "Connexions",
@@ -5195,7 +5425,7 @@ export const messagesByLocale = {
       daysAgo: "il y a {{count}} j",
     },
   }),
-  "de-DE": mergeMessages({
+  "de-DE": mergeLocalizedMessages("de-DE", {
     library: {
       allLibraries: "Alle Bibliotheken",
       noDrafts: "Noch keine Entwürfe.",
@@ -5393,10 +5623,10 @@ export const messagesByLocale = {
       collapseSidebar: "Seitenleiste einklappen",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       title: "Einstellungen",
       description: "Asset-Erstellung, Speicher und Zugriff auf Brand Kits.",
       connections: "Verbindungen",
@@ -5551,7 +5781,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsDeDE,
   }),
-  "ja-JP": mergeMessages({
+  "ja-JP": mergeLocalizedMessages("ja-JP", {
     library: {
       allLibraries: "すべてのライブラリ",
       noDrafts: "下書きはまだありません。",
@@ -5742,10 +5972,10 @@ export const messagesByLocale = {
       collapseSidebar: "サイドバーを折りたたむ",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       title: "設定",
       description: "アセット生成、保存、ブランドキットへのアクセス。",
       connections: "接続",
@@ -5897,7 +6127,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsJaJP,
   }),
-  "ko-KR": mergeMessages({
+  "ko-KR": mergeLocalizedMessages("ko-KR", {
     library: {
       allLibraries: "모든 라이브러리",
       noDrafts: "아직 초안이 없습니다.",
@@ -6087,10 +6317,10 @@ export const messagesByLocale = {
       collapseSidebar: "사이드바 접기",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       title: "설정",
       description: "자산 생성, 저장소, 브랜드 키트 접근.",
       connections: "연결",
@@ -6242,7 +6472,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsKoKR,
   }),
-  "pt-BR": mergeMessages({
+  "pt-BR": mergeLocalizedMessages("pt-BR", {
     library: {
       allLibraries: "Todas as bibliotecas",
       noDrafts: "Ainda não há rascunhos.",
@@ -6434,10 +6664,10 @@ export const messagesByLocale = {
       collapseSidebar: "Recolher barra lateral",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       title: "Configurações",
       description: "Geração de assets, armazenamento e acesso a kits de marca.",
       connections: "Conexões",
@@ -6689,7 +6919,7 @@ export const messagesByLocale = {
       daysAgo: "há {{count}} d",
     },
   }),
-  "hi-IN": mergeMessages({
+  "hi-IN": mergeLocalizedMessages("hi-IN", {
     library: {
       allLibraries: "सभी लाइब्रेरी",
       noDrafts: "अभी तक कोई ड्राफ़्ट नहीं।",
@@ -6879,10 +7109,10 @@ export const messagesByLocale = {
       collapseSidebar: "साइडबार समेटें",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       title: "सेटिंग्स",
       description: "एसेट जेनरेशन, स्टोरेज और ब्रांड किट एक्सेस।",
       connections: "कनेक्शन",
@@ -7032,7 +7262,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsHiIN,
   }),
-  "ar-SA": mergeMessages({
+  "ar-SA": mergeLocalizedMessages("ar-SA", {
     library: {
       allLibraries: "جميع المكتبات",
       noDrafts: "لا توجد مسودات بعد.",
@@ -7224,10 +7454,10 @@ export const messagesByLocale = {
       collapseSidebar: "طي الشريط الجانبي",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       title: "الإعدادات",
       description: "إنشاء الأصول والتخزين والوصول إلى مجموعات العلامة.",
       connections: "الاتصالات",

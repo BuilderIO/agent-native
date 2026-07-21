@@ -2,8 +2,8 @@ import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
   sendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChartBar, IconDatabase, IconSettings } from "@tabler/icons-react";
 import { useEffect } from "react";
 

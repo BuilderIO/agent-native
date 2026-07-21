@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["ar-SA"],
   root: {
     commandPresentations: "العروض التقديمية",
     searchDecks: "البحث في العروض",
@@ -33,10 +36,10 @@ const messages = {
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    agentTitle: "إعدادات الوكيل",
+    agentTitle: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    openAgentSettings: "فتح إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "إدارة الوكيل",
   },
   agent: {
     emptyState: "اسألني أي شيء عن عروضك التقديمية",
@@ -103,6 +106,7 @@ const messages = {
     searchImagesPlaceholder: "Buscar imagens...",
     searchForLogosImagesIcons: "Buscar logos, imagens, ícones...",
     search: "بحث",
+    searchFailed: "فشل البحث",
     logoSearchTitle: "بحث عن الشعار",
     searchCompanyLogo: "Busque uma empresa para encontrar seu logo",
     searchCompanyPlaceholder: "Buscar nome da empresa (ex.: Intuit)",

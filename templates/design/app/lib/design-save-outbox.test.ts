@@ -289,8 +289,48 @@ describe("design save outbox", () => {
       storage,
     });
 
-    expect(result).toEqual({ saved: [], failed: [] });
+    expect(result).toEqual({ saved: [], failed: [], dropped: [] });
     expect(invokeAction).not.toHaveBeenCalled();
+    expect(await storage.list("design-1", "user-1")).toHaveLength(1);
+  });
+
+  it("drops an unrecoverable save when the target file no longer exists", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(fileEntry(1), storage);
+    const notFound = Object.assign(new Error("File not found: file-1"), {
+      status: 404,
+    });
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(notFound),
+      storage,
+    });
+
+    // A permanent failure is dropped (never retried), unlike a 409 conflict
+    // which stays queued — otherwise an orphaned screen loops 500s forever.
+    expect(result.dropped).toHaveLength(1);
+    expect(result.failed).toEqual([]);
+    expect(await storage.list("design-1", "user-1")).toEqual([]);
+  });
+
+  it("retries (never drops) a bare 404 that does not name a missing file", async () => {
+    const storage = new MemoryOutboxStorage();
+    await journalDesignSaveOutboxEntry(fileEntry(1), storage);
+    // A cold-start action route can 404 transiently; the message does not name
+    // a missing file, so the edit must stay queued for retry, never discarded.
+    const routeMiss = Object.assign(new Error("Not Found"), { status: 404 });
+
+    const result = await drainDesignSaveOutbox({
+      designId: "design-1",
+      actorScope: "user-1",
+      invokeAction: vi.fn().mockRejectedValue(routeMiss),
+      storage,
+    });
+
+    expect(result.dropped).toEqual([]);
+    expect(result.failed).toHaveLength(1);
     expect(await storage.list("design-1", "user-1")).toHaveLength(1);
   });
 });

@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["ko-KR"],
   root: {
     commandPresentations: "프레젠테이션",
     searchDecks: "덱 검색",
@@ -34,10 +37,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
   },
   agent: {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",
@@ -104,6 +107,7 @@ const messages = {
     searchImagesPlaceholder: "画像を検索...",
     searchForLogosImagesIcons: "ロゴ、画像、アイコンを検索...",
     search: "검색",
+    searchFailed: "검색 실패",
     logoSearchTitle: "로고 검색",
     searchCompanyLogo: "会社を検索してロゴを見つける",
     searchCompanyPlaceholder: "会社名を検索（例: Intuit）",

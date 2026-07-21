@@ -40,6 +40,7 @@ const {
   appStatePut,
   appStateGet,
   appStateGetMany,
+  appStateCompareAndSet,
   appStateList,
   appStateDeleteByPrefix,
 } = await import("./store.js");
@@ -147,6 +148,58 @@ describe("application-state store", () => {
     });
     expect(emitAppStateDelete).toHaveBeenCalledWith(
       "compose_%",
+      undefined,
+      SESSION,
+    );
+  });
+
+  it("atomically updates only when the stored value is unchanged", async () => {
+    await appStatePut(SESSION, "rewrite", { repromptId: "r1" });
+    emitAppStateChange.mockClear();
+
+    await expect(
+      appStateCompareAndSet(
+        SESSION,
+        "rewrite",
+        { repromptId: "stale" },
+        { repromptId: "r2" },
+      ),
+    ).resolves.toBe(false);
+    expect(await appStateGet(SESSION, "rewrite")).toEqual({ repromptId: "r1" });
+    expect(emitAppStateChange).not.toHaveBeenCalled();
+
+    await expect(
+      appStateCompareAndSet(
+        SESSION,
+        "rewrite",
+        { repromptId: "r1" },
+        { repromptId: "r2" },
+      ),
+    ).resolves.toBe(true);
+    expect(await appStateGet(SESSION, "rewrite")).toEqual({ repromptId: "r2" });
+    expect(emitAppStateChange).toHaveBeenCalledWith(
+      "rewrite",
+      undefined,
+      SESSION,
+    );
+  });
+
+  it("atomically deletes only the expected stored value", async () => {
+    await appStatePut(SESSION, "rewrite", { proposalId: "p2" });
+    emitAppStateDelete.mockClear();
+
+    await expect(
+      appStateCompareAndSet(SESSION, "rewrite", { proposalId: "p1" }, null),
+    ).resolves.toBe(false);
+    expect(await appStateGet(SESSION, "rewrite")).toEqual({ proposalId: "p2" });
+    expect(emitAppStateDelete).not.toHaveBeenCalled();
+
+    await expect(
+      appStateCompareAndSet(SESSION, "rewrite", { proposalId: "p2" }, null),
+    ).resolves.toBe(true);
+    expect(await appStateGet(SESSION, "rewrite")).toBeNull();
+    expect(emitAppStateDelete).toHaveBeenCalledWith(
+      "rewrite",
       undefined,
       SESSION,
     );

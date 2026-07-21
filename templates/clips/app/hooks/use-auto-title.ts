@@ -1,23 +1,9 @@
-/**
- * Clips AI request bridge
- *
- * Polls the `list-ai-requests` action — a single access-scoped call that returns
- * every pending `clips-ai-request-*` entry for recordings the user can access.
- * The bridge sends queued recording work to the agent chat exactly once per
- * (recordingId, kind, requestedAt).
- *
- * Once handled we DELETE the request entry so the next page load / tab switch
- * doesn't re-fire. The polling layer flips UI back to ready when the requested
- * action lands its writes.
- */
-
 import {
-  agentNativePath,
-  callAction,
   sendToAgentChat,
   type AgentChatMessage,
-  useChangeVersions,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 

@@ -17,17 +17,17 @@ describe("VisualEditor read-only mode", () => {
   });
 
   it("gates the custom drag handle behind editor editability", () => {
-    // Content's DragHandle is now a thin re-export of the shared core extension
+    // Content's DragHandle is a thin re-export of the shared Toolkit extension
     // (configured with Content's wrapper selector); the implementation — and the
-    // editability gate — lives in core, so assert it against the core source.
+    // editability gate — lives in Toolkit, so assert it against that source.
     const reexport = readEditorSource("./extensions/DragHandle.tsx");
     expect(reexport).toContain(
-      'import { DragHandle as CoreDragHandle } from "@agent-native/core/client"',
+      'import { DragHandle as ToolkitDragHandle } from "@agent-native/toolkit/editor"',
     );
     expect(reexport).toContain('wrapperSelector: ".visual-editor-wrapper"');
 
     const source = readEditorSource(
-      "../../../../../packages/core/src/client/rich-markdown-editor/DragHandle.ts",
+      "../../../../../packages/toolkit/src/editor/DragHandle.ts",
     );
 
     expect(source).toContain("const editor = this.editor");

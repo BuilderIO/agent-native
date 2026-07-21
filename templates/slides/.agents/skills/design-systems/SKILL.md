@@ -42,6 +42,13 @@ Builder indexing flow.
 
 ## Applying to Slides
 
+Before creating or extending a system, read the `creative-context` skill and
+retrieve approved brand primitives separately from factual or layout examples.
+Apply its reuse ladder exactly: native template/component/asset unchanged,
+compose approved pieces, lightly adapt a real example, generate from narrow
+references, then net-new only when the corpus is empty. A context pack is an
+immutable generation snapshot, not a mutable design system.
+
 When generating slides, replace default values with design system tokens:
 
 - `#00E5FF` -> `colors.accent`
@@ -58,3 +65,7 @@ The Tweaks panel provides live CSS variable overrides:
 - Background warmth
 
 Changes persist to the design system and apply immediately via CSS custom properties.
+
+Persist the chosen `contextPackId` and reuse labels with deck generation
+provenance. Promote a retrieved pattern into the design system only after an
+explicit user decision; do not silently turn search results into defaults.

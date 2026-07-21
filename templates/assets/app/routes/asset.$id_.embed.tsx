@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useParams } from "react-router";
 
 import { assetPreviewSources } from "@/lib/asset-preview-sources";

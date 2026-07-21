@@ -1,6 +1,6 @@
 ---
 name: slide-images
-description: Image generation workflow -- generate-image, image-search, logo-lookup scripts. Style reference patterns.
+description: Image generation workflow -- generate-image, search-images, and search-logos actions. Style reference patterns.
 ---
 
 # Slide Images
@@ -12,8 +12,8 @@ Images for slides are generated or sourced via three scripts. The agent delegate
 | Script | Purpose | Example |
 |--------|---------|---------|
 | `generate-image` | Generate images (Gemini/OpenAI/auto) | `pnpm action generate-image --prompt "hero image" --model auto --count 3` |
-| `image-search` | Search Google Images via Custom Search API | `pnpm action image-search --query "Acme logo transparent" --count 5` |
-| `logo-lookup` | Get company logo URL via Logo.dev API | `pnpm action logo-lookup --domain acme.com` |
+| `search-images` | Search Google Images via the configured provider | `pnpm action search-images --q "Acme logo transparent" --count 5` |
+| `search-logos` | Resolve company domains and canonical logo URLs | `pnpm action search-logos --q "Acme"` |
 | `image-gen-status` | Check configured image providers | `pnpm action image-gen-status` |
 
 ## Image Generation Flow
@@ -46,19 +46,23 @@ Default style reference images from `shared/api.ts` are always included.
 
 Two options for company logos:
 
-**Option 1: Logo.dev API** (best quality, requires `LOGO_DEV_TOKEN`):
+**Option 1: canonical logo search** (uses Logo.dev search when configured and a bounded domain fallback otherwise):
 ```bash
-pnpm action logo-lookup --domain acme.com
+pnpm action search-logos --q "Acme"
 ```
+
+Use a returned `logoUrl` directly. Do not call a second logo-provider action for
+each result.
 
 **Option 2: Google Image Search** (fallback):
 ```bash
-pnpm action image-search --query "Acme logo transparent" --count 5
+pnpm action search-images --q "Acme logo transparent" --count 5
 ```
 
 ## Important Rules
 
 - Always include style references for visual consistency
 - Use `.fmd-img-placeholder` divs in slides before real images are generated
-- Never use web_search or manual URL guessing for images
+- Use one canonical provider action per conceptual search; do not loop legacy
+  provider scripts or manually guess provider URLs
 - After inserting an image, update the deck via the API

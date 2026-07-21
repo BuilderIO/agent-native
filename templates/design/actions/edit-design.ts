@@ -5,6 +5,13 @@ import {
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -46,6 +53,18 @@ const editBlocksSchema = z.preprocess(
     )
     .min(1),
 );
+
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
 
 function stripStableNodeIdAttributes(value: string): {
   content: string;
@@ -181,6 +200,21 @@ export default defineAction({
         .describe(
           "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
         ),
+      contextPackId: z
+        .string()
+        .optional()
+        .describe("Exact Creative Context pack used for this file edit."),
+      contextModeOverride: z
+        .literal("off")
+        .optional()
+        .describe(
+          "Disable Creative Context for this edit only without changing the saved preference.",
+        ),
+      reuseLabels: z
+        .array(reuseLabelSchema)
+        .optional()
+        .default([])
+        .describe("Exact item versions that influenced this file edit."),
     })
     .superRefine((value, ctx) => {
       const mode =
@@ -223,6 +257,9 @@ export default defineAction({
     edits,
     mode,
     replacementContent,
+    contextPackId,
+    contextModeOverride,
+    reuseLabels,
   }) => {
     await assertAccess("design", designId, "editor");
 
@@ -296,7 +333,85 @@ export default defineAction({
         : applySearchReplaceEdits(base, edits ?? []);
     const changed = nextContent !== base;
 
+    let creativeContext:
+      | {
+          contextMode: "off" | "auto" | "pinned";
+          contextPackId: string | null;
+          reuseLabels: CreativeContextReuseLabel[];
+          elementProvenance: Array<{
+            elementId: string;
+            influence:
+              | "reused"
+              | "adapted"
+              | "reference-conditioned"
+              | "generated";
+            itemId?: string;
+            itemVersionId?: string;
+            label?: string;
+          }>;
+        }
+      | undefined;
+
     if (changed) {
+      const previous =
+        contextModeOverride === "off"
+          ? null
+          : await getGenerationCreativeContext({
+              appId: "design",
+              artifactType: "design",
+              artifactId: designId,
+            });
+      if (
+        contextPackId !== undefined &&
+        previous?.contextPackId &&
+        contextPackId !== previous.contextPackId
+      ) {
+        throw new Error(
+          "The design edit must preserve the design's creative-context pack",
+        );
+      }
+      const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
+        ? reuseLabels
+        : [
+            {
+              kind: "design-file",
+              label: "Net-new design edit",
+              dataRole: "untrusted-reference",
+              elementId: file.id,
+              influence: "generated",
+            },
+          ];
+      const validated = await validateGenerationCreativeContext({
+        contextPackId: contextPackId ?? previous?.contextPackId,
+        contextPackSource:
+          contextPackId === undefined ? "inherited" : "explicit",
+        contextModeOverride,
+        reuseLabels: requestedLabels,
+        reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+      });
+      const elementProvenance = validated.reuseLabels.map((label) => ({
+        elementId: file.id,
+        influence: label.influence ?? ("reference-conditioned" as const),
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      }));
+      const contextMode =
+        validated.contextMode === "off"
+          ? "off"
+          : (previous?.contextMode ?? validated.contextMode);
+      creativeContext = {
+        contextMode,
+        contextPackId: validated.contextPackId,
+        reuseLabels: validated.reuseLabels,
+        elementProvenance:
+          contextMode === "off"
+            ? elementProvenance
+            : replaceCreativeContextElementProvenance(
+                previous?.elementProvenance ?? [],
+                elementProvenance,
+              ),
+      };
       assertLockedLayersPreserved(base, nextContent);
 
       // Mark agent presence + selection so live viewers can see where the
@@ -327,6 +442,12 @@ export default defineAction({
       } finally {
         agentLeaveDocument(file.id);
       }
+      await recordGenerationCreativeContext({
+        appId: "design",
+        artifactType: "design",
+        artifactId: designId,
+        ...creativeContext,
+      });
     }
 
     return {
@@ -338,6 +459,13 @@ export default defineAction({
       changed,
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
+      ...(creativeContext
+        ? {
+            contextMode: creativeContext.contextMode,
+            contextPackId: creativeContext.contextPackId,
+            reuseLabels: creativeContext.reuseLabels,
+          }
+        : {}),
     };
   },
 });

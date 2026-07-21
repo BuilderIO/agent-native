@@ -101,6 +101,72 @@ describe("task-store lifecycle (real sqlite)", () => {
       const loaded = await getTask(task.id);
       expect(loaded!.metadata).toEqual({ kind: "demo", n: 7 });
     });
+
+    it("round-trips verified org ownership for task access checks", async () => {
+      const { createTask, getTaskOwnership } = await loadStore();
+      const task = await createTask(
+        makeMessage("hi"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+      );
+
+      await expect(getTaskOwnership(task.id)).resolves.toEqual({
+        ownerEmail: "owner@example.com",
+        ownerScope: "acme.test",
+      });
+    });
+  });
+
+  describe("createOrReuseTask idempotency", () => {
+    it("uses the verified org scope in the unique submission key", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const acme = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+        "v1:stable",
+      );
+      const other = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "other.test",
+        "v1:stable",
+      );
+
+      expect(acme.reused).toBe(false);
+      expect(other.reused).toBe(false);
+      expect(other.task.id).not.toBe(acme.task.id);
+    });
+
+    it("releases a failed submission key for one fresh retry", async () => {
+      const { createOrReuseTask, updateTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+        "v1:stable",
+      );
+      await updateTask(first.task.id, { state: "failed" });
+      const retry = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+        "v1:stable",
+      );
+
+      expect(retry.reused).toBe(false);
+      expect(retry.task.id).not.toBe(first.task.id);
+    });
   });
 
   describe("claimA2ATaskForProcessing", () => {

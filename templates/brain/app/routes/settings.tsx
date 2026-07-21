@@ -1,20 +1,22 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
-  ChangelogSettingsCard,
-  LanguagePicker,
-  SettingsTabsPage,
-  useAgentSettingsTabs,
   useActionMutation,
   useActionQuery,
-  useT,
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
   type SettingsSearchEntry,
   type SettingsTabItem,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import {
   IconAdjustments,
   IconDeviceFloppy,
   IconFileText,
   IconGauge,
+  IconLock,
   IconMessageCircle,
   IconShieldCheck,
   IconUsersGroup,
@@ -49,6 +51,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   type BrainSettings,
   type SettingsResponse,
+  type BrainHealthResponse,
   defaultSettings,
 } from "@/lib/brain";
 import {
@@ -266,6 +269,152 @@ function PublishingReviewSettings({
   );
 }
 
+function PrivacySensitivitySettings({
+  settings,
+  update,
+}: {
+  settings: BrainSettings;
+  update: UpdateBrainSettings;
+}) {
+  const t = useT();
+  const healthQuery = useActionQuery<BrainHealthResponse>(
+    "get-brain-health" as any,
+    {} as any,
+  );
+  const privacy = (
+    healthQuery.data as BrainHealthResponse & {
+      privacy?: {
+        classifierReady?: boolean;
+        classifierModel?: string | null;
+        quarantineRetentionDays?: number | null;
+      };
+    }
+  )?.privacy;
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <Card id="privacy-sensitivity" className="scroll-mt-4">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <IconLock className="size-4 text-primary" />
+            {t("settings.privacySensitivityTitle")}
+          </CardTitle>
+          <CardDescription>
+            {t("settings.privacySensitivityDescription")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 text-sm">
+          <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 sm:grid-cols-3">
+            <PolicyRow
+              label={t("settings.privacyClassifier")}
+              value={
+                privacy?.classifierReady
+                  ? t("settings.ready")
+                  : t("settings.readinessPending")
+              }
+            />
+            <PolicyRow
+              label={t("settings.privacyModel")}
+              value={privacy?.classifierModel ?? t("settings.notSet")}
+            />
+            <PolicyRow
+              label={t("settings.quarantineRetention")}
+              value={
+                privacy?.quarantineRetentionDays
+                  ? t("settings.days", {
+                      count: privacy.quarantineRetentionDays,
+                    })
+                  : t("settings.notSet")
+              }
+            />
+          </div>
+          <p className="rounded-md border border-border bg-background p-3 text-xs leading-5 text-muted-foreground">
+            {t("settings.tightenOnly")}
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              id="privacy-classifier-model"
+              label={t("settings.privacyClassifierModel")}
+              value={settings.privacyClassifierModel ?? ""}
+              placeholder={t("settings.privacyClassifierModelPlaceholder")}
+              onChange={(value) => update("privacyClassifierModel", value)}
+            />
+            <TextField
+              id="privacy-classifier-engine"
+              label={t("settings.privacyClassifierEngine")}
+              value={settings.privacyClassifierEngine ?? ""}
+              placeholder={t("settings.privacyClassifierEnginePlaceholder")}
+              onChange={(value) => update("privacyClassifierEngine", value)}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="quarantine-retention-hours">
+              {t("settings.quarantineRetentionHours")}
+            </Label>
+            <Input
+              id="quarantine-retention-hours"
+              type="number"
+              min={1}
+              max={8760}
+              value={settings.quarantineRetentionHours ?? 72}
+              onChange={(event) =>
+                update(
+                  "quarantineRetentionHours",
+                  Math.max(1, Math.min(8760, Number(event.target.value) || 1)),
+                )
+              }
+            />
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("settings.quarantineRetentionHoursDescription")}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="sensitivity-custom-instructions">
+              {t("settings.sensitivityCustomInstructions")}
+            </Label>
+            <Textarea
+              id="sensitivity-custom-instructions"
+              value={settings.sensitivityCustomInstructions ?? ""}
+              placeholder={t(
+                "settings.sensitivityCustomInstructionsPlaceholder",
+              )}
+              onChange={(event) =>
+                update("sensitivityCustomInstructions", event.target.value)
+              }
+            />
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("settings.sensitivityCustomInstructionsDescription")}
+            </p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="public-channel-exclusion-patterns">
+              {t("settings.publicChannelExclusionPatterns")}
+            </Label>
+            <Textarea
+              id="public-channel-exclusion-patterns"
+              value={(settings.publicChannelExclusionPatterns ?? []).join("\n")}
+              placeholder={t(
+                "settings.publicChannelExclusionPatternsPlaceholder",
+              )}
+              onChange={(event) =>
+                update(
+                  "publicChannelExclusionPatterns",
+                  event.target.value
+                    .split("\n")
+                    .map((value) => value.trim())
+                    .filter(Boolean),
+                )
+              }
+            />
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("settings.publicChannelExclusionPatternsDescription")}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function SafetyEvidenceSettings({
   settings,
   update,
@@ -398,6 +547,16 @@ export default function SettingsRoute() {
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
+      {
+        id: "privacy-sensitivity",
+        label: t("settings.privacySensitivityTitle"),
+        icon: IconLock,
+        keywords:
+          "privacy sensitivity classifier quarantine retention tighten only",
+        content: (
+          <PrivacySensitivitySettings settings={settings} update={update} />
+        ),
+      },
       {
         id: "brain-identity",
         label: t("settings.identityTitle"),

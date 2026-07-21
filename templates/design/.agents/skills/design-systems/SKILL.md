@@ -10,6 +10,14 @@ description: >-
 
 Design systems store brand identity tokens (colors, fonts, spacing, logos) that are applied to all designs in a project.
 
+Before creating or applying a system, read the `creative-context` skill and
+retrieve approved brand primitives separately from factual, visual, and layout
+examples. Apply its exact reuse ladder before inventing new primitives. A
+context pack is an immutable generation snapshot; it is not a design system and
+must not be silently promoted into one. Preserve the chosen `contextPackId` and
+reuse labels on the generation session/screens, and require an explicit user
+decision before making a retrieved pattern a durable design-system default.
+
 ## Data Model
 
 Design systems are stored in the `design_systems` SQL table. Each has:
