@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChecks } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ export function ListSelectionHeaderToggle({
   disabled,
   onSelectionModeChange,
 }: ListSelectionHeaderToggleProps) {
+  const t = useT();
   return (
     <Button
       variant={selectionMode ? "secondary" : "ghost"}
@@ -22,7 +24,7 @@ export function ListSelectionHeaderToggle({
       onClick={() => onSelectionModeChange(!selectionMode)}
     >
       <IconChecks className="h-3.5 w-3.5" />
-      {selectionMode ? "Done selecting" : "Select"}
+      {selectionMode ? t("selection.doneSelecting") : t("selection.select")}
     </Button>
   );
 }

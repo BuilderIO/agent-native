@@ -180,7 +180,7 @@ npx @agent-native/recap-cli@latest recap doctor
 - **ثبّت نموذجًا أرخص.** بالنسبة لـ Claude، اضبط `VISUAL_RECAP_MODEL=claude-haiku-4-5` للمستودعات البسيطة أو الصغيرة — إنه أرخص فئة من Claude؛ `claude-sonnet-5` (الافتراضي) هو الفئة المتوازنة.
 - **انتقل إلى Codex بنموذج أرخص.** اضبط `VISUAL_RECAP_AGENT=codex` مع `VISUAL_RECAP_MODEL=gpt-5.6-luna` (أرخص فئة من GPT-5.6) أو `gpt-5.6-terra` (فئة متوسطة)، واضبط `VISUAL_RECAP_REASONING=low` لخفض إنفاق رموز الاستدلال أكثر. يُطبَّق عمق الاستدلال على Codex فقط.
 - **وجّهه إلى مزود متوافق مع OpenAI أرخص.** اضبط `VISUAL_RECAP_AGENT=openai-compatible` مع `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` مستهدفًا DeepSeek أو Kimi أو أي نقطة نهاية أخرى متوافقة مع OpenAI.
-- **قلّل من تكرار الملخصات.** عدّل `on.pull_request.types` في سير العمل المثبّت من `[opened, synchronize, reopened, ready_for_review, closed]` إلى `[opened, ready_for_review, closed]` بحيث يتم إنشاء الملخّص فقط عند فتح طلب السحب وعند دمجه، بدلاً من كل دفعة.
+- **قلّل من تكرار الملخصات.** عدّل `on.pull_request.types` في سير العمل المثبّت من `[opened, synchronize, reopened, ready_for_review, labeled, closed]` إلى `[opened, ready_for_review, closed]` بحيث يتم إنشاء الملخّص فقط عند فتح طلب السحب وعند دمجه، بدلاً من كل دفعة.
 
 يسجّل كل تشغيل ما أنفقه فعليًا: تُرفق خطوة `recap usage` في سير العمل استخدام الرموز والتكلفة بالخطة المنشورة، حتى تتمكن من الاطلاع على الإنفاق الفعلي لكل تشغيل بدلاً من التخمين.
 
@@ -479,10 +479,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -502,6 +503,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

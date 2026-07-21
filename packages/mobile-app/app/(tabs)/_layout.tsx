@@ -1,6 +1,7 @@
 import {
   IconApps,
   IconHome,
+  IconMessageCircle,
   IconSparkles,
   IconTerminal2,
 } from "@tabler/icons-react-native";
@@ -10,7 +11,6 @@ const HIDDEN_APP_ROUTES = [
   "analytics",
   "brain",
   "calendar",
-  "chat",
   "content",
   "design",
   "dispatch",
@@ -52,6 +52,15 @@ export default function TabLayout() {
           title: "Clips",
           tabBarIcon: ({ color, size }) => (
             <IconSparkles color={color} size={size} strokeWidth={1.8} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="chat"
+        options={{
+          title: "Chat",
+          tabBarIcon: ({ color, size }) => (
+            <IconMessageCircle color={color} size={size} strokeWidth={1.8} />
           ),
         }}
       />

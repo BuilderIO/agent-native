@@ -230,7 +230,16 @@ membership id when its native update status reports `update-available`.
   filters; do not hand-wire custom email routes around that action surface.
   Report PNGs are Playwright captures of the real dashboard route in
   `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
-  and embedded inline in email with a CID image. Netlify builds emit a scheduled
+  and embedded inline in email as ordered CID images. Complete dashboards are
+  captured sequentially in bounded panel windows; every window must match the
+  panel ids snapshotted at the start, and a failed or mismatched window
+  invalidates the entire image set so the scheduler can retry instead of
+  sending a partial report. Capture is capped at 10 windows and 14 MiB of raw
+  PNG data, and subscriptions are capped at five distinct recipients; use a
+  mailing-list address for larger audiences. The serverless capture deadline
+  reserves 90 seconds of the 300-second worker budget for cleanup and delivery.
+  The ten-minute retry delay is an eligibility floor; the \*/15 sweep runs the
+  retry on its first tick after that floor. Netlify builds emit a scheduled
   trigger plus a background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
   token and disabling the in-process interval scheduler on Netlify to avoid

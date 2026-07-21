@@ -14,7 +14,6 @@ import {
 } from "@tabler/icons-react";
 import React, { useState, useCallback, useEffect } from "react";
 
-import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Tooltip,
@@ -135,7 +134,8 @@ const PLATFORMS: PlatformInfo[] = [
       "Builder.io discovers each agent's skills via A2A",
       "Chat with one agent that can trigger actions across all your apps",
     ],
-    docsUrl: "https://www.builder.io",
+    docsUrl:
+      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
   },
 ];
 
@@ -512,14 +512,6 @@ export function IntegrationsPanel() {
         <div className="text-[10px] font-medium text-muted-foreground mb-1.5">
           {t("integrations.addChatIntegration")}
         </div>
-        <AgentAskPopover
-          label={t("integrations.addSomething")}
-          title={t("integrations.addSomethingTitle")}
-          placeholder={t("integrations.addSomethingPlaceholder")}
-          prompt=""
-          context="The user wants to add a chat or workspace integration that is not in the current directory. Research the provider's official OAuth or MCP setup, explain any app registration or allowlist requirements, and add a reusable integration preset when it is supported. Never ask the user to paste credentials into a prompt."
-          className="mb-2 h-7 w-full justify-center border-dashed px-2 text-[10px]"
-        />
         <AddIntegrationPicker
           connectedIds={connectedIds}
           onSelect={(p) => {
@@ -554,14 +546,6 @@ export function IntegrationsPanel() {
             </TooltipTrigger>
             <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
           </Tooltip>
-          <AgentAskPopover
-            label={t("integrations.addSomething")}
-            title={t("integrations.addSomethingTitle")}
-            placeholder={t("integrations.addSomethingPlaceholder")}
-            prompt=""
-            context="The user wants to add a chat or workspace integration that is not in the current directory. Research the provider's official OAuth or MCP setup, explain any app registration or allowlist requirements, and add a reusable integration preset when it is supported. Never ask the user to paste credentials into a prompt."
-            className="h-7 px-2 text-[10px]"
-          />
         </div>
       </div>
 

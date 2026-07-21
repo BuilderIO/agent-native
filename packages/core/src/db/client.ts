@@ -29,6 +29,9 @@ export interface DbExec {
     sql: string | { sql: string; args?: unknown[] },
   ): Promise<{ rows: any[]; rowsAffected: number }>;
   transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+  atomicBatch?(
+    statements: readonly (string | { sql: string; args?: unknown[] })[],
+  ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
   /**
    * Release the underlying connection/pool held by this exec.
    * Only non-singleton execs created via `createDbExec()` (e.g. the migration
@@ -1100,7 +1103,17 @@ async function createDbExecInternal(
     };
     return {
       execute,
-      transaction: explicitTransaction(execute),
+      async atomicBatch(statements) {
+        const prepared = statements.map((statement) => {
+          if (typeof statement === "string") return d1.prepare(statement);
+          return d1.prepare(statement.sql).bind(...(statement.args ?? []));
+        });
+        const results = await d1.batch(prepared);
+        return results.map((result: any) => ({
+          rows: result.results || [],
+          rowsAffected: result.meta?.changes ?? 0,
+        }));
+      },
     };
   }
 
@@ -1558,6 +1571,10 @@ export function getDbExec(): DbExec {
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (fn) =>
               _exec!.transaction!((tx) =>
@@ -1582,6 +1599,10 @@ export function getDbExec(): DbExec {
       }
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (innerFn) =>
               _exec!.transaction!((tx) =>
@@ -1601,7 +1622,29 @@ export function getDbExec(): DbExec {
           }),
         );
       }
+      if (_exec!.atomicBatch) {
+        throw new Error(
+          "This database supports atomic batches, not interactive transactions.",
+        );
+      }
       return explicitTransaction(wrapper.execute)(fn);
+    },
+    async atomicBatch(statements) {
+      if (!_initPromise) _initPromise = initClient();
+      try {
+        await _initPromise;
+      } catch (err) {
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
+      if (!_exec!.atomicBatch) {
+        throw new Error("This database does not support atomic batches.");
+      }
+      const batch = (items: typeof statements) =>
+        _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      Object.assign(proxy, { atomicBatch: batch });
+      return batch(statements);
     },
   };
   return proxy;
