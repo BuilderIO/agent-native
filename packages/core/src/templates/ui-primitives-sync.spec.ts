@@ -164,11 +164,7 @@ function readUiFile(template: string, filename: string): string {
 }
 
 function getTemplates(): string[] {
-  return fs
-    .readdirSync(path.join(ROOT, "templates"))
-    .filter((t) =>
-      fs.existsSync(path.join(ROOT, "templates", t, "app", "components", "ui")),
-    );
+  return getActiveSourceTemplates();
 }
 
 function getActiveSourceTemplates(): string[] {

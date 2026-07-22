@@ -15,6 +15,8 @@ any particular styling runtime. A component may use a theme provider,
 CSS-in-JS, CSS Modules, React Aria, or ordinary CSS. `className` and `style` are
 optional interoperability hooks, not styling requirements.
 
+See the runnable [Material UI Chat example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) and [Ant Design Chat example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) for complete adapters, theme-provider wiring, dark mode, and documented v1 gaps.
+
 ## Choose the smallest customization tier
 
 | Tier                    | Use it for                                                                                  | What remains shared                                           |
@@ -97,6 +99,14 @@ default adapter. If one custom component throws while rendering, a
 per-component error boundary logs the failure and renders the default component
 for that control; the rest of the custom system stays active.
 
+Two complete Chat applications keep this contract honest against real design
+systems: [the Material UI example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui)
+uses Emotion, `ThemeProvider`, and MUI’s overlay stack, while [the Ant Design
+example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd)
+uses `ConfigProvider` and Ant Design’s form and overlay primitives. Their
+`app/design-system.tsx` files are the primary integration references; the Acme
+fixture above remains intentionally small and is used for unit tests.
+
 The older `components={{ Button }}` provider API remains compatible and is
 treated as the lowest-precedence `ActionButton` adapter. If both are supplied,
 `designSystem.components.ActionButton` wins and development builds log a
@@ -162,6 +172,13 @@ state must remain portable.
 `intent` is `primary`, `neutral`, or `danger`; `emphasis` is `solid`,
 `outline`, or `ghost`; and size is `compact`, `default`, or `large`. These
 values describe purpose, not a class or variant name from the default UI.
+
+The default adapter gives these visual props observable behavior as well as
+semantic attributes: button, spinner, status, skeleton, avatar, and dialog
+sizes select concrete variants; skeleton shape and avatar presence status
+change their presentation; menu selection and `closeOnAction` affect behavior.
+Custom adapters remain responsible for mapping the same meanings to their own
+visual vocabulary.
 
 `Picker` covers select and combobox behavior only. Date picking is not part of
 the version 1 semantic contract.
@@ -258,6 +275,14 @@ Contract evolution follows semantic versioning:
 
 ### MUI-style theme-provider systems
 
+The [Chat + Material UI example](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) is the primary worked reference. Its single
+`app/design-system.tsx` module exports the semantic adapter, the MUI light and
+dark `createTheme` values, and the `defineTheme` token source. The app's
+`AppToolkitProvider` keeps the MUI `ThemeProvider` above shared Toolkit
+surfaces, while `vite.config.ts` imports that same `theme` value for build-time
+CSS generation. This keeps Emotion styles, MUI portals, and Agent Native
+tokens on one source of truth.
+
 Keep the company theme provider above `AppToolkitProvider`, and adapt semantic
 props at the package boundary. Map `intent`, `emphasis`, and `size` to your
 system’s own vocabulary inside the adapter—not in Agent Native feature code.
@@ -288,6 +313,12 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 
 Do not copy a feature’s theme provider into each adapter component. Install it
 once at the app boundary so portals and overlays inherit the same context.
+
+The [Chat MUI adapter](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx)
+is the worked example: it exports one `defineTheme` value, imports that value
+into `defineDesignSystem`, and imports the same module from `vite.config.ts`.
+That single source of truth keeps the MUI light/dark provider tokens and the
+build-time semantic CSS tokens aligned without runtime theme generation.
 
 ### React Aria-based systems
 
