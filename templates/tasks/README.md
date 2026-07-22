@@ -4,6 +4,7 @@ Task-list-first agent-native app. Default home is `/tasks`; chat handles capture
 
 ## TODO
 
+- [ ] **Optional event-triggered automations** — If Tasks needs workflows such as “when a task is completed, notify another system,” register stable domain events in `server/plugins/agent-chat.ts` and emit owner-scoped payloads from the successful write paths. Add event discovery, payload-validation, transition, and failure-isolation tests before exposing the events as a public automation contract.
 - [ ] **i18n** — Add `app/i18n/` catalogs (`en-US` + locale mirrors) and migrate UI copy from raw literals to `useT()`. Remove tasks strings from `scripts/i18n-raw-literal-baseline.txt` once migrated.
 - [ ] **Delete dialog wiring** — `TaskList` and `InboxList` duplicate single/bulk delete dialog state (`pendingDeleteId`, `bulkDeleteOpen`, confirm handlers, toast on bulk success). Extract a shared hook or composer helper (e.g. `useDeleteDialogs`) that owns pending id, open state, and confirm wiring while composers pass entity labels and delete mutations.
 - [ ] Extract shared action schema helpers (e.g. `taskId` field, title patch) once the action surface grows beyond MVP.
