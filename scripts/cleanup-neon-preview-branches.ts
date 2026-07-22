@@ -48,6 +48,8 @@ const PROJECTS: Array<{ template: string; projectId: string }> = [
   { template: "clips", projectId: "aged-glitter-95425960" },
   { template: "content", projectId: "quiet-heart-51077706" },
   { template: "forms", projectId: "curly-glade-91979555" },
+  { template: "videos", projectId: "soft-pine-75308618" },
+  { template: "issues", projectId: "crimson-wave-50288362" },
 ];
 
 type NeonBranch = {
