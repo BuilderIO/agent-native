@@ -9,3 +9,10 @@ export {
 } from "./wired-components.js";
 export { CoreComposerRuntimeProvider } from "./runtime-adapters.js";
 export { useMentionSearch } from "./use-mention-search.js";
+export {
+  evaluatePromptOptimization,
+  optimizePromptSubmission,
+  renderTextToImagePagesWeb,
+  type PromptOptimizationMetrics,
+  type OptimizedPromptResult,
+} from "./prompt-optimizer.js";

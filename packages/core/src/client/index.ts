@@ -8,6 +8,13 @@ export * from "./navigation/index.js";
 export * from "./host/index.js";
 export * from "./widgets/index.js";
 export * from "./ui/index.js";
+export {
+  evaluatePromptOptimization,
+  optimizePromptSubmission,
+  renderTextToImagePagesWeb,
+  type PromptOptimizationMetrics,
+  type OptimizedPromptResult,
+} from "./composer/prompt-optimizer.js";
 
 export { cn } from "@agent-native/toolkit/utils";
 export {

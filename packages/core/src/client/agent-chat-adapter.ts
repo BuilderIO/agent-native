@@ -1,6 +1,7 @@
 import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
+import { optimizePromptSubmission } from "./composer/prompt-optimizer.js";
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -1600,13 +1601,21 @@ export function createAgentChatAdapter(
       // Extract attachments (images as base64, text as content).
       // assistant-ui puts user attachments on msg.attachments (not on content);
       // each attachment carries its own content parts from the adapter.
-      const attachments = lastUserMsg
+      const rawAttachments = lastUserMsg
         ? extractAttachmentsFromMessage(lastUserMsg as any)
         : [];
-      const userMessageText =
-        rawMessageText.trim() || attachments.length === 0
+      const initialMessageText =
+        rawMessageText.trim() || rawAttachments.length === 0
           ? rawMessageText
           : "Use the attached context.";
+
+      const optimized = await optimizePromptSubmission(initialMessageText, {
+        attachments: rawAttachments,
+      });
+
+      const userMessageText = optimized.promptText;
+      const attachments =
+        (optimized.attachments as AgentChatAdapterAttachment[]) ?? rawAttachments;
 
       const priorMessages = limitPriorMessagesForRequest(
         messages.slice(0, latestUserIndex >= 0 ? latestUserIndex : -1) as any,
