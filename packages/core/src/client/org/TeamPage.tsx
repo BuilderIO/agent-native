@@ -163,7 +163,7 @@ function PendingInvitationsCard() {
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {acceptInvitation.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 size={14} className="animate-spin" />
             ) : (
               t("org.accept")
             )}
@@ -214,7 +214,7 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {joinByDomain.isPending && pendingId === m.orgId ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
                 t("org.join")
               )}
@@ -276,7 +276,7 @@ function CreateOrgCard({ description }: { description?: string }) {
               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {createOrg.isPending ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
                 t("org.create")
               )}
@@ -319,7 +319,10 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
         className="group flex items-center gap-1.5 text-sm font-medium hover:text-foreground/80"
       >
         {name}
-        <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
+        <IconPencil
+          size={12}
+          className="text-muted-foreground opacity-0 group-hover:opacity-100"
+        />
       </Button>
     );
   }
@@ -476,7 +479,7 @@ function MembersTableCard({
             onClick={() => setShowInviteForm(true)}
             className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
-            <IconUserPlus className="h-3.5 w-3.5" />
+            <IconUserPlus size={14} />
             {t("org.inviteMembers")}
           </Button>
         )}
@@ -662,7 +665,7 @@ function MemberRow({
                     onClick={() => setEditing(true)}
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <IconPencil className="h-3.5 w-3.5" />
+                    <IconPencil size={14} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("org.changeRole")}</TooltipContent>
@@ -705,7 +708,7 @@ function MemberRow({
                     onClick={() => setConfirmingRemove(true)}
                     className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
-                    <IconTrash className="h-3.5 w-3.5" />
+                    <IconTrash size={14} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("org.removeMember")}</TooltipContent>
@@ -905,7 +908,7 @@ function BulkInviteForm({
                 }
                 className="text-muted-foreground hover:text-destructive"
               >
-                <IconX className="h-3.5 w-3.5" />
+                <IconX size={14} />
               </Button>
             )}
           </div>
@@ -922,7 +925,7 @@ function BulkInviteForm({
           }
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconPlus className="h-3.5 w-3.5" />
+          <IconPlus size={14} />
           Add another
         </Button>
         <Button
@@ -932,7 +935,7 @@ function BulkInviteForm({
           onClick={() => setPasteOpen((v) => !v)}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconUserPlus className="h-3.5 w-3.5" />
+          <IconUserPlus size={14} />
           Paste many
         </Button>
         <Button
@@ -942,7 +945,7 @@ function BulkInviteForm({
           onClick={() => fileRef.current?.click()}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconFileImport className="h-3.5 w-3.5" />
+          <IconFileImport size={14} />
           Import CSV
         </Button>
         <input
@@ -1027,10 +1030,10 @@ function BulkInviteForm({
           className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {bulkInvite.isPending ? (
-            <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            <IconLoader2 size={14} className="animate-spin" />
           ) : (
             <span className="inline-flex items-center gap-1">
-              <IconCheck className="h-3.5 w-3.5" />
+              <IconCheck size={14} />
               Send {validDrafts.length || ""}{" "}
               {validDrafts.length === 1 ? "invite" : "invites"}
             </span>
@@ -1134,7 +1137,7 @@ function DomainSettingsSection({
                     }}
                     className="text-muted-foreground hover:text-foreground"
                   >
-                    <IconPencil className="h-3.5 w-3.5" />
+                    <IconPencil size={14} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Edit domain</TooltipContent>
@@ -1149,7 +1152,7 @@ function DomainSettingsSection({
                     onClick={() => setOrgDomain.mutate(null)}
                     className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
-                    <IconX className="h-3.5 w-3.5" />
+                    <IconX size={14} />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>Remove domain</TooltipContent>
@@ -1166,7 +1169,7 @@ function DomainSettingsSection({
               }}
               className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
             >
-              <IconAt className="h-3.5 w-3.5" />
+              <IconAt size={14} />
               Allow {ownDomain || "your domain"} to auto-join
             </Button>
           )}
@@ -1194,7 +1197,7 @@ function DomainSettingsSection({
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {setOrgDomain.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 size={14} className="animate-spin" />
             ) : (
               "Save"
             )}
@@ -1314,11 +1317,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                   onClick={() => setRevealed(!revealed)}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  {revealed ? (
-                    <IconEyeOff className="h-3.5 w-3.5" />
-                  ) : (
-                    <IconEye className="h-3.5 w-3.5" />
-                  )}
+                  {revealed ? <IconEyeOff size={14} /> : <IconEye size={14} />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
@@ -1333,9 +1332,9 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {copied ? (
-                    <IconCheck className="h-3.5 w-3.5 text-primary" />
+                    <IconCheck size={14} className="text-primary" />
                   ) : (
-                    <IconCopy className="h-3.5 w-3.5" />
+                    <IconCopy size={14} />
                   )}
                 </Button>
               </TooltipTrigger>
@@ -1354,9 +1353,9 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
               className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
             >
               {setA2ASecret.isPending ? (
-                <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                <IconLoader2 size={14} className="animate-spin" />
               ) : (
-                <IconRefresh className="h-3.5 w-3.5" />
+                <IconRefresh size={14} />
               )}
               Regenerate
             </Button>
@@ -1377,9 +1376,9 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
               >
                 {syncA2ASecret.isPending ? (
-                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+                  <IconLoader2 size={14} className="animate-spin" />
                 ) : (
-                  <IconCloudUpload className="h-3.5 w-3.5" />
+                  <IconCloudUpload size={14} />
                 )}
                 Sync to apps
               </Button>
@@ -1426,7 +1425,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
           onClick={() => setPasteMode(true)}
           className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
-          <IconKey className="h-3.5 w-3.5" />
+          <IconKey size={14} />
           Paste secret from another app
         </Button>
       ) : (
@@ -1455,7 +1454,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {setA2ASecret.isPending ? (
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+              <IconLoader2 size={14} className="animate-spin" />
             ) : (
               "Save"
             )}

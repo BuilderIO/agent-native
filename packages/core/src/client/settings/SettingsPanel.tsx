@@ -532,6 +532,7 @@ function UseBuilderCard({
       className={cn(
         "block w-full rounded-md border border-border text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70",
         isPage ? "px-4 py-3.5" : "px-3 py-3",
+        isPage ? "[&_svg]:!size-4" : "[&_svg]:!size-3.5",
       )}
     >
       <div className="flex items-start gap-2.5">
