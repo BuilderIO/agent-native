@@ -170,6 +170,7 @@ import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
+import { createRealtimeTokenHandler } from "./realtime-token.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -1413,6 +1414,12 @@ export function createCoreRoutesPlugin(
 
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
+
+      // Realtime subscribe-token mint (hosted gateway path)
+      getH3App(nitroApp).use(
+        `${P}/realtime-token`,
+        createRealtimeTokenHandler(),
+      );
 
       // SSE
       if (!options.disableSSE) {

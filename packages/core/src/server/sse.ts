@@ -1,5 +1,20 @@
 import { defineEventHandler, createEventStream } from "h3";
 
+// Re-export the wire protocol so server consumers (the hosted Realtime Gateway
+// in ai-services) get the frame contract from the same `./server/sse` subpath.
+// The browser client imports it directly from `../realtime-protocol.js`.
+export {
+  buildHandshakeFrame,
+  parseHandshakeFrame,
+  parseTokenFrame,
+  REALTIME_CAP_NO_AWARENESS,
+  REALTIME_PROTOCOL_VERSION,
+  REALTIME_SSE_HANDSHAKE_EVENT,
+  REALTIME_SSE_TOKEN_EVENT,
+  type RealtimeHandshake,
+  type RealtimeTokenFrame,
+} from "../realtime-protocol.js";
+
 /** Any object with on/off methods (compatible with EventEmitter, TypedEventEmitter, etc.). */
 interface EventLike {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
