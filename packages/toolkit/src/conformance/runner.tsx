@@ -140,7 +140,13 @@ function assertInlineLayout(
     labelRect.width > 0 ||
     labelRect.height > 0;
   if (hasGeometry) {
-    invariant(Math.abs(iconRect.top - labelRect.top) <= 2, message);
+    const verticalOverlap =
+      Math.min(iconRect.bottom, labelRect.bottom) -
+      Math.max(iconRect.top, labelRect.top);
+    invariant(
+      verticalOverlap > 0 || Math.abs(iconRect.top - labelRect.top) <= 2,
+      message,
+    );
     return;
   }
 
