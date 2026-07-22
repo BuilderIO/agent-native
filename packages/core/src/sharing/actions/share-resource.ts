@@ -109,7 +109,7 @@ function shortHash(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
-function shareNotificationMessageId(
+export function shareNotificationMessageId(
   resourceType: string,
   resourceId: string,
   principalId: string,

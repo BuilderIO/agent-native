@@ -197,6 +197,11 @@ export const recordings = table("recordings", {
   archivedAt: text("archived_at"),
   trashedAt: text("trashed_at"),
 
+  // Set once, atomically, the first time any viewer's countedView flips to
+  // true for this recording. Gates the one-time "it landed" email to the
+  // owner so it never sends twice.
+  firstViewNotifiedAt: text("first_view_notified_at"),
+
   ...ownableColumns(),
 });
 
@@ -354,6 +359,10 @@ export const recordingViewers = table(
     ctaClicked: integer("cta_clicked", { mode: "boolean" })
       .notNull()
       .default(false),
+    // Set once, atomically, when the "Summarize with AI" share-email CTA has
+    // sent this viewer their one-time AI summary. Dedupes repeat clicks of
+    // the same link.
+    aiSummaryEmailedAt: text("ai_summary_emailed_at"),
   },
   (viewer) => ({
     recordingViewerKeyUnique: uniqueIndex(
