@@ -85,14 +85,6 @@ const runTasksMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS idx_custom_field_values_owner_field
         ON custom_field_values (owner_email, field_id)`,
     },
-    {
-      version: 8,
-      sql: `CREATE TABLE IF NOT EXISTS user_config (
-        owner_email TEXT PRIMARY KEY,
-        task_card_field_ids_json TEXT NOT NULL DEFAULT '[]',
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )`,
-    },
   ],
   { table: "tasks_migrations" },
 );
