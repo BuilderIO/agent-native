@@ -140,11 +140,7 @@ function assertInlineLayout(
     labelRect.width > 0 ||
     labelRect.height > 0;
   if (hasGeometry) {
-    invariant(
-      Math.abs(iconRect.top - labelRect.top) <=
-        Math.max(2, Math.min(iconRect.height, labelRect.height)),
-      message,
-    );
+    invariant(Math.abs(iconRect.top - labelRect.top) <= 2, message);
     return;
   }
 
