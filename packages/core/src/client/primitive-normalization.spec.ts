@@ -20,4 +20,13 @@ describe("Core design-system primitive normalization", () => {
       expect(source).not.toContain("@radix-ui/react-select");
     },
   );
+
+  it.each(normalizedSurfaces)(
+    "%s keeps explicit icon dimensions when routed through Toolkit buttons",
+    (sourcePath) => {
+      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+
+      expect(source).toContain("[&_svg]:!size-auto");
+    },
+  );
 });

@@ -83,6 +83,13 @@ describe("useSettingsPanelController", () => {
     expect(controller.openSection).toBe("usage");
   });
 
+  it("prefers the visible LLM section as the default when sections are reordered", () => {
+    const sections = ["usage", "llm", "secrets"] satisfies SettingsSectionId[];
+    render({ sections });
+
+    expect(controller.openSection).toBe("llm");
+  });
+
   it("opens requested visible sections and delegates scrolling", () => {
     const onScrollToSection = vi.fn();
     render({

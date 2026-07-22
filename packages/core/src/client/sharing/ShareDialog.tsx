@@ -43,9 +43,21 @@ export interface ShareDialogProps {
   resourceType: string;
   resourceId: string;
   resourceTitle?: string;
+  /**
+   * When provided, enables the "Link" tab with a copy-link field.
+   * Pass the user-facing share URL (e.g. `https://…/share/<id>`).
+   */
   shareUrl?: string;
+  /**
+   * When provided, enables the "Embed" tab with a default iframe snippet.
+   * For richer per-resource controls (autoplay, start time, responsive /
+   * fixed size), pass `embedTabContent` instead (or in addition) — it
+   * replaces the default embed body.
+   */
   embedUrl?: string;
+  /** Advanced: fully custom Embed tab body. Requires `embedUrl` to enable the tab. */
   embedTabContent?: ReactNode;
+  /** Extra content appended to the bottom of the Link tab (e.g. download buttons). */
   linkTabExtras?: ReactNode;
 }
 
@@ -456,7 +468,7 @@ function CopyField({
 }
 
 const selectContentClass =
-  "!z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md";
+  "!z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:!animate-none data-[state=closed]:!animate-none";
 const selectItemClass =
   "relative flex w-full cursor-pointer select-none !items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>span:first-child]:!top-2 [&>span:first-child_svg]:!size-[14px]";
 

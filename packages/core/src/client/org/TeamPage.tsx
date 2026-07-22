@@ -81,7 +81,7 @@ const Button = forwardRef<
     ref={ref}
     variant="ghost"
     className={cn(
-      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100",
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
       className,
     )}
     {...props}
@@ -118,16 +118,16 @@ export interface TeamPageProps {
 
 function RoleIcon({ role }: { role: string }) {
   if (role === "owner")
-    return <IconCrown className="h-3.5 w-3.5 text-amber-500" />;
+    return <IconCrown className="h-3.5 w-3.5 text-primary" />;
   if (role === "admin")
-    return <IconShieldCheck className="h-3.5 w-3.5 text-blue-500" />;
+    return <IconShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />;
   return null;
 }
 
 function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
   return (
-    <p className="text-xs text-red-500">
+    <p className="text-xs text-destructive">
       {error instanceof Error ? error.message : String(error)}
     </p>
   );
@@ -160,7 +160,7 @@ function PendingInvitationsCard() {
             emphasis="solid"
             onClick={() => acceptInvitation.mutate(inv.id)}
             disabled={acceptInvitation.isPending}
-            className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {acceptInvitation.isPending ? (
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
@@ -195,8 +195,8 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
             className="flex items-center justify-between rounded-md border border-border p-3"
           >
             <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-600/10">
-                <IconUsersGroup className="h-4 w-4 text-blue-600" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
+                <IconUsersGroup className="h-4 w-4 text-primary" />
               </div>
               <div className="text-sm font-medium">{m.orgName}</div>
             </div>
@@ -211,7 +211,7 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
                   onSettled: () => setPendingId(null),
                 });
               }}
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {joinByDomain.isPending && pendingId === m.orgId ? (
                 <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
@@ -245,7 +245,7 @@ function CreateOrgCard({ description }: { description?: string }) {
           intent="primary"
           emphasis="solid"
           onClick={() => setShowForm(true)}
-          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
           {t("org.createOrganization")}
         </Button>
@@ -273,7 +273,7 @@ function CreateOrgCard({ description }: { description?: string }) {
                   },
                 })
               }
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {createOrg.isPending ? (
                 <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
@@ -383,8 +383,8 @@ function MembersCard() {
       <section className="rounded-lg border border-border bg-card p-4 space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600/10">
-              <IconUsersGroup className="h-5 w-5 text-blue-600" />
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+              <IconUsersGroup className="h-5 w-5 text-primary" />
             </div>
             <div className="min-w-0">
               <OrgNameDisplay
@@ -474,7 +474,7 @@ function MembersTableCard({
             intent="primary"
             emphasis="solid"
             onClick={() => setShowInviteForm(true)}
-            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             <IconUserPlus className="h-3.5 w-3.5" />
             {t("org.inviteMembers")}
@@ -689,7 +689,7 @@ function MemberRow({
                       onSettled: () => setConfirmingRemove(false),
                     })
                   }
-                  className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
+                  className="rounded bg-destructive px-1.5 py-0.5 text-[11px] text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
                 >
                   {t("org.remove")}
                 </Button>
@@ -703,7 +703,7 @@ function MemberRow({
                     emphasis="ghost"
                     disabled={removeMember.isPending}
                     onClick={() => setConfirmingRemove(true)}
-                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
                     <IconTrash className="h-3.5 w-3.5" />
                   </Button>
@@ -903,7 +903,7 @@ function BulkInviteForm({
                 onClick={() =>
                   setDrafts((prev) => prev.filter((_, j) => j !== i))
                 }
-                className="text-muted-foreground hover:text-red-500"
+                className="text-muted-foreground hover:text-destructive"
               >
                 <IconX className="h-3.5 w-3.5" />
               </Button>
@@ -997,7 +997,7 @@ function BulkInviteForm({
                 setPasteOpen(false);
               }}
               disabled={parseEmailList(pasteValue).length === 0}
-              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               Add
             </Button>
@@ -1024,7 +1024,7 @@ function BulkInviteForm({
           emphasis="solid"
           disabled={validDrafts.length === 0 || bulkInvite.isPending}
           onClick={submit}
-          className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
           {bulkInvite.isPending ? (
             <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1057,14 +1057,14 @@ function BulkInviteForm({
       {resultBanner && (
         <div className="space-y-1 rounded-md border border-border bg-accent/30 p-2.5">
           {resultBanner.succeeded > 0 && (
-            <p className="text-[11px] text-green-600">
+            <p className="text-[11px] text-primary">
               <IconCheck className="inline h-3 w-3 -mt-0.5" /> Sent{" "}
               {resultBanner.succeeded}{" "}
               {resultBanner.succeeded === 1 ? "invite" : "invites"}.
             </p>
           )}
           {resultBanner.failed.length > 0 && (
-            <ul className="space-y-0.5 text-[11px] text-red-500">
+            <ul className="space-y-0.5 text-[11px] text-destructive">
               {resultBanner.failed.map((f) => (
                 <li key={f.email}>
                   <IconAlertTriangle className="inline h-3 w-3 -mt-0.5 me-1" />
@@ -1147,7 +1147,7 @@ function DomainSettingsSection({
                     emphasis="ghost"
                     disabled={setOrgDomain.isPending}
                     onClick={() => setOrgDomain.mutate(null)}
-                    className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                   >
                     <IconX className="h-3.5 w-3.5" />
                   </Button>
@@ -1191,7 +1191,7 @@ function DomainSettingsSection({
             emphasis="solid"
             disabled={setOrgDomain.isPending}
             onClick={save}
-            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {setOrgDomain.isPending ? (
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1333,7 +1333,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {copied ? (
-                    <IconCheck className="h-3.5 w-3.5 text-green-500" />
+                    <IconCheck className="h-3.5 w-3.5 text-primary" />
                   ) : (
                     <IconCopy className="h-3.5 w-3.5" />
                   )}
@@ -1405,7 +1405,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             {syncResult.failed > 0 ? ` (${syncResult.failed} failed)` : ""}.
           </p>
           {syncResult.failed > 0 && (
-            <ul className="text-[11px] text-red-500 list-disc ps-5 space-y-0.5">
+            <ul className="text-[11px] text-destructive list-disc ps-5 space-y-0.5">
               {syncResult.results
                 .filter((r) => !r.ok)
                 .map((r) => (
@@ -1452,7 +1452,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             emphasis="solid"
             disabled={!pasteValue.trim() || setA2ASecret.isPending}
             onClick={saveSecret}
-            className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {setA2ASecret.isPending ? (
               <IconLoader2 className="h-3.5 w-3.5 animate-spin" />

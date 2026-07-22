@@ -48,7 +48,7 @@ const Button = React.forwardRef<
     ref={ref}
     variant="ghost"
     className={cn(
-      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100",
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
       className,
     )}
     {...props}

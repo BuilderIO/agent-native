@@ -78,6 +78,8 @@ describe("ShareDialog primitive normalization", () => {
     expect(source).toContain('from "@agent-native/toolkit/ui/select"');
     expect(source).toContain('from "@agent-native/toolkit/ui/button"');
     expect(source).toContain("<DialogContent");
+    expect(source.match(/\[&_svg\]:!size-auto/g)).toHaveLength(4);
+    expect(source).toContain("data-[state=open]:!animate-none");
   });
 
   it("does not bypass Toolkit with raw portal or Radix select imports", () => {

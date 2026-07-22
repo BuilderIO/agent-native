@@ -63,6 +63,7 @@ export function settingsSectionDomId(section: SettingsSectionId): string {
 function firstVisibleSection(
   sections: readonly SettingsSectionId[],
 ): SettingsSectionId {
+  if (sections.includes("llm")) return "llm";
   return sections[0] ?? "llm";
 }
 
