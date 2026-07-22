@@ -319,3 +319,5 @@ Version 1 में semantic bridge हर third-party UI ecosystem को repla
 ## Chat उदाहरण कवरेज
 
 चलने वाले [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) और [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) उदाहरण सभी 17 contract components register करते हैं और adapters के माध्यम से 16/17 render करते हैं। `Menu` स्पष्ट gap बना रहता है, क्योंकि agent-panel header में एक live compound submenu है जिसे v1 data-only contract express नहीं कर सकता। assistant-ui composer/message renderer, cmdk internals और Tiptap editor v1 के non-goals बने रहते हैं।
+
+रोज़मर्रा का Chat share button अभी legacy popover है। shipped `/design-system-proof` route पूरे Core `ShareDialog` को reachable बनाता है, बिना उस popover को design-system dialog बताने के।

@@ -321,3 +321,5 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 ## تغطية أمثلة Chat
 
 تسجّل أمثلة [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) و[Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) القابلة للتشغيل مكونات العقد السبعة عشر كلها، وتعرض 16/17 منها عبر المحولات. يظل `Menu` الفجوة الصريحة، لأن رأس agent-panel يحتوي على قائمة فرعية مركبة حية لا يستطيع عقد v1 المعتمد على البيانات وحدها التعبير عنها. ويظل مؤلف/عارض الرسائل في assistant-ui، وداخليات cmdk، ومحرر Tiptap خارج أهداف v1.
+
+يبقى زر مشاركة Chat اليومي هو popover القديم. يجعل المسار المشحون `/design-system-proof` مكوّن Core `ShareDialog` الكامل قابلًا للوصول من دون تقديم ذلك الـpopover على أنه حوار نظام التصميم.

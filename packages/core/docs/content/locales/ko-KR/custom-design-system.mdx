@@ -319,3 +319,5 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 ## Chat 예제 지원 범위
 
 실행 가능한 [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 및 [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 예제는 17개 contract components를 모두 등록하고 어댑터를 통해 16/17을 렌더링합니다. `Menu`가 명시적인 미지원 항목으로 남는 이유는 agent-panel header에 v1 data-only contract로는 표현할 수 없는 live compound submenu가 포함되기 때문입니다. assistant-ui composer/message renderer, cmdk internals, Tiptap editor는 v1 non-goals로 남습니다.
+
+일상적인 Chat 공유 버튼은 여전히 기존 popover입니다. 제공되는 `/design-system-proof` 경로는 해당 popover를 디자인 시스템 dialog로 오해하게 만들지 않으면서 Core의 전체 `ShareDialog`에 접근할 수 있게 합니다.

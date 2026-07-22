@@ -321,3 +321,5 @@ Esses limites são explícitos para que um pacote adaptador possa fazer afirmaç
 ## Cobertura dos exemplos de Chat
 
 Os exemplos executáveis [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) e [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) registram todos os 17 componentes do contrato e renderizam 16/17 por meio dos adaptadores. `Menu` continua sendo a lacuna explícita porque o cabeçalho do agent-panel contém um submenu composto ativo que o contrato v1 somente de dados não consegue expressar. O composer/renderizador de mensagens do assistant-ui, os internos do cmdk e o editor Tiptap continuam fora dos objetivos da v1.
+
+O botão cotidiano de compartilhamento do Chat continua sendo o popover legado. A rota fornecida `/design-system-proof` torna o `ShareDialog` completo do Core acessível sem apresentar esse popover como um diálogo do design system.
