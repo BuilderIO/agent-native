@@ -523,14 +523,14 @@ describe("Builder callback CSRF state", () => {
         "builder-relay-secret-example-at-least-32-characters";
 
       const previewOrigin =
-        "https://274d28fec94b48f2b2d68f2274d390eb-lean-mouth-wbpkxb1p.builderio.xyz";
+        "https://preview-example.builderio.xyz";
 
       // The relay POST lands on the internal loopback host, but the preview
       // proxy forwards the public host that minted the signed state.
       const event = createBuilderBrowserEvent({
         host: "127.0.0.1:8094",
         "x-forwarded-host":
-          "274d28fec94b48f2b2d68f2274d390eb-lean-mouth-wbpkxb1p.builderio.xyz",
+          "preview-example.builderio.xyz",
         "x-forwarded-proto": "https",
       });
 

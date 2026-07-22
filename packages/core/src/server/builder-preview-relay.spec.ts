@@ -205,7 +205,7 @@ describe("Builder preview callback relay", () => {
 
   describe("domain-suffix relay trust", () => {
     const PREVIEW =
-      "https://274d28fec94b48f2b2d68f2274d390eb-lean-mouth-wbpkxb1p.builderio.xyz";
+      "https://preview-example.builderio.xyz";
 
     beforeEach(() => {
       // Isolate the suffix allow-list from the exact-origin allow-list.
