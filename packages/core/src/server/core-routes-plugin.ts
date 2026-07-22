@@ -2468,6 +2468,8 @@ export function createCoreRoutesPlugin(
               );
 
               console.log(`shomix - relay request - ${JSON.stringify(relayRequest)}`);
+              console.log(`shomix - relay url - ${JSON.stringify(relayRequest.url)}`);
+
               const response = await ssrfSafeFetch(
                 relayRequest.url,
                 {
