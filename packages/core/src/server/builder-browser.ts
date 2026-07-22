@@ -198,7 +198,7 @@ export function signBuilderPreviewRelayState(input: {
 
 function builderRelayTargetDomainSuffixes(): string[] {
   return (
-    process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? ".builderio.xyz"
+    process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? ""
   )
     .split(",")
     .map((suffix) => suffix.trim().toLowerCase())
