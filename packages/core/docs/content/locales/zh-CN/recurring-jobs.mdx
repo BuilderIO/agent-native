@@ -228,9 +228,9 @@ Summarize overnight emails.`,
 
 | 行动     | 参数                                                            | 目的                                              |
 | -------- | --------------------------------------------------------------- | ------------------------------------------------- |
-| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`   | 创建新的定期作业                                  |
+| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`、`mcpTools` | 创建新的定期作业                           |
 | `list`   | `scope`（`personal`、`shared` 或全部）                          | 列出所有作业的状态（计划、已启用、上次/下次运行） |
-| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs` | 编辑现有作业                                      |
+| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs`、`mcpTools` | 编辑现有作业                               |
 | `delete` | `name`（必填）                                                  | 删除作业 - 始终先与用户确认                       |
 
 **个人与共享范围。**每个作业都位于个人范围（作为创建者运行且仅对创建者可见）或共享/组织范围（代表创建者运行但对组织成员可见）。 `scope` 和 `runAs` 参数在创建时对此进行控制。组织管理员可以更新或删除任何共享作业；非管理员成员只能管理自己的成员。

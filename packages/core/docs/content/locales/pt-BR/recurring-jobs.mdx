@@ -230,9 +230,9 @@ Uma única ferramenta `manage-jobs` é registrada em cada modelo. O parâmetro `
 
 | Ação     | Parâmetros                                                           | Propósito                                                                        |
 | -------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `create` | `name`, `schedule`, `instructions` (obrigatório); `scope`, `runAs`   | Crie um novo trabalho recorrente                                                 |
+| `create` | `name`, `schedule`, `instructions` (obrigatório); `scope`, `runAs`, `mcpTools` | Crie um novo trabalho recorrente                                          |
 | `list`   | `scope` (`personal`, `shared` ou todos)                              | Liste todos os trabalhos com status (agendado, ativado, última/próxima execução) |
-| `update` | `name` (obrigatório); `schedule`, `instructions`, `enabled`, `runAs` | Editar um trabalho existente                                                     |
+| `update` | `name` (obrigatório); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Editar um trabalho existente                                            |
 | `delete` | `name` (obrigatório)                                                 | Exclua um trabalho — sempre confirme primeiro com o usuário                      |
 
 **Escopo pessoal versus escopo compartilhado.** Cada trabalho reside no escopo pessoal (é executado como e é visível apenas para o criador) ou no escopo compartilhado/organizacional (é executado em nome do criador, mas é visível para os membros da organização). Os parâmetros `scope` e `runAs` controlam isso no momento da criação. Os administradores da organização podem atualizar ou excluir qualquer trabalho compartilhado; membros não administradores só podem gerenciar os seus próprios.

@@ -228,9 +228,9 @@ Summarize overnight emails.`,
 
 | 行動     | 參數                                                            | 目的                                              |
 | -------- | --------------------------------------------------------------- | ------------------------------------------------- |
-| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`   | 建立新的定期作業                                  |
+| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`、`mcpTools` | 建立新的定期作業                           |
 | `list`   | `scope`（`personal`、`shared` 或全部）                          | 列出所有作業的狀態（計畫、已啟用、上次/下次執行） |
-| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs` | 編輯現有作業                                      |
+| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs`、`mcpTools` | 編輯現有作業                               |
 | `delete` | `name`（必填）                                                  | 刪除作業 - 始終先與使用者確認                     |
 
 **個人與共用範圍。**每個作業都位於個人範圍（作為建立者執行且僅對建立者可見）或共用/組織範圍（代表建立者執行但對組織成員可見）。 `scope` 和 `runAs` 參數在建立時對此進行控制。組織管理員可以更新或刪除任何共用作業；非管理員成員只能管理自己的成員。

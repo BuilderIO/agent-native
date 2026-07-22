@@ -230,9 +230,9 @@ Se registra una única herramienta `manage-jobs` en cada plantilla. El parámetr
 
 | Acción   | Parámetros                                                           | Propósito                                                                                   |
 | -------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `create` | `name`, `schedule`, `instructions` (obligatorio); `scope`, `runAs`   | Crear un nuevo trabajo recurrente                                                           |
+| `create` | `name`, `schedule`, `instructions` (obligatorio); `scope`, `runAs`, `mcpTools` | Crear un nuevo trabajo recurrente                                                    |
 | `list`   | `scope` (`personal`, `shared` o todos)                               | Enumerar todos los trabajos con estado (programado, habilitado, última/siguiente ejecución) |
-| `update` | `name` (obligatorio); `schedule`, `instructions`, `enabled`, `runAs` | Editar un trabajo existente                                                                 |
+| `update` | `name` (obligatorio); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Editar un trabajo existente                                                          |
 | `delete` | `name` (obligatorio)                                                 | Eliminar un trabajo: confírmalo siempre primero con el usuario                              |
 
 **Ámbito personal versus compartido.** Cada trabajo se encuentra en un ámbito personal (se ejecuta y es visible solo para el creador) o en un ámbito compartido/orgánico (se ejecuta en nombre del creador pero es visible para los miembros de la organización). Los parámetros `scope` y `runAs` controlan esto en el momento de la creación. Los administradores de la organización pueden actualizar o eliminar cualquier trabajo compartido; los miembros no administradores solo pueden administrar los suyos propios.

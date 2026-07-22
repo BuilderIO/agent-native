@@ -231,9 +231,9 @@ Un seul outil `manage-jobs` est enregistré dans chaque modèle. Le paramètre `
 
 | Actions  | Paramètres                                                            | Objectif                                                                                     |
 | -------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `create` | `name`, `schedule`, `instructions` (obligatoire) ; `scope`, `runAs`   | Créer une nouvelle tâche récurrente                                                          |
+| `create` | `name`, `schedule`, `instructions` (obligatoire) ; `scope`, `runAs`, `mcpTools` | Créer une nouvelle tâche récurrente                                                   |
 | `list`   | `scope` (`personal`, `shared` ou tous)                                | Liste de toutes les tâches avec statut (planification, activé, dernière/prochaine exécution) |
-| `update` | `name` (obligatoire) ; `schedule`, `instructions`, `enabled`, `runAs` | Modifier une tâche existante                                                                 |
+| `update` | `name` (obligatoire) ; `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Modifier une tâche existante                                                        |
 | `delete` | `name` (obligatoire)                                                  | Supprimer une tâche – toujours confirmer d'abord avec l'utilisateur                          |
 
 **Portée personnelle ou partagée.** Chaque tâche se déroule soit dans une portée personnelle (s'exécute en tant que et n'est visible que par le créateur), soit dans une portée partagée/organisationnelle (s'exécute au nom du créateur mais est visible par les membres de l'organisation). Les paramètres `scope` et `runAs` contrôlent cela au moment de la création. Les administrateurs de l'organisation peuvent mettre à jour ou supprimer n'importe quelle tâche partagée ; Les membres non-administrateurs ne peuvent gérer que les leurs.

@@ -229,9 +229,9 @@ Summarize overnight emails.`,
 
 | 액션     | 매개변수                                                     | 목적                                                       |
 | -------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
-| `create` | `name`, `schedule`, `instructions`(필수); `scope`, `runAs`   | 새 반복 작업 만들기                                        |
+| `create` | `name`, `schedule`, `instructions`(필수); `scope`, `runAs`, `mcpTools` | 새 반복 작업 만들기                                  |
 | `list`   | `scope`(`personal`, `shared` 또는 모두)                      | 상태(일정, 활성화, 마지막/다음 실행)와 함께 모든 작업 나열 |
-| `update` | `name`(필수); `schedule`, `instructions`, `enabled`, `runAs` | 기존 작업 편집                                             |
+| `update` | `name`(필수); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | 기존 작업 편집                                       |
 | `delete` | `name` (필수)                                                | 작업 삭제 — 항상 먼저 사용자에게 확인                      |
 
 **개인 범위와 공유 범위.** 각 작업은 개인 범위(작성자에게만 실행되고 표시됨) 또는 공유/조직 범위(작성자를 대신하여 실행되지만 조직 구성원에게 표시됨)에 있습니다. `scope` 및 `runAs` 매개변수는 생성 시 이를 제어합니다. 조직 관리자는 공유 작업을 업데이트하거나 삭제할 수 있습니다. 관리자가 아닌 회원은 자신의 회원만 관리할 수 있습니다.
