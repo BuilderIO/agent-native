@@ -513,6 +513,7 @@ export class RecorderEngine {
   private pausedAccumMs = 0;
   private pausedStartedMs: number | null = null;
   private uploadFailure: Error | null = null;
+  private uploadFailureStopStarted = false;
   /**
    * Local mirror of every recorder chunk, in record order. We upload after stop
    * so the server never stores the uncompressed source before compression has a
@@ -1171,6 +1172,7 @@ export class RecorderEngine {
 
     this.chunkIndex = 0;
     this.uploadFailure = null;
+    this.uploadFailureStopStarted = false;
     this.localChunks = [];
     this.totalRecordedBytes = 0;
     this.lastFinalizeMeta = null;
@@ -1916,7 +1918,25 @@ export class RecorderEngine {
         // User-initiated cancel — cancel() already runs the abortUrl path.
         if (failure.name === "AbortError") return;
         this.rememberUploadFailure(failure);
+        this.stopAfterUploadFailure();
         this.emitError(failure);
+      }
+    });
+  }
+
+  private stopAfterUploadFailure(): void {
+    if (
+      this.uploadFailureStopStarted ||
+      !this.recorder ||
+      this.state === "stopping" ||
+      this.state === "error"
+    ) {
+      return;
+    }
+    this.uploadFailureStopStarted = true;
+    void this.stop().catch((err) => {
+      if (err !== this.uploadFailure && (err as Error)?.name !== "AbortError") {
+        console.warn("[recorder] failed to stop after upload error:", err);
       }
     });
   }
