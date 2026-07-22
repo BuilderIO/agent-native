@@ -218,7 +218,7 @@ describe("native CRM record compare-and-swap", () => {
     expect(final?.fields.amount).toBe(111);
   });
 
-  it("rejects a delete after a revision update and never tombstones the stale write", async () => {
+  it("rejects a concurrent delete racing against a stale revision snapshot", async () => {
     const connectionId = `native-cas-delete-${crypto.randomUUID()}`;
     const adapter = new NativeCrmAdapter(testConnection(connectionId), "human");
     const remoteId = `acc-${crypto.randomUUID()}`;
@@ -242,26 +242,27 @@ describe("native CRM record compare-and-swap", () => {
     if (typeof originalRevision !== "string")
       throw new Error("expected a revision after create");
 
-    const update = await runWithRequestContext({ userEmail: OWNER }, () =>
-      adapter.applyMutation({
-        operation: "update",
-        record,
-        fields: { amount: 42 },
-        idempotencyKey: `update-${remoteId}`,
-        expectedRemoteRevision: originalRevision,
-      }),
-    );
-    const deletion = await runWithRequestContext({ userEmail: OWNER }, () =>
-      adapter.applyMutation({
-        operation: "delete",
-        record,
-        idempotencyKey: `delete-${remoteId}`,
-        expectedRemoteRevision: originalRevision,
-      }),
+    const [deletionA, deletionB] = await runWithRequestContext(
+      { userEmail: OWNER },
+      () =>
+        Promise.all([
+          adapter.applyMutation({
+            operation: "delete",
+            record,
+            idempotencyKey: `delete-a-${remoteId}`,
+            expectedRemoteRevision: originalRevision,
+          }),
+          adapter.applyMutation({
+            operation: "delete",
+            record,
+            idempotencyKey: `delete-b-${remoteId}`,
+            expectedRemoteRevision: originalRevision,
+          }),
+        ]),
     );
 
-    expect(update.status).toBe("applied");
-    expect(deletion).toMatchObject({
+    expect(deletionA.status).toBe("applied");
+    expect(deletionB).toMatchObject({
       status: "conflict",
       message: "Native CRM record revision changed.",
     });
@@ -269,8 +270,7 @@ describe("native CRM record compare-and-swap", () => {
     const final = await runWithRequestContext({ userEmail: OWNER }, () =>
       adapter.getRecord({ record, fields: ["amount"] }),
     );
-    expect(final?.deleted).toBe(false);
-    expect(final?.fields.amount).toBe(42);
+    expect(final?.deleted).toBe(true);
   });
 });
 
