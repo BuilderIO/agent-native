@@ -806,7 +806,7 @@ export function reconnectActivityFallbackContent(
   toolName: string | null | undefined,
 ): ContentPart[] {
   const tool = toolName?.trim();
-  if (!tool) return [];
+  if (!tool || tool === "call-agent") return [];
   return [
     {
       type: "tool-call",

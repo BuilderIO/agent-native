@@ -1980,6 +1980,7 @@ describe("waitForThreadRunToClear", () => {
       }),
     ]);
     expect(reconnectActivityFallbackContent("")).toEqual([]);
+    expect(reconnectActivityFallbackContent("call-agent")).toEqual([]);
   });
 
   it("rehydrates reconnect activity from active-run state", () => {
