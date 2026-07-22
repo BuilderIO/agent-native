@@ -313,6 +313,80 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("does not clear the saved active thread for a list-only reader", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:shared-chat",
+      "current-thread",
+    );
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function Harness() {
+      useChatThreads("/chat", "shared-chat", null, {
+        autoCreate: false,
+        restoreActiveThread: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      window.localStorage.getItem("agent-chat-active-thread:shared-chat"),
+    ).toBe("current-thread");
+  });
+
+  it("persists a switched thread before the next render", async () => {
+    window.localStorage.setItem(
+      "agent-chat-active-thread:shared-chat",
+      "current-thread",
+    );
+    const currentThread: ChatThreadSummary = {
+      id: "current-thread",
+      title: "Current",
+      preview: "current preview",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [currentThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "shared-chat");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    act(() => {
+      hook!.switchThread("next-thread");
+      expect(
+        window.localStorage.getItem("agent-chat-active-thread:shared-chat"),
+      ).toBe("next-thread");
+    });
+  });
+
   it("lets a route thread override the saved active thread", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:route-test",

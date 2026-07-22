@@ -36,7 +36,7 @@ import type {
 } from "@shared/api";
 import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconFolder,
   IconFolderOpen,
   IconPlus,
@@ -1282,7 +1282,7 @@ export function DocumentSidebar({
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
     >
-      <IconBrain size={15} className="shrink-0" />
+      <IconHierarchy2 size={15} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-start">
         {t("navigation.agent")}
       </span>
@@ -1849,7 +1849,7 @@ export function DocumentSidebar({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <IconBrain size={16} />
+              <IconHierarchy2 size={16} />
             </Link>
           </TooltipTrigger>
           <TooltipContent>{t("navigation.agent")}</TooltipContent>

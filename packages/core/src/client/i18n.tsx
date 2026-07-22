@@ -1,3 +1,7 @@
+import {
+  Picker,
+  useDesignSystemComponent,
+} from "@agent-native/toolkit/design-system";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
@@ -707,10 +711,28 @@ export function LanguagePicker({
   const selected = options.find((option) => option.value === preference);
   const selectedLabel = selected?.label ?? preference;
   const triggerLabel = `${resolvedLabel}: ${selectedLabel}`;
+  const customPicker = useDesignSystemComponent("Picker");
 
   function handleOptionClick(value: LocalePreference) {
     setOpen(false);
     void setPreference(normalizeLocalizationPreference(value).locale);
+  }
+
+  if (variant === "select" && customPicker) {
+    return (
+      <Picker<LocalePreference>
+        mode="select"
+        options={options}
+        value={preference}
+        onChange={(value) => {
+          if (value == null) return;
+          void setPreference(normalizeLocalizationPreference(value).locale);
+        }}
+        placeholder={selectedLabel}
+        aria-label={triggerLabel}
+        className={className}
+      />
+    );
   }
 
   return (

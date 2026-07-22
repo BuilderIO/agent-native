@@ -19,7 +19,12 @@ import {
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconBrain, IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import {
+  IconHierarchy2,
+  IconCheck,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -365,7 +370,7 @@ function AppContent() {
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
             <CommandMenu.Item onSelect={() => navigate("/agent")}>
-              <IconBrain size={16} />
+              <IconHierarchy2 size={16} />
               {t("root.openAgent")}
             </CommandMenu.Item>
             <CommandMenu.Item onSelect={() => {}}>

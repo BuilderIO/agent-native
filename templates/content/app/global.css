@@ -80,7 +80,7 @@
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
 
-  --destructive: 0 62% 50%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
 
   --border: 0 0% 24%;
@@ -295,6 +295,7 @@
 .notion-editor {
   outline: none;
   --notion-indent-size: 1.75rem;
+  --notion-list-marker-size: 0.5em;
   font-family:
     "Inter Variable",
     "Inter",
@@ -506,14 +507,32 @@
 }
 
 .notion-editor ul:not(.notion-task-list) > li::before {
-  content: "\2022";
+  content: "";
+  width: var(--notion-list-marker-size);
+  height: var(--notion-list-marker-size);
+  min-width: 0;
+  align-self: start;
+  justify-self: center;
+  margin-top: 0.6em;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .notion-editor
   ul:not(.notion-task-list)
   ul:not(.notion-task-list)
   > li::before {
-  content: "\25E6";
+  content: "";
+  width: var(--notion-list-marker-size);
+  height: var(--notion-list-marker-size);
+  min-width: 0;
+  align-self: start;
+  justify-self: center;
+  margin-top: 0.6em;
+  border: 0.12em solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  box-sizing: border-box;
 }
 
 .notion-editor
@@ -521,7 +540,14 @@
   ul:not(.notion-task-list)
   ul:not(.notion-task-list)
   > li::before {
-  content: "\25AA";
+  content: "";
+  width: var(--notion-list-marker-size);
+  height: var(--notion-list-marker-size);
+  min-width: 0;
+  align-self: start;
+  justify-self: center;
+  margin-top: 0.6em;
+  background: currentColor;
 }
 
 .notion-editor ol > li {

@@ -27,6 +27,7 @@ export const extensions = table("tools", {
   icon: text("icon"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  archivedAt: text("archived_at"),
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
   ...ownableColumns(),
@@ -66,6 +67,7 @@ export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tools (
   icon TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  archived_at TEXT,
   hidden_at TEXT,
   hidden_by TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -81,6 +83,7 @@ export const EXTENSIONS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tools (
   icon TEXT,
   created_at TEXT NOT NULL DEFAULT now(),
   updated_at TEXT NOT NULL DEFAULT now(),
+  archived_at TEXT,
   hidden_at TEXT,
   hidden_by TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -162,6 +165,8 @@ export const EXTENSION_DATA_DROP_OLD_INDEX_SQL_PG = `DROP INDEX IF EXISTS tool_d
 export const EXTENSIONS_OWNER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_owner_idx ON tools (owner_email)`;
 export const EXTENSIONS_ORG_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_org_idx ON tools (org_id)`;
 export const EXTENSIONS_UPDATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_updated_at_idx ON tools (updated_at)`;
+export const EXTENSIONS_ARCHIVED_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS archived_at TEXT`;
+export const EXTENSIONS_ARCHIVED_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_archived_at_idx ON tools (archived_at)`;
 
 // Global (admin) hide: when set, the extension row is hidden from EVERYONE's
 // list, distinct from the per-user `tool_hidden_extensions` table. Additive

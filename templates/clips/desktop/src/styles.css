@@ -888,20 +888,23 @@ body[data-clips-route="recording-pill"] #root {
 /* Readiness disclosure                                                       */
 /* ------------------------------------------------------------------------- */
 
+.recorder-disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .readiness {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
   flex-shrink: 0;
-  transition:
-    border-color 120ms,
-    background 120ms;
 }
 
 .readiness-open {
-  border-color: var(--border-strong);
-  background: var(--bg);
+  border-color: transparent;
+  background: transparent;
 }
 
 .readiness-summary {
@@ -922,7 +925,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .readiness-summary:hover {
-  background: var(--surface-hover);
+  color: var(--fg-muted);
 }
 
 .readiness-summary:focus-visible {
@@ -932,10 +935,9 @@ body[data-clips-route="recording-pill"] #root {
 
 .readiness-open .readiness-summary {
   min-height: 42px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: transparent;
 }
 
 .readiness-title {
@@ -957,6 +959,12 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
+}
+
+.readiness-action svg,
+.rewind-home-state svg {
+  width: 11px;
+  height: 11px;
 }
 
 .readiness-open .readiness-action {
@@ -1332,18 +1340,104 @@ body[data-clips-route="recording-pill"] #root {
 /* Rewind is a calm everyday status first; configuration is a drill-in. */
 .rewind-home-card {
   display: grid;
-  gap: 8px;
-  padding: 10px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+  gap: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
-.rewind-home-status {
+.rewind-home-summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  transition: color 120ms;
+}
+
+.rewind-home-summary:hover {
+  color: var(--fg-muted);
+}
+
+.rewind-home-summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.rewind-home-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.rewind-home-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.rewind-home-details {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
+.rewind-home-details p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.rewind-home-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rewind-home-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rewind-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rewind-docs-link:hover {
+  color: var(--fg);
+}
+
+.rewind-docs-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+  border-radius: 4px;
 }
 
 .rewind-settings-entry-main {
@@ -1351,18 +1445,6 @@ body[data-clips-route="recording-pill"] #root {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 9px;
-}
-
-.rewind-home-status p {
-  margin: 2px 0 0;
-  color: var(--fg-muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.rewind-home-status strong {
-  font-size: 13px;
-  font-weight: 500;
 }
 
 .rewind-home-lock-note,
@@ -1379,12 +1461,6 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface);
 }
 
-.rewind-home-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .rewind-agent-prompt-copy {
   width: 28px;
   height: 28px;
@@ -1399,7 +1475,6 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .rewind-agent-prompt-copy:hover {
-  background: var(--surface-hover);
   color: var(--fg);
 }
 

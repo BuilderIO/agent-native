@@ -643,7 +643,7 @@ describe("realtime voice session route", () => {
           },
           turn_detection: {
             type: "semantic_vad",
-            create_response: true,
+            create_response: false,
             interrupt_response: true,
           },
         },

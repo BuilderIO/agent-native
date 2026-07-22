@@ -687,6 +687,19 @@ export function buildMcpOAuthStartUrl({
   return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
 }
 
+export function navigateToMcpOAuthStart(url: string): void {
+  if (typeof window === "undefined") return;
+
+  const navigate = () => {
+    window.setTimeout(() => window.location.assign(url), 0);
+  };
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(navigate);
+  } else {
+    navigate();
+  }
+}
+
 export function resolveMcpIntegrationScope(
   defaultScope: "user" | "org",
   hasOrg: boolean,

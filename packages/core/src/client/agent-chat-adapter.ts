@@ -673,7 +673,9 @@ function contentToStructuredMessages(
     }
 
     if (isToolCallContentPart(part)) {
-      if (part.activity === true) continue;
+      if (part.activity === true || part.toolName.startsWith("agent:")) {
+        continue;
+      }
       const toolCallId = nextToolCallId();
       assistantParts.push({
         type: "tool-call",
