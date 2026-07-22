@@ -15,7 +15,13 @@ describe("Core design-system primitive normalization", () => {
       const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
 
       expect(source).toContain("@agent-native/toolkit/ui/button");
-      expect(source).toContain("@agent-native/toolkit/ui/select");
+      if (sourcePath.includes("settings/")) {
+        expect(source).toContain("@agent-native/toolkit/design-system");
+        expect(source).toContain("Picker");
+        expect(source).not.toContain("@agent-native/toolkit/ui/select");
+      } else {
+        expect(source).toContain("@agent-native/toolkit/ui/select");
+      }
       expect(source).not.toMatch(/<(?:button|select)\b/);
       expect(source).not.toContain("@radix-ui/react-select");
     },

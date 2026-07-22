@@ -58,6 +58,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
+import { normalizeTooltipText } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
 import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
@@ -274,7 +275,7 @@ function IconTooltip({
   return (
     <DesignSystemTooltip
       trigger={children}
-      content={content}
+      content={normalizeTooltipText(content)}
       placement="bottom"
       delayMs={250}
       className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
