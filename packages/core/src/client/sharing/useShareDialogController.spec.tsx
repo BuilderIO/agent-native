@@ -249,6 +249,23 @@ describe("useShareDialogController", () => {
     expect(mocks.share.mutate).not.toHaveBeenCalled();
   });
 
+  it("does not refetch after a visibility mutation is superseded", async () => {
+    let result = await render();
+
+    act(() => result.visibility.set("org"));
+    result = controller as ShareDialogController;
+    act(() => result.visibility.set("public"));
+
+    act(() => mocks.visibility.mutate.mock.calls[0]?.[1]?.onSuccess());
+    expect(mocks.query.refetch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      mocks.visibility.mutate.mock.calls[1]?.[1]?.onSuccess();
+      await Promise.resolve();
+    });
+    expect(mocks.query.refetch).toHaveBeenCalledOnce();
+  });
+
   it("honors restricted public policy while retaining an existing public value", async () => {
     mocks.query.data = {
       ...mocks.query.data!,

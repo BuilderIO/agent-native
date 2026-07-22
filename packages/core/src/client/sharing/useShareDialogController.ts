@@ -232,6 +232,7 @@ export function useShareDialogController({
                     : cached,
               );
             }
+            if (!visibilityGuard.isLatest(requestId)) return;
             Promise.resolve(refetch())
               .catch((error) => {
                 if (visibilityGuard.isLatest(requestId)) {
