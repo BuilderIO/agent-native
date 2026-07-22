@@ -725,7 +725,9 @@ describe("workspace deploy", () => {
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
     );
     const req = new Request("https://example.test/starter");
-    await expect(starterModule.default.fetch(req, {})).resolves.toBe("/starter//");
+    await expect(starterModule.default.fetch(req, {})).resolves.toBe(
+      "/starter//",
+    );
 
     const config = JSON.parse(
       fs.readFileSync(
