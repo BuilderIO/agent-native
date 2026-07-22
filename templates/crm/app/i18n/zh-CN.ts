@@ -1,0 +1,85 @@
+const messages = {
+  intelligence: {
+    title: "智能洞察",
+    description:
+      "选择 CRM 应在受限通话证据中识别的时刻。智能跟踪器通过 Ask CRM 评估，绝不会直接在此设置页面中运行。",
+    loading: "正在加载跟踪器…",
+    kindKeyword: "关键词",
+    kindSmart: "智能",
+    enable: "启用",
+    disable: "停用",
+    toggleTracker: "{{action}}{{name}}",
+    emptyTitle: "尚无信号跟踪器",
+    emptyDescription:
+      "添加关键词以进行确定性匹配，或添加智能条件供 Ask CRM 审查。",
+    trackerDeleted: "已删除跟踪器。",
+    trackerEnabled: "已启用跟踪器。",
+    trackerDisabled: "已停用跟踪器。",
+    trackerUpdateFailed: "无法更新跟踪器。",
+    trackerCreated: "已创建跟踪器。",
+    trackerCreationFailed: "无法创建跟踪器。",
+    newTracker: "新建跟踪器",
+    createTitle: "创建信号跟踪器",
+    createDescription:
+      "跟踪确定性关键词，或定义供 Ask CRM 根据通话证据评估的受限智能条件。",
+    name: "名称",
+    trackerDescription: "描述",
+    detector: "检测器",
+    keywords: "关键词",
+    keywordsPlaceholder: "定价、续约、安全审查",
+    keywordsHelp: "最多使用逗号分隔 40 个关键词。",
+    classificationCriterion: "分类条件",
+    criterionPlaceholder: "匹配对实施时间安排的明确担忧。",
+    creating: "正在创建…",
+    create: "创建跟踪器",
+    deleteTrackerAria: "删除 {{name}}",
+    deleteTrackerTitle: "删除 {{name}}？",
+    deleteTrackerDescription:
+      "这会阻止后续信号运行使用此跟踪器。现有已审查信号不会改变。",
+    cancel: "取消",
+    deleteTracker: "删除跟踪器",
+    keywordsSummary: "关键词：{{keywords}}",
+    noKeywordsConfigured: "未配置关键词。",
+    evaluatedThroughAsk: "通过 Ask CRM 评估。",
+  },
+  recordActions: {
+    evidenceAttached: "已附加通话证据。",
+    evidenceAttachFailed: "无法附加证据。",
+    addEvidence: "添加证据",
+    attachEvidenceTitle: "附加 Clips 证据",
+    attachEvidenceDescription:
+      "请使用持久的 Clips 页面链接。CRM 只存储工件引用、页面 URL 和受限摘录，绝不存储媒体或文字记录。",
+    artifactId: "工件 ID",
+    clipsUrl: "Clips 页面 URL",
+    summary: "摘要",
+    shortExcerpt: "简短摘录",
+    attachEvidence: "附加证据",
+    automate: "自动化",
+    reviewNewClipsCalls: "审查新的 Clips 通话",
+    reviewDescription:
+      "为此 CRM 记录准备审查方案，但不复制 Clips 媒体或文字记录。",
+    disabledAutomationDescription:
+      "此自动化默认处于停用状态，并始终关联到 {{name}}。明确启用后，每个新片段只能将经过访问检查的录制页面引用附加到此记录。",
+    handoffDescription:
+      "交接只保留不透明的片段 ID、持久的 {{path}} 页面 URL 和采集时间。它会拒绝活动 URL、媒体、访问令牌、文字记录、推断记录和提供商写入。",
+    manageAutomations: "管理自动化",
+    configureWithAgent: "使用智能体配置",
+  },
+  dashboard: {
+    metaTitle: "销售管道 · CRM",
+    pipeline: "销售管道",
+    ready: "销售管道仪表板已就绪。",
+    installFailed: "无法安装销售管道仪表板。",
+    loadingDescription: "正在加载按访问范围限制的销售管道仪表板…",
+    emptyDescription: "按阶段显示商机价值的实时权限感知视图。",
+    installTitle: "安装销售管道仪表板",
+    installDescription: "这会为当前工作区创建 CRM 自有的数据程序和私有仪表板。",
+    installAction: "安装销售管道仪表板",
+    liveDescription:
+      "实时商机总额使用当前查看者的 CRM 访问权限，并从缓存的数据程序刷新。",
+    updating: "正在更新…",
+    updatePack: "更新包",
+  },
+};
+
+export default messages;

@@ -13,6 +13,7 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:workspace-skills",
+  "guard:template-standard",
   "guard:public-packages",
   "guard:shared-ui-singletons",
   "guard:no-core-client-barrel-imports",

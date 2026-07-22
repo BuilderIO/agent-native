@@ -1233,6 +1233,7 @@ export function createCoreRoutesPlugin(
         "google_drive",
         "github",
         "hubspot",
+        "salesforce",
         "jira",
         "sentry",
         "notion",

@@ -27,8 +27,27 @@ import type { ActionAuditConfig } from "./audit/types.js";
  * - `"a2a"` — a direct, explicitly exposed read-only A2A action dispatch.
  *   Natural-language A2A delegation still runs through the agent loop and its
  *   selected actions are attributed as `"tool"`.
+ * - `"automation"` — an event-triggered automation dispatched from a stored
+ *   workspace trigger with trusted trigger lineage.
  */
-export type ActionCaller = "tool" | "http" | "frontend" | "cli" | "mcp" | "a2a";
+export type ActionCaller =
+  | "tool"
+  | "http"
+  | "frontend"
+  | "cli"
+  | "mcp"
+  | "a2a"
+  | "automation";
+
+/**
+ * Trusted automation lineage added by the trigger dispatcher. Action inputs
+ * must never be used to create or override this context.
+ */
+export interface ActionAutomationContext {
+  triggerId: string;
+  triggerName: string;
+  policyId?: string;
+}
 
 /**
  * Context passed as the optional second argument to an action's `run`.
@@ -56,6 +75,8 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /** Present only for trigger-dispatched automation calls. */
+  automation?: ActionAutomationContext;
   /** Verified network lineage for direct delegated action calls. */
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;

@@ -21,6 +21,7 @@ describe("provider reader registry", () => {
       "github",
       "notion",
       "hubspot",
+      "salesforce",
       "gmail",
       "google_drive",
       "generic",
@@ -37,6 +38,7 @@ describe("provider reader registry", () => {
       "github",
       "notion",
       "hubspot",
+      "salesforce",
       "gmail",
       "google_drive",
     ]);
@@ -45,7 +47,7 @@ describe("provider reader registry", () => {
       listProviderReaders({ capability: "crm" }).map(
         (reader) => reader.providerId,
       ),
-    ).toEqual(["hubspot"]);
+    ).toEqual(["hubspot", "salesforce"]);
 
     expect(
       listProviderReaders({ implementationStatus: "metadata-only" }).map(

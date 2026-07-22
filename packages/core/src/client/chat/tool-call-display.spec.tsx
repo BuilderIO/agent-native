@@ -212,6 +212,70 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
+    ).toBe("true");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+  });
+
+  it("does not animate a tool row that mounts already resolved", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          result="done"
+          isRunning={false}
+        />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBeNull();
+    expect(row?.className).not.toContain("animate-in");
+  });
+
+  it("animates a tool row that mounts running", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay toolName="read-file" args={{}} isRunning={true} />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBe("true");
+    expect(row?.className).toContain("animate-in");
+  });
+
+  it("shimmers only the newest running reconnect tool", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "list-files",
+        argsText: "",
+        args: {},
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "read-file",
+        argsText: "",
+        args: {},
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const shimmer = container.querySelectorAll(".agent-running-shimmer");
+    expect(shimmer).toHaveLength(1);
+    expect(shimmer[0]?.textContent).toBe("read file");
   });
 
   it("shows a subtle long-running hint after a running tool stays active", () => {
