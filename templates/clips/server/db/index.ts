@@ -80,6 +80,16 @@ async function getRecordingSummaryCta(
   };
 }
 
+function getRecordingEmailThumbnailUrl(
+  recording: RecordingRow,
+): string | undefined {
+  if (!recording.thumbnailUrl) return undefined;
+  const appUrl = withConfiguredAppBasePath(
+    getAppProductionUrl().replace(/\/+$/, ""),
+  );
+  return `${appUrl}/api/email-thumbnail/${recording.id}`;
+}
+
 registerShareableResource({
   type: "recording",
   resourceTable: schema.recordings,
@@ -91,7 +101,7 @@ registerShareableResource({
   ownerAccessIgnoresOrg: true,
   fromAddress: CLIPS_EMAIL_FROM,
   logoPath: CLIPS_LOGO_PATH,
-  getThumbnailUrl: (recording) => recording.thumbnailUrl ?? undefined,
+  getThumbnailUrl: getRecordingEmailThumbnailUrl,
   getSecondaryCta: getRecordingSummaryCta,
 });
 

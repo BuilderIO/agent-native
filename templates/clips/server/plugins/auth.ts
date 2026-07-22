@@ -44,6 +44,7 @@ export default createAuthPlugin({
     // stay behind auth under /api/uploads/*.
     "/api/video",
     "/api/thumbnail",
+    "/api/email-thumbnail",
     "/api/auth/google-calendar",
     "/_agent-native/google/auth-url",
     "/_agent-native/google/callback",

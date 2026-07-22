@@ -305,6 +305,62 @@ export function isResvgRuntimeUnavailableError(error: unknown): boolean {
   );
 }
 
+/**
+ * Generic SVG → PNG rasterizer for callers outside this module (e.g. a
+ * template compositing its own overlay graphics). Templates don't declare
+ * `@resvg/resvg-js`/`sharp` as their own dependencies, so under pnpm's strict
+ * linking a dynamic `import("@resvg/resvg-js")` executed from *template*
+ * code fails to resolve even though the package is installed for core. Doing
+ * the import here — inside `@agent-native/core`'s own compiled module —
+ * resolves correctly regardless of which template calls this wrapper.
+ */
+export async function renderSvgToPng(
+  svg: string,
+  options: { width?: number } = {},
+): Promise<Uint8Array> {
+  const overridePackage =
+    typeof process !== "undefined"
+      ? process.env.AGENT_NATIVE_RESVG_PACKAGE
+      : undefined;
+  const resvgPackage = overridePackage || "@resvg/resvg-js";
+  const { Resvg } = await import(/* @vite-ignore */ resvgPackage);
+  const fontFiles = resolveOgFontFiles();
+  const hasBundledFonts = Boolean(fontFiles?.length);
+  const image = new Resvg(svg, {
+    ...(options.width ? { fitTo: { mode: "width", value: options.width } } : {}),
+    font: {
+      loadSystemFonts: !hasBundledFonts,
+      ...(hasBundledFonts ? { fontFiles } : {}),
+      defaultFontFamily: OG_FONT_FAMILY,
+      sansSerifFamily: OG_FONT_FAMILY,
+    },
+  }).render();
+  return image.asPng();
+}
+
+/**
+ * Probe a raster image's pixel dimensions via `sharp` — same cross-package
+ * resolution rationale as `renderSvgToPng` above. Returns `null` (rather
+ * than throwing) when `sharp` isn't available or the format is unreadable,
+ * so callers can fall back to an assumed aspect ratio.
+ */
+export async function probeRasterImageDimensions(
+  bytes: Uint8Array,
+): Promise<{ width: number; height: number } | null> {
+  try {
+    const sharpPackage = "sharp";
+    const sharpModule: any = await import(/* @vite-ignore */ sharpPackage);
+    const sharp = sharpModule.default ?? sharpModule;
+    const metadata = await sharp(bytes).metadata();
+    if (metadata.width && metadata.height) {
+      return { width: metadata.width, height: metadata.height };
+    }
+  } catch {
+    // sharp unavailable or the buffer isn't a decodable image.
+  }
+  return null;
+}
+
 export function renderAgentNativeOgImageSvg(
   input: AgentNativeOgImageInput = {},
 ): string {

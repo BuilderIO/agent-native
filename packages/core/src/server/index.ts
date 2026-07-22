@@ -242,11 +242,14 @@ export {
   AGENT_NATIVE_OG_IMAGE_WIDTH,
   agentNativeOgImageResponseHeaders,
   createAgentNativeOgImageHandler,
+  isResvgRuntimeUnavailableError,
+  probeRasterImageDimensions,
   renderAgentNativeOgImagePng,
   renderAgentNativeOgImageSvg,
+  renderSvgToPng,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
-export { resolveOgFontFiles } from "./og-fonts.js";
+export { resolveOgFontFiles, OG_FONT_FAMILY } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
   type CreateBrowserSessionActionEntriesOptions,
