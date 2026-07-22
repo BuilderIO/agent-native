@@ -314,6 +314,20 @@ ${editorChromeBridgeScript}
  */
 const LIVE_REFLOW_ENABLED = true;
 
+/**
+ * Task 1a rollout gate (Editor Interaction Parity). When on, a pointerdown
+ * whose point lands inside the current selection's box keeps the SELECTED
+ * element as the drag target even when an overlapping non-descendant sibling
+ * wins the hit test — a selected object stays draggable from under another
+ * layer (Figma parity). Baked into the bridge as
+ * `__SELECTED_LAYER_DRAG_PRIORITY__`, same in-file bridge-flag pattern as
+ * `LIVE_REFLOW_ENABLED`; flip to `false` to restore the previous
+ * descendant-only behavior without a revert. The pure decision
+ * (`dragTargetForPointerDown`) is truth-table tested in
+ * editor-chrome-bridge.snap.test.ts regardless of this gate.
+ */
+const SELECTED_LAYER_DRAG_PRIORITY_ENABLED = true;
+
 interface DesignCanvasProps {
   content: string;
   contentKey?: string;
@@ -944,6 +958,10 @@ function buildEditorChromeBridgeScript(args: {
       .replace(
         "__LIVE_REFLOW_ENABLED__",
         LIVE_REFLOW_ENABLED ? "true" : "false",
+      )
+      .replace(
+        "__SELECTED_LAYER_DRAG_PRIORITY__",
+        SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
       )
   );
 }
@@ -2124,6 +2142,10 @@ export function DesignCanvas({
           .replace(
             "__LIVE_REFLOW_ENABLED__",
             LIVE_REFLOW_ENABLED ? "true" : "false",
+          )
+          .replace(
+            "__SELECTED_LAYER_DRAG_PRIORITY__",
+            SELECTED_LAYER_DRAG_PRIORITY_ENABLED ? "true" : "false",
           );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing

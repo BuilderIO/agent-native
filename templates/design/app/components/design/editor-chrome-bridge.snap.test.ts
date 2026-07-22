@@ -114,6 +114,204 @@ function loadSnapMath(): {
 
 const { rectBounds, computeMoveSnapOffset } = loadSnapMath();
 
+// Task 1a/1b — both functions are self-contained (they read only their
+// arguments), so a single brace-extracted declaration evaluates in isolation.
+function loadPureBridgeFn<T>(name: string): T {
+  const editorChromeBridgeScript = loadEditorChromeBridgeScript();
+  const src = extractFunction(editorChromeBridgeScript, name);
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval
+  const factory = new Function(`${src}\nreturn ${name};`);
+  return factory() as T;
+}
+
+interface DragTargetArgs {
+  selectedEl: unknown;
+  selectedAlive: boolean;
+  selectedRect: {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+  } | null;
+  hitEl: unknown;
+  hitRaw?: unknown;
+  point: { x: number; y: number } | null;
+  preferSelected: boolean;
+}
+const dragTargetForPointerDown = loadPureBridgeFn<
+  (args: DragTargetArgs) => unknown
+>("dragTargetForPointerDown");
+const nextStackCandidate =
+  loadPureBridgeFn<(keys: string[], current: string | null) => string | null>(
+    "nextStackCandidate",
+  );
+
+describe("editor-chrome bridge — dragTargetForPointerDown (Task 1a)", () => {
+  const selRect = {
+    left: 10,
+    top: 10,
+    right: 110,
+    bottom: 60,
+    width: 100,
+    height: 50,
+  };
+
+  it("keeps the selected element when the hit is its descendant (legacy rule, flag off)", () => {
+    const hitRaw = { tag: "child" };
+    const selectedEl = { tag: "sel", contains: (x: unknown) => x === hitRaw };
+    const hitEl = { tag: "hitTarget" };
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: null,
+        hitEl,
+        hitRaw,
+        point: { x: 0, y: 0 },
+        preferSelected: false,
+      }),
+    ).toBe(selectedEl);
+  });
+
+  it("keeps the selected element when the point is inside its box over an overlapping sibling (flag on)", () => {
+    const hitRaw = { tag: "sibling-on-top" };
+    const selectedEl = { tag: "sel", contains: () => false };
+    const hitEl = hitRaw;
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: selRect,
+        hitEl,
+        hitRaw,
+        point: { x: 50, y: 30 },
+        preferSelected: true,
+      }),
+    ).toBe(selectedEl);
+  });
+
+  it("selects the overlapping top sibling when the flag is off (legacy hit wins)", () => {
+    const hitRaw = { tag: "sibling-on-top" };
+    const selectedEl = { tag: "sel", contains: () => false };
+    const hitEl = hitRaw;
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: selRect,
+        hitEl,
+        hitRaw,
+        point: { x: 50, y: 30 },
+        preferSelected: false,
+      }),
+    ).toBe(hitEl);
+  });
+
+  it("falls through to the hit when the point is outside the selected box", () => {
+    const hitRaw = { tag: "elsewhere" };
+    const selectedEl = { tag: "sel", contains: () => false };
+    const hitEl = hitRaw;
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: selRect,
+        hitEl,
+        hitRaw,
+        point: { x: 500, y: 500 },
+        preferSelected: true,
+      }),
+    ).toBe(hitEl);
+  });
+
+  it("falls through to the hit when the selected element is detached (selectedAlive false)", () => {
+    const hitRaw = { tag: "hit" };
+    const selectedEl = { tag: "sel", contains: () => true };
+    const hitEl = hitRaw;
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: false,
+        selectedRect: selRect,
+        hitEl,
+        hitRaw,
+        point: { x: 50, y: 30 },
+        preferSelected: true,
+      }),
+    ).toBe(hitEl);
+  });
+
+  it("keeps the selected element even when the top hit is a (locked) layer — locking is the caller's concern", () => {
+    const lockedTop = { tag: "locked-top" };
+    const selectedEl = { tag: "sel", contains: () => false };
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: selRect,
+        hitEl: lockedTop,
+        hitRaw: lockedTop,
+        point: { x: 50, y: 30 },
+        preferSelected: true,
+      }),
+    ).toBe(selectedEl);
+  });
+
+  it("falls through when the selected box is zero-area (hidden element)", () => {
+    const hitRaw = { tag: "hit" };
+    const selectedEl = { tag: "sel", contains: () => false };
+    const hitEl = hitRaw;
+    expect(
+      dragTargetForPointerDown({
+        selectedEl,
+        selectedAlive: true,
+        selectedRect: {
+          left: 10,
+          top: 10,
+          right: 10,
+          bottom: 10,
+          width: 0,
+          height: 0,
+        },
+        hitEl,
+        hitRaw,
+        point: { x: 10, y: 10 },
+        preferSelected: true,
+      }),
+    ).toBe(hitEl);
+  });
+});
+
+describe("editor-chrome bridge — nextStackCandidate (Task 1b)", () => {
+  const stack = ["a:0", "b:1", "c:2", "d:3"];
+
+  it("returns the next candidate below the current one", () => {
+    expect(nextStackCandidate(stack, "b:1")).toBe("c:2");
+  });
+
+  it("wraps from the bottom back to the top", () => {
+    expect(nextStackCandidate(stack, "d:3")).toBe("a:0");
+  });
+
+  it("moves from the top hit to the one just below it", () => {
+    expect(nextStackCandidate(stack, "a:0")).toBe("b:1");
+  });
+
+  it("returns null when the current selection is not in the stack", () => {
+    expect(nextStackCandidate(stack, "z:9")).toBeNull();
+  });
+
+  it("returns null for an empty stack", () => {
+    expect(nextStackCandidate([], "a:0")).toBeNull();
+  });
+
+  it("wraps to itself for a single-candidate stack", () => {
+    expect(nextStackCandidate(["only:0"], "only:0")).toBe("only:0");
+  });
+});
+
 function loadSelectionTargetForHit(documentRoot: {
   body: Element;
   documentElement: Element;

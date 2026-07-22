@@ -275,6 +275,32 @@ ladder.
   bridge URL, and snapshot/state references when moving between actions so later
   flow-edge derivation has stable anchors.
 
+## Chrome placement
+
+Editor chrome has fixed homes; put new UI in the right one so surfaces stay
+predictable and Figma-clean.
+
+- **Bottom toolbar**: cursor-changing creation/manipulation tools only —
+  move/hand/scale, frame, shapes, pen, text, comment. Never mode switches
+  (annotate/edit/interact) or one-off command buttons.
+- **Left rail**: orientation and structure — pages, layers, assets, and the
+  `code` workbench.
+- **Right panel**: properties, progressively disclosed (the EditPanel model).
+- **Bottom status area**: warnings, sync/offline state, library updates, and the
+  outbox conflict count; render nothing when all-clear — the strip is
+  Figma-silent and usually invisible.
+- **Long-tail features**: extensions in the left-rail tools/extensions surface,
+  not new permanent toolbar buttons.
+- **No new always-visible controls for an existing command.** Do not add a
+  permanent button to fix discoverability; use the command menu, context menu, or
+  an existing surface. New permanent chrome for an existing command is a
+  regression.
+- The mode switch (annotate/edit/interact) belongs in a compact segmented
+  control near where mode context already lives (top-right), not in the
+  cursor-tool pill.
+- `Cmd+\` hides the whole chrome set (rail + inspector + toolbar); any new chrome
+  must participate in that hide.
+
 ## Application State
 
 - `navigation` tells you the current view, design id, file id, and related UI

@@ -35,6 +35,7 @@ declare var __DESIGN_CANVAS_CONTENT_OFFSET_X__: number;
 declare var __DESIGN_CANVAS_CONTENT_OFFSET_Y__: number;
 declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 declare var __LIVE_REFLOW_ENABLED__: boolean;
+declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
 
 (function () {
   // Idempotency guard: replace-document-content / srcdoc rebuilds can end up
@@ -74,6 +75,18 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   var liveReflowEnabled = (function () {
     try {
       return !!__LIVE_REFLOW_ENABLED__;
+    } catch (_e) {
+      return false;
+    }
+  })();
+  // Task 1a — selected-layer drag priority. When on, a pointerdown whose point
+  // lands inside the current selection's box keeps the SELECTED element as the
+  // drag target even when an overlapping non-descendant sibling wins the hit
+  // test (Figma: a selected object stays draggable from under another layer).
+  // Same crash-safe single-substitution pattern as liveReflowEnabled above.
+  var selectedLayerDragPriorityEnabled = (function () {
+    try {
+      return !!__SELECTED_LAYER_DRAG_PRIORITY__;
     } catch (_e) {
       return false;
     }
@@ -2230,6 +2243,12 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   var selectedEl: Element | null = null;
+  // Task 1d — while true, the selection outline + spacing/parent overlays stay
+  // hidden even as async reflows (ResizeObserver/MutationObserver) fire
+  // refreshOverlays. The host sets it during a keyboard-nudge burst so the
+  // moving object isn't chased by flickering chrome, then clears it once the
+  // burst settles. Selection itself is unchanged — only its chrome is hidden.
+  var selectionChromeHidden = false;
   var hoveredEl: Element | null = null;
   type NodeHtmlPreviewSession = {
     proposalId: string;
@@ -4052,7 +4071,11 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         hideSelectionOverlay();
       }
     } else if (selectedEl) {
-      positionOverlay(selectionOverlay, selectedEl);
+      if (selectionChromeHidden) {
+        hideSelectionOverlay();
+      } else {
+        positionOverlay(selectionOverlay, selectedEl);
+      }
     } else {
       hideParentAutoLayoutOverlay();
     }
@@ -4867,6 +4890,37 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       (window.parent as Window).postMessage({ type: "clear-selection" }, "*");
       return;
     }
+    // Task 1b — Cmd/Ctrl+click (without Shift) deep-selects the next layer
+    // below the current selection in the z-stack under the pointer, wrapping at
+    // the bottom (Figma stack cycling). Only activates when the current
+    // selection is actually in that stack; otherwise it falls through so a
+    // Cmd/Ctrl+click elsewhere keeps its existing (additive) meaning, and
+    // Shift-click stays purely additive.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && selectedEl) {
+      var stack = collectLayerHitCandidates(e.clientX, e.clientY);
+      var currentIdx = stack.elements.indexOf(selectedEl);
+      if (currentIdx !== -1) {
+        var stackKeys = stack.layerCandidates.map(function (candidate) {
+          return candidate.key;
+        });
+        var nextKey = nextStackCandidate(
+          stackKeys,
+          stack.layerCandidates[currentIdx].key,
+        );
+        var nextEl =
+          nextKey === null ? null : stack.elements[stackKeys.indexOf(nextKey)];
+        if (nextEl && !isLayerInteractionBlocked(nextEl)) {
+          selectedSpacingHovered = false;
+          hoveredSpacingHandleKey = "";
+          selectedEl = nextEl;
+          positionOverlay(selectionOverlay, selectedEl);
+          // Plain (no-intent) select so the host replaces the selection with
+          // the cycled layer instead of treating Cmd/Ctrl as additive.
+          postElementSelect(selectedEl);
+          return;
+        }
+      }
+    }
     selectedSpacingHovered = false;
     hoveredSpacingHandleKey = "";
     var previousSelectedEl = selectedEl;
@@ -5075,9 +5129,20 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     document.addEventListener(events.up, onUp, true);
   }
 
-  function openContextMenuAtEvent(e) {
-    stopNativeInteraction(e);
-    blurActiveTextEditor();
+  // Task 1b — shared hit-stack collector. Returns the full z-stack of
+  // selectable layers under a point (topmost first), each element aligned by
+  // index with a { key, label, info } descriptor. Extracted verbatim from the
+  // context-menu path so modifier-click stack cycling and the context menu
+  // resolve the exact same stack (single source of truth for "what's under
+  // this point"). Overlays are momentarily made pointer-transparent so
+  // elementsFromPoint sees through the editor chrome.
+  function collectLayerHitCandidates(
+    clientX: number,
+    clientY: number,
+  ): {
+    elements: Element[];
+    layerCandidates: Array<{ key: string; label: string; info: unknown }>;
+  } {
     var shieldPointerEvents = shieldOverlay.style.pointerEvents;
     var selectionPointerEvents = selectionOverlay.style.pointerEvents;
     var highlightPointerEvents = highlightOverlay.style.pointerEvents;
@@ -5085,13 +5150,13 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     selectionOverlay.style.pointerEvents = "none";
     highlightOverlay.style.pointerEvents = "none";
     var pointTargets = document.elementsFromPoint
-      ? document.elementsFromPoint(e.clientX, e.clientY)
-      : [document.elementFromPoint(e.clientX, e.clientY)];
+      ? document.elementsFromPoint(clientX, clientY)
+      : [document.elementFromPoint(clientX, clientY)];
     shieldOverlay.style.pointerEvents = shieldPointerEvents;
     selectionOverlay.style.pointerEvents = selectionPointerEvents;
     highlightOverlay.style.pointerEvents = highlightPointerEvents;
 
-    var candidateElements: Element[] = [];
+    var elements: Element[] = [];
     var layerCandidates: Array<{
       key: string;
       label: string;
@@ -5107,11 +5172,11 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         isOverlayElement(candidate) ||
         isLayerInteractionBlocked(candidate) ||
         isTemplateCloneElement(candidate) ||
-        candidateElements.indexOf(candidate) !== -1
+        elements.indexOf(candidate) !== -1
       ) {
         return;
       }
-      candidateElements.push(candidate);
+      elements.push(candidate);
       var candidateInfo = getElementInfo(candidate);
       var explicitLabel =
         (candidate.getAttribute &&
@@ -5134,6 +5199,15 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         info: candidateInfo,
       });
     });
+    return { elements: elements, layerCandidates: layerCandidates };
+  }
+
+  function openContextMenuAtEvent(e) {
+    stopNativeInteraction(e);
+    blurActiveTextEditor();
+    var collected = collectLayerHitCandidates(e.clientX, e.clientY);
+    var candidateElements = collected.elements;
+    var layerCandidates = collected.layerCandidates;
 
     var target = candidateElements[0] || null;
     var info = null;
@@ -8198,10 +8272,14 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   // Minimal, dependency-free port of the overview canvas's edge/center snap
   // routine (shared/canvas-math.ts computeMoveSnap) for in-iframe element
   // dragging. The bridge's pointer coordinates and getBoundingClientRect()
-  // values are already in the same iframe-local, zoom-normalized coordinate
-  // space (the host CSS-scales the whole iframe, not individual elements),
-  // so — unlike the overview canvas, which divides a screen-px threshold by
-  // its own camera zoom — no extra scale correction is needed here.
+  // values are iframe-local content px, but the host CSS-scales the whole
+  // iframe, so a fixed content-px threshold shrinks on SCREEN as the board
+  // zooms out (6 content px is only 3 screen px at 50% zoom) — the snap tolerance
+  // felt tighter and tighter zoomed out. Task 3c: keep SNAP_THRESHOLD_PX as a
+  // screen-space base and convert it to content px at snap time by multiplying
+  // by chromeLineScale() (= 1/zoom, the same constant-size factor the chrome
+  // overlays use), matching getCanvasSnapThreshold's zoom-invariant screen-px
+  // semantics in the overview.
   var SNAP_THRESHOLD_PX = 6;
   var SNAP_CANDIDATE_CAP = 200;
 
@@ -9291,7 +9369,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
                 height: dragElStartHeight,
               },
               snapCandidateRects,
-              SNAP_THRESHOLD_PX,
+              // Task 3c — screen-space base converted to content px (1/zoom) so
+              // the snap tolerance feels constant on screen at any zoom.
+              SNAP_THRESHOLD_PX * chromeLineScale(),
             )
           : { dx: 0, dy: 0, guideV: null, guideH: null };
       nextLeft += snapResult.dx;
@@ -9938,6 +10018,61 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     pendingShieldDrag = null;
   }
 
+  // Task 1a (pure, closure-exported for editor-chrome-bridge.snap.test.ts):
+  // decide the drag target for a pointerdown. Descendant hits always keep the
+  // selected element (legacy rule, preserved via the raw `hitRaw` containment
+  // check). When `preferSelected` is on, a point inside the selected element's
+  // live box also keeps the selected element even over an overlapping
+  // non-descendant sibling — so a selected object stays draggable from under
+  // another layer. Falls through to `hitEl` when the selection is
+  // removed/detached (`selectedAlive` false) or collapsed to a zero-area box
+  // (hidden). Self-contained: no outer-scope reads, so brace-extraction in the
+  // test evaluates it in isolation.
+  function dragTargetForPointerDown(args) {
+    var selectedEl = args.selectedEl;
+    var hitEl = args.hitEl;
+    var hitRaw = args.hitRaw || hitEl;
+    var selectedAlive = !!args.selectedAlive;
+    if (
+      selectedEl &&
+      selectedAlive &&
+      selectedEl.contains &&
+      selectedEl.contains(hitRaw)
+    ) {
+      return selectedEl;
+    }
+    if (args.preferSelected && selectedEl && selectedAlive) {
+      var r = args.selectedRect;
+      var p = args.point;
+      if (
+        r &&
+        p &&
+        r.width > 0 &&
+        r.height > 0 &&
+        p.x >= r.left &&
+        p.x <= r.right &&
+        p.y >= r.top &&
+        p.y <= r.bottom
+      ) {
+        return selectedEl;
+      }
+    }
+    return hitEl;
+  }
+
+  // Task 1b (pure, closure-exported for tests): given the ordered hit-stack
+  // candidate keys (topmost first, as document.elementsFromPoint returns) and
+  // the key of the current selection, return the key of the next candidate
+  // BELOW it, wrapping from the bottom back to the top. Returns null when the
+  // current selection is not in the stack, so a modifier-click there keeps its
+  // existing meaning instead of hijacking it.
+  function nextStackCandidate(candidateKeys, currentKey) {
+    if (!candidateKeys || candidateKeys.length === 0) return null;
+    var idx = candidateKeys.indexOf(currentKey);
+    if (idx === -1) return null;
+    return candidateKeys[(idx + 1) % candidateKeys.length];
+  }
+
   function beginPotentialShieldDrag(e) {
     stopNativeInteraction(e);
     if (e.button !== 0) return;
@@ -9956,12 +10091,21 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       beginMarqueeSelection(e);
       return;
     }
-    var dragTarget =
-      selectedEl &&
-      document.documentElement.contains(selectedEl) &&
-      selectedEl.contains(hit)
-        ? selectedEl
-        : hitTarget;
+    var selectedAlive =
+      !!selectedEl && document.documentElement.contains(selectedEl);
+    var selectedRect =
+      selectedAlive && selectedEl.getBoundingClientRect
+        ? selectedEl.getBoundingClientRect()
+        : null;
+    var dragTarget = dragTargetForPointerDown({
+      selectedEl: selectedEl,
+      selectedAlive: selectedAlive,
+      selectedRect: selectedRect,
+      hitEl: hitTarget,
+      hitRaw: hit,
+      point: { x: e.clientX, y: e.clientY },
+      preferSelected: selectedLayerDragPriorityEnabled,
+    });
     var clickTarget = hitTarget;
     if (
       !dragTarget ||
@@ -11505,6 +11649,17 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         }
       });
       setPassiveSelectionElements(passiveTargets);
+      return;
+    }
+    if (e.data.type === "set-selection-chrome-hidden") {
+      selectionChromeHidden = !!e.data.hidden;
+      if (selectionChromeHidden) {
+        hideSelectionOverlay();
+      } else if (selectedEl) {
+        positionOverlay(selectionOverlay, selectedEl);
+        updateParentAutoLayoutOverlay(selectedEl);
+        refreshOverlays();
+      }
       return;
     }
     if (e.data.type === "select-element") {

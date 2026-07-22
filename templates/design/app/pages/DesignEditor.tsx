@@ -221,6 +221,7 @@ import {
   DEFAULT_LINE_STROKE,
   DEFAULT_LINE_STROKE_WIDTH_PX,
 } from "@/components/design/canvas-primitive-style";
+import { CanvasAgentStateBadge } from "@/components/design/CanvasAgentStateBadge";
 import {
   CanvasContextMenu,
   type CanvasContextMenuHandle,
@@ -309,6 +310,7 @@ import {
 } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import { ReviewStatusControl } from "@/components/design/ReviewStatusControl";
+import { SelectionAgentAffordance } from "@/components/design/SelectionAgentAffordance";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
   CanvasLayerHitCandidate,
@@ -652,6 +654,9 @@ import {
   pruneGeometryHistoryEntryForDeletedFiles,
   remapFileDeletionHistoryEntryIds,
   removeRecentUndoRedoOrderKinds,
+  type SelectionHistoryEntry,
+  selectionSnapshotsEqual,
+  shouldRecordSelectionHistory,
 } from "./design-editor/history";
 import {
   getAbsolutePositioningForNodeInHtml,
@@ -799,6 +804,10 @@ import {
   shouldIncludeScreenRenameContentOverride,
   shouldUseOverviewRuntimeReplacement,
 } from "./design-editor/selection-state";
+import {
+  type AlignmentGroup,
+  partitionSelectionForAlignment,
+} from "./design-editor/selection-topology";
 import {
   postShaderFillPreviewClearToPreviewIframes,
   removeElementFromHtml,
@@ -2940,6 +2949,12 @@ function DesignEditor() {
   const suppressContentHistoryRef = useRef(false);
   const geometryUndoStackRef = useRef<GeometryHistoryEntry[]>([]);
   const geometryRedoStackRef = useRef<GeometryHistoryEntry[]>([]);
+  // Task 1c — selection-only undo/redo. Entries hold a {before, after}
+  // selection snapshot pair and a timestamp for burst coalescing. Pushed only
+  // from local selection handlers (never from peer/agent awareness), so remote
+  // selections structurally never enter this stack (Task 1e).
+  const selectionOnlyUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
+  const selectionOnlyRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
   // Figma-parity undo/redo selection restore (see GeometryHistorySelection):
   // synchronous mirrors of the selection state, kept current every render
   // (like activeFileIdForUndoRef just above) so a commit/undo/redo handler
@@ -2968,6 +2983,7 @@ function DesignEditor() {
     contentRedoSelectionStackRef.current = [];
     localContentRedoStackRef.current = [];
     geometryRedoStackRef.current = [];
+    selectionOnlyRedoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
     fileDeletionRedoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -3001,11 +3017,40 @@ function DesignEditor() {
   const restoreSelectionSnapshot = useCallback(
     (selection: GeometryHistorySelection | undefined) => {
       if (!selection) return;
-      if (viewModeRef.current !== "overview") return;
-      setOverviewSelectedScreenIds(selection.overviewSelectedScreenIds);
-      setSelectedLayerIdsState(selection.selectedLayerIds);
-      if (selection.activeFileId) {
+      if (viewModeRef.current === "overview") {
+        setOverviewSelectedScreenIds(selection.overviewSelectedScreenIds);
+        setSelectedLayerIdsState(selection.selectedLayerIds);
+        if (selection.activeFileId) {
+          setActiveFileId(selection.activeFileId);
+        }
+        return;
+      }
+      // Task 1c — single-screen mode restore: switch to the snapshot's file if
+      // it changed, restore the host-side layer selection, and re-drive the
+      // in-iframe selection overlay for the first restored layer (the common
+      // single-selection case). Iframe is resolved from the DOM here rather
+      // than through canvasIframeRef so this callback stays independent of
+      // that later-declared memo.
+      if (
+        selection.activeFileId &&
+        selection.activeFileId !== activeFileIdForUndoRef.current
+      ) {
         setActiveFileId(selection.activeFileId);
+      }
+      setSelectedLayerIdsState(selection.selectedLayerIds);
+      const firstLayerId = selection.selectedLayerIds[0];
+      if (firstLayerId && typeof document !== "undefined") {
+        const iframe = document.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        iframe?.contentWindow?.postMessage(
+          {
+            type: "select-element",
+            nodeId: firstLayerId,
+            selector: `[data-agent-native-node-id="${firstLayerId.replace(/"/g, '\\"')}"]`,
+          },
+          "*",
+        );
       }
     },
     [],
@@ -3037,6 +3082,8 @@ function DesignEditor() {
         Boolean(undoManager?.canUndo()) ||
         hasLocalUndo ||
         clipboardPasteUndoStackRef.current.length > 0 ||
+        // Task 1c — selection-only undo is available in both view modes.
+        selectionOnlyUndoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
@@ -3049,6 +3096,7 @@ function DesignEditor() {
         Boolean(undoManager?.canRedo()) ||
         hasLocalRedo ||
         clipboardPasteRedoStackRef.current.length > 0 ||
+        selectionOnlyRedoStackRef.current.length > 0 ||
         (canUseOverviewHistory &&
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
@@ -3214,6 +3262,8 @@ function DesignEditor() {
     localContentRedoStackRef.current = [];
     geometryUndoStackRef.current = [];
     geometryRedoStackRef.current = [];
+    selectionOnlyUndoStackRef.current = [];
+    selectionOnlyRedoStackRef.current = [];
     fileCreationUndoStackRef.current = [];
     fileCreationRedoStackRef.current = [];
     fileDeletionUndoStackRef.current = [];
@@ -3349,6 +3399,24 @@ function DesignEditor() {
     null,
   );
   const [generationIssue, setGenerationIssue] = useState<string | null>(null);
+  // Task 4c — inputs to the canvas agent-state badge. lastRunCompletedAt drives
+  // the transient "done" state; isOffline drives the "warning" state.
+  const [lastRunCompletedAt, setLastRunCompletedAt] = useState<number | null>(
+    null,
+  );
+  const [isOffline, setIsOffline] = useState(
+    typeof navigator !== "undefined" && navigator.onLine === false,
+  );
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false);
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
   const [promptDesignSystemId, setPromptDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
@@ -3457,6 +3525,9 @@ function DesignEditor() {
     }
   }, [clearGenerationCompleteTimer, id, rememberPendingGenerationForRetry, t]);
   const handleGenerationComplete = useCallback(() => {
+    // Task 4c — stamp the completion so the canvas badge shows a transient
+    // "done" state that auto-decays (the badge owns the decay timer).
+    setLastRunCompletedAt(Date.now());
     clearGenerationCompleteTimer();
     generationCompleteTimerRef.current = window.setTimeout(() => {
       generationCompleteTimerRef.current = null;
@@ -7632,6 +7703,67 @@ function DesignEditor() {
     activeEditorDragRef.current = active;
   }, []);
 
+  // Task 1c — selection-only undo/redo. Recorded from the genuine
+  // user-selection funnels only (click/layers-panel/context-menu select,
+  // marquee commit, clear-selection). Edits, paste, and undo/redo change
+  // selection through other paths and never call these, so an edit's
+  // accompanying selection change is not double-counted into this stack.
+  // `suppressSelectionOnlyHistoryRef` blocks any in-flight scheduled record
+  // while undo/redo is applying a restore.
+  const suppressSelectionOnlyHistoryRef = useRef(false);
+  const recordSelectionOnlyHistory = useCallback(
+    (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
+      if (suppressSelectionOnlyHistoryRef.current) return;
+      const stack = selectionOnlyUndoStackRef.current;
+      const lastEntry = stack.length > 0 ? stack[stack.length - 1] : null;
+      const now = Date.now();
+      const decision = shouldRecordSelectionHistory({
+        prev: before,
+        next: after,
+        lastEntry,
+        now,
+        gestureActive: activeEditorDragRef.current,
+      });
+      if (decision === "skip") return;
+      if (decision === "record") {
+        selectionOnlyUndoStackRef.current = [
+          ...stack.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+          { before, after, at: now },
+        ];
+        clearRedoStacks();
+        historyOrderRef.current = [
+          ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+          "selection",
+        ];
+      } else {
+        const top = stack[stack.length - 1];
+        const merged = { before: top.before, after, at: now };
+        if (selectionSnapshotsEqual(merged.before, merged.after)) {
+          // The burst returned to its origin — drop the now-empty entry and
+          // its order token so Cmd+Z doesn't stop on a no-op.
+          selectionOnlyUndoStackRef.current = stack.slice(0, -1);
+          historyOrderRef.current = removeRecentUndoRedoOrderKinds(
+            historyOrderRef.current,
+            "selection",
+            1,
+          );
+        } else {
+          selectionOnlyUndoStackRef.current = [...stack.slice(0, -1), merged];
+        }
+      }
+      syncUndoRedoState();
+    },
+    [clearRedoStacks, syncUndoRedoState],
+  );
+  const scheduleSelectionOnlyHistoryRecord = useCallback(() => {
+    if (suppressSelectionOnlyHistoryRef.current) return;
+    if (activeEditorDragRef.current) return;
+    const before = captureCurrentSelection();
+    requestAnimationFrame(() => {
+      recordSelectionOnlyHistory(before, captureCurrentSelection());
+    });
+  }, [recordSelectionOnlyHistory]);
+
   const cancelActiveEditorDrag = useCallback(() => {
     if (!activeEditorDragRef.current) return false;
     activeEditorDragRef.current = false;
@@ -7964,6 +8096,46 @@ function DesignEditor() {
       resolveSelectorRectInIframe(canvasIframeRef.current, selector),
     [canvasIframeRef, resolveSelectorRectInIframe],
   );
+
+  // Task 4a — anchor for the SelectionAgentAffordance chip. Recomputed (after
+  // layout) whenever the selection, zoom, or view mode changes. Coordinates are
+  // container-relative (the chip renders absolutely inside canvasContainerRef).
+  const [selectionAffordanceAnchor, setSelectionAffordanceAnchor] = useState<{
+    anchor: {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+      width: number;
+      height: number;
+    } | null;
+    container: { width: number; height: number } | null;
+  }>({ anchor: null, container: null });
+  useLayoutEffect(() => {
+    const selector = selectedElement?.selector;
+    const containerBox =
+      canvasContainerRef.current?.getBoundingClientRect() ?? null;
+    const selRect = selector ? resolveSelectorRect(selector) : null;
+    if (!selRect || !containerBox) {
+      setSelectionAffordanceAnchor((prev) =>
+        prev.anchor === null && prev.container === null
+          ? prev
+          : { anchor: null, container: null },
+      );
+      return;
+    }
+    setSelectionAffordanceAnchor({
+      anchor: {
+        left: selRect.left - containerBox.left,
+        top: selRect.top - containerBox.top,
+        right: selRect.right - containerBox.left,
+        bottom: selRect.bottom - containerBox.top,
+        width: selRect.width,
+        height: selRect.height,
+      },
+      container: { width: containerBox.width, height: containerBox.height },
+    });
+  }, [selectedElement, zoom, viewMode, resolveSelectorRect]);
 
   // Resolve a text quote to a viewport rect by walking the iframe body's text.
   const resolveTextQuoteRect = useCallback(
@@ -11933,6 +12105,43 @@ function DesignEditor() {
   const mirroredSelectionIdRef = useRef<string | null>(null);
   const sentSelectionIdRef = useRef<string | null>(null);
   const composerContextHasOurKeyRef = useRef(true);
+  // Task 4a/4b — single source of truth for the "design:selected-element" chat
+  // context payload. The R69 mirror effect below and the SelectionAgentAffordance
+  // / Cmd+Enter activation both call this so the staged selection context is
+  // byte-identical no matter how the agent is opened. Returns null when there is
+  // no meaningful selection to attach.
+  const buildSelectionContextItem = useCallback((): {
+    title: string;
+    context: string;
+  } | null => {
+    if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
+      return null;
+    }
+    const labelSource =
+      selectedElement.textContent?.trim() ||
+      selectedCodeLayerNode?.layerName ||
+      selectedElement.id ||
+      selectedElement.tagName.toLowerCase();
+    const shortLabel =
+      labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
+    const contextLines = [
+      `Selected design element in design "${design?.title ?? id}".`,
+      activeFile
+        ? `Active screen: ${activeFile.filename} (${activeFile.id}).`
+        : "",
+      `Element: <${selectedElement.tagName.toLowerCase()}> ${shortLabel}`,
+      `Selector: ${selectedElement.selector}`,
+      selectedElement.sourceId ? `Source id: ${selectedElement.sourceId}` : "",
+      selectedCodeLayerNode ? `Code layer id: ${selectedCodeLayerNode.id}` : "",
+      selectedElement.classes.length
+        ? `Classes: ${selectedElement.classes.join(" ")}`
+        : "",
+      selectedElement.textContent?.trim()
+        ? `Text: ${selectedElement.textContent.trim()}`
+        : "",
+    ].filter(Boolean);
+    return { title: shortLabel, context: contextLines.join("\n") };
+  }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
   useEffect(() => {
     const key = "design:selected-element";
     if (!isSignedIn) return;
@@ -11969,34 +12178,12 @@ function DesignEditor() {
     }
     mirroredSelectionIdRef.current = selectionId;
 
-    const labelSource =
-      selectedElement.textContent?.trim() ||
-      selectedCodeLayerNode?.layerName ||
-      selectedElement.id ||
-      selectedElement.tagName.toLowerCase();
-    const shortLabel =
-      labelSource.length > 28 ? `${labelSource.slice(0, 25)}...` : labelSource;
-    const contextLines = [
-      `Selected design element in design "${design?.title ?? id}".`,
-      activeFile
-        ? `Active screen: ${activeFile.filename} (${activeFile.id}).`
-        : "",
-      `Element: <${selectedElement.tagName.toLowerCase()}> ${shortLabel}`,
-      `Selector: ${selectedElement.selector}`,
-      selectedElement.sourceId ? `Source id: ${selectedElement.sourceId}` : "",
-      selectedCodeLayerNode ? `Code layer id: ${selectedCodeLayerNode.id}` : "",
-      selectedElement.classes.length
-        ? `Classes: ${selectedElement.classes.join(" ")}`
-        : "",
-      selectedElement.textContent?.trim()
-        ? `Text: ${selectedElement.textContent.trim()}`
-        : "",
-    ].filter(Boolean);
-
+    const item = buildSelectionContextItem();
+    if (!item) return;
     setAgentChatContextItem({
       key,
-      title: shortLabel,
-      context: contextLines.join("\n"),
+      title: item.title,
+      context: item.context,
       openSidebar: false,
       // Mirror the selection into chat context without stealing focus: this
       // effect re-fires on every selection change and on each get-design poll
@@ -12005,14 +12192,7 @@ function DesignEditor() {
       focus: false,
     });
     composerContextHasOurKeyRef.current = true;
-  }, [
-    activeFile,
-    design?.title,
-    id,
-    isSignedIn,
-    selectedCodeLayerNode,
-    selectedElement,
-  ]);
+  }, [buildSelectionContextItem, id, isSignedIn, selectedElement]);
 
   // Bookkeeping only — mirrors "does the shared composer context still carry
   // our key" into a ref for the effect above to read. This is intentionally
@@ -12027,6 +12207,30 @@ function DesignEditor() {
     composerContextHasOurKeyRef.current =
       composerContextItemsForBookkeeping.some((item) => item.key === key);
   }, [composerContextItemsForBookkeeping]);
+
+  // Task 4a/4b — open the agent chat for the current selection: stage the same
+  // selection context the R69 mirror builds, but this time open the sidebar and
+  // focus the composer. Reuses buildSelectionContextItem so no LLM call or new
+  // payload shape is introduced (the [Reprompt selection]/[Selection question]
+  // prefix contract in the agent still governs read-only vs mutating requests).
+  const openAgentForSelection = useCallback(
+    (mode?: "ask" | "change") => {
+      const item = buildSelectionContextItem();
+      if (!item) return;
+      setAgentChatContextItem({
+        key: "design:selected-element",
+        title: item.title,
+        context:
+          mode === "ask"
+            ? `${item.context}\n\n(The user opened this to ASK about the element — answer read-only unless they request a change.)`
+            : item.context,
+        openSidebar: true,
+        focus: true,
+      });
+      composerContextHasOurKeyRef.current = true;
+    },
+    [buildSelectionContextItem],
+  );
 
   useEffect(() => {
     const key = "design:design-system";
@@ -12173,6 +12377,9 @@ function DesignEditor() {
         breakpointWidthPx?: number;
       } = {},
     ) => {
+      // Task 1c — record the selection change this user click produces so it is
+      // undoable on its own (rAF captures the post-select snapshot as "after").
+      scheduleSelectionOnlyHistoryRecord();
       const pendingLayerId = pendingOverviewLayerSelectionRef.current;
       const pendingScreenId = pendingOverviewScreenSelectionRef.current;
       const projection = getCodeLayerProjectionForScreen(screenId);
@@ -12349,6 +12556,7 @@ function DesignEditor() {
       getScreenContent,
       handleBreakpointBarSelect,
       id,
+      scheduleSelectionOnlyHistoryRecord,
       selectedLayerIdsState,
       t,
     ],
@@ -17269,21 +17477,99 @@ function DesignEditor() {
       const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
 
       if (selectedRects.length >= 2) {
-        // Multi-selection: align to the selection's own combined bbox.
-        const bounds = getFrameGroupBounds(selectedRects);
-        if (!bounds) return;
-        const positions = computeAlignedPositions(
-          selectedRects,
-          {
-            x: bounds.left,
-            y: bounds.top,
-            width: bounds.width,
-            height: bounds.height,
-          },
-          edge,
+        // Task 3a — partition into the smallest hierarchy-valid groups (by
+        // nearest meaningful parent) so alignment respects nesting: aligning
+        // three cards moves the card boxes, not the titles inside them.
+        // Aligning across different parents is also geometrically wrong — each
+        // node's left/top is relative to its own offset parent — which
+        // per-group alignment avoids by construction (each group shares a
+        // coordinate space). Positions from every group merge into one commit.
+        const groups = partitionSelectionForAlignment(
+          projection.nodes,
+          nodeIds,
         );
-        if (positions.size === 0) return;
-        commitNodePositions(baseContent, positions);
+        const rectById = new Map(
+          selectedNodes.map((node) => [node.id, rectFromCodeLayerNode(node)]),
+        );
+        const combined = new Map<string, { x: number; y: number }>();
+        let skippedAutoLayout = false;
+        for (const group of groups) {
+          const groupRects = group.nodeIds
+            .map((nodeId) => rectById.get(nodeId))
+            .filter((rect): rect is AlignableRect => Boolean(rect));
+          if (groupRects.length === 0) continue;
+          if (groupRects.length === 1) {
+            // A lone group member aligns within its own (direct) parent's
+            // content box, matching the single-selection branch below.
+            const node = nodesById.get(group.nodeIds[0]!);
+            const directParent = node?.parentId
+              ? nodesById.get(node.parentId)
+              : null;
+            if (!directParent) continue;
+            if (
+              (directParent.layout.isFlexContainer ||
+                directParent.layout.isGridContainer) &&
+              node &&
+              !isAbsoluteCodeLayerNode(node)
+            ) {
+              skippedAutoLayout = true;
+              continue;
+            }
+            const parentRect = rectFromCodeLayerNode(directParent);
+            const positions = computeAlignedPositions(
+              groupRects,
+              {
+                x: 0,
+                y: 0,
+                width: parentRect.width,
+                height: parentRect.height,
+              },
+              edge,
+            );
+            positions.forEach((position, id) => combined.set(id, position));
+            continue;
+          }
+          // Multi-member group: if these are in-flow children of an auto-layout
+          // container, aligning would absolutize and fight the layout — honest
+          // no-op + toast instead of a silent absolutize.
+          const parentNode = group.parentId
+            ? nodesById.get(group.parentId)
+            : null;
+          if (
+            parentNode &&
+            (parentNode.layout.isFlexContainer ||
+              parentNode.layout.isGridContainer) &&
+            group.nodeIds.some((nodeId) => {
+              const node = nodesById.get(nodeId);
+              return node ? !isAbsoluteCodeLayerNode(node) : false;
+            })
+          ) {
+            skippedAutoLayout = true;
+            continue;
+          }
+          const bounds = getFrameGroupBounds(groupRects);
+          if (!bounds) continue;
+          const positions = computeAlignedPositions(
+            groupRects,
+            {
+              x: bounds.left,
+              y: bounds.top,
+              width: bounds.width,
+              height: bounds.height,
+            },
+            edge,
+          );
+          positions.forEach((position, id) => combined.set(id, position));
+        }
+        if (combined.size > 0) commitNodePositions(baseContent, combined);
+        if (skippedAutoLayout) {
+          toast.info(
+            t("designEditor.toasts.alignAutoLayoutSkipped", {
+              defaultValue:
+                "Auto-layout children follow their container — adjust the layout instead of aligning.",
+            }),
+          );
+        }
         return;
       }
 
@@ -19350,6 +19636,63 @@ function DesignEditor() {
     ],
   );
 
+  // Task 1d — hide the in-iframe selection chrome while the selected element is
+  // being nudged by the keyboard, restoring it once the burst settles (Figma
+  // hides the bounds during keyboard moves so the outline doesn't chase the
+  // element frame-by-frame). The settle timer (re-armed on every nudge) is the
+  // authoritative restore and matches the ~800ms keyboard-coalesce window used
+  // by handleGeometryCommit; a window keyup on the arrow keys restores sooner
+  // when the canvas host itself holds focus.
+  const selectionChromeHiddenRef = useRef(false);
+  const selectionChromeSettleTimerRef = useRef<number | undefined>(undefined);
+  const restoreSelectionChrome = useCallback(() => {
+    if (selectionChromeSettleTimerRef.current !== undefined) {
+      window.clearTimeout(selectionChromeSettleTimerRef.current);
+      selectionChromeSettleTimerRef.current = undefined;
+    }
+    if (!selectionChromeHiddenRef.current) return;
+    selectionChromeHiddenRef.current = false;
+    canvasIframeRef.current?.contentWindow?.postMessage(
+      { type: "set-selection-chrome-hidden", hidden: false },
+      "*",
+    );
+  }, [canvasIframeRef]);
+  const hideSelectionChromeForNudge = useCallback(() => {
+    if (!selectionChromeHiddenRef.current) {
+      selectionChromeHiddenRef.current = true;
+      canvasIframeRef.current?.contentWindow?.postMessage(
+        { type: "set-selection-chrome-hidden", hidden: true },
+        "*",
+      );
+    }
+    if (selectionChromeSettleTimerRef.current !== undefined) {
+      window.clearTimeout(selectionChromeSettleTimerRef.current);
+    }
+    selectionChromeSettleTimerRef.current = window.setTimeout(() => {
+      selectionChromeSettleTimerRef.current = undefined;
+      restoreSelectionChrome();
+    }, 800);
+  }, [canvasIframeRef, restoreSelectionChrome]);
+  useEffect(() => {
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (
+        event.key === "ArrowUp" ||
+        event.key === "ArrowDown" ||
+        event.key === "ArrowLeft" ||
+        event.key === "ArrowRight"
+      ) {
+        restoreSelectionChrome();
+      }
+    };
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keyup", onKeyUp);
+      if (selectionChromeSettleTimerRef.current !== undefined) {
+        window.clearTimeout(selectionChromeSettleTimerRef.current);
+      }
+    };
+  }, [restoreSelectionChrome]);
+
   const handleNudgeSelection = useCallback(
     (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
       if (!canEditDesign) return;
@@ -19402,6 +19745,7 @@ function DesignEditor() {
       }
 
       if (!selectedElement?.selector) return;
+      hideSelectionChromeForNudge();
       const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
       const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
       commitVisualStyles(selectedElement.selector, {
@@ -19419,6 +19763,7 @@ function DesignEditor() {
       canEditDesign,
       commitVisualStyles,
       handleGeometryCommit,
+      hideSelectionChromeForNudge,
       overviewScreens,
       overviewSelectedScreenIds,
       selectedElement,
@@ -19888,6 +20233,34 @@ function DesignEditor() {
       restoreSelectionSnapshot(entry.selectionBefore);
       return true;
     };
+    // Task 1c — undo a selection-only change: restore the entry's `before`
+    // snapshot and move it to the redo stack. suppressSelectionOnlyHistoryRef
+    // blocks the scheduled recorder from capturing this restore as a new edit.
+    const undoSelection = () => {
+      const entry =
+        selectionOnlyUndoStackRef.current[
+          selectionOnlyUndoStackRef.current.length - 1
+        ];
+      if (!entry) return false;
+      selectionOnlyUndoStackRef.current =
+        selectionOnlyUndoStackRef.current.slice(0, -1);
+      selectionOnlyRedoStackRef.current = [
+        ...selectionOnlyRedoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        entry,
+      ];
+      redoOrderRef.current = [
+        ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "selection",
+      ];
+      suppressSelectionOnlyHistoryRef.current = true;
+      restoreSelectionSnapshot(entry.before);
+      requestAnimationFrame(() => {
+        suppressSelectionOnlyHistoryRef.current = false;
+      });
+      return true;
+    };
     // U12: undo a screen create/duplicate by soft-deleting the file it
     // created (performDeleteFiles already prunes any content/geometry undo
     // entries for that file, mirroring U2's screen-deletion cleanup).
@@ -20040,6 +20413,11 @@ function DesignEditor() {
           (prunedUndoHistory > prunedBefore ? false : undoGeometry())
         );
       }
+      // Task 1c — a selection-only entry; if its stack is empty (desync), fall
+      // through to the ordinary chain so the loop can't dead-end.
+      if (preferred === "selection") {
+        return undoSelection() || undoContent() || undoGeometry();
+      }
       return undoFileDeletion() || undoContent() || undoGeometry();
     };
     let didUndo = false;
@@ -20050,7 +20428,9 @@ function DesignEditor() {
         if (didUndo || preferred === undefined) break;
       }
     } else {
-      didUndo = undoContent("local");
+      // Single-screen mode has no chronological order list; undo local content
+      // first, then fall back to selection-only entries.
+      didUndo = undoContent("local") || undoSelection();
     }
     if (didUndo || prunedUndoHistory > 0) {
       syncUndoRedoState();
@@ -20537,6 +20917,33 @@ function DesignEditor() {
       restoreSelectionSnapshot(entry.selectionAfter);
       return true;
     };
+    // Task 1c — redo a selection-only change: re-apply the entry's `after`
+    // snapshot and move it back to the undo stack.
+    const redoSelection = () => {
+      const entry =
+        selectionOnlyRedoStackRef.current[
+          selectionOnlyRedoStackRef.current.length - 1
+        ];
+      if (!entry) return false;
+      selectionOnlyRedoStackRef.current =
+        selectionOnlyRedoStackRef.current.slice(0, -1);
+      selectionOnlyUndoStackRef.current = [
+        ...selectionOnlyUndoStackRef.current.slice(
+          -(MAX_DESIGN_UNDO_STACK - 1),
+        ),
+        entry,
+      ];
+      historyOrderRef.current = [
+        ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
+        "selection",
+      ];
+      suppressSelectionOnlyHistoryRef.current = true;
+      restoreSelectionSnapshot(entry.after);
+      requestAnimationFrame(() => {
+        suppressSelectionOnlyHistoryRef.current = false;
+      });
+      return true;
+    };
     // U12: redo a screen create/duplicate by recreating the file with the
     // same filename/content/fileType and restoring its recorded geometry.
     // This is async (createFileMutation), unlike every other redo path here,
@@ -20707,6 +21114,9 @@ function DesignEditor() {
           (prunedRedoHistory > prunedBefore ? false : redoGeometry())
         );
       }
+      if (preferred === "selection") {
+        return redoSelection() || redoContent() || redoGeometry();
+      }
       return redoFileDeletion() || redoContent() || redoGeometry();
     };
     let didRedo = false;
@@ -20717,7 +21127,7 @@ function DesignEditor() {
         if (didRedo || preferred === undefined) break;
       }
     } else {
-      didRedo = redoContent("local");
+      didRedo = redoContent("local") || redoSelection();
     }
     if (didRedo || prunedRedoHistory > 0) {
       syncUndoRedoState();
@@ -21957,6 +22367,8 @@ function DesignEditor() {
       : undefined,
     onEscape: handleEscapeHotkey,
     onEnter: handleEnterHotkey,
+    onOpenAgentForSelection:
+      isSignedIn && selectedElement ? () => openAgentForSelection() : undefined,
     onSelectParent: handleSelectParentLayer,
     onTab: ({ backwards }) => handleCycleSibling(backwards),
     onNextFrame: () => handleCycleFile(false),
@@ -26411,6 +26823,10 @@ function DesignEditor() {
       selection: CanvasLayerMarqueeSelection[],
       intent: ElementSelectionIntent,
     ) => {
+      // Task 1c — one selection-only undo entry per completed marquee: the
+      // 800ms coalesce window collapses the per-mousemove-tick reports below
+      // into a single entry whose `before` is the pre-marquee selection.
+      scheduleSelectionOnlyHistoryRecord();
       // PF10: MultiScreenCanvas reports the marquee hit-set on every
       // mousemove tick during a drag, not just on settle (see
       // reportLayerSelection in MultiScreenCanvas.tsx). Bail before any
@@ -26517,6 +26933,7 @@ function DesignEditor() {
       clearPendingOverviewLayerSelectionTimer,
       focusDesignInspectorForSelection,
       getCodeLayerProjectionForScreen,
+      scheduleSelectionOnlyHistoryRecord,
     ],
   );
 
@@ -29282,6 +29699,35 @@ function DesignEditor() {
                         inset: 0,
                         zIndex: 10,
                         pointerEvents: "auto",
+                      }}
+                    />
+                  )}
+                  {/* Task 4a — contextual agent affordance near the selection. */}
+                  {!embedded && isSignedIn && (
+                    <SelectionAgentAffordance
+                      anchorRect={selectionAffordanceAnchor.anchor}
+                      containerRect={selectionAffordanceAnchor.container}
+                      layoutTick={zoom}
+                      suppressed={
+                        uiHidden ||
+                        pinMode ||
+                        textEditingState.active ||
+                        (pendingQuestions?.length ?? 0) > 0
+                      }
+                      onChange={() => openAgentForSelection("change")}
+                      onAsk={() => openAgentForSelection("ask")}
+                    />
+                  )}
+                  {/* Task 4c — canvas agent-state badge (Figma-silent when ready). */}
+                  {!embedded && !uiHidden && (
+                    <CanvasAgentStateBadge
+                      inputs={{
+                        generating,
+                        generationIssue: Boolean(generationIssue),
+                        pendingQuestionCount: pendingQuestions?.length ?? 0,
+                        resolveNodeRewritePending: false,
+                        offline: isOffline,
+                        lastRunCompletedAt,
                       }}
                     />
                   )}

@@ -18,6 +18,55 @@ export interface GeometryHistoryEntry {
   selectionAfter?: GeometryHistorySelection;
 }
 
+/** Task 1c — one selection-only undo step: a selection that changed with no
+ * accompanying content/geometry edit. `at` is the epoch-ms timestamp used to
+ * coalesce a rapid burst of selection changes into a single undo entry. */
+export interface SelectionHistoryEntry {
+  before: GeometryHistorySelection;
+  after: GeometryHistorySelection;
+  at: number;
+}
+
+/** Order-sensitive equality between two selection snapshots (selection arrays
+ * are maintained in a stable order, so index-wise comparison is exact). */
+export function selectionSnapshotsEqual(
+  a: GeometryHistorySelection,
+  b: GeometryHistorySelection,
+): boolean {
+  const sameIds = (x: string[], y: string[]) =>
+    x.length === y.length && x.every((value, index) => value === y[index]);
+  return (
+    a.activeFileId === b.activeFileId &&
+    sameIds(a.overviewSelectedScreenIds, b.overviewSelectedScreenIds) &&
+    sameIds(a.selectedLayerIds, b.selectedLayerIds)
+  );
+}
+
+export const SELECTION_HISTORY_COALESCE_WINDOW_MS = 800;
+
+export type SelectionHistoryDecision = "skip" | "record" | "coalesce";
+
+/** Pure decision for whether/how a selection change enters the selection-only
+ * undo stack. Skips no-ops and gesture temp-selections; collapses a burst of
+ * selection changes within the coalesce window into the last entry; otherwise
+ * records a fresh entry. The caller applies the decision to its stacks. */
+export function shouldRecordSelectionHistory(input: {
+  prev: GeometryHistorySelection;
+  next: GeometryHistorySelection;
+  lastEntry: SelectionHistoryEntry | null;
+  now: number;
+  gestureActive: boolean;
+  coalesceWindowMs?: number;
+}): SelectionHistoryDecision {
+  if (input.gestureActive) return "skip";
+  if (selectionSnapshotsEqual(input.prev, input.next)) return "skip";
+  const window = input.coalesceWindowMs ?? SELECTION_HISTORY_COALESCE_WINDOW_MS;
+  if (input.lastEntry && input.now - input.lastEntry.at <= window) {
+    return "coalesce";
+  }
+  return "record";
+}
+
 export interface FileCreationHistoryEntry {
   filename: string;
   content: string;

@@ -384,6 +384,14 @@ CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_temp
 CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
 CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
     },
+    {
+      version: 24,
+      name: "design-version-attribution",
+      // Task 5a — attributable, recoverable checkpoints. Additive only.
+      sql: `ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS kind TEXT;
+ALTER TABLE design_versions ADD COLUMN IF NOT EXISTS trigger TEXT`,
+    },
   ],
   { table: "design_migrations" },
 );
