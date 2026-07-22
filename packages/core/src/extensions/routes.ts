@@ -228,7 +228,7 @@ async function dispatch(
 
     const access = await resolveAccess("extension", parts[0]);
     const extension = access?.resource as ExtensionRow | undefined;
-    if (!extension || extension.archivedAt) {
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
