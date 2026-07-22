@@ -26,6 +26,8 @@ export const BUILDER_RELAY_STATE_PARAM = "_an_relay";
 export const BUILDER_RELAY_SECRET_ENV = "AGENT_NATIVE_BUILDER_RELAY_SECRET";
 export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS";
+export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES";
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
@@ -190,6 +192,32 @@ export function signBuilderPreviewRelayState(input: {
   );
   return { state: `${encoded}.${builderRelayMac(encoded)}`, payload };
 }
+
+function builderRelayTargetDomainSuffixes(): string[] {
+  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? ".builderio.xyz")
+    .split(",")
+    .map((suffix) => suffix.trim().toLowerCase())
+    .filter((suffix) => {
+      if (!suffix.startsWith(".") || suffix.includes("*")) return false;
+      const hostname = suffix.slice(1);
+      if (!hostname.includes(".") || hostname.length > 253) return false;
+      if (
+        !hostname
+          .split(".")
+          .every((label) =>
+            /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
+          )
+      ) {
+        return false;
+      }
+      try {
+        return new URL(`https://${hostname}`).hostname === hostname;
+      } catch {
+        return false;
+      }
+    });
+}
+
 
 export function verifyBuilderPreviewRelayState(
   state: string | null | undefined,
