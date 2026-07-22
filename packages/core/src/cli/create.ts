@@ -1766,7 +1766,7 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
-  return "latest";
+  return getOwnPackageDependencyVersion("@agent-native/dispatch");
 }
 
 function getToolkitDependencyVersion(): string {
@@ -1774,6 +1774,30 @@ function getToolkitDependencyVersion(): string {
     const localToolkit = findLocalPackage("toolkit");
     if (localToolkit) return localPackageTarball(localToolkit);
   }
+
+  return getOwnPackageDependencyVersion("@agent-native/toolkit");
+}
+
+/**
+ * Sibling framework packages (toolkit, dispatch) are versioned and published
+ * independently of core, so their npm `latest` dist-tags can briefly point to
+ * incompatible releases relative to the core version currently running this
+ * CLI. The published core `package.json` already carries the exact
+ * compatible range changesets resolved at release time — read it from there
+ * instead of trusting `latest`, which is only safe for pinning `core` itself.
+ */
+function getOwnPackageDependencyVersion(depName: string): string {
+  try {
+    const ownPkgPath = path.join(__dirname, "../../package.json");
+    const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
+    const range = ownPkg.dependencies?.[depName];
+    const isPublishedRange =
+      typeof range === "string" &&
+      range.length > 0 &&
+      !range.startsWith("workspace:") &&
+      range !== "catalog:";
+    if (isPublishedRange) return range;
+  } catch {}
 
   return "latest";
 }

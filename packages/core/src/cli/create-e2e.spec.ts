@@ -17,7 +17,7 @@ import { fileURLToPath } from "url";
  *   - postinstall scripts missing for required packages
  *   - dist/catalog.json not embedded in the built package
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { addAppToWorkspace, createApp } from "./create.js";
 import {
@@ -992,12 +992,50 @@ describe("template/core version compatibility", () => {
     }
   });
 
-  it("pins the generated toolkit dependency to latest by default", () => {
+  it("pins the generated toolkit dependency to latest when unpublished", () => {
+    // In monorepo source, core's own package.json still has the raw
+    // `workspace:^` protocol for toolkit/dispatch, so there is no published
+    // range to trust yet — falling back to `latest` is correct here.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {
       expect(_getToolkitDependencyVersion()).toBe("latest");
     } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
+  it("pins the generated toolkit/dispatch dependency to core's own published range", () => {
+    // Once changesets publishes core, its package.json has the `workspace:`
+    // protocol rewritten to a real semver range. Scaffolded apps must use
+    // that exact range instead of `latest`, since toolkit/dispatch are
+    // versioned and published independently and their `latest` dist-tag can
+    // briefly lag or outrun the core release this CLI shipped with.
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    const originalReadFileSync = fs.readFileSync;
+    const readFileSyncSpy = vi
+      .spyOn(fs, "readFileSync")
+      .mockImplementation((filePath: any, options: any) => {
+        if (String(filePath).endsWith(path.join("core", "package.json"))) {
+          return JSON.stringify({
+            dependencies: {
+              "@agent-native/toolkit": "^0.9.1",
+              "@agent-native/dispatch": "^1.2.3",
+            },
+          });
+        }
+        return originalReadFileSync(filePath, options);
+      });
+    try {
+      expect(_getToolkitDependencyVersion()).toBe("^0.9.1");
+      expect(_getDispatchDependencyVersion()).toBe("^1.2.3");
+    } finally {
+      readFileSyncSpy.mockRestore();
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
       } else {
