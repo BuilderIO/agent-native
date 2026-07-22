@@ -30,6 +30,7 @@ export interface SendEmailArgs {
   from?: string;
   cc?: string | string[];
   replyTo?: string;
+  messageId?: string;
   inReplyTo?: string;
   references?: string;
   attachments?: EmailAttachment[];
@@ -117,6 +118,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
       }));
     }
     const headers: Record<string, string> = {};
+    if (args.messageId) headers["Message-ID"] = args.messageId;
     if (args.inReplyTo) headers["In-Reply-To"] = args.inReplyTo;
     if (args.references) headers["References"] = args.references;
     if (Object.keys(headers).length) payload.headers = headers;
@@ -156,6 +158,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
     };
     if (args.replyTo) sgPayload.reply_to = parseSendGridFrom(args.replyTo);
     const sgHeaders: Record<string, string> = {};
+    if (args.messageId) sgHeaders["Message-ID"] = args.messageId;
     if (args.inReplyTo) sgHeaders["In-Reply-To"] = args.inReplyTo;
     if (args.references) sgHeaders["References"] = args.references;
     if (Object.keys(sgHeaders).length) sgPayload.headers = sgHeaders;

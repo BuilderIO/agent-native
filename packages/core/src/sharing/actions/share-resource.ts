@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
@@ -101,6 +103,19 @@ function normalizePrincipalId(
 
 function isEmailPrincipalId(value: string): boolean {
   return /^[^\s@]+@[^\s@]+$/.test(value.trim());
+}
+
+function shortHash(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function shareNotificationMessageId(
+  resourceType: string,
+  resourceId: string,
+  principalId: string,
+): string {
+  const domain = "agent-native.com";
+  return "<share-" + resourceType + "-" + resourceId + "-" + shortHash(principalId) + "@" + domain + ">";
 }
 
 function principalIdMatches(
@@ -298,17 +313,46 @@ export default defineAction({
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const roleVerb =
+          args.role === "admin"
+            ? "manage"
+            : args.role === "editor"
+              ? "view and edit"
+              : "view";
+        const imageUrl = resource
+          ? reg.getThumbnailUrl?.(resource)
+          : undefined;
+        const secondaryCta = resource
+          ? await reg.getSecondaryCta?.(resource, {
+              recipientEmail: principalId,
+            })
+          : undefined;
+        const messageId = shareNotificationMessageId(
+          args.resourceType,
+          args.resourceId,
+          principalId,
+        );
         const { html, text } = renderEmail({
           preheader: subject,
-          heading: "You've been given access",
+          imageUrl,
+          heading: `${actor} sent you something`,
           paragraphs: [
-            `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
-            `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
+            `${emailStrong(actor)} shared "${emailStrong(resourceTitle)}" with you.`,
+            `You can ${roleVerb} it below. If you're asked to sign in, use ${emailStrong(principalId)}.`,
           ],
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
-          footer: `You received this because ${actor} granted you ${args.role} access.`,
+          secondaryCta,
+          footer: `Just reply to this email if you want to get back to ${actor} directly.`,
         });
-        await sendEmail({ to: principalId, subject, html, text });
+        await sendEmail({
+          to: principalId,
+          subject,
+          html,
+          text,
+          from: reg.fromAddress,
+          replyTo: actor,
+          messageId,
+        });
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",

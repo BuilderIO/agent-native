@@ -27,6 +27,14 @@ export interface ShareableResourceRegistration {
   /** Human-readable singular label shown in the share dialog. */
   displayName: string;
   /**
+   * Optional per-resource-type "From" override for share notification emails,
+   * e.g. `"Clips <clips@agent-native.com>"`. Falls back to the shared
+   * `EMAIL_FROM` secret when omitted. Must be an address at an already
+   * domain-authenticated sending domain — this does not register a new
+   * verified sender.
+   */
+  fromAddress?: string;
+  /**
    * Column on the resource table that holds a human-readable title for
    * display in the share UI. Default: "title".
    */
@@ -36,6 +44,26 @@ export interface ShareableResourceRegistration {
    * when the caller does not pass a more specific resourceUrl.
    */
   getResourcePath?: (resource: any) => string | undefined;
+  /**
+   * Optional publicly fetchable HTTPS image URL (e.g. a video thumbnail)
+   * rendered above the heading in the "shared with you" notification email.
+   * Must not require auth — email clients fetch images unauthenticated.
+   */
+  getThumbnailUrl?: (resource: any) => string | undefined;
+  /**
+   * Optional secondary call-to-action rendered in the "shared with you"
+   * notification email, alongside the primary "Open" CTA. Receives the
+   * recipient's email so the resource type can mint a recipient-scoped,
+   * single-use action link (e.g. Clips' "Summarize with AI"). Return
+   * `undefined` to skip rendering the secondary CTA for this send.
+   */
+  getSecondaryCta?: (
+    resource: any,
+    ctx: { recipientEmail: string },
+  ) =>
+    | { label: string; url: string }
+    | undefined
+    | Promise<{ label: string; url: string } | undefined>;
   /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach

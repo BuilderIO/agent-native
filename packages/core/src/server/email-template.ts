@@ -26,12 +26,14 @@ export interface EmailCta {
 export interface RenderEmailArgs {
   /** Short preview text shown by email clients next to the subject. */
   preheader?: string;
+  imageUrl?: string;
   /** Large headline at the top of the card. */
   heading: string;
   /** Body paragraphs rendered after the heading. Plain strings — escaped. */
   paragraphs: string[];
   /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;
+  secondaryCta?: EmailCta;
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /**
@@ -85,6 +87,32 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     )
     .join("");
 
+  let imageHtml = "";
+  if (args.imageUrl) {
+    const imgTag = `<img src="${escapeAttr(args.imageUrl)}" alt="" width="488" style="display:block; width:100%; max-width:488px; height:auto; border-radius:12px; border:1px solid #27272a;" />`;
+    const linkedImg = args.cta
+      ? `<a href="${escapeAttr(args.cta.url)}" style="display:block;">${imgTag}</a>`
+      : imgTag;
+    imageHtml = `
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 24px 0;">
+        <tr>
+          <td style="line-height:0;">${linkedImg}</td>
+        </tr>
+      </table>
+    `;
+  }
+
+  const secondaryCtaHtml = args.secondaryCta
+    ? `
+          <td style="width:12px;">&nbsp;</td>
+          <td style="border-radius:10px; border:1px solid #3f3f46;">
+            <a href="${escapeAttr(args.secondaryCta.url)}"
+               style="display:inline-block; padding:14px 26px; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:15px; font-weight:600; color:#d4d4d8; text-decoration:none; border-radius:10px;">
+              ${escapeHtml(args.secondaryCta.label)}
+            </a>
+          </td>`
+    : "";
+
   const ctaHtml = args.cta
     ? `
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px 0 0 0;">
@@ -94,7 +122,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                style="display:inline-block; padding:14px 26px; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:15px; font-weight:600; color:${ctaFg}; text-decoration:none; border-radius:10px;">
               ${escapeHtml(args.cta.label)}
             </a>
-          </td>
+          </td>${secondaryCtaHtml}
         </tr>
       </table>
     `
@@ -129,6 +157,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;">
             <tr>
               <td style="background-color:#141417; border:1px solid #27272a; border-radius:16px; padding:36px 36px 32px 36px;">
+                ${imageHtml}
                 <h1 style="margin:0 0 20px 0; font-size:24px; line-height:1.3; font-weight:600; color:#fafafa; letter-spacing:-0.02em;">
                   ${escapeHtml(args.heading)}
                 </h1>
@@ -153,6 +182,10 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   }
   if (args.cta) {
     textLines.push(`${args.cta.label}: ${args.cta.url}`);
+    textLines.push("");
+  }
+  if (args.secondaryCta) {
+    textLines.push(args.secondaryCta.label + ": " + args.secondaryCta.url);
     textLines.push("");
   }
   if (args.footer) {
