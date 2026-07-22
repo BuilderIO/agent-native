@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { parseISO, startOfDay, set, addMinutes } from "date-fns";
+import { startOfDay, set, addMinutes } from "date-fns";
 import type { CalendarEvent } from "@shared/api";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 
 const SNAP_MINUTES = 15;
 
@@ -48,6 +49,8 @@ export interface UseEventDragOptions {
   onEventTimeChange: (eventId: string, newStart: Date, newEnd: Date) => void;
   /** All events (to find the event being dragged) */
   events: CalendarEvent[];
+  /** Timezone used by the calendar grid */
+  timezone: string;
 }
 
 export function useEventDrag({
@@ -57,6 +60,7 @@ export function useEventDrag({
   days,
   onEventTimeChange,
   events,
+  timezone,
 }: UseEventDragOptions) {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
@@ -122,8 +126,8 @@ export function useEventDrag({
       const pointerYInGrid = e.clientY - gridTop + scrollTop;
 
       // Compute current event position
-      const evStart = parseISO(event.start);
-      const evEnd = parseISO(event.end);
+      const evStart = toZonedTime(event.start, timezone);
+      const evEnd = toZonedTime(event.end, timezone);
       const dayStart = set(startOfDay(evStart), {
         hours: startHour,
       });
@@ -169,6 +173,7 @@ export function useEventDrag({
       getScrollTop,
       startHour,
       hourHeight,
+      timezone,
     ],
   );
 
@@ -251,7 +256,7 @@ export function useEventDrag({
       );
 
       // Determine the base day
-      const originalStart = parseISO(state.event.start);
+      const originalStart = toZonedTime(state.event.start, timezone);
       let baseDay: Date;
       if (days && state.currentDayIndex !== state.startDayIndex) {
         baseDay = days[state.currentDayIndex];
@@ -265,12 +270,16 @@ export function useEventDrag({
       );
       const newEnd = addMinutes(newStart, heightMinutes);
 
-      onEventTimeChange(state.eventId, newStart, newEnd);
+      onEventTimeChange(
+        state.eventId,
+        fromZonedTime(newStart, timezone),
+        fromZonedTime(newEnd, timezone),
+      );
     }
 
     dragStateRef.current = null;
     setDragState(null);
-  }, [pxToMinutes, days, startHour, onEventTimeChange]);
+  }, [pxToMinutes, days, startHour, onEventTimeChange, timezone]);
 
   const cancelDrag = useCallback(() => {
     dragStateRef.current = null;

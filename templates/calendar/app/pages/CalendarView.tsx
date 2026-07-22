@@ -83,6 +83,7 @@ import {
   getLocalTimezone,
 } from "@/lib/event-form-utils";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
+import { fromZonedTime, toZonedTime } from "date-fns-tz";
 
 import type { ViewMode } from "@/components/layout/AppLayout";
 
@@ -320,6 +321,7 @@ export default function CalendarView() {
   const googleStatus = useGoogleAuthStatus();
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
+  const calendarTimezone = settings?.timezone || getLocalTimezone();
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -339,25 +341,33 @@ export default function CalendarView() {
         const ms = startOfMonth(selectedDate);
         const me = endOfMonth(selectedDate);
         return {
-          from: startOfWeek(ms).toISOString(),
-          to: endOfWeek(me).toISOString(),
+          from: fromZonedTime(startOfWeek(ms), calendarTimezone).toISOString(),
+          to: fromZonedTime(endOfWeek(me), calendarTimezone).toISOString(),
         };
       }
       case "week": {
         return {
-          from: startOfWeek(selectedDate).toISOString(),
-          to: endOfWeek(selectedDate).toISOString(),
+          from: fromZonedTime(
+            startOfWeek(selectedDate),
+            calendarTimezone,
+          ).toISOString(),
+          to: fromZonedTime(
+            endOfWeek(selectedDate),
+            calendarTimezone,
+          ).toISOString(),
         };
       }
       case "day": {
-        const dayStart = new Date(selectedDate);
-        dayStart.setHours(0, 0, 0, 0);
+        const dayStart = startOfDay(selectedDate);
         const dayEnd = new Date(selectedDate);
         dayEnd.setHours(23, 59, 59, 999);
-        return { from: dayStart.toISOString(), to: dayEnd.toISOString() };
+        return {
+          from: fromZonedTime(dayStart, calendarTimezone).toISOString(),
+          to: fromZonedTime(dayEnd, calendarTimezone).toISOString(),
+        };
       }
     }
-  }, [viewMode, selectedDate]);
+  }, [viewMode, selectedDate, calendarTimezone]);
 
   const {
     data: rawEventsData,
@@ -490,23 +500,38 @@ export default function CalendarView() {
     () =>
       viewMode === "day"
         ? events.filter((e) => {
-            const evStart = parseISO(e.start);
-            const evEnd = parseISO(e.end);
+            // parseISO is used for all-day events as timezone projection could shift midnight into an adjacent calendar day
+            const evStart = e.allDay
+              ? parseISO(e.start)
+              : toZonedTime(e.start, calendarTimezone);
+            const evEnd = e.allDay
+              ? parseISO(e.end)
+              : toZonedTime(e.end, calendarTimezone);
             const dayStart = startOfDay(selectedDate);
             const dayEnd = addDays(dayStart, 1);
             return evStart < dayEnd && evEnd > dayStart;
           })
         : events,
-    [events, viewMode, selectedDate],
+    [events, viewMode, selectedDate, calendarTimezone],
   );
   const openNotificationEvent = useCallback(
     (event: CalendarEvent) => {
-      setSelectedDate(parseISO(event.start));
+      setSelectedDate(
+        event.allDay
+          ? parseISO(event.start)
+          : toZonedTime(event.start, calendarTimezone),
+      );
       setViewMode("day");
       setSidebarEvent(event);
       setFocusedEvent(event);
     },
-    [setFocusedEvent, setSelectedDate, setSidebarEvent, setViewMode],
+    [
+      calendarTimezone,
+      setFocusedEvent,
+      setSelectedDate,
+      setSidebarEvent,
+      setViewMode,
+    ],
   );
   useMeetingStartNotifications(events, openNotificationEvent);
 
@@ -572,7 +597,7 @@ export default function CalendarView() {
 
       const eventType = draft.eventType ?? "default";
       const location = draft.location ?? draft.workingLocationLabel ?? "";
-      const timezone = draft.startTimeZone ?? getLocalTimezone();
+      const timezone = draft.startTimeZone ?? calendarTimezone;
       const statusPatch =
         eventType === "default"
           ? {}
@@ -663,7 +688,14 @@ export default function CalendarView() {
         },
       );
     },
-    [createEvent, deleteEvent, eventDraft, selectedDate, setEventDraft],
+    [
+      calendarTimezone,
+      createEvent,
+      deleteEvent,
+      eventDraft,
+      selectedDate,
+      setEventDraft,
+    ],
   );
 
   const updateDraftEvent = useCallback(
@@ -720,7 +752,7 @@ export default function CalendarView() {
   }
 
   function handleToday() {
-    setSelectedDate(new Date());
+    setSelectedDate(toZonedTime(new Date(), calendarTimezone));
   }
 
   function handleDateSelect(date: Date) {
@@ -845,32 +877,14 @@ export default function CalendarView() {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
 
-    if (calendarDraftIdFromEventId(eventId)) {
-      const originalStart = parseISO(event.start);
-      const originalEnd = parseISO(event.end);
-      const newStart = new Date(originalStart);
-      const newEnd = new Date(originalEnd);
-      newStart.setFullYear(
-        newDate.getFullYear(),
-        newDate.getMonth(),
-        newDate.getDate(),
-      );
-      newEnd.setFullYear(
-        newDate.getFullYear(),
-        newDate.getMonth(),
-        newDate.getDate(),
-      );
-      updateDraftEvent(eventId, {
-        start: newStart.toISOString(),
-        end: newEnd.toISOString(),
-      });
-      return;
-    }
-
     const oldStartISO = event.start;
     const oldEndISO = event.end;
-    const originalStart = parseISO(event.start);
-    const originalEnd = parseISO(event.end);
+    const originalStart = event.allDay
+      ? parseISO(event.start)
+      : toZonedTime(event.start, calendarTimezone);
+    const originalEnd = event.allDay
+      ? parseISO(event.end)
+      : toZonedTime(event.end, calendarTimezone);
     const newStart = new Date(originalStart);
     const newEnd = new Date(originalEnd);
 
@@ -885,6 +899,20 @@ export default function CalendarView() {
       newDate.getDate(),
     );
 
+    const updates = {
+      start: event.allDay
+        ? newStart.toISOString()
+        : fromZonedTime(newStart, calendarTimezone).toISOString(),
+      end: event.allDay
+        ? newEnd.toISOString()
+        : fromZonedTime(newEnd, calendarTimezone).toISOString(),
+    };
+
+    if (calendarDraftIdFromEventId(eventId)) {
+      updateDraftEvent(eventId, updates);
+      return;
+    }
+
     const undo = () => {
       updateEvent.mutate({
         id: eventId,
@@ -892,10 +920,6 @@ export default function CalendarView() {
         end: oldEndISO,
         sendUpdates: "none",
       });
-    };
-    const updates = {
-      start: newStart.toISOString(),
-      end: newEnd.toISOString(),
     };
     const guestNotification = await promptGuestNotification({
       event,
@@ -1411,6 +1435,7 @@ export default function CalendarView() {
               <MonthView
                 events={events}
                 selectedDate={selectedDate}
+                timezone={calendarTimezone}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
@@ -1425,6 +1450,7 @@ export default function CalendarView() {
               <WeekView
                 events={events}
                 selectedDate={selectedDate}
+                timezone={calendarTimezone}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
@@ -1443,6 +1469,7 @@ export default function CalendarView() {
               <DayView
                 events={dayEvents}
                 date={selectedDate}
+                timezone={calendarTimezone}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
@@ -1474,10 +1501,15 @@ export default function CalendarView() {
           open={commandPaletteOpen}
           onClose={() => setCommandPaletteOpen(false)}
           events={events}
+          timezone={calendarTimezone}
           onGoToDate={handleGoToDate}
           onEventClick={(event) => {
             setCommandPaletteOpen(false);
-            handleGoToDate(parseISO(event.start));
+            handleGoToDate(
+              event.allDay
+                ? parseISO(event.start)
+                : toZonedTime(event.start, calendarTimezone),
+            );
           }}
           onCreateEvent={() => {
             setCommandPaletteOpen(false);

@@ -7,7 +7,6 @@ import {
   startOfDay,
   isSameDay,
   set,
-  isToday,
   addMinutes,
   addDays,
   min,
@@ -22,10 +21,12 @@ import type { CalendarEvent } from "@shared/api";
 import { useEventDrag } from "@/hooks/use-event-drag";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { toZonedTime } from "date-fns-tz";
 
 interface DayViewProps {
   events: CalendarEvent[];
   date: Date;
+  timezone: string;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
   onClickTimeSlot?: (date: Date, startTime: string, endTime: string) => void;
@@ -72,22 +73,28 @@ interface LayoutInfo {
   totalCols: number;
 }
 
-function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
+function computeLayout(
+  dayEvents: CalendarEvent[],
+  timezone: string,
+): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
 
   const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = parseISO(a.start).getTime();
-    const bStart = parseISO(b.start).getTime();
+    const aStart = toZonedTime(a.start, timezone).getTime();
+    const bStart = toZonedTime(b.start, timezone).getTime();
     if (aStart !== bStart) return aStart - bStart;
-    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
+    return (
+      toZonedTime(b.end, timezone).getTime() -
+      toZonedTime(a.end, timezone).getTime()
+    );
   });
 
   const times = new Map<string, { start: number; end: number }>();
   for (const ev of sorted) {
     times.set(ev.id, {
-      start: parseISO(ev.start).getTime(),
-      end: parseISO(ev.end).getTime(),
+      start: toZonedTime(ev.start, timezone).getTime(),
+      end: toZonedTime(ev.end, timezone).getTime(),
     });
   }
 
@@ -116,6 +123,7 @@ function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
 export function DayView({
   events,
   date,
+  timezone,
   onDeleteEvent,
   onEventTimeChange,
   onClickTimeSlot,
@@ -173,8 +181,8 @@ export function DayView({
   });
 
   function getEventStyle(event: CalendarEvent) {
-    const start = parseISO(event.start);
-    const end = parseISO(event.end);
+    const start = toZonedTime(event.start, timezone);
+    const end = toZonedTime(event.end, timezone);
     const dayStart = set(startOfDay(date), { hours: START_HOUR });
     const dayEnd = addDays(startOfDay(date), 1);
     const cappedEnd = min([end, dayEnd]);
@@ -192,10 +200,18 @@ export function DayView({
 
   const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
   const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
-  const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
+  const layout = useMemo(
+    () => computeLayout(timedEvents, timezone),
+    [timedEvents, timezone],
+  );
 
-  const today = isToday(date);
-  const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
+  const calendarNow = useMemo(
+    () => toZonedTime(now, timezone),
+    [now, timezone],
+  );
+  const today = isSameDay(date, calendarNow);
+  const nowMinutes =
+    (calendarNow.getHours() - START_HOUR) * 60 + calendarNow.getMinutes();
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     today && nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
@@ -220,6 +236,7 @@ export function DayView({
     scrollContainerRef,
     onEventTimeChange: handleEventTimeChange,
     events,
+    timezone,
   });
 
   return (
@@ -401,8 +418,8 @@ export function DayView({
                   }
                 : getEventStyle(event);
               const color = getEventDisplayColor(event, prefs);
-              const evStart = parseISO(event.start);
-              const rawEnd = parseISO(event.end);
+              const evStart = toZonedTime(event.start, timezone);
+              const rawEnd = toZonedTime(event.end, timezone);
               const midnight = addDays(startOfDay(date), 1);
               const evEnd = min([rawEnd, midnight]);
               const isOvernightCapped = rawEnd > midnight;

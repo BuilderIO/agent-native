@@ -8,6 +8,7 @@ import {
   startOfWeek,
 } from "date-fns";
 import { useActionQuery } from "@agent-native/core/client";
+import { formatInTimeZone } from "date-fns-tz";
 import {
   IconAlertCircle,
   IconCalendarTime,
@@ -567,7 +568,7 @@ export function FindTimePanel({
                     >
                       <span className="min-w-0">
                         <span className="block truncate font-medium">
-                          {format(parseISO(slot.start), "EEE, MMM d")}
+                          {formatInTimeZone(slot.start, timezone, "EEE, MMM d")}
                         </span>
                         <span className="block text-muted-foreground">
                           {timeLabel(slot.start, timezone)} -{" "}

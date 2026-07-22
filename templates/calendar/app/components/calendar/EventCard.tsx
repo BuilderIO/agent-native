@@ -7,9 +7,11 @@ import {
 } from "@/lib/event-colors";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import type { CalendarEvent } from "@shared/api";
+import { formatInTimeZone } from "date-fns-tz";
 
 interface EventCardProps {
   event: CalendarEvent;
+  timezone: string;
   onClick?: () => void;
   compact?: boolean;
   draggable?: boolean;
@@ -21,6 +23,7 @@ interface EventCardProps {
 
 export function EventCard({
   event,
+  timezone,
   onClick,
   compact = false,
   draggable = false,
@@ -100,10 +103,7 @@ export function EventCard({
       </div>
       {!event.allDay && (
         <span className="text-foreground/70">
-          {new Date(event.start).toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-          })}
+          {formatInTimeZone(event.start, timezone, "h:mm a")}
         </span>
       )}
     </button>

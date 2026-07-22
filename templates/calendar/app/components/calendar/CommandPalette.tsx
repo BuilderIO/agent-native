@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { format, parseISO, parse, isValid } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import {
   IconCalendar,
   IconClock,
@@ -20,6 +21,7 @@ interface CommandPaletteProps {
   open: boolean;
   onClose: () => void;
   events: CalendarEvent[];
+  timezone: string;
   onGoToDate: (date: Date) => void;
   onEventClick: (event: CalendarEvent) => void;
   onCreateEvent: () => void;
@@ -45,6 +47,7 @@ export function CommandPalette({
   open,
   onClose,
   events,
+  timezone,
   onGoToDate,
   onEventClick,
   onCreateEvent,
@@ -140,7 +143,12 @@ export function CommandPalette({
               />
               <span className="flex-1 truncate">{event.title}</span>
               <span className="ml-2 text-xs text-muted-foreground">
-                {format(parseISO(event.start), "MMM d")}
+                {format(
+                  event.allDay
+                    ? parseISO(event.start)
+                    : toZonedTime(event.start, timezone),
+                  "MMM d",
+                )}
               </span>
             </CommandMenu.Item>
           ))}

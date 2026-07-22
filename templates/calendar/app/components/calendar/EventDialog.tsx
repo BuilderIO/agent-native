@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { format, parseISO } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import {
   IconMapPin,
   IconClock,
@@ -30,6 +31,8 @@ import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
 import type { CalendarEvent } from "@shared/api";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { useSettings } from "@/hooks/use-settings";
+import { getLocalTimezone } from "@/lib/event-form-utils";
 
 interface EventDialogProps {
   event: CalendarEvent | null;
@@ -56,6 +59,8 @@ export function EventDialog({
   const { promptGuestNotification, guestNotificationDialog } =
     useGuestNotificationPrompt();
   const { prefs } = useViewPreferences();
+  const { data: settings } = useSettings();
+  const displayTimezone = settings?.timezone || getLocalTimezone();
 
   useEffect(() => {
     if (event) {
@@ -256,10 +261,17 @@ export function EventDialog({
                   </span>
                 ) : (
                   <span>
-                    {format(parseISO(event.start), "EEEE, MMMM d, yyyy")}
+                    {format(
+                      toZonedTime(event.start, displayTimezone),
+                      "EEEE, MMMM d, yyyy",
+                    )}
                     <br />
-                    {format(parseISO(event.start), "h:mm a")} –{" "}
-                    {format(parseISO(event.end), "h:mm a")}
+                    {format(
+                      toZonedTime(event.start, displayTimezone),
+                      "h:mm a",
+                    )}{" "}
+                    –{" "}
+                    {format(toZonedTime(event.end, displayTimezone), "h:mm a")}
                   </span>
                 )}
               </div>

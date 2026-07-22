@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router";
 import { format, parseISO, differenceInMinutes } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import {
   IconClock,
   IconMapPin,
@@ -13,6 +14,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { useActionQuery } from "@agent-native/core/client";
 import { postNavigate, isInAgentEmbed } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
+import { useSettings } from "@/hooks/use-settings";
+import { getLocalTimezone } from "@/lib/event-form-utils";
 
 type EventPreviewResult = CalendarEvent | { error: string };
 
@@ -31,6 +34,8 @@ function formatDuration(start: string, end: string): string {
 
 function EventCard({ event }: { event: CalendarEvent }) {
   const inEmbed = isInAgentEmbed();
+  const { data: settings } = useSettings();
+  const displayTimezone = settings?.timezone || getLocalTimezone();
 
   return (
     <div className="min-h-screen bg-background flex items-start justify-center p-4">
@@ -63,15 +68,19 @@ function EventCard({ event }: { event: CalendarEvent }) {
               ) : (
                 <>
                   <span className="text-foreground font-medium">
-                    {format(parseISO(event.start), "h:mm a")}
+                    {formatInTimeZone(event.start, displayTimezone, "h:mm a")}
                     {" – "}
-                    {format(parseISO(event.end), "h:mm a")}
+                    {formatInTimeZone(event.end, displayTimezone, "h:mm a")}
                   </span>
                   <span className="ml-2 text-muted-foreground/70">
                     {formatDuration(event.start, event.end)}
                   </span>
                   <div className="mt-0.5">
-                    {format(parseISO(event.start), "EEEE, MMMM d")}
+                    {formatInTimeZone(
+                      event.start,
+                      displayTimezone,
+                      "EEEE, MMMM d",
+                    )}
                   </div>
                 </>
               )}

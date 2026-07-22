@@ -31,6 +31,9 @@ import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { toast } from "sonner";
 import { useGuestNotificationPrompt } from "@/components/calendar/GuestNotificationDialog";
+import { useSettings } from "@/hooks/use-settings";
+import { toZonedTime } from "date-fns-tz";
+import { getLocalTimezone } from "@/lib/event-form-utils";
 
 interface EventDetailPanelProps {
   event: CalendarEvent | null;
@@ -86,6 +89,8 @@ export function EventDetailPanel({
   onTitleSave,
 }: EventDetailPanelProps) {
   const { setEventDetailSidebar } = useCalendarContext();
+  const { data: settings } = useSettings();
+  const displayTimezone = settings?.timezone || getLocalTimezone();
   useViewPreferences();
   const isOpen = event !== null;
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -287,15 +292,24 @@ export function EventDetailPanel({
                     ) : (
                       <>
                         <span className="text-foreground">
-                          {format(parseISO(event.start), "h:mm a")}
+                          {format(
+                            toZonedTime(event.start, displayTimezone),
+                            "h:mm a",
+                          )}
                           {" → "}
-                          {format(parseISO(event.end), "h:mm a")}
+                          {format(
+                            toZonedTime(event.end, displayTimezone),
+                            "h:mm a",
+                          )}
                         </span>
                         <span className="ml-2 text-muted-foreground/70">
                           {formatDuration(event.start, event.end)}
                         </span>
                         <div className="mt-0.5 text-muted-foreground">
-                          {format(parseISO(event.start), "EEE MMM d")}
+                          {format(
+                            toZonedTime(event.start, displayTimezone),
+                            "EEE MMM d",
+                          )}
                         </div>
                       </>
                     )}

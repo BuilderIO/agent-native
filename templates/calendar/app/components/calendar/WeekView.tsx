@@ -5,7 +5,6 @@ import {
   eachDayOfInterval,
   eachHourOfInterval,
   isSameDay,
-  isToday,
   format,
   parseISO,
   differenceInMinutes,
@@ -32,10 +31,12 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 
 interface WeekViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
+  timezone: string;
   onDateSelect: (date: Date) => void;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
@@ -127,6 +128,7 @@ interface LayoutInfo {
 function computeLayout(
   dayEvents: CalendarEvent[],
   day: Date,
+  timezone: string,
 ): Map<string, LayoutInfo> {
   const result = new Map<string, LayoutInfo>();
   if (dayEvents.length === 0) return result;
@@ -139,8 +141,8 @@ function computeLayout(
     dayEvents.map((ev) => [
       ev.id,
       {
-        start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
-        end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
+        start: Math.max(toZonedTime(ev.start, timezone).getTime(), dayStartMs),
+        end: Math.min(toZonedTime(ev.end, timezone).getTime(), dayEndMs),
       },
     ]),
   );
@@ -202,6 +204,7 @@ function getAllDaySpan(
 export function WeekView({
   events,
   selectedDate,
+  timezone,
   onDateSelect,
   onDeleteEvent,
   onEventTimeChange,
@@ -269,6 +272,10 @@ export function WeekView({
   const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
 
   const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
+  const calendarNow = useMemo(
+    () => toZonedTime(now, timezone),
+    [now, timezone],
+  );
 
   // Pre-compute all-day event spans
   const allDaySpans = useMemo(() => {
@@ -289,18 +296,18 @@ export function WeekView({
       const dayStart = startOfDay(day);
       const dayEnd = addDays(dayStart, 1);
       const dayEvents = timedEvents.filter((e) => {
-        const evStart = parseISO(e.start);
-        const evEnd = parseISO(e.end);
+        const evStart = toZonedTime(e.start, timezone);
+        const evEnd = toZonedTime(e.end, timezone);
         return evStart < dayEnd && evEnd > dayStart;
       });
-      const layout = computeLayout(dayEvents, day);
+      const layout = computeLayout(dayEvents, day, timezone);
       return { day, events: dayEvents, layout };
     });
-  }, [days, timedEvents]);
+  }, [days, timedEvents, timezone]);
 
   function getSegmentStyle(event: CalendarEvent, day: Date) {
-    const evStart = parseISO(event.start);
-    const evEnd = parseISO(event.end);
+    const evStart = toZonedTime(event.start, timezone);
+    const evEnd = toZonedTime(event.end, timezone);
     const dayBase = set(startOfDay(day), { hours: START_HOUR });
     const dayEnd = addDays(dayBase, 1);
     const segStart = evStart > dayBase ? evStart : dayBase;
@@ -314,7 +321,8 @@ export function WeekView({
   }
 
   // Current time indicator
-  const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
+  const nowMinutes =
+    (calendarNow.getHours() - START_HOUR) * 60 + calendarNow.getMinutes();
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
@@ -424,41 +432,13 @@ export function WeekView({
   // Timezone label: prefer the short generic name (e.g. "PT", "ET")
   // over the offset form ("GMT-7"), and fall back to the IANA id when
   // the locale data has no friendlier rendering.
-  const { tzShort, tzLong, tzIana } = useMemo(() => {
-    function nameForToken(token: "shortGeneric" | "longGeneric" | "short") {
-      try {
-        return (
-          new Intl.DateTimeFormat("en-US", { timeZoneName: token })
-            .formatToParts(now)
-            .find((p) => p.type === "timeZoneName")?.value ?? ""
-        );
-      } catch {
-        return "";
-      }
-    }
-
-    let iana = "";
-    try {
-      iana = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
-    } catch {}
-
-    const longGeneric = nameForToken("longGeneric");
-    let shortGeneric = nameForToken("shortGeneric");
-
-    // shortGeneric falls back to the offset form for zones with no short name
-    // (e.g. "Etc/GMT-7" → "GMT-7"). When that happens, the IANA city is more
-    // useful than the offset.
-    if (!shortGeneric || /^GMT[+-]/.test(shortGeneric)) {
-      const city = iana.split("/").pop()?.replace(/_/g, " ") ?? "";
-      shortGeneric = city || nameForToken("short") || shortGeneric;
-    }
-
-    return {
-      tzShort: shortGeneric,
-      tzLong: longGeneric || iana,
-      tzIana: iana,
-    };
-  }, []);
+  const { tzShort, tzLong } = useMemo(
+    () => ({
+      tzShort: formatInTimeZone(now, timezone, "zzz"),
+      tzLong: formatInTimeZone(now, timezone, "zzzz"),
+    }),
+    [timezone, now],
+  );
 
   // Drag-to-move and drag-to-resize
   const handleEventTimeChange = useCallback(
@@ -481,6 +461,7 @@ export function WeekView({
     days,
     onEventTimeChange: handleEventTimeChange,
     events,
+    timezone,
   });
 
   return (
@@ -501,8 +482,10 @@ export function WeekView({
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p className="text-xs">{tzLong}</p>
-                {tzIana && tzIana !== tzLong ? (
-                  <p className="text-[10px] text-muted-foreground">{tzIana}</p>
+                {timezone !== tzLong ? (
+                  <p className="text-[10px] text-muted-foreground">
+                    {timezone}
+                  </p>
                 ) : null}
               </TooltipContent>
             </Tooltip>
@@ -515,7 +498,9 @@ export function WeekView({
               onClick={() => onDateSelect(day)}
               className={cn(
                 "flex flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-r border-border py-1.5 sm:flex-row sm:gap-1.5 sm:py-2.5 last:border-r-0",
-                isToday(day) ? "bg-primary/5" : "hover:bg-accent/40",
+                isSameDay(day, calendarNow)
+                  ? "bg-primary/5"
+                  : "hover:bg-accent/40",
               )}
             >
               <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">
@@ -524,7 +509,7 @@ export function WeekView({
               <span
                 className={cn(
                   "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 sm:text-sm",
-                  isToday(day)
+                  isSameDay(day, calendarNow)
                     ? "bg-foreground text-background"
                     : "text-foreground",
                 )}
@@ -659,7 +644,7 @@ export function WeekView({
 
           {/* Day columns */}
           {dayData.map(({ day, events: dayEvents, layout }, dayIndex) => {
-            const isCurrentDay = isToday(day);
+            const isCurrentDay = isSameDay(day, calendarNow);
 
             // Collect events that were dragged into this column from another day
             const draggedInEvents: CalendarEvent[] = [];
@@ -768,8 +753,8 @@ export function WeekView({
                     };
                     const overrides = getDragOverrides(event.id);
                     const isBeingDragged = dragEventId === event.id;
-                    const start = parseISO(event.start);
-                    const end = parseISO(event.end);
+                    const start = toZonedTime(event.start, timezone);
+                    const end = toZonedTime(event.end, timezone);
                     const dayBase = startOfDay(day);
                     const segDayEnd = addDays(dayBase, 1);
                     const isStart = isSameDay(start, day);

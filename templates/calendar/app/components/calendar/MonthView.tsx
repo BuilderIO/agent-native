@@ -7,10 +7,10 @@ import {
   eachDayOfInterval,
   isSameMonth,
   isSameDay,
-  isToday,
   format,
   parseISO,
 } from "date-fns";
+import { toZonedTime } from "date-fns-tz";
 import { cn } from "@/lib/utils";
 import { EventCard } from "./EventCard";
 import { EventDetailPopover } from "./EventDetailPopover";
@@ -21,6 +21,7 @@ import type { CalendarEvent } from "@shared/api";
 interface MonthViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
+  timezone: string;
   onDateSelect: (date: Date) => void;
   onDeleteEvent?: (eventId: string) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
@@ -62,6 +63,7 @@ const WEEKDAY_HEADERS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
 export function MonthView({
   events,
   selectedDate,
+  timezone,
   onDateSelect,
   onDeleteEvent,
   onEventDrop,
@@ -75,6 +77,7 @@ export function MonthView({
   const { prefs } = useViewPreferences();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const calendarToday = toZonedTime(new Date(), timezone);
 
   const monthStart = startOfMonth(selectedDate);
   const monthEnd = endOfMonth(selectedDate);
@@ -100,13 +103,16 @@ export function MonthView({
   const eventsByDay = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
     for (const e of events) {
-      const key = format(parseISO(e.start), "yyyy-MM-dd");
+      const key = format(
+        e.allDay ? parseISO(e.start) : toZonedTime(e.start, timezone),
+        "yyyy-MM-dd",
+      );
       const list = map.get(key);
       if (list) list.push(e);
       else map.set(key, [e]);
     }
     return map;
-  }, [events]);
+  }, [events, timezone]);
 
   function handleDragOver(e: React.DragEvent, dayKey: string) {
     e.preventDefault();
@@ -149,7 +155,7 @@ export function MonthView({
         {days.map((day) => {
           const dayEvents = eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
           const inMonth = isSameMonth(day, selectedDate);
-          const today = isToday(day);
+          const today = isSameDay(day, calendarToday);
           const selected = isSameDay(day, selectedDate);
           const dayKey = day.toISOString();
           const isDragTarget = dragOverDay === dayKey;
@@ -223,6 +229,7 @@ export function MonthView({
                       <div onClick={(e) => e.stopPropagation()}>
                         <EventCard
                           event={event}
+                          timezone={timezone}
                           colorPreferences={prefs}
                           compact
                           draggable

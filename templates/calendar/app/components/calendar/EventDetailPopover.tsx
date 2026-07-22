@@ -91,6 +91,8 @@ import {
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { shortcutModifierLabel } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useSettings } from "@/hooks/use-settings";
+import { toZonedTime } from "date-fns-tz";
 
 function formatDuration(start: string, end: string): string {
   const totalMinutes = differenceInMinutes(parseISO(end), parseISO(start));
@@ -101,8 +103,8 @@ function formatDuration(start: string, end: string): string {
   return `${hours}h ${minutes}min`;
 }
 
-function formatTimeShort(dateStr: string): string {
-  const d = parseISO(dateStr);
+function formatTimeShort(dateStr: string, timezone: string): string {
+  const d = toZonedTime(dateStr, timezone);
   const h = d.getHours();
   const m = d.getMinutes();
   const period = h >= 12 ? "PM" : "AM";
@@ -240,8 +242,8 @@ function isUrl(str: string): boolean {
 }
 
 /** Convert ISO date string to local date input value (YYYY-MM-DD) */
-function toDateInputValue(iso: string): string {
-  const d = parseISO(iso);
+function toDateInputValue(iso: string, timezone: string): string {
+  const d = toZonedTime(iso, timezone);
   return format(d, "yyyy-MM-dd");
 }
 
@@ -251,14 +253,19 @@ function toAllDayEndDateInputValue(iso: string): string {
 }
 
 /** Convert ISO date string to local time input value (HH:mm) */
-function toTimeInputValue(iso: string): string {
-  const d = parseISO(iso);
+function toTimeInputValue(iso: string, timezone: string): string {
+  const d = toZonedTime(iso, timezone);
   return format(d, "HH:mm");
 }
 
-function formatEventDateRange(start: string, end: string, allDay?: boolean) {
-  const startDate = parseISO(start);
-  const endDate = parseISO(end);
+function formatEventDateRange(
+  start: string,
+  end: string,
+  allDay: boolean,
+  timezone: string,
+) {
+  const startDate = allDay ? parseISO(start) : toZonedTime(start, timezone);
+  const endDate = allDay ? parseISO(end) : toZonedTime(end, timezone);
   const displayEndDate = allDay ? new Date(endDate.getTime() - 1) : endDate;
   const startLabel = format(startDate, "EEE MMM d");
   const endLabel = format(displayEndDate, "EEE MMM d");
@@ -308,6 +315,9 @@ export function EventDetailPopover({
   onDraftDiscard,
 }: EventDetailPopoverProps) {
   const isMobile = useIsMobile();
+  const { data: settings } = useSettings();
+  const displayTimezone = settings?.timezone || getLocalTimezone();
+  const eventTimezone = event.startTimeZone || displayTimezone;
   const [open, setOpen] = useState(defaultOpen);
   const [editingTitle, setEditingTitle] = useState(
     defaultOpen ? event.title : "",
@@ -329,20 +339,22 @@ export function EventDetailPopover({
     event.description || "",
   );
   const [editLocation, setEditLocation] = useState(event.location || "");
-  const [editDate, setEditDate] = useState(() => toDateInputValue(event.start));
+  const [editDate, setEditDate] = useState(() =>
+    toDateInputValue(event.start, eventTimezone),
+  );
   const [editEndDate, setEditEndDate] = useState(() =>
     event.allDay
       ? toAllDayEndDateInputValue(event.end)
-      : toDateInputValue(event.end),
+      : toDateInputValue(event.end, eventTimezone),
   );
   const [editStartTime, setEditStartTime] = useState(() =>
-    toTimeInputValue(event.start),
+    toTimeInputValue(event.start, eventTimezone),
   );
   const [editEndTime, setEditEndTime] = useState(() =>
-    toTimeInputValue(event.end),
+    toTimeInputValue(event.end, eventTimezone),
   );
   const [editTimezone, setEditTimezone] = useState(
-    event.startTimeZone || getLocalTimezone(),
+    event.startTimeZone || displayTimezone,
   );
   const [editReminderMode, setEditReminderMode] = useState<ReminderMode>(
     () => remindersToDraftState(event).mode,
@@ -394,15 +406,16 @@ export function EventDetailPopover({
       setEditDescription(event.description || "");
     if (editingField !== "location") setEditLocation(event.location || "");
     if (editingField !== "time") {
-      setEditDate(toDateInputValue(event.start));
+      const nextEventTimezone = event.startTimeZone || displayTimezone;
+      setEditDate(toDateInputValue(event.start, nextEventTimezone));
       setEditEndDate(
         event.allDay
           ? toAllDayEndDateInputValue(event.end)
-          : toDateInputValue(event.end),
+          : toDateInputValue(event.end, nextEventTimezone),
       );
-      setEditStartTime(toTimeInputValue(event.start));
-      setEditEndTime(toTimeInputValue(event.end));
-      setEditTimezone(event.startTimeZone || getLocalTimezone());
+      setEditStartTime(toTimeInputValue(event.start, nextEventTimezone));
+      setEditEndTime(toTimeInputValue(event.end, nextEventTimezone));
+      setEditTimezone(event.startTimeZone || displayTimezone);
       setEditTimeScope("single");
     }
     if (editingField !== "reminders") {
@@ -425,6 +438,7 @@ export function EventDetailPopover({
     event.start,
     event.end,
     event.allDay,
+    displayTimezone,
     event.startTimeZone,
     event.reminders,
     event.remindersUseDefault,
@@ -574,7 +588,7 @@ export function EventDetailPopover({
       context: `Event id: ${event.id}
 Title: ${event.title}
 When: ${event.start} to ${event.end}
-Timezone: ${event.startTimeZone || getLocalTimezone()}
+Timezone: ${event.startTimeZone || displayTimezone}
 Location: ${event.location || "(none)"}
 Attendees: ${(event.attendees ?? []).map((attendee) => attendee.email).join(", ") || "(none)"}
 Current description: ${event.description || "(empty)"}
@@ -582,7 +596,7 @@ Current description: ${event.description || "(empty)"}
 Write a short, useful meeting description. If I ask you to apply it, update this event with the update-event action.`,
       submit: true,
     });
-  }, [event]);
+  }, [displayTimezone, event]);
 
   const handleAddGoogleMeet = useCallback(() => {
     if (!event.id || updateEvent.isPending) return;
@@ -791,7 +805,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     [event.accountEmail, event.attendees],
   );
   const findTimeTimezone =
-    editTimezone || event.startTimeZone || getLocalTimezone();
+    editTimezone || event.startTimeZone || displayTimezone;
   const findTimeDurationMinutes = Math.max(
     5,
     differenceInMinutes(parseISO(event.end), parseISO(event.start)),
@@ -799,10 +813,10 @@ Write a short, useful meeting description. If I ask you to apply it, update this
 
   const handleSelectFindTimeSlot = useCallback(
     (slot: FindTimeSlot) => {
-      setEditDate(toDateInputValue(slot.start));
-      setEditEndDate(toDateInputValue(slot.end));
-      setEditStartTime(toTimeInputValue(slot.start));
-      setEditEndTime(toTimeInputValue(slot.end));
+      setEditDate(toDateInputValue(slot.start, findTimeTimezone));
+      setEditEndDate(toDateInputValue(slot.end, findTimeTimezone));
+      setEditStartTime(toTimeInputValue(slot.start, findTimeTimezone));
+      setEditEndTime(toTimeInputValue(slot.end, findTimeTimezone));
       setEditTimezone(findTimeTimezone);
       setEditingField(null);
       setFindTimeOpen(false);
@@ -941,16 +955,7 @@ Write a short, useful meeting description. If I ask you to apply it, update this
     ? "Loading repeat..."
     : formatRecurrenceText(recurrenceRules) ||
       (isRecurringEvent ? "Repeats" : null);
-  // Show the browser's local timezone offset (this is what the user sees times in)
-  const localOffsetMinutes = -new Date().getTimezoneOffset();
-  const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
-  const localOffsetH = Math.floor(Math.abs(localOffsetMinutes) / 60);
-  const localOffsetM = Math.abs(localOffsetMinutes) % 60;
-  const tzLabel = event.startTimeZone
-    ? formatTimezoneLabel(event.startTimeZone)
-    : localOffsetM
-      ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
-      : `GMT${localOffsetSign}${localOffsetH}`;
+  const tzLabel = formatTimezoneLabel(displayTimezone);
 
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
@@ -1237,16 +1242,22 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                         size="sm"
                         className="h-6 text-xs"
                         onClick={() => {
-                          setEditDate(toDateInputValue(event.start));
+                          setEditDate(
+                            toDateInputValue(event.start, eventTimezone),
+                          );
                           setEditEndDate(
                             event.allDay
                               ? toAllDayEndDateInputValue(event.end)
-                              : toDateInputValue(event.end),
+                              : toDateInputValue(event.end, eventTimezone),
                           );
-                          setEditStartTime(toTimeInputValue(event.start));
-                          setEditEndTime(toTimeInputValue(event.end));
+                          setEditStartTime(
+                            toTimeInputValue(event.start, eventTimezone),
+                          );
+                          setEditEndTime(
+                            toTimeInputValue(event.end, eventTimezone),
+                          );
                           setEditTimezone(
-                            event.startTimeZone || getLocalTimezone(),
+                            event.startTimeZone || displayTimezone,
                           );
                           setEditTimeScope("single");
                           setEditingField(null);
@@ -1281,7 +1292,8 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                           {formatEventDateRange(
                             event.start,
                             event.end,
-                            event.allDay,
+                            true,
+                            displayTimezone,
                           )}
                         </span>
                       </div>
@@ -1289,20 +1301,25 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                       <>
                         <div className="flex items-baseline gap-1">
                           <span className="text-foreground font-medium">
-                            {formatTimeShort(event.start)}
+                            {formatTimeShort(event.start, displayTimezone)}
                           </span>
                           <span className="text-muted-foreground/50 mx-0.5">
                             &rarr;
                           </span>
                           <span className="text-foreground font-medium">
-                            {formatTimeShort(event.end)}
+                            {formatTimeShort(event.end, displayTimezone)}
                           </span>
                           <span className="text-muted-foreground/50 text-xs ml-1">
                             {formatDuration(event.start, event.end)}
                           </span>
                         </div>
                         <div className="text-muted-foreground text-xs mt-0.5">
-                          {formatEventDateRange(event.start, event.end)}
+                          {formatEventDateRange(
+                            event.start,
+                            event.end,
+                            false,
+                            displayTimezone,
+                          )}
                         </div>
                       </>
                     )}
@@ -1332,7 +1349,9 @@ Write a short, useful meeting description. If I ask you to apply it, update this
                   onOpenChange={setFindTimeOpen}
                   title="Find a time"
                   subtitle={event.title}
-                  date={editDate || toDateInputValue(event.start)}
+                  date={
+                    editDate || toDateInputValue(event.start, eventTimezone)
+                  }
                   timezone={findTimeTimezone}
                   durationMinutes={findTimeDurationMinutes}
                   attendees={schedulingAttendees}
