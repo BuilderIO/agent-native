@@ -1,0 +1,313 @@
+---
+title: "أنظمة التصميم المخصصة"
+description: "استخدم نظام تصميم React الخاص بشركتك عبر تطبيقات Agent Native وتجارب Toolkit المشتركة من دون استبدال سلوك Agent Native."
+---
+
+# أنظمة التصميم المخصصة
+
+يمكن لـ Agent Native عرض الشاشات التي يملكها التطبيق وتجارب Toolkit المشتركة باستخدام مكونات React الخاصة بشركتك. سجّل محولًا صريحًا ومحدد الأنواع مرة واحدة؛ وتواصل وحدات التحكم بالميزات نفسها امتلاك الإجراءات والحالة ومتطلبات إمكانية الوصول والسلوك الظاهر للوكيل.
+
+لا يتطلب عقد المحول Tailwind أو shadcn أو Radix أو `className` أو أي بيئة تشغيل تنسيق بعينها. يمكن للمكوّن استخدام موفر سمات أو CSS-in-JS أو CSS Modules أو React Aria أو CSS العادي. إن `className` و`style` خطافان اختياريان للتشغيل البيني، وليسا متطلبات للتنسيق.
+
+راجع [مثال Material UI Chat القابل للتشغيل](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) و[مثال Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) للاطلاع على محولات كاملة وتوصيل موفر السمات والوضع الداكن والفجوات الموثقة في الإصدار 1.
+
+## اختر أصغر مستوى للتخصيص
+
+| المستوى | استخدمه من أجل | ما يبقى مشتركًا |
+| ------- | -------------- | --------------- |
+| **رموز السمات** | مواءمة العلامة التجارية بسرعة عبر الأسطح الافتراضية والأسطح التي لم تُكيّف بعد | مكونات Toolkit ووحدات التحكم والسلوك |
+| **المكونات الدلالية** | عناصر تحكم الشركة مثل الأزرار والحقول وأدوات الاختيار ومربعات الحوار والقوائم والأسطح | وحدات تحكم الميزات وعقود المنتج |
+| **فتحات المنتج** | تخطيط خاص بالشركة لميزة واحدة، مثل بطاقة الاتصال أو شريط سجل الدردشة | وحدة تحكم الميزة وإجراءاتها |
+| **الإخراج (Eject)** | سلوك أو بنية منتج لا يمكن التعبير عنهما بفتحة مدعومة | عقود Core؛ تصبح الميزة المُخرجة مملوكة للتطبيق |
+
+ابدأ بالرموز، وأضف المكونات الدلالية حيث يوجد نظير لها في نظامك، واستخدم فتحة منتج للتركيب على مستوى الميزة، ولا تُخرج إلا أصغر وحدة ما زالت تحتاج إلى ملكية.
+
+## تسجيل محول
+
+محولات العملاء حزم npm عادية. استورد أحدها صراحةً في `app/design-system.ts`؛ لا يفحص Agent Native التبعيات، ولا يكتشف مكتبة تلقائيًا، ولا يحمّل مكونات من JSON.
+
+احتفظ بسمة وقت البناء في وحدة قليلة التبعيات حتى لا يضطر Vite إلى تقييم حزمة React الخاصة بالعميل أثناء تحميل إعداداته:
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+صِل التعريف بموضع موفر التطبيق:
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+المحولات الجزئية مدعومة. أي مكوّن تحذفه يستخدم محول Agent Native الافتراضي. إذا طرح مكوّن مخصص خطأً أثناء العرض، فسيسجل حدّ خطأ لكل مكوّن الفشل ويعرض المكوّن الافتراضي لذلك العنصر؛ وتبقى بقية النظام المخصص نشطة.
+
+يحافظ تطبيقان كاملان للدردشة على صحة هذا العقد أمام أنظمة تصميم حقيقية: [مثال Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) يستخدم Emotion و`ThemeProvider` ومكدس تراكبات MUI، بينما [مثال Ant Design](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) يستخدم `ConfigProvider` وبدائيات النماذج والتراكبات في Ant Design. ملفات `app/design-system.tsx` فيهما هي مراجع الدمج الأساسية؛ أما مثال Acme أعلاه فمقصود أن يبقى صغيرًا ويُستخدم لاختبارات الوحدة.
+
+تبقى واجهة موفر API القديمة `components={{ Button }}` متوافقة، وتُعامل كمحول `ActionButton` ذي أقل أولوية. إذا تم توفير الاثنين، يفوز `designSystem.components.ActionButton` وتسجل إصدارات التطوير تحذيرًا.
+
+## رموز السمات في وقت البناء
+
+تقبل `defineTheme` ألوان CSS القياسية، بما في ذلك hex و`rgb()` و`hsl()` وOKLCH. يتحقق مكون Vite الإضافي في Core منها ويطبّعها إلى المتغيرات الدلالية الموجودة في Agent Native. تعود الألوان الداكنة رمزًا رمزًا إلى اللوحة الفاتحة؛ ولا يشتق Agent Native لوحة داكنة تلقائيًا.
+
+مرّر السمة إلى مكون Vite الإضافي:
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+ينشئ المكون الإضافي CSS افتراضيًا للسمة ويحقنه في الغلاف العام القابل للتخزين المؤقت وقت البناء. لا يختار الإصدار 1 سمةً لكل طلب أو لكل مؤسسة.
+
+## العقود الدلالية السبعة عشر
+
+يتعلق العقد عمدًا بالمعنى والسلوك، لا بشكل DOM أو التنفيذ المرئي. وتُتحكم القيم وحالة الفتح حيثما يجب أن تبقى حالة المنتج قابلة للنقل.
+
+### عقود العناصر الطرفية
+
+| المكوّن | العقد المطلوب | الدلالات الاختيارية المهمة |
+| ------- | ------------- | -------------------------- |
+| `ActionButton` | `children` و`onPress` عند الحاجة | `intent` و`emphasis` و`size` و`pending` والأيقونات وحالة التعطيل ونوع الزر والمرجع |
+| `IconButton` | `label` و`icon` قابلان للوصول | دلالات زر مطابقة لـ`ActionButton` |
+| `TextField` | `value` نصية محكومة و`onChange` | تسمية ووصف وخطأ ونوع/وضع الإدخال والتحقق والملحقات والأحداث والمرجع |
+| `TextArea` | `value` نصية محكومة و`onChange` | تسمية ووصف وخطأ وصفوف والتحقق والأحداث والمرجع |
+| `Spinner` | مؤشر تقدم | تسمية قابلة للوصول وحجم دلالي |
+| `Skeleton` | عنصر نائب غير تفاعلي | العرض والارتفاع وشكل السطر/المستطيل/الدائرة |
+| `Status` | `children` | نغمة محايدة/معلومات/نجاح/تحذير/خطر وأيقونة وحجم |
+| `Surface` | `children` | عنصر دلالي وارتفاع وحشو وسلوك ضغط تفاعلي |
+| `Avatar` | `name` قابل للوصول | مصدر الصورة والبديل والحجم وحالة الحضور ومرجع الصورة |
+
+### عقود السلوك
+
+| المكوّن | العقد المطلوب | السلوك الذي يملكه المحول |
+| ------- | ------------- | ------------------------ |
+| `Tooltip` | المشغّل والمحتوى | حالة الفتح المحكومة/غير المحكومة والتأخير والموضع وسلوك البوابة |
+| `Menu` | المشغّل والعناصر/الأقسام و`onAction` | التنقل بلوحة المفاتيح والعناصر المتداخلة والتحديد والإغلاق وسلوك البوابة |
+| `Popover` | المشغّل والأبناء | حالة الفتح المحكومة/غير المحكومة والإغلاق والتركيز والنمط وسلوك البوابة |
+| `Dialog` | `open` محكومة و`onOpenChange` والعنوان والأبناء | دلالات الحوار والإغلاق والتركيز الأولي/المستعاد وسلوك البوابة والتكديس |
+| `Picker` | `mode` والخيارات و`value` محكومة و`onChange` | دلالات select/combobox وحالة البحث/الفتح والتحقق وحالتي التحميل/الفراغ |
+| `Checkbox` | `checked` محكومة و`onChange` | دلالات مربع الاختيار والحالة غير المحددة/المطلوبة/غير الصالحة |
+| `Switch` | `checked` محكومة و`onChange` | دلالات المفتاح وحالة التعطيل |
+| `Tabs` | العناصر و`value` محكومة و`onChange` | دلالات علامات التبويب والاتجاه والتنشيط التلقائي/اليدوي |
+
+`intent` هي `primary` أو `neutral` أو `danger`؛ و`emphasis` هي `solid` أو `outline` أو `ghost`؛ والحجم هو `compact` أو `default` أو `large`. تصف هذه القيم الغرض، لا اسم فئة أو متغير من واجهة المستخدم الافتراضية.
+
+يمنح المحول الافتراضي هذه الخصائص المرئية سلوكًا قابلًا للملاحظة إلى جانب السمات الدلالية: تختار أحجام الزر وspinner وstatus وskeleton وavatar وdialog متغيرات ملموسة؛ ويغيّر شكل skeleton وحالة حضور avatar عرضه؛ ويؤثر تحديد القائمة و`closeOnAction` في السلوك. تبقى المحولات المخصصة مسؤولة عن تخطيط المعاني نفسها ضمن مفرداتها المرئية.
+
+يغطي `Picker` سلوك select وcombobox فقط. لا يشمل العقد الدلالي في الإصدار 1 اختيار التاريخ.
+
+## التراكبات والبوابات والتركيز
+
+يمكن لمكونات السلوك استخدام تنفيذ التراكب والتركيز الكامل الخاص بنظام تصميمك. لا تحتاج إلى تغليف Radix. لكن يجب أن تحترم العقد الدلالي، بما في ذلك الحالة المحكومة والأدوار القابلة للوصول ومواضع `portalContainer` و`initialFocusRef` و`restoreFocusRef` المقدمة.
+
+هذا مهم عندما يفتح حوار نظام تصميم أصلي من سطح Toolkit مستضاف في Radix. يملك المحول مكدس التراكبات الخاص به، بينما تتيح نقاط الوصل للنظامين الاتفاق على طبقة البوابة وترتيب z-index والتركيز الأولي واستعادة التركيز. اختبر التراكبات المتداخلة والمتجاورة في التطبيق الحقيقي، لا في مستكشف مكونات معزول فقط.
+
+## وحدات تحكم الميزات عديمة الرأس وفتحات المنتج
+
+المكونات الدلالية هي المفردات المشتركة. ووحدات تحكم الميزات هي حد السلوك. تملك وحدة التحكم انتقالات الحالة والإجراءات والتتبع ونموذج العرض؛ ويستهلك العرض الافتراضي وفتحة المنتج وحدة التحكم نفسها.
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+هذه واجهة مستخدم عديمة الرأس على مستوى الميزة، وليست مجموعة ثانية من الخطافات منخفضة المستوى لكل عنصر. إن `BuilderConnectCard` و`ChatHistoryRail` أول شريحتين لإثبات ذلك؛ وتتبع الإعدادات والمشاركة الثابت نفسه لوحدة التحكم/العرض الافتراضي/العرض المخصص.
+
+تحافظ `ChatHistoryRail` على فتحة `renderRail` واحدة معتمة عمدًا في الإصدار 1. تستبدل الفتحة عرض الشريط بالكامل وتتلقى وحدة التحكم المشتركة وخصائص القائمة؛ وتؤجل فتحات الرأس والتذييل والصف إلى أن يحتاج منتج ثانٍ إليها. يحد هذا من API مع إبقاء حالة السجل وإجراءاته في وحدة التحكم المشتركة.
+
+إذا تعذر على فتحة ما التعبير عن تغيير المنتج المطلوب، فافحص أصغر وحدة منشورة وأخرجها:
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+ينقل الإخراج الملكية؛ ولا ينسخ مصادقة Core أو الإجراءات أو الاستمرارية أو فحوص الوصول أو نقل الدردشة أو تنفيذ الوكيل.
+
+## تشغيل حزمة المطابقة
+
+صدّر خريطة مكونات كاملة من حزمة العميل وشغّل حزمة الاختبارات المرفقة في بيئة تشبه المتصفح:
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+تتحقق الحزمة من الصادرات السبعة عشر كلها، والقيم وحالة الفتح المحكومة، والأدوار القابلة للوصول، وتفاعل لوحة المفاتيح، والتحديد، واستهداف البوابة، وقابلية التشغيل البيني لـz-index، والتركيز الأولي واستعادة التركيز. شغّلها في CI الخاص بحزمة المحول واحتفظ باختبار تراكب صغير على مستوى التطبيق للتركيب الخاص بالموفر.
+
+يتبع تطور العقد الإصدار الدلالي:
+
+- المكونات الجديدة والخصائص الاختيارية تغيير ثانوي متوافق.
+- الخصائص المطلوبة الجديدة أو المكونات/الخصائص المحذوفة أو تغييرات عقد السلوك تتطلب إصدارًا رئيسيًا جديدًا للعقد.
+- تفشل حزمة المطابقة عندما يختلف الإصدار الرئيسي لعقد المحول عن الإصدار الرئيسي لعقد Toolkit.
+
+## وصفات المحولات
+
+### أنظمة موفر السمات بنمط MUI
+
+إن [مثال Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) هو المرجع العملي الأساسي. تصدّر وحدة `app/design-system.tsx` الوحيدة فيها المحول الدلالي وقيم `createTheme` الفاتحة والداكنة في MUI ومصدر رموز `defineTheme`. يبقي `AppToolkitProvider` في التطبيق موفر `ThemeProvider` الخاص بـMUI فوق أسطح Toolkit المشتركة، بينما يستورد `vite.config.ts` قيمة `theme` نفسها لتوليد CSS وقت البناء. يحافظ ذلك على أنماط Emotion وبوابات MUI ورموز Agent Native من مصدر حقيقة واحد.
+
+أبقِ موفر سمات الشركة فوق `AppToolkitProvider`، وكيّف الخصائص الدلالية عند حدود الحزمة. اربط `intent` و`emphasis` و`size` بمفردات نظامك داخل المحول، لا داخل كود ميزات Agent Native. بالنسبة إلى التراكبات، مرّر `portalContainer` إلى حاوية نظام التصميم أو خاصية البوابة، ونفّذ `initialFocusRef`/`restoreFocusRef` باستخدام مدير التركيز فيه.
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+لا تنسخ موفر سمات الميزة إلى كل مكوّن محول. ثبّته مرة واحدة عند حد التطبيق كي ترث البوابات والتراكبات السياق نفسه.
+
+إن [محول Chat MUI](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) هو المثال العملي: يصدّر قيمة `defineTheme` واحدة، ويستوردها في `defineDesignSystem`، ويستورد الوحدة نفسها من `vite.config.ts`. يحافظ مصدر الحقيقة الواحد هذا على اتساق رموز موفر MUI الفاتحة/الداكنة ورموز CSS الدلالية وقت البناء من دون توليد سمة وقت التشغيل.
+
+### أنظمة مبنية على React Aria
+
+استخدم مكونات React Aria أو خطافاتها لتنفيذ الدلالات مباشرة. حافظ على خصائص `value`/`open` المحكومة ومرّر عمليات تغييرها بدل إنشاء مخزن حالة ثانٍ. في عقود السلوك، استخدم موفر التراكب ونطاق التركيز، واضبط جذر البوابة من `portalContainer`، وصِل المراجع الأولية/المستعادة بواجهة إدارة التركيز. حزمة المطابقة هي الحد الأدنى لفحص السلوك؛ ويظل نظام تصميمك مسؤولًا عن مصفوفة اختبار لوحة المفاتيح وقارئ الشاشة الكاملة.
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules وReact العادي
+
+يمكن أن يكون المحول React عاديًا وCSS Modules. تجاهل `className` تمامًا عندما يتجاوز عقد تنسيق المكوّن؛ فهو اختياري. أبقِ أدوار DOM والأسماء القابلة للوصول وسلوك لوحة المفاتيح والحالة المحكومة صريحة.
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## حدود الإصدار 1
+
+لا يستبدل الجسر الدلالي كل منظومة واجهة مستخدم تابعة لجهة خارجية في الإصدار
+
+1. تتلقى هذه الأسطح رموز السمات وفتحات الميزات حيثما توفرت، لكن أدواتها الداخلية ليست عقود محول دلالي بعد:
+
+- الأجزاء الداخلية للدردشة والمؤلف في `@assistant-ui/react`
+- حزم محرر Tiptap
+- `cmdk` و`vaul` وRecharts و`react-day-picker`
+- مكونات اختيار التاريخ (عقد `Picker` يقتصر على select/combobox)
+- تفرع Dispatch المستقل للبدائيات
+- واجهة Pinpoint المبنية على Solid.js وShadow DOM
+
+هذه الحدود صريحة كي تتمكن حزمة المحول من تقديم ادعاءات دعم دقيقة. اقترح مكوّنًا دلاليًا جديدًا فقط عندما يكون المعنى والسلوك نفسيهما مفيدين عبر أكثر من ميزة؛ واستخدم فتحات المنتج أو الإخراج للاختلافات الخاصة بميزة واحدة.
+
+## ما التالي
+
+- [**بدائيات Toolkit UI**](/docs/toolkit-ui) — محولات محلية وتوصيل الموفر واستيرادات البدائيات المشتركة.
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — ملكية الميزات القابلة لإعادة الاستخدام وحدود الحزم.
+- [**حزمة الإعدادات**](/docs/toolkit-settings) و[**حزمة المشاركة**](/docs/toolkit-sharing) — وحدات تحكم ميزات مشتركة تحافظ على إجراءات التطبيق وعقود الوصول.

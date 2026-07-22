@@ -1,0 +1,420 @@
+---
+title: "Sistemas de diseño personalizados"
+description: "Usa el sistema de diseño React de tu empresa en aplicaciones Agent Native y experiencias compartidas de Toolkit sin reemplazar el comportamiento de Agent Native."
+---
+
+# Sistemas de diseño personalizados
+
+Agent Native puede renderizar pantallas propias de la aplicación y experiencias
+compartidas de Toolkit con los componentes React de tu empresa. Registra una
+vez un adaptador explícito y tipado; los mismos controladores de funciones
+siguen siendo responsables de las acciones, el estado, los requisitos de
+accesibilidad y el comportamiento visible para el agente.
+
+El contrato del adaptador no requiere Tailwind, shadcn, Radix, `className` ni
+ningún runtime de estilos concreto. Un componente puede usar un proveedor de
+tema, CSS-in-JS, CSS Modules, React Aria o CSS normal. `className` y `style` son
+hooks de interoperabilidad opcionales, no requisitos de estilos.
+
+Consulta los ejemplos ejecutables de [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) y [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) para ver adaptadores completos, integración del proveedor de tema, modo oscuro y las limitaciones documentadas de v1.
+
+## Elige el nivel mínimo de personalización
+
+| Nivel                    | Úsalo para                                                                                  | Lo que permanece compartido                              |
+| ------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| **Tokens de tema**       | Alineación rápida con la marca en superficies predeterminadas y aún no adaptadas            | Componentes, controladores y comportamiento de Toolkit    |
+| **Componentes semánticos** | Controles de la empresa como botones, campos, selectores, diálogos, menús y superficies   | Controladores de funciones y contratos del producto       |
+| **Ranuras de producto**  | Un diseño específico de la empresa para una función, como la tarjeta de conexión o el raíl del historial del chat | El controlador y las acciones de la función                |
+| **Eject**                | Comportamiento o estructura del producto que no puede expresarse mediante una ranura compatible | Contratos del runtime de Core; la función expulsada pasa a ser propiedad de la app |
+
+Empieza con tokens, añade componentes semánticos cuando tu sistema tenga un
+equivalente, usa una ranura de producto para la composición a nivel de función
+y expulsa solo la unidad más pequeña que aún necesite ser de tu propiedad.
+
+## Registra un adaptador
+
+Los adaptadores del cliente son paquetes npm normales. Importa uno de forma
+explícita en `app/design-system.ts`; Agent Native nunca escanea dependencias,
+detecta una biblioteca automáticamente ni carga componentes desde JSON.
+
+Mantén el tema de compilación en un módulo con pocas dependencias para que Vite
+no tenga que evaluar el paquete React del cliente al cargar su configuración:
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+Conecta la definición mediante el punto de extensión del proveedor de la app:
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+Se admiten adaptadores parciales. Cualquier componente que omitas usa el
+adaptador predeterminado de Agent Native. Si un componente personalizado lanza
+un error al renderizarse, un límite de errores por componente registra el fallo
+y renderiza el componente predeterminado para ese control; el resto del sistema
+personalizado permanece activo.
+
+Dos aplicaciones Chat completas mantienen este contrato frente a sistemas de
+diseño reales: [el ejemplo de Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) usa Emotion, `ThemeProvider` y la pila de overlays de MUI, mientras que [el ejemplo de Ant Design](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) usa `ConfigProvider` y las primitivas de formularios y overlays de Ant Design. Sus archivos `app/design-system.tsx` son las referencias principales de integración; el fixture de Acme de arriba sigue siendo intencionadamente pequeño y se usa para pruebas unitarias.
+
+La API de proveedor antigua `components={{ Button }}` sigue siendo compatible y
+se trata como el adaptador `ActionButton` de menor precedencia. Si se proporcionan
+ambos, gana `designSystem.components.ActionButton` y las compilaciones de
+desarrollo registran una advertencia.
+
+## Tokens de tema en tiempo de compilación
+
+`defineTheme` acepta colores CSS estándar, incluidos hex, `rgb()`, `hsl()` y
+OKLCH. El plugin Vite de Core los valida y normaliza a las variables semánticas
+existentes de Agent Native. Los colores oscuros recurren token por token a la
+paleta clara; Agent Native no deriva automáticamente una paleta oscura.
+
+Pasa el tema al plugin de Vite:
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+El plugin genera el CSS de tema virtual y lo inyecta en el shell público y
+cacheable durante la compilación. La versión 1 no elige un tema por solicitud
+ni por organización.
+
+## Los 17 contratos semánticos
+
+El contrato trata deliberadamente sobre significado y comportamiento, no sobre
+la forma del DOM ni la implementación visual. Los valores y el estado abierto
+se controlan donde el estado del producto debe seguir siendo portable.
+
+### Contratos de hoja
+
+| Componente      | Contrato requerido                    | Semántica opcional importante                                                      |
+| --------------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `ActionButton`  | `children` y `onPress` cuando haga falta | `intent`, `emphasis`, `size`, `pending`, iconos, estado deshabilitado, tipo de botón, ref |
+| `IconButton`    | `label` accesible, `icon`             | Semántica de botón equivalente a `ActionButton`                                   |
+| `TextField`     | `value` string controlado, `onChange` | etiqueta, descripción, error, tipo/modo de entrada, validación, adornos, eventos, ref |
+| `TextArea`      | `value` string controlado, `onChange` | etiqueta, descripción, error, filas, validación, eventos, ref                    |
+| `Spinner`       | Indicador de progreso                 | etiqueta accesible y tamaño semántico                                             |
+| `Skeleton`      | Marcador de posición no interactivo   | ancho, alto, forma de línea/rectángulo/círculo                                    |
+| `Status`        | `children`                            | tono neutro/informativo/éxito/advertencia/peligro, icono, tamaño                  |
+| `Surface`       | `children`                            | elemento semántico, elevación, relleno, comportamiento de pulsación interactivo  |
+| `Avatar`        | `name` accesible                      | fuente de imagen, fallback, tamaño, estado de presencia, ref de imagen           |
+
+### Contratos de comportamiento
+
+| Componente | Contrato requerido                                  | Comportamiento que posee el adaptador                                               |
+| ---------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `Tooltip`  | activador y contenido                               | estado abierto controlado/no controlado, retardo, ubicación, comportamiento del portal |
+| `Menu`     | activador, elementos/secciones, `onAction`          | navegación por teclado, elementos anidados, selección, cierre, comportamiento del portal |
+| `Popover`  | activador y children                                | estado abierto controlado/no controlado, cierre, foco, modalidad, comportamiento del portal |
+| `Dialog`   | `open` controlado, `onOpenChange`, título, children | semántica de diálogo, cierre, foco inicial/restaurado, portal y apilado           |
+| `Picker`   | `mode`, opciones, `value` controlado, `onChange`    | semántica de select/combobox, búsqueda/estado abierto, validación, carga/vacío     |
+| `Checkbox` | `checked` controlado, `onChange`                    | semántica de casilla, estado indeterminado/requerido/inválido                      |
+| `Switch`   | `checked` controlado, `onChange`                    | semántica de interruptor y estado deshabilitado                                    |
+| `Tabs`     | elementos, `value` controlado, `onChange`          | semántica de pestañas, orientación, activación automática/manual                   |
+
+`intent` es `primary`, `neutral` o `danger`; `emphasis` es `solid`, `outline` o
+`ghost`; y el tamaño es `compact`, `default` o `large`. Estos valores describen
+el propósito, no un nombre de clase o variante de la interfaz predeterminada.
+
+El adaptador predeterminado da a estas props visuales un comportamiento
+observable además de atributos semánticos: los tamaños de botón, spinner,
+estado, skeleton, avatar y diálogo seleccionan variantes concretas; la forma
+del skeleton y el estado de presencia del avatar cambian su presentación; la
+selección de menú y `closeOnAction` afectan al comportamiento. Los adaptadores
+personalizados siguen siendo responsables de asignar los mismos significados a
+su propio vocabulario visual.
+
+`Picker` cubre únicamente el comportamiento de select y combobox. La selección
+de fechas no forma parte del contrato semántico de la versión 1.
+
+## Overlays, portales y foco
+
+Los componentes de comportamiento pueden usar íntegramente la implementación
+de overlays y foco de tu sistema de diseño. No necesitan envolver Radix. Deben
+respetar el contrato semántico, incluido el estado controlado, los roles
+accesibles y los puntos de extensión proporcionados `portalContainer`,
+`initialFocusRef` y `restoreFocusRef`.
+
+Esto importa cuando un diálogo del sistema de diseño nativo se abre desde una
+superficie de Toolkit alojada en Radix. El adaptador posee su pila de overlays,
+mientras que los puntos de extensión permiten que ambos sistemas acuerden la
+capa del portal, el orden z-index, el foco inicial y la restauración del foco.
+Prueba overlays anidados y adyacentes en la app real, no solo en un explorador
+de componentes aislado.
+
+## Controladores de funciones headless y ranuras de producto
+
+Los componentes semánticos son el vocabulario compartido. Los controladores de
+funciones son el límite del comportamiento. Un controlador posee las
+transiciones de estado, las acciones, el seguimiento y el modelo de vista;
+tanto la vista predeterminada como una ranura de producto consumen ese mismo
+controlador.
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+Esto es UI headless a nivel de función, no un segundo conjunto de hooks de bajo
+nivel para cada widget. `BuilderConnectCard` y `ChatHistoryRail` son las
+primeras partes de prueba; configuración y uso compartido siguen la misma
+invariante de controlador/vista predeterminada/vista personalizada.
+
+`ChatHistoryRail` mantiene una ranura `renderRail` deliberadamente opaca en v1.
+La ranura sustituye por completo la vista del raíl y recibe el controlador
+compartido junto con las props de lista; las ranuras diferenciadas para
+encabezado, pie y fila se aplazan hasta que otro producto las necesite. Esto
+limita la API y mantiene el estado y las acciones del historial en el
+controlador compartido.
+
+Si una ranura no puede expresar el cambio de producto necesario, inspecciona y
+expulsa la unidad publicada más pequeña:
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+La expulsión transfiere la propiedad; no bifurca la autenticación de Core, las
+acciones, la persistencia, las comprobaciones de acceso, el transporte del chat
+ni la ejecución del agente.
+
+## Ejecuta el kit de conformidad
+
+Exporta un mapa completo de componentes desde el paquete del cliente y ejecuta
+el kit de pruebas incluido en un entorno de pruebas similar a un navegador:
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+La suite comprueba las 17 exportaciones, los valores y el estado abierto
+controlados, los roles accesibles, la interacción por teclado, la selección,
+el destino del portal, la interoperabilidad del z-index, el foco inicial y la
+restauración del foco. Ejecútala en la CI del paquete del adaptador y conserva
+una pequeña prueba de overlay a nivel de app para la composición específica del
+proveedor.
+
+La evolución del contrato sigue el versionado semántico:
+
+- Los componentes nuevos y las props opcionales son un cambio menor compatible.
+- Las props nuevas obligatorias, los componentes/props eliminados o los cambios
+  del contrato de comportamiento requieren un nuevo major del contrato.
+- El kit de conformidad falla cuando el major del contrato del adaptador y el
+  major del contrato de Toolkit son diferentes.
+
+## Recetas de adaptadores
+
+### Sistemas de proveedor de tema al estilo MUI
+
+El [ejemplo de Chat + Material UI](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) es la referencia práctica principal. Su único módulo
+`app/design-system.tsx` exporta el adaptador semántico, los valores claros y
+oscuros de `createTheme` de MUI y la fuente de tokens `defineTheme`. El
+`AppToolkitProvider` de la app mantiene `ThemeProvider` de MUI por encima de
+las superficies compartidas de Toolkit, mientras `vite.config.ts` importa ese
+mismo valor `theme` para generar CSS en tiempo de compilación. Así, los estilos
+de Emotion, los portales de MUI y los tokens de Agent Native comparten una única
+fuente de verdad.
+
+Mantén el proveedor de tema de la empresa por encima de `AppToolkitProvider` y
+adapta las props semánticas en el límite del paquete. Mapea `intent`, `emphasis`
+y `size` al vocabulario propio de tu sistema dentro del adaptador, no en el
+código de funciones de Agent Native. Para los overlays, reenvía
+`portalContainer` a la prop de contenedor o portal del sistema de diseño e
+implementa `initialFocusRef`/`restoreFocusRef` con su gestor de foco.
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+No copies el proveedor de tema de una función en cada componente adaptador.
+Instálalo una vez en el límite de la app para que los portales y overlays
+hereden el mismo contexto.
+
+El [adaptador Chat MUI](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx)
+es el ejemplo práctico: exporta un único valor `defineTheme`, importa ese valor
+en `defineDesignSystem` e importa el mismo módulo desde `vite.config.ts`. Esa
+única fuente de verdad mantiene alineados los tokens del proveedor claro/oscuro
+de MUI y los tokens CSS semánticos de compilación sin generar temas en tiempo
+de ejecución.
+
+### Sistemas basados en React Aria
+
+Usa componentes o hooks de React Aria para implementar directamente la
+semántica. Conserva las props controladas `value`/`open` y reenvía sus callbacks
+de cambio en lugar de crear un segundo almacén de estado. Para los contratos de
+comportamiento, usa el proveedor de overlays y el ámbito de foco de tu sistema,
+establece su raíz de portal desde `portalContainer` y conecta las refs
+inicial/restauración a la API de gestión del foco. La suite de conformidad es la
+comprobación mínima de comportamiento; tu sistema de diseño sigue siendo
+responsable de su matriz completa de pruebas de teclado y lectores de pantalla.
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules y React normal
+
+El adaptador puede ser React normal y CSS Modules. Ignora `className` por
+completo cuando pueda eludir el contrato de estilos de tu componente; es
+opcional. Mantén explícitos los roles del DOM, los nombres accesibles, el
+comportamiento del teclado y el estado controlado.
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## Límites de la versión 1
+
+El puente semántico no sustituye a todos los ecosistemas de UI de terceros en
+la versión 1.
+
+Estas superficies reciben tokens de tema y ranuras de función cuando están
+disponibles, pero sus widgets internos todavía no son contratos del adaptador
+semántico:
+
+- Internos de chat y composer de `@assistant-ui/react`
+- Kits de editores Tiptap
+- `cmdk`, `vaul`, Recharts y `react-day-picker`
+- Componentes de selección de fecha (el contrato `Picker` solo cubre select/combobox)
+- Fork independiente de primitivas de Dispatch
+- UI de Solid.js y Shadow DOM de Pinpoint
+
+Estos límites son explícitos para que un paquete de adaptador pueda hacer
+afirmaciones precisas de compatibilidad. Propón un componente semántico nuevo
+solo cuando el mismo significado y comportamiento sea útil en más de una
+función; usa ranuras de producto o eject para diferencias de una sola función.
+
+## Próximos pasos
+
+- [**Primitivas de UI de Toolkit**](/docs/toolkit-ui): adaptadores locales,
+  conexión del proveedor e importaciones de primitivas compartidas.
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit): propiedad de
+  funciones reutilizables y límites de paquetes.
+- [**Settings Kit**](/docs/toolkit-settings) y [**Sharing Kit**](/docs/toolkit-sharing):
+  controladores de funciones compartidos que conservan las acciones de la app y
+  los contratos de acceso.

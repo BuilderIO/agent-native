@@ -1,0 +1,311 @@
+---
+title: "कस्टम डिज़ाइन सिस्टम"
+description: "Agent Native के व्यवहार को बदले बिना अपने कंपनी के React डिज़ाइन सिस्टम का उपयोग Agent Native ऐप्स और साझा Toolkit अनुभवों में करें।"
+---
+
+# कस्टम डिज़ाइन सिस्टम
+
+Agent Native आपके कंपनी के React घटकों के साथ ऐप-स्वामित्व वाली स्क्रीन और साझा Toolkit अनुभव रेंडर कर सकता है। एक स्पष्ट, टाइप किया हुआ अडैप्टर एक बार रजिस्टर करें; वही फ़ीचर कंट्रोलर ऐक्शन, स्थिति, एक्सेसिबिलिटी आवश्यकताओं और एजेंट को दिखने वाले व्यवहार का स्वामित्व बनाए रखते हैं।
+
+अडैप्टर कॉन्ट्रैक्ट में Tailwind, shadcn, Radix, `className` या किसी खास स्टाइलिंग रनटाइम की आवश्यकता नहीं है। कोई घटक theme provider, CSS-in-JS, CSS Modules, React Aria या सामान्य CSS का उपयोग कर सकता है। `className` और `style` वैकल्पिक इंटरऑपरेबिलिटी हुक हैं, स्टाइलिंग की अनिवार्यताएँ नहीं।
+
+पूरे अडैप्टर, theme-provider वायरिंग, डार्क मोड और v1 की दर्ज सीमाओं के लिए चलने वाले [Material UI Chat उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) और [Ant Design Chat उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) देखें।
+
+## सबसे छोटा कस्टमाइज़ेशन स्तर चुनें
+
+| स्तर | इसका उपयोग करें | क्या साझा रहता है |
+| --- | --- | --- |
+| **Theme tokens** | डिफ़ॉल्ट और अभी-अनुकूलित न हुई सतहों पर तेज़ ब्रांड मिलान | Toolkit घटक, कंट्रोलर और व्यवहार |
+| **Semantic components** | कंपनी के बटन, फ़ील्ड, पिकर, डायलॉग, मेनू और सतह जैसे नियंत्रण | फ़ीचर कंट्रोलर और प्रोडक्ट कॉन्ट्रैक्ट |
+| **Product slots** | किसी एक फ़ीचर के लिए कंपनी-विशिष्ट लेआउट, जैसे कनेक्शन कार्ड या चैट-इतिहास रेल | फ़ीचर का कंट्रोलर और ऐक्शन |
+| **Eject** | ऐसा प्रोडक्ट व्यवहार या ढाँचा जिसे समर्थित स्लॉट से व्यक्त नहीं किया जा सकता | Core रनटाइम कॉन्ट्रैक्ट; निकाला गया फ़ीचर ऐप-स्वामित्व वाला बन जाता है |
+
+टोकन से शुरू करें, जहाँ आपके सिस्टम में समकक्ष हो वहाँ semantic components जोड़ें, फ़ीचर-स्तरीय संयोजन के लिए product slot इस्तेमाल करें, और केवल उस सबसे छोटी इकाई को eject करें जिसे अभी भी स्वामित्व चाहिए।
+
+## अडैप्टर रजिस्टर करें
+
+कस्टमर अडैप्टर सामान्य npm पैकेज होते हैं। एक अडैप्टर को `app/design-system.ts` में स्पष्ट रूप से इम्पोर्ट करें; Agent Native निर्भरताएँ स्कैन नहीं करता, लाइब्रेरी का स्वतः पता नहीं लगाता और JSON से घटक लोड नहीं करता।
+
+बिल्ड-टाइम थीम को कम-निर्भरता वाले मॉड्यूल में रखें ताकि Vite अपना कॉन्फ़िग लोड करते समय कस्टमर React पैकेज का मूल्यांकन न करे:
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+परिभाषा को ऐप के provider seam के ज़रिए जोड़ें:
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+आंशिक अडैप्टर समर्थित हैं। जिस घटक को आप छोड़ देते हैं वह Agent Native के डिफ़ॉल्ट अडैप्टर का उपयोग करता है। यदि रेंडर करते समय कोई कस्टम घटक त्रुटि देता है, तो प्रति-घटक error boundary विफलता लॉग करके उस नियंत्रण का डिफ़ॉल्ट घटक रेंडर करती है; बाकी कस्टम सिस्टम सक्रिय रहता है।
+
+दो पूर्ण Chat ऐप वास्तविक डिज़ाइन सिस्टम के साथ इस कॉन्ट्रैक्ट को परखते हैं: [Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) Emotion, `ThemeProvider` और MUI के overlay stack का उपयोग करता है, जबकि [Ant Design उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) `ConfigProvider` और Ant Design के form तथा overlay primitives का उपयोग करता है। उनकी `app/design-system.tsx` फ़ाइलें मुख्य इंटीग्रेशन संदर्भ हैं; ऊपर का Acme fixture जानबूझकर छोटा है और unit tests में उपयोग होता है।
+
+पुराना `components={{ Button }}` provider API अब भी संगत है और इसे सबसे कम प्राथमिकता वाला `ActionButton` अडैप्टर माना जाता है। दोनों दिए जाने पर `designSystem.components.ActionButton` जीतता है और development builds चेतावनी लॉग करते हैं।
+
+## बिल्ड-टाइम theme tokens
+
+`defineTheme` hex, `rgb()`, `hsl()` और OKLCH सहित मानक CSS रंग स्वीकार करता है। Core Vite plugin इनका सत्यापन और सामान्यीकरण Agent Native के मौजूदा semantic variables में करता है। डार्क रंग token-दर-token light palette पर fallback होते हैं; Agent Native अपने-आप डार्क palette नहीं बनाता।
+
+थीम को Vite plugin में दें:
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+Plugin बिल्ड-टाइम पर virtual theme CSS बनाकर उसे सार्वजनिक, cacheable shell में inject करता है। Version 1 प्रति request या organization के लिए अलग थीम नहीं चुनता।
+
+## 17 semantic contracts
+
+यह कॉन्ट्रैक्ट जानबूझकर DOM आकार या दृश्य implementation के बजाय अर्थ और व्यवहार के बारे में है। जहाँ product state को पोर्टेबल रहना चाहिए, वहाँ values और open state नियंत्रित रहते हैं।
+
+### Leaf contracts
+
+| घटक | आवश्यक कॉन्ट्रैक्ट | महत्वपूर्ण वैकल्पिक semantics |
+| --- | --- | --- |
+| `ActionButton` | आवश्यकता के अनुसार `children` और `onPress` | `intent`, `emphasis`, `size`, `pending`, आइकन, disabled state, button type, ref |
+| `IconButton` | सुलभ `label`, `icon` | `ActionButton` से मेल खाते button semantics |
+| `TextField` | नियंत्रित string `value`, `onChange` | label, description, error, input type/mode, validation, adornments, events, ref |
+| `TextArea` | नियंत्रित string `value`, `onChange` | label, description, error, rows, validation, events, ref |
+| `Spinner` | progress indicator | सुलभ label और semantic size |
+| `Skeleton` | non-interactive placeholder | width, height, line/rectangle/circle shape |
+| `Status` | `children` | neutral/info/success/warning/danger tone, icon, size |
+| `Surface` | `children` | semantic element, elevation, padding, interactive press behavior |
+| `Avatar` | सुलभ `name` | image source, fallback, size, presence status, image ref |
+
+### Behavior contracts
+
+| घटक | आवश्यक कॉन्ट्रैक्ट | अडैप्टर के स्वामित्व वाला व्यवहार |
+| --- | --- | --- |
+| `Tooltip` | trigger और content | नियंत्रित/अनियंत्रित open state, delay, placement, portal behavior |
+| `Menu` | trigger, items/sections, `onAction` | keyboard navigation, nested items, selection, dismissal, portal behavior |
+| `Popover` | trigger और children | नियंत्रित/अनियंत्रित open state, dismissal, focus, modality, portal behavior |
+| `Dialog` | नियंत्रित `open`, `onOpenChange`, title, children | dialog semantics, dismissal, initial/restore focus, portal और stacking behavior |
+| `Picker` | `mode`, options, नियंत्रित `value`, `onChange` | select/combobox semantics, search/open state, validation, loading/empty state |
+| `Checkbox` | नियंत्रित `checked`, `onChange` | checkbox semantics और indeterminate/required/invalid state |
+| `Switch` | नियंत्रित `checked`, `onChange` | switch semantics और disabled state |
+| `Tabs` | items, नियंत्रित `value`, `onChange` | tab semantics, orientation, automatic/manual activation |
+
+`intent` `primary`, `neutral` या `danger` होता है; `emphasis` `solid`, `outline` या `ghost` होता है; और size `compact`, `default` या `large` होता है। ये values उद्देश्य बताती हैं, डिफ़ॉल्ट UI के class या variant नाम नहीं।
+
+डिफ़ॉल्ट अडैप्टर इन visual props को semantic attributes के साथ observable behavior भी देता है: button, spinner, status, skeleton, avatar और dialog के sizes ठोस variants चुनते हैं; skeleton shape और avatar presence status उनका presentation बदलते हैं; menu selection और `closeOnAction` व्यवहार को प्रभावित करते हैं। कस्टम अडैप्टर वही अर्थ अपनी visual vocabulary में मैप करने के लिए ज़िम्मेदार हैं।
+
+`Picker` केवल select और combobox व्यवहार कवर करता है। Date picking version 1 के semantic contract का हिस्सा नहीं है।
+
+## Overlays, portals और focus
+
+Behavior components आपके डिज़ाइन सिस्टम के overlay और focus implementation को पूरी तरह इस्तेमाल कर सकते हैं। उन्हें Radix को wrap करने की आवश्यकता नहीं है। उन्हें नियंत्रित state, सुलभ roles और दिए गए `portalContainer`, `initialFocusRef` तथा `restoreFocusRef` seams सहित semantic contract का पालन करना होगा।
+
+यह तब महत्वपूर्ण है जब Radix-hosted Toolkit surface से native design-system dialog खुलता है। अडैप्टर अपने overlay stack का स्वामी है, जबकि seams दोनों सिस्टमों को portal layer, z-index order, initial focus और focus restoration पर सहमत होने देते हैं। Nested और adjacent overlays का परीक्षण वास्तविक ऐप में करें, केवल अलग component explorer में नहीं।
+
+## Headless feature controllers और product slots
+
+Semantic components साझा vocabulary हैं। Feature controllers व्यवहार की सीमा हैं। Controller state transitions, actions, tracking और view model का स्वामी होता है; default view और product slot दोनों उसी controller का उपयोग करते हैं।
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+यह feature-level headless UI है, हर widget के लिए low-level hooks का दूसरा सेट नहीं। `BuilderConnectCard` और `ChatHistoryRail` पहले proving slices हैं; settings और sharing उसी controller/default-view/custom-view invariant का पालन करते हैं।
+
+`ChatHistoryRail` v1 में जानबूझकर एक opaque `renderRail` slot रखता है। Slot rail view को पूरी तरह बदलता है और shared controller तथा list props प्राप्त करता है; अलग header, footer और row slots तब तक टाले गए हैं जब तक किसी दूसरे product को उनकी ज़रूरत न हो। इससे API सीमित रहती है और history state तथा actions shared controller पर बने रहते हैं।
+
+यदि कोई slot आवश्यक product change व्यक्त नहीं कर सकता, तो सबसे छोटी प्रकाशित इकाई को inspect करके eject करें:
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+Ejection ownership स्थानांतरित करता है; यह Core auth, actions, persistence, access checks, chat transport या agent execution को fork नहीं करता।
+
+## Conformance kit चलाएँ
+
+Customer package से पूरा component map export करें और भेजे गए test kit को browser-जैसे test environment में चलाएँ:
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+Suite सभी 17 exports, controlled values और open state, accessible roles, keyboard interaction, selection, portal targeting, z-index interoperability, initial focus और focus restoration जाँचती है। इसे adapter package के CI में चलाएँ और provider-specific composition के लिए एक छोटा app-level overlay test रखें।
+
+Contract evolution semantic versioning का पालन करता है:
+
+- नए components और optional props संगत minor बदलाव हैं।
+- नए required props, हटाए गए components/props या behavioral contract बदलाव के लिए नया contract major चाहिए।
+- जब adapter का contract major और Toolkit का contract major अलग हो, तो conformance kit विफल हो जाती है।
+
+## Adapter recipes
+
+### MUI-style theme-provider systems
+
+[Chat + Material UI उदाहरण](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) मुख्य worked reference है। इसका एकल `app/design-system.tsx` मॉड्यूल semantic adapter, MUI के light और dark `createTheme` values तथा `defineTheme` token source export करता है। ऐप का `AppToolkitProvider` MUI `ThemeProvider` को shared Toolkit surfaces के ऊपर रखता है, जबकि `vite.config.ts` वही `theme` value build-time CSS generation के लिए import करता है। इससे Emotion styles, MUI portals और Agent Native tokens एक ही source of truth पर रहते हैं।
+
+Company theme provider को `AppToolkitProvider` के ऊपर रखें और package boundary पर semantic props को adapt करें। `intent`, `emphasis` और `size` को अडैप्टर के अंदर अपने सिस्टम की vocabulary में मैप करें—Agent Native feature code में नहीं। Overlays के लिए `portalContainer` को design system के container या portal prop तक forward करें और उसके focus manager से `initialFocusRef`/`restoreFocusRef` लागू करें।
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+किसी feature का theme provider हर adapter component में कॉपी न करें। उसे app boundary पर एक बार install करें ताकि portals और overlays उसी context को inherit करें।
+
+[Chat MUI adapter](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) worked example है: यह एक `defineTheme` value export करता है, उस value को `defineDesignSystem` में import करता है और उसी मॉड्यूल को `vite.config.ts` से import करता है। यह single source of truth runtime theme generation के बिना MUI light/dark provider tokens और build-time semantic CSS tokens को aligned रखता है।
+
+### React Aria-based systems
+
+Semantics सीधे लागू करने के लिए React Aria components या hooks इस्तेमाल करें। नियंत्रित `value`/`open` props बनाए रखें और उनकी change callbacks forward करें, दूसरा state store न बनाएँ। Behavior contracts के लिए अपने overlay provider और focus scope का उपयोग करें, `portalContainer` से उसका portal root सेट करें और initial/restore refs को focus-management API से जोड़ें। Conformance suite न्यूनतम behavior check है; आपका design system अपने पूरे keyboard और screen-reader test matrix के लिए ज़िम्मेदार रहता है।
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules और plain React
+
+अडैप्टर सामान्य React और CSS Modules भी हो सकता है। जहाँ `className` आपके component के style contract को bypass करे, वहाँ उसे पूरी तरह ignore करें; यह optional है। DOM roles, accessible names, keyboard behavior और controlled state को स्पष्ट रखें।
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## Version 1 की सीमाएँ
+
+Version 1 में semantic bridge हर third-party UI ecosystem को replace नहीं करता। इन surfaces को जहाँ उपलब्ध हो वहाँ theme tokens और feature slots मिलते हैं, लेकिन इनके आंतरिक widgets अभी semantic-adapter contracts नहीं हैं:
+
+- `@assistant-ui/react` chat और composer internals
+- Tiptap editor kits
+- `cmdk`, `vaul`, Recharts और `react-day-picker`
+- date-picker components (`Picker` contract केवल select/combobox है)
+- Dispatch का स्वतंत्र primitive fork
+- Pinpoint का Solid.js और Shadow DOM UI
+
+ये सीमाएँ स्पष्ट हैं ताकि adapter package सटीक support claims कर सके। नया semantic component तभी प्रस्तावित करें जब वही अर्थ और व्यवहार एक से अधिक features में उपयोगी हो; एक-feature वाले अंतर के लिए product slots या eject का उपयोग करें।
+
+## आगे क्या?
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — स्थानीय adapters, provider wiring और shared primitive imports।
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — पुन: उपयोग योग्य feature ownership और package boundaries।
+- [**Settings Kit**](/docs/toolkit-settings) और [**Sharing Kit**](/docs/toolkit-sharing) — shared feature controllers जो app actions और access contracts को बनाए रखते हैं।
