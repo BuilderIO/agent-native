@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   evaluatePromptOptimization,
   optimizePromptSubmission,
@@ -6,7 +7,9 @@ import {
 
 describe("evaluatePromptOptimization", () => {
   it("returns shouldOptimize false for empty or short text", () => {
-    const shortResult = evaluatePromptOptimization("Fix the alignment of this button.");
+    const shortResult = evaluatePromptOptimization(
+      "Fix the alignment of this button.",
+    );
     expect(shortResult.shouldOptimize).toBe(false);
     expect(shortResult.estimatedTextTokens).toBeLessThan(100);
     expect(shortResult.expectedTokenSavings).toBeLessThanOrEqual(0);
@@ -14,7 +17,8 @@ describe("evaluatePromptOptimization", () => {
 
   it("evaluates large text payloads and recommends vision conversion", () => {
     // Generate ~20,000 character prompt
-    const largePrompt = "Line of prompt content for task specification.\n".repeat(450);
+    const largePrompt =
+      "Line of prompt content for task specification.\n".repeat(450);
     const result = evaluatePromptOptimization(largePrompt);
 
     expect(result.shouldOptimize).toBe(true);
@@ -24,7 +28,10 @@ describe("evaluatePromptOptimization", () => {
   });
 
   it("handles multi-language Unicode prompts (CJK, Arabic, Hindi, Spanish)", () => {
-    const multiLangPrompt = "这是一个 multi-language prompt test: العربية, हिन्दी, 日本語, Español.\n".repeat(300);
+    const multiLangPrompt =
+      "这是一个 multi-language prompt test: العربية, हिन्दी, 日本語, Español.\n".repeat(
+        300,
+      );
     const result = evaluatePromptOptimization(multiLangPrompt);
 
     expect(result.shouldOptimize).toBe(true);
@@ -53,7 +60,9 @@ describe("optimizePromptSubmission", () => {
   });
 
   it("handles pasted-text attachments gracefully in non-browser environments", async () => {
-    const largeText = "Large pasted text spec document content line.\n".repeat(450);
+    const largeText = "Large pasted text spec document content line.\n".repeat(
+      450,
+    );
     const res = await optimizePromptSubmission("Use the attached context.", {
       attachments: [
         {

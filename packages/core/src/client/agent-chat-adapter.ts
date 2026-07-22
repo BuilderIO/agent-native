@@ -1,7 +1,6 @@
 import { unwrapAttachmentEnvelope } from "@agent-native/toolkit/composer/pasted-text";
 import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
-import { optimizePromptSubmission } from "./composer/prompt-optimizer.js";
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
@@ -21,6 +20,7 @@ import {
 } from "./active-run-state.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
+import { optimizePromptSubmission } from "./composer/prompt-optimizer.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,
@@ -1615,7 +1615,8 @@ export function createAgentChatAdapter(
 
       const userMessageText = optimized.promptText;
       const attachments =
-        (optimized.attachments as AgentChatAdapterAttachment[]) ?? rawAttachments;
+        (optimized.attachments as AgentChatAdapterAttachment[]) ??
+        rawAttachments;
 
       const priorMessages = limitPriorMessagesForRequest(
         messages.slice(0, latestUserIndex >= 0 ? latestUserIndex : -1) as any,
