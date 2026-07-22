@@ -35,7 +35,8 @@ export const updateTaskSchema = z.object({
 });
 
 export default defineAction({
-  description: "Update a task title, completion state, and/or custom fields.",
+  description:
+    "Update one task's title, completion state, and/or custom fields. Use bulk-update-tasks to apply the same title or completion state to multiple tasks.",
   schema: updateTaskSchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);

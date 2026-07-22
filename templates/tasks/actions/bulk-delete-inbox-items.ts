@@ -14,7 +14,7 @@ export const bulkDeleteInboxItemsSchema = z.object({
 
 export default defineAction({
   description:
-    "Delete multiple inbox items permanently. Ask the user to confirm before calling.",
+    "Delete multiple inbox items permanently. Use delete-inbox-item for one item. Ask the user to confirm before calling.",
   schema: bulkDeleteInboxItemsSchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);

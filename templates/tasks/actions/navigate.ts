@@ -37,7 +37,7 @@ export const navigateSchema = z.object({
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view. Writes a navigate command to application state which the UI reads and auto-deletes.",
+    "Navigate the Tasks UI to a view, optionally selecting a task or custom field.",
   schema: navigateSchema,
   http: false,
   run: async (args) => {

@@ -14,7 +14,7 @@ export const bulkDeleteTasksSchema = z.object({
 
 export default defineAction({
   description:
-    "Delete multiple tasks permanently. Ask the user to confirm before calling.",
+    "Delete multiple tasks permanently. Use delete-task for one task. Ask the user to confirm before calling.",
   schema: bulkDeleteTasksSchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);

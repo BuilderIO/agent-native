@@ -10,7 +10,8 @@ export const createInboxItemSchema = z.object({
 });
 
 export default defineAction({
-  description: "Create a not-ready inbox item with a title.",
+  description:
+    "Create a not-ready inbox item for later triage. Use create-task when the user explicitly wants it added directly to the task list.",
   schema: createInboxItemSchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);

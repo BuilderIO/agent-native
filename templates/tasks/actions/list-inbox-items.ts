@@ -6,7 +6,7 @@ import { listInboxItems, requireUserEmail } from "../server/inbox/store.js";
 export const listInboxItemsSchema = z.object({});
 
 export default defineAction({
-  description: "List inbox items for the current user (not-ready capture).",
+  description: "List not-ready inbox items awaiting triage.",
   schema: listInboxItemsSchema,
   http: { method: "GET" },
   readOnly: true,
