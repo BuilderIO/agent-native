@@ -336,6 +336,7 @@ const messages = {
     addOwnKeys: "Add your own keys",
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
+    connectionUnavailable: "Unable to check AI connection. Click to retry.",
     voiceMode: {
       entryButtonLabel: "Use microphone",
       promptTitle: "Use your voice",
