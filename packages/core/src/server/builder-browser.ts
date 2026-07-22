@@ -197,7 +197,9 @@ export function signBuilderPreviewRelayState(input: {
 }
 
 function builderRelayTargetDomainSuffixes(): string[] {
-  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? ".builderio.xyz")
+  return (
+    process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? ".builderio.xyz"
+  )
     .split(",")
     .map((suffix) => suffix.trim().toLowerCase())
     .filter((suffix) => {
@@ -220,7 +222,6 @@ function builderRelayTargetDomainSuffixes(): string[] {
       }
     });
 }
-
 
 export function verifyBuilderPreviewRelayState(
   state: string | null | undefined,
@@ -338,19 +339,11 @@ export function verifyBuilderRelayRequest(input: {
 } | null {
   const timestamp = Number(input.timestamp);
   const now = input.now ?? Date.now();
-  if (!Number.isFinite(timestamp)) {
-    return null;
-  }
-  if (Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS) {
-    return null;
-  }
-  if (!input.flowId) {
-    return null;
-  }
-  if (!input.signature) {
-    return null;
-  }
   if (
+    !Number.isFinite(timestamp) ||
+    Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS ||
+    !input.flowId ||
+    !input.signature ||
     !safeEqualText(
       builderRelayRequestSignature(timestamp, input.flowId, input.body),
       input.signature,
@@ -365,19 +358,11 @@ export function verifyBuilderRelayRequest(input: {
     return null;
   }
   const payload = verifyBuilderPreviewRelayState(body.relayState, { now });
-  if (!payload) {
-    return null;
-  }
-  if (payload.flowId !== input.flowId) {
-    return null;
-  }
-  if (payload.targetOrigin !== input.requestOrigin) {
-    return null;
-  }
-  if (payload.basePath !== input.requestBasePath) {
-    return null;
-  }
   if (
+    !payload ||
+    payload.flowId !== input.flowId ||
+    payload.targetOrigin !== input.requestOrigin ||
+    payload.basePath !== input.requestBasePath ||
     !body.credentials ||
     typeof body.credentials.privateKey !== "string" ||
     typeof body.credentials.publicKey !== "string" ||
@@ -411,7 +396,6 @@ export function verifyBuilderRelayRequest(input: {
     },
   };
 }
-
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
