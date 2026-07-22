@@ -7457,6 +7457,84 @@ describe("runAgentLoop", () => {
     expect(events.at(-1)).toEqual({ type: "done" });
   });
 
+  it("collapses duplicate assistant tool-call ids before execution and replay", async () => {
+    let streamCalls = 0;
+    let replayedMessages: EngineMessage[] | undefined;
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "recording result");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "call_duplicate",
+                name: "list-session-recordings",
+                input: { userId: "tim@builder.io", limit: 1 },
+              },
+              {
+                type: "tool-call" as const,
+                id: "call_duplicate",
+                name: "list-session-recordings",
+                input: { userId: "tim@builder.io", limit: 1 },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        replayedMessages = opts.messages;
+        yield { type: "text-delta", text: "Found it." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Found it." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "list-session-recordings": {
+          ...actionEntry({ readOnly: true }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events.filter((event) => event.type === "tool_start")).toHaveLength(
+      1,
+    );
+    const replayedToolCalls =
+      replayedMessages
+        ?.flatMap((message) => message.content)
+        .filter((part) => part.type === "tool-call") ?? [];
+    expect(replayedToolCalls).toHaveLength(1);
+    expect(replayedToolCalls[0]).toMatchObject({ id: "call_duplicate" });
+  });
+
   it("does not carry streamed tool calls across a retry", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => "should not execute");
