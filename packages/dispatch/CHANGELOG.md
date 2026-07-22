@@ -1,5 +1,15 @@
 # @agent-native/dispatch
 
+## 0.15.11
+
+### Patch Changes
+
+- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
+- 03a043e: Make template feedback controls opt in through `VITE_AGENT_NATIVE_FEEDBACK_URL` so cloned apps do not send feedback to Agent Native by default.
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+  - @agent-native/toolkit@0.9.1
+
 ## 0.15.10
 
 ### Patch Changes

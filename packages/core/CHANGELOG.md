@@ -1,5 +1,33 @@
 # @agent-native/core
 
+## 0.116.0
+
+### Minor Changes
+
+- 03a043e: Improve Agent Resources settings with contextual documentation links, cleaner file empty states, and file-name creation that defaults extensionless files to Markdown.
+- 03a043e: Add explicit collaboration access modes for resource-scoped and intentionally
+  deployment-wide authenticated documents, with legacy compatibility and Doctor
+  guidance for implicit configurations.
+- 03a043e: Add a catalog-driven in-chat MCP connection suggestion that recognizes Granola
+  and resumes the pending chat request after OAuth or direct connection setup.
+
+### Patch Changes
+
+- 03a043e: Expose the Google Drive workspace connection and provider API to Analytics for Google Sheets exports.
+- 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
+- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
+- 03a043e: Improve the MCP device authorization success message hierarchy by separating the confirmation title from the follow-up connection guidance.
+- 03a043e: Keep page-chat controls clear of messages, continue shared sync in background tabs at a relaxed cadence, and make the latest tool visibly active until the turn finishes.
+- 03a043e: Trim the MCP connection authorization page by removing redundant branding and status pills.
+- 03a043e: Make template feedback controls opt in through `VITE_AGENT_NATIVE_FEEDBACK_URL` so cloned apps do not send feedback to Agent Native by default.
+- 03a043e: Ensure interrupted or empty agent runs always end with a visible final response instead of a bare tool call.
+- 03a043e: Keep the active chat tab fully visible while the right sidebar opens and its tab strip expands.
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+  - @agent-native/toolkit@0.9.1
+  - @agent-native/recap-cli@0.5.1
+
 ## 0.115.4
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.1
+
+### Patch Changes
+
+- 03a043e: Retry transient recap document-load timeouts and only embed screenshot previews when both light and dark themes are available.
+
 ## 0.5.0
 
 ### Minor Changes
