@@ -81,26 +81,6 @@ Recherchez les nouveaux enregistrements depuis la dernière exécution réussie.
 
 La tâche stocke des noms d'outils, pas des URL MCP, des jetons d'accès ou des jetons d'actualisation OAuth. À l'exécution, le framework résout l'autorisation connectée dans le contexte de requête du créateur ou de l'organisation de la tâche et n'expose que les outils de la liste d'autorisation. Gardez cette liste restreinte et utilisez une action d'application idempotente pour l'import final afin que des exécutions qui se chevauchent ne créent pas de doublons. Consultez [Clients MCP](/docs/mcp-clients) pour la configuration de la connexion et d'OAuth.
 
-## Connecter des outils MCP à une tâche {#connected-mcps}
-
-Les tâches récurrentes peuvent utiliser des outils MCP distants ou locaux déjà connectés à l'application. Demandez à l'agent de découvrir les noms exacts avec `tool-search`, puis liez uniquement les outils nécessaires via `mcpTools :`
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-Recherchez les nouveaux enregistrements depuis la dernière exécution réussie.
-Extrayez uniquement les suivis exploitables, puis appelez une fois l'action
-d'import bornée de l'application avec des identifiants source et externes
-stables, une courte citation et l'URL de l'enregistrement. N'importez pas la
-transcription complète.
-```
-
-La tâche ne stocke que les noms d'outils, pas les URL MCP, les jetons d'accès ni les jetons de renouvellement OAuth. À l'exécution, le framework résout l'autorisation connectée dans le contexte de requête du créateur de la tâche ou de l'organisation et n'expose que les outils autorisés. Gardez la liste courte et utilisez une action d'application idempotente pour l'import final afin que les exécutions qui se chevauchent ne créent pas de doublons. Consultez [MCP Clients](/docs/mcp-clients) pour la connexion et la configuration OAuth.
-
 ## Syntaxe Cron {#cron}
 
 Cron standard à 5 champs (minute, heure, jour du mois, mois, jour de la semaine) :

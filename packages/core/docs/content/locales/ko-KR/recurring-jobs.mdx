@@ -80,25 +80,6 @@ mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_trans
 
 작업은 MCP URL, 액세스 토큰 또는 OAuth 새로 고침 토큰이 아니라 도구 이름을 저장합니다. 실행 시 프레임워크는 작업 생성자 또는 조직의 요청 컨텍스트에서 연결된 grant를 확인하고 허용 목록의 도구만 노출합니다. 목록은 좁게 유지하고, 겹치는 실행으로 중복 항목이 생기지 않도록 최종 가져오기에는 멱등성 app action을 사용하세요. 연결 및 OAuth 설정은 [MCP Clients](/docs/mcp-clients)를 참조하세요.
 
-## 작업에 MCP 도구 연결 {#connected-mcps}
-
-반복 작업은 앱에 이미 연결된 원격 또는 로컬 MCP 도구를 사용할 수 있습니다. 에이전트에게 `tool-search`로 정확한 이름을 찾게 한 다음 `mcpTools`에 작업에 필요한 도구만 지정하세요.
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-마지막 성공 실행 이후의 새 녹음을 찾습니다. 실행 가능한 후속 조치만
-추출한 뒤 안정적인 source 및 external ID, 짧은 인용, 녹음 URL을 포함하여
-앱의 제한된 import action을 한 번 호출합니다. 전체 transcript는 import하지
-않습니다.
-```
-
-작업에는 도구 이름만 저장하며 MCP URL, access token 또는 OAuth refresh token은 저장하지 않습니다. 실행 시 프레임워크는 작업 생성자 또는 조직의 request context에서 연결된 grant를 해석하고 allowlist에 지정된 도구만 노출합니다. 목록을 작게 유지하고 최종 import에는 멱등적인 app action을 사용하여 겹치는 실행이 중복을 만들지 않게 하세요. 연결 및 OAuth 설정은 [MCP Clients](/docs/mcp-clients)를 참고하세요.
-
 ## 크론 구문 {#cron}
 
 표준 5필드 크론(분, 시간, 일, 월, 요일):

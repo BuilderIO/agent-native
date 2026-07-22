@@ -81,25 +81,6 @@ Busca nuevas grabaciones desde la última ejecución satisfactoria. Extrae solo 
 
 El trabajo almacena nombres de herramientas, no URL de MCP, tokens de acceso ni tokens de actualización de OAuth. En tiempo de ejecución, el framework resuelve la concesión conectada en el contexto de solicitud del creador o de la organización del trabajo y expone solo las herramientas de la lista de permitidos. Mantén la lista reducida y utiliza una acción idempotente de la aplicación para la importación final, de modo que las ejecuciones superpuestas no creen duplicados. Consulta [Clientes MCP](/docs/mcp-clients) para configurar la conexión y OAuth.
 
-## Conectar herramientas MCP a un trabajo {#connected-mcps}
-
-Los trabajos recurrentes pueden usar herramientas MCP remotas o locales que ya estén conectadas a la aplicación. Pide al agente que descubra los nombres exactos con `tool-search` y vincula solo las herramientas necesarias mediante `mcpTools`:
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-Busca grabaciones nuevas desde la última ejecución correcta. Extrae solo los
-seguimientos accionables y llama una vez a la acción de importación limitada de
-la aplicación con identificadores de origen y externos estables, una cita
-breve y la URL de la grabación. No importes la transcripción completa.
-```
-
-El trabajo guarda solo nombres de herramientas, no URL de MCP, tokens de acceso ni tokens de actualización OAuth. En tiempo de ejecución, el marco resuelve la concesión conectada en el contexto de solicitud del creador del trabajo o de la organización y expone únicamente las herramientas permitidas. Mantén la lista pequeña y usa una acción de aplicación idempotente para la importación final, de modo que las ejecuciones superpuestas no creen duplicados. Consulta [MCP Clients](/docs/mcp-clients) para la configuración de conexión y OAuth.
-
 ## Sintaxis cron {#cron}
 
 Cron estándar de 5 campos (minuto, hora, día del mes, mes, día de la semana):

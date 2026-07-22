@@ -80,25 +80,6 @@ mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_trans
 
 ジョブが保存するのはツール名であり、MCP URL、アクセストークン、OAuth リフレッシュトークンではありません。実行時にフレームワークが、ジョブ作成者または組織のリクエストコンテキストで接続済み grant を解決し、許可リストにあるツールだけを公開します。リストは狭く保ち、重複実行で重複が生じないよう、最終インポートには冪等な app action を使用してください。接続と OAuth の設定については、[MCP Clients](/docs/mcp-clients) を参照してください。
 
-## ジョブに MCP ツールを接続する {#connected-mcps}
-
-定期ジョブでは、アプリに接続済みのリモートまたはローカル MCP ツールを利用できます。エージェントに `tool-search` で正確な名前を見つけさせ、ジョブに必要なツールだけを `mcpTools` に指定します。
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-前回の成功実行以降の新しい録音を探します。実行可能なフォローアップ
-だけを抽出し、安定したソース ID と外部 ID、短い引用、録音 URL を含めて
-アプリの限定インポート action を 1 回だけ呼び出します。全文の文字起こし
-はインポートしません。
-```
-
-ジョブに保存されるのはツール名だけで、MCP URL、アクセストークン、OAuth リフレッシュトークンは保存されません。実行時にフレームワークがジョブ作成者または組織のリクエストコンテキストで接続済み grant を解決し、allowlist にあるツールだけを公開します。リストは小さく保ち、最後のインポートには冪等なアプリ action を使って、重複実行で重複データが作られないようにします。接続と OAuth の設定は [MCP Clients](/docs/mcp-clients) を参照してください。
-
 ## Cron 構文 {#cron}
 
 標準の 5 フィールド cron (分、時、日、月、曜日):

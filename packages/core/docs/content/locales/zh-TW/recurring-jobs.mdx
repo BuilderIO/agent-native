@@ -80,24 +80,6 @@ mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_trans
 
 工作儲存的是工具名稱，而非 MCP URL、存取權杖或 OAuth 重新整理權杖。執行時，框架會在工作建立者或組織的請求脈絡中解析已連線的授權，並且只公開允許清單中的工具。請保持清單精簡，且最後匯入時使用冪等的應用程式 action，以避免重疊執行產生重複項目。關於連線與 OAuth 設定，請參閱 [MCP Clients](/docs/mcp-clients)。
 
-## 將 MCP 工具連線到作業 {#connected-mcps}
-
-定期作業可以使用已連線到應用程式的遠端或本機 MCP 工具。讓代理透過 `tool-search` 找到確切名稱，然後只在 `mcpTools` 中繫結作業需要的工具：
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-尋找上次成功執行之後的新錄音。只擷取可執行的後續事項，然後使用穩定的
-來源 ID 和外部 ID、簡短引用及錄音 URL 呼叫一次應用程式的有界匯入 action。
-不要匯入完整轉錄。
-```
-
-作業只儲存工具名稱，不儲存 MCP URL、存取權杖或 OAuth 更新權杖。執行時，框架會在作業建立者或組織的請求脈絡中解析已連線的授權，並且只公開 allowlist 中的工具。請保持清單精簡，並在最後匯入時使用具冪等性的應用程式 action，避免重疊執行建立重複項目。連線與 OAuth 設定請參閱 [MCP Clients](/docs/mcp-clients)。
-
 ## cron 語法 {#cron}
 
 標準 5 欄位 cron（分鐘、小時、月份、月份、星期幾）：

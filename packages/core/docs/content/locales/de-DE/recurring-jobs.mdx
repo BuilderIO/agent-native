@@ -81,25 +81,6 @@ Suchen Sie seit dem letzten erfolgreichen Lauf nach neuen Aufzeichnungen. Extrah
 
 Der Job speichert Toolnamen, keine MCP-URLs, Zugriffstoken oder OAuth-Refresh-Tokens. Zur Laufzeit löst das Framework den verbundenen Zugriff im Anfragekontext des Erstellers oder der Organisation des Jobs auf und stellt nur die Tools aus der Allowlist bereit. Halten Sie die Liste eng und verwenden Sie für den endgültigen Import eine idempotente App-Aktion, damit sich überschneidende Läufe keine Duplikate erzeugen. Informationen zur Verbindung und OAuth-Einrichtung finden Sie unter [MCP-Clients](/docs/mcp-clients).
 
-## MCP-Tools mit einem Job verbinden {#connected-mcps}
-
-Wiederkehrende Jobs können bereits mit der App verbundene Remote- oder lokale MCP-Tools verwenden. Lassen Sie den Agenten die exakten Namen mit `tool-search` finden und binden Sie dann nur die benötigten Tools über `mcpTools`:
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-Finde neue Aufnahmen seit dem letzten erfolgreichen Lauf. Extrahiere nur
-umsetzbare Follow-ups und rufe dann einmal die begrenzte Import-Aktion der App
-mit stabilen Quell- und externen IDs, einer kurzen Quellenangabe und der
-Aufnahme-URL auf. Importiere nicht das vollständige Transkript.
-```
-
-Der Job speichert nur Toolnamen, keine MCP-URLs, Zugriffstoken oder OAuth-Refresh-Tokens. Zur Laufzeit löst das Framework die verbundene Berechtigung im Anfragekontext des Job-Erstellers oder der Organisation auf und stellt nur die allowlisteten Tools bereit. Halten Sie die Liste klein und verwenden Sie für den finalen Import eine idempotente App-Aktion, damit überlappende Läufe keine Duplikate erzeugen. Siehe [MCP Clients](/docs/mcp-clients) für Verbindungs- und OAuth-Einrichtung.
-
 ## Cron-Syntax {#cron}
 
 Standard-Cron mit 5 Feldern (Minute, Stunde, Tag des Monats, Monat, Wochentag):

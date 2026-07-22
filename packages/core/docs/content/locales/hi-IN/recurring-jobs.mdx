@@ -80,24 +80,6 @@ mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_trans
 
 जॉब MCP URL, access token या OAuth refresh token नहीं, केवल टूल नाम संग्रहीत करता है। रन टाइम पर फ़्रेमवर्क जॉब के creator या organization request context में कनेक्टेड grant का समाधान करता है और केवल allowlist वाले टूल उपलब्ध कराता है। सूची को सीमित रखें और अंतिम इंपोर्ट के लिए idempotent app action का उपयोग करें, ताकि ओवरलैप होने वाले रन डुप्लिकेट न बनाएं। कनेक्शन और OAuth सेटअप के लिए [MCP Clients](/docs/mcp-clients) देखें।
 
-## किसी कार्य से MCP टूल कनेक्ट करना {#connected-mcps}
-
-आवर्ती कार्य उन रिमोट या स्थानीय MCP टूल का उपयोग कर सकते हैं जो ऐप से पहले से कनेक्ट हैं। एजेंट से `tool-search` द्वारा सटीक नाम खोजने को कहें, फिर `mcpTools` में केवल आवश्यक टूल जोड़ें:
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-पिछली सफल रन के बाद की नई रिकॉर्डिंग खोजें। केवल कार्रवाई योग्य फॉलो-अप
-निकालें, फिर स्थिर स्रोत और बाहरी आईडी, छोटा संदर्भ और रिकॉर्डिंग URL के साथ
-ऐप की सीमित import action को एक बार कॉल करें। पूरा ट्रांसक्रिप्ट import न करें।
-```
-
-कार्य केवल टूल नाम संग्रहीत करता है, MCP URL, access token या OAuth refresh token नहीं। रन के समय फ्रेमवर्क कार्य निर्माता या संगठन के request context में कनेक्टेड grant को हल करता है और केवल allowlist किए गए टूल उपलब्ध कराता है। सूची छोटी रखें और अंतिम import के लिए idempotent app action का उपयोग करें ताकि overlapping runs डुप्लिकेट न बनाएँ। कनेक्शन और OAuth सेटअप के लिए [MCP Clients](/docs/mcp-clients) देखें।
-
 ## क्रॉन सिंटैक्स {#cron}
 
 मानक 5-फ़ील्ड क्रोन (मिनट, घंटा, महीने का दिन, महीना, सप्ताह का दिन):

@@ -80,24 +80,6 @@ mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_trans
 
 作业存储的是工具名称，而不是 MCP URL、访问令牌或 OAuth 刷新令牌。运行时，框架会在作业创建者或组织的请求上下文中解析已连接的授权，并且只公开允许列表中的工具。请保持列表精简，并对最终导入使用幂等的应用 action，以避免重叠运行产生重复项。有关连接和 OAuth 设置，请参阅 [MCP Clients](/docs/mcp-clients)。
 
-## 将 MCP 工具连接到作业 {#connected-mcps}
-
-定期作业可以使用已连接到应用的远程或本地 MCP 工具。让代理通过 `tool-search` 找到准确名称，然后只在 `mcpTools` 中绑定作业需要的工具：
-
-```md
----
-schedule: "0 * * * *"
-enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
----
-
-查找上次成功运行之后的新录音。只提取可执行的后续事项，然后使用稳定的
-来源 ID 和外部 ID、简短引用及录音 URL 调用一次应用的有界导入 action。
-不要导入完整转录。
-```
-
-作业只保存工具名称，不保存 MCP URL、访问令牌或 OAuth 刷新令牌。运行时，框架会在作业创建者或组织的请求上下文中解析已连接的授权，并且只公开 allowlist 中的工具。请保持列表精简，并在最终导入时使用幂等的应用 action，避免重叠运行创建重复项。连接和 OAuth 设置请参阅 [MCP Clients](/docs/mcp-clients)。
-
 ## cron 语法 {#cron}
 
 标准 5 字段 cron（分钟、小时、月份、月份、星期几）：
