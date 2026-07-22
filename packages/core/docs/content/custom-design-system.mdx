@@ -188,14 +188,14 @@ the version 1 semantic contract.
 The runnable MUI and Ant Design Chat examples register all 17 components and
 render 16/17 through those adapters in the normalized shared surfaces:
 
-| Adapter component | Reachable proving surface |
-| --- | --- |
-| `ActionButton`, `IconButton` | Chat-history rail, settings actions, sharing actions |
-| `TextField`, `TextArea`, `Picker`, `Checkbox`, `Switch`, `Tabs` | Settings and sharing controls |
-| `Dialog`, `Avatar`, `Status` | Share dialog |
-| `Tooltip`, `Popover`, `Spinner`, `Skeleton` | Agent-panel, runs-tray, and sidebar chrome |
-| `Surface` | Builder connection card |
-| `Menu` | Explicit gap: the agent-panel header menu embeds the live `RunsTrayMenuItem` compound submenu, which the v1 data-only menu contract cannot express |
+| Adapter component                                               | Reachable proving surface                                                                                                                          |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ActionButton`, `IconButton`                                    | Chat-history rail, settings actions, sharing actions                                                                                               |
+| `TextField`, `TextArea`, `Picker`, `Checkbox`, `Switch`, `Tabs` | Settings and sharing controls                                                                                                                      |
+| `Dialog`, `Avatar`, `Status`                                    | Share dialog                                                                                                                                       |
+| `Tooltip`, `Popover`, `Spinner`, `Skeleton`                     | Agent-panel, runs-tray, and sidebar chrome                                                                                                         |
+| `Surface`                                                       | Builder connection card                                                                                                                            |
+| `Menu`                                                          | Explicit gap: the agent-panel header menu embeds the live `RunsTrayMenuItem` compound submenu, which the v1 data-only menu contract cannot express |
 
 The `Menu` row is intentionally called out rather than counted as bridged.
 The assistant-ui composer/message renderer, cmdk command-menu internals, and
