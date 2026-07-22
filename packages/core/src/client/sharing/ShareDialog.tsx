@@ -1,16 +1,13 @@
-import { Button } from "@agent-native/toolkit/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@agent-native/toolkit/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
+  ActionButton,
+  Avatar as DesignSystemAvatar,
+  Dialog as DesignSystemDialog,
+  Picker,
+  Status,
+  TextArea,
+  TextField,
+  Tabs,
+} from "@agent-native/toolkit/design-system";
 import {
   IconCheck,
   IconCode,
@@ -118,39 +115,29 @@ export function ShareDialog({
   if (!open) return null;
 
   return (
-    <Dialog open={controller.open} onOpenChange={controller.onOpenChange}>
-      <DialogContent
-        hideClose
-        motion="instant"
-        overlayClassName="!z-[2000] !bg-black/40 !backdrop-blur-none !transition-none"
-        className="!top-4 !z-[2010] !block !max-h-none !w-[calc(100vw-2rem)] !max-w-lg !translate-y-0 !gap-0 !overflow-visible !rounded-xl !border-border !bg-popover !p-0 !text-popover-foreground !shadow-2xl sm:!top-1/2 sm:!-translate-y-1/2"
-        aria-label={controller.title}
-      >
-        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
-          <div className="min-w-0 flex-1">
-            <DialogTitle
-              className="truncate !text-base !leading-normal !tracking-normal !text-inherit"
-              title={controller.title}
-            >
-              {controller.title}
-            </DialogTitle>
-            {controller.ownerLabel ? (
-              <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                {controller.ownerLabel}
-              </div>
-            ) : null}
+    <DesignSystemDialog
+      open={controller.open}
+      onOpenChange={controller.onOpenChange}
+      title={
+        <span
+          className="truncate !text-base !leading-normal !tracking-normal !text-inherit"
+          title={controller.title}
+        >
+          {controller.title}
+        </span>
+      }
+      closeLabel={controller.labels.close}
+      size="large"
+      className="!top-4 !z-[2010] !block !max-h-none !w-[calc(100vw-2rem)] !max-w-lg !translate-y-0 !gap-0 !overflow-visible !rounded-xl !border-border !bg-popover !p-0 !text-popover-foreground !shadow-2xl sm:!top-1/2 sm:!-translate-y-1/2"
+      aria-label={controller.title}
+    >
+      <div className="px-5 pt-0 pb-3">
+        {controller.ownerLabel ? (
+          <div className="truncate text-xs text-muted-foreground">
+            {controller.ownerLabel}
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={controller.labels.close}
-            onClick={controller.close}
-            className={cn(BUTTON_GHOST_ICON, "[&_svg]:!size-auto")}
-          >
-            <IconX size={16} />
-          </Button>
-        </div>
+        ) : null}
+      </div>
 
         {controller.tabsEnabled ? (
           <div
@@ -158,10 +145,10 @@ export function ShareDialog({
             aria-label={controller.labels.shareOptions}
             className="mx-5 mt-1 flex gap-1 border-b border-border"
           >
-            {controller.tabs.map((tab) => {
-              const Icon = TAB_ICONS[tab.value];
-              return (
-                <TabTrigger
+          {controller.tabs.map((tab) => {
+            const Icon = TAB_ICONS[tab.value];
+            return (
+              <TabTrigger
                   key={tab.value}
                   active={controller.activeTab === tab.value}
                   onClick={() => controller.setActiveTab(tab.value)}
@@ -189,18 +176,17 @@ export function ShareDialog({
         </div>
 
         <div className="flex justify-end border-t border-border px-5 py-3">
-          <Button
+          <ActionButton
             type="button"
             intent="primary"
             emphasis="solid"
-            onClick={controller.close}
+            onPress={controller.close}
             className={BUTTON_PRIMARY_SM}
           >
             {controller.labels.done}
-          </Button>
+          </ActionButton>
         </div>
-      </DialogContent>
-    </Dialog>
+    </DesignSystemDialog>
   );
 }
 
