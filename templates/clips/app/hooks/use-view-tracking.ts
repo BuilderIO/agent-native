@@ -46,10 +46,17 @@ export interface UseViewTrackingOpts {
  * Wires up the view-event tracker for a player instance. Fires a "view-start"
  * on mount, then throttled "watch-progress" every 5s while playing, plus
  * seek/pause/resume events and a final flush on unmount.
+ *
+ * Runs on every render (no dependency array) but only re-attaches listeners
+ * when `videoRef.current` actually changes identity — e.g. an edit-mode
+ * toggle unmounts/remounts the player. Reading the latest opts through a ref
+ * keeps long-lived listener closures (which may outlive several renders)
+ * from ever using stale values like `durationMs`.
  */
 export function useViewTracking(opts: UseViewTrackingOpts) {
-  const { recordingId, videoRef, durationMs, disabled, trackOpenWithoutVideo } =
-    opts;
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
+
   const watchMsRef = useRef(0);
   const lastTickRef = useRef<number | null>(null);
   const startedRef = useRef(false);
@@ -57,16 +64,36 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
   const lastSentProgressRef = useRef(0);
   const maxPctRef = useRef(0);
   const viewSessionRef = useRef<string | null>(null);
+  const attachedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const hasAttachedRef = useRef(false);
+  const cleanupRef = useRef<() => void>(() => {});
 
   useEffect(() => {
-    if (disabled) return;
+    const { recordingId, videoRef, disabled, trackOpenWithoutVideo } =
+      optsRef.current;
+
+    if (disabled) {
+      cleanupRef.current();
+      cleanupRef.current = () => {};
+      hasAttachedRef.current = true;
+      attachedVideoRef.current = null;
+      return;
+    }
+
     const video = videoRef.current;
+    if (hasAttachedRef.current && video === attachedVideoRef.current) return;
+
+    cleanupRef.current();
+    hasAttachedRef.current = true;
+    attachedVideoRef.current = video;
+
     if (!video) {
       if (
         !trackOpenWithoutVideo ||
         !recordingId ||
         openTrackedRecordingRef.current === recordingId
       ) {
+        cleanupRef.current = () => {};
         return;
       }
       openTrackedRecordingRef.current = recordingId;
@@ -87,6 +114,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
           payload: { source: "iframe-open" },
         }),
       }).catch(() => {});
+      cleanupRef.current = () => {};
       return;
     }
 
@@ -105,6 +133,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         | "reaction",
       extra?: Record<string, unknown>,
     ) {
+      const { recordingId, videoRef, durationMs } = optsRef.current;
       const v = videoRef.current;
       if (!v) return;
       const completedPct =
@@ -180,7 +209,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
     video.addEventListener("seeked", onSeek);
     video.addEventListener("ended", onEnded);
 
-    return () => {
+    cleanupRef.current = () => {
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("seeked", onSeek);
@@ -189,7 +218,11 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       // Flush final progress.
       if (startedRef.current) post("watch-progress");
     };
-  }, [recordingId, videoRef, durationMs, disabled, trackOpenWithoutVideo]);
+  });
+
+  useEffect(() => {
+    return () => cleanupRef.current();
+  }, []);
 
   return {
     reportCtaClick: () => {
@@ -198,7 +231,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recordingId,
+          recordingId: optsRef.current.recordingId,
           kind: "cta-click",
           sessionId: getSessionId(),
         }),
@@ -210,7 +243,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recordingId,
+          recordingId: optsRef.current.recordingId,
           kind: "reaction",
           sessionId: getSessionId(),
           payload: { emoji },
