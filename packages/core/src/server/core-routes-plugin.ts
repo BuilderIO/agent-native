@@ -2343,6 +2343,7 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
           const rawBody = await readBuilderRelayRequestBody(event);
+          console.log(`shomix - relay rawBody - ${JSON.stringify(rawBody)});
           const result = await consumeBuilderRelayRequest(
             {
               rawBody,
@@ -2474,6 +2475,7 @@ export function createCoreRoutesPlugin(
                 },
                 { maxRedirects: 0, httpsOnly: true },
               );
+              console.log(`shomix - relay response - ${JSON.stringify(response)}`);
               if (!response.ok) {
                 throw new Error(
                   `Preview relay rejected the callback (${response.status}).`,
