@@ -258,28 +258,53 @@ describe("extensions/store", () => {
 
   it("excludes globally-hidden extensions by default and includes them on request", async () => {
     const allRows = [
-      { id: "ext-visible", name: "Visible", hiddenAt: null },
+      {
+        id: "ext-visible",
+        name: "Visible",
+        archivedAt: null,
+        hiddenAt: null,
+      },
       {
         id: "ext-hidden",
         name: "Hidden",
+        archivedAt: null,
         hiddenAt: "2026-06-08T00:00:00.000Z",
       },
+      {
+        id: "ext-archived",
+        name: "Archived",
+        archivedAt: "2026-07-22T00:00:00.000Z",
+        hiddenAt: null,
+      },
     ];
-    // The helper combines accessFilter() with isNull(hiddenAt) via and() for
-    // the default case, and skips it when includeGloballyHidden is true. We
-    // spy on and()/isNull() (keeping the real drizzle module intact so
-    // schema.ts's sql`` template still works) to detect which branch ran and
+    // The helper combines accessFilter() with isNull(archivedAt) and, for the
+    // default case, isNull(hiddenAt). Spy on and()/isNull() (keeping the real
+    // drizzle module intact so schema.ts's sql`` template still works) to
     // emulate the DB-side filter deterministically.
-    const andSpy = vi.fn(() => ({ __hidesVisible: true }));
-    const isNullSpy = vi.fn(() => ({}));
+    const andSpy = vi.fn((...args: unknown[]) => ({
+      __filter: args.some(
+        (arg) => (arg as { kind?: string } | null)?.kind === "hidden",
+      )
+        ? "default"
+        : "global",
+      args,
+    }));
+    let isNullCall = 0;
+    const isNullSpy = vi.fn(() => ({
+      kind: ++isNullCall <= 2 ? "hidden" : "archived",
+    }));
     const db = {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
           where: vi.fn((where: unknown) =>
             Promise.resolve(
-              where && (where as any).__hidesVisible
-                ? allRows.filter((row) => row.hiddenAt == null)
-                : allRows,
+              (where as any).__filter === "default"
+                ? allRows.filter(
+                    (row) => row.archivedAt == null && row.hiddenAt == null,
+                  )
+                : (where as any).__filter === "global"
+                  ? allRows.filter((row) => row.archivedAt == null)
+                  : allRows,
             ),
           ),
         })),
