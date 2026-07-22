@@ -21,6 +21,7 @@ import {
   cloudflareWorkerStubAliasArgs,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
+  emitSingleTemplateNetlifyKeepWarmFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
   generateCloudflarePagesStaticShellFromManifest,
@@ -1505,6 +1506,39 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       "server-agent-background",
     );
   }
+
+  function keepWarmDir(cwd: string): string {
+    return path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "agent-native-keep-warm",
+    );
+  }
+
+  it("emits a site-local scheduled function that warms the real server route", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entryPath = path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs");
+    expect(fs.existsSync(entryPath)).toBe(true);
+    const entry = fs.readFileSync(entryPath, "utf8");
+    expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain("await fetch(url");
+    expect(entry).toContain("agent-native-netlify-keep-warm");
+    expect(entry).not.toMatch(/^\s*path:/m);
+  });
+
+  it("does not emit a keep-warm function without Nitro's server bundle", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+  });
 
   it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
     // Default-off (opt-in) matches the runtime gate (isFlagEnabled) — durable is

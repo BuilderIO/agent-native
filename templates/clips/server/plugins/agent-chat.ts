@@ -18,6 +18,7 @@ const INITIAL_TOOL_NAMES = [
   "list-recordings",
   "search-recordings",
   "get-recording-player-data",
+  "prepare-crm-call-evidence",
   "request-transcript",
   "create-recording",
   "import-loom-recording",

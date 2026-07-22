@@ -104,6 +104,10 @@ function ToolLongRunningHintShell({
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
+  // useState initializer runs once at mount: a row that mounts already
+  // resolved never animates, while a tool appended during an active stream
+  // mounts running and animates in.
+  const [animateEntry] = useState(isRunning);
 
   useEffect(() => {
     if (!isRunning) {
@@ -118,14 +122,21 @@ function ToolLongRunningHintShell({
   }, [isRunning, toolName]);
 
   return (
-    <>
+    <div
+      className={cn(
+        "agent-tool-call",
+        animateEntry &&
+          "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-[var(--ease-out-strong)]",
+      )}
+      data-running={isRunning ? "true" : undefined}
+    >
       {children}
       {isRunning && showLongRunningHint && (
         <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
           Still working. Large updates can take a minute or two.
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -542,6 +553,7 @@ export function ToolCallDisplay({
   structuredMeta,
   approval,
   repeatCount,
+  isLatestRunning = isRunning,
 }: {
   toolName: string;
   argsText?: string;
@@ -553,6 +565,7 @@ export function ToolCallDisplay({
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
+  isLatestRunning?: boolean;
 }) {
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
@@ -603,6 +616,7 @@ export function ToolCallDisplay({
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={isRunning}
+      isLatestRunning={isLatestRunning}
       approval={approval}
       repeatCount={repeatCount}
     />,
@@ -617,6 +631,7 @@ function ToolCallDisplayGeneric({
   mcpApp,
   chatUI,
   isRunning,
+  isLatestRunning,
   approval,
   repeatCount,
 }: {
@@ -627,6 +642,7 @@ function ToolCallDisplayGeneric({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  isLatestRunning: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
@@ -786,7 +802,14 @@ function ToolCallDisplayGeneric({
             </>
           )}
         </span>
-        <span className="min-w-0 truncate font-normal">{displayName}</span>
+        <span
+          className={cn(
+            "min-w-0 truncate font-normal",
+            isRunning && isLatestRunning && "agent-running-shimmer",
+          )}
+        >
+          {displayName}
+        </span>
         {repeatCount && repeatCount > 1 && (
           <span
             className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
@@ -864,6 +887,7 @@ export function ToolCallFallback({
   activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
+  isLatestRunning?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning =
@@ -884,6 +908,7 @@ export function ToolCallFallback({
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      isLatestRunning={rest.isLatestRunning}
       approval={rest.approval}
       repeatCount={rest.repeatCount}
     />
@@ -910,6 +935,15 @@ export function ReconnectStreamMessage({
     content.at(-1)?.type === "text" ? content.length - 1 : -1;
   const streamingReasoningPartIndex =
     content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
+  const latestRunningToolIndex = content.reduce(
+    (latestIndex, part, index) =>
+      part.type === "tool-call" &&
+      part.result === undefined &&
+      (chatRunning || part.activity === true)
+        ? index
+        : latestIndex,
+    -1,
+  );
 
   const renderPart = (part: ContentPart, i: number) => {
     if (part.type === "text") {
@@ -949,6 +983,7 @@ export function ReconnectStreamMessage({
         isRunning={
           part.result === undefined && (chatRunning || part.activity === true)
         }
+        isLatestRunning={i === latestRunningToolIndex}
         approval={part.approval}
         repeatCount={part.repeatCount}
       />

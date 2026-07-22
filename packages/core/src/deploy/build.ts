@@ -2368,6 +2368,83 @@ export function isDurableBackgroundDeployEnabled(): boolean {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
+const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
+
+/**
+ * Emit a site-local Netlify Scheduled Function that wakes the public server
+ * function and its database every minute. GitHub Actions schedules can be
+ * delayed by tens of minutes, which is longer than a scale-to-zero database's
+ * autosuspend window and leaves the next visitor to pay the cold-start cost.
+ */
+export function emitSingleTemplateNetlifyKeepWarmFunction(
+  projectCwd: string,
+): void {
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverBundle = path.join(internalDir, "server", "main.mjs");
+  if (!fs.existsSync(serverBundle)) {
+    console.warn(
+      "[build] Keep-warm emit skipped: expected Nitro Netlify function at " +
+        ".netlify/functions-internal/server/main.mjs was not found.",
+    );
+    return;
+  }
+
+  const dest = path.join(internalDir, NETLIFY_KEEP_WARM_FUNCTION_NAME);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+
+  const entry = `const HEALTH_PATH = "/_agent-native/health";
+const REQUEST_TIMEOUT_MS = 25_000;
+
+function siteOrigin(request) {
+  const configured = process.env.URL || process.env.DEPLOY_URL;
+  if (configured) return configured;
+  return new URL(request.url).origin;
+}
+
+export default async function handler(request) {
+  const url = new URL(HEALTH_PATH, siteOrigin(request));
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { "user-agent": "agent-native-netlify-keep-warm" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error("[agent-native-keep-warm] Health request failed:", url.toString(), error);
+    throw error;
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      "[agent-native-keep-warm] Health request failed with " +
+        response.status +
+        ": " +
+        body.slice(0, 500),
+    );
+  }
+
+  console.log("[agent-native-keep-warm] Warmed", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native server keep warm",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+};
+`;
+
+  fs.writeFileSync(
+    path.join(dest, `${NETLIFY_KEEP_WARM_FUNCTION_NAME}.mjs`),
+    entry,
+  );
+  console.log(
+    `[build] Emitted Netlify scheduled keep-warm function "${NETLIFY_KEEP_WARM_FUNCTION_NAME}".`,
+  );
+}
+
 /**
  * Single-template Netlify build: emit an async (background) function INSIDE the
  * scanned functions dir so the chat `_process-run` worker runs on Netlify's
@@ -3551,24 +3628,26 @@ export default bundle;
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
-  // Durable background agent runs (default-OFF / opt-in; enable with a truthy
-  // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
-  // function whose name ends in `-background` re-exporting the same handler
-  // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-  // function. When not opted in this is a no-op and the single-function
-  // deploy is byte-for-byte unchanged.
-  if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
-    try {
-      emitSingleTemplateNetlifyBackgroundFunction(cwd);
-    } catch (err) {
-      console.warn(
-        "[build] Failed to emit durable-background Netlify function (non-fatal):",
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
-
   if (preset === "netlify") {
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    // Durable background agent runs (default-OFF / opt-in; enable with a truthy
+    // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
+    // function whose name ends in `-background` re-exporting the same handler
+    // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
+    // function. When not opted in this is a no-op and the single-function
+    // deploy is byte-for-byte unchanged.
+    if (isDurableBackgroundDeployEnabled()) {
+      try {
+        emitSingleTemplateNetlifyBackgroundFunction(cwd);
+      } catch (err) {
+        console.warn(
+          "[build] Failed to emit durable-background Netlify function (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     writeSingleTemplateNetlifyRedirects(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }

@@ -124,6 +124,7 @@ async function handleDefine(
     condition: args.condition || undefined,
     mode: "agentic",
     domain: args.domain || undefined,
+    delegatedPolicyId: args.delegated_policy_id || undefined,
     createdBy: owner,
     runAs: "creator",
   };
@@ -162,6 +163,9 @@ async function handleUpdate(
   }
   if (args.condition !== undefined) {
     meta.condition = args.condition || undefined;
+  }
+  if (args.delegated_policy_id !== undefined) {
+    meta.delegatedPolicyId = args.delegated_policy_id || undefined;
   }
   const newBody = args.body ?? body;
 
@@ -235,8 +239,8 @@ export function createAutomationToolEntries(
 
 - **list-events**: List all registered event types that automations can subscribe to. Returns event names, descriptions, and payload schemas. Call this BEFORE defining an automation to discover available events.
 - **list**: List all automations (triggers). Shows name, event, condition, mode, status, and domain. Optional params: domain, enabled_only.
-- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: event, schedule, condition, mode, domain.
-- **update**: Update an existing automation's settings (enabled, condition, body, etc.). Required param: name. Optional: enabled, condition, body.
+- **define**: Create a new automation. IMPORTANT: Always confirm with the user before calling — show them a summary of what will be created. Required params: name, trigger_type, body. Optional: event, schedule, condition, mode, domain, delegated_policy_id.
+- **update**: Update an existing automation's settings (enabled, condition, body, delegated_policy_id, etc.). Required param: name.
 - **delete**: Delete an automation. Always confirm with the user first. Required param: name.
 - **fire-test**: Fire a test event to validate automations. Emits a test.event.fired event. Optional param: data (JSON string).`,
         parameters: {
@@ -283,6 +287,11 @@ export function createAutomationToolEntries(
               type: "string",
               description:
                 "Domain tag for grouping (mail, calendar, clips, etc.). Used by define and list.",
+            },
+            delegated_policy_id: {
+              type: "string",
+              description:
+                "Optional app-owned stored policy id. It is passed by the trusted trigger runtime, never as action input. Only use an id documented by the app.",
             },
             body: {
               type: "string",

@@ -60,8 +60,26 @@ Das ist es. Der Hauptteil ist eine Eingabeaufforderung, die der Agent bei jeder 
 | `lastStatus` | `"success"` \| `"error"` \| … | _(verwaltet)_    | Neuestes Ergebnis.                                                                                                                             |
 | `lastError`  | Zeichenfolge                  | _(verwaltet)_    | Fehlermeldung, wenn der letzte Lauf fehlgeschlagen ist.                                                                                        |
 | `nextRun`    | ISO-Zeitstempel               | _(verwaltet)_    | Berechnet aus `schedule`; Wird vom Planer verwendet, um zu entscheiden, wann das nächste Mal ausgelöst wird.                                   |
+| `mcpTools`   | Array von MCP-Toolnamen       | _(keine)_        | Optionale explizite Allowlist wie `mcp__server__tool`; Anmeldedaten bleiben im verbundenen MCP-Zugriff.                                        |
 
 Die Felder `last*` und `nextRun` werden vom Scheduler geschrieben. Sie können sie lesen, um den Verlauf anzuzeigen, aber bearbeiten Sie sie nicht manuell – beim nächsten Durchlauf werden sie überschrieben.
+
+## MCP-Tools mit einem Job verbinden {#connected-mcps}
+
+Wiederkehrende Jobs können entfernte oder lokale MCP-Tools verwenden, die bereits mit der App verbunden sind. Bitten Sie den Agenten, die exakten Namen mit `tool-search` zu ermitteln, und binden Sie dann mit `mcpTools` nur die Tools ein, die der Job benötigt:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Suchen Sie seit dem letzten erfolgreichen Lauf nach neuen Aufzeichnungen. Extrahieren Sie nur umsetzbare Nachfassaktionen und rufen Sie dann die begrenzte Importaktion der App einmal mit stabilen Quellen- und externen IDs, einem kurzen Zitat und der Aufzeichnungs-URL auf. Importieren Sie nicht das vollständige Transkript.
+```
+
+Der Job speichert Toolnamen, keine MCP-URLs, Zugriffstoken oder OAuth-Refresh-Tokens. Zur Laufzeit löst das Framework den verbundenen Zugriff im Anfragekontext des Erstellers oder der Organisation des Jobs auf und stellt nur die Tools aus der Allowlist bereit. Halten Sie die Liste eng und verwenden Sie für den endgültigen Import eine idempotente App-Aktion, damit sich überschneidende Läufe keine Duplikate erzeugen. Informationen zur Verbindung und OAuth-Einrichtung finden Sie unter [MCP-Clients](/docs/mcp-clients).
 
 ## Cron-Syntax {#cron}
 
@@ -191,12 +209,12 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 
 In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter `action` wählt die Operation aus:
 
-| Aktion   | Parameter                                                             | Zweck                                                                          |
-| -------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                              |
-| `list`   | `scope` (`personal`, `shared` oder alle)                              | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
-| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs` | Bestehenden Job bearbeiten                                                     |
-| `delete` | `name` (erforderlich)                                                 | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
+| Aktion   | Parameter                                                                         | Zweck                                                                          |
+| -------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`, `mcpTools`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                              |
+| `list`   | `scope` (`personal`, `shared` oder alle)                                          | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
+| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Bestehenden Job bearbeiten                                                     |
+| `delete` | `name` (erforderlich)                                                             | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
 
 **Persönlicher vs. gemeinsamer Bereich.** Jeder Job befindet sich entweder im persönlichen Bereich (läuft als und ist nur für den Ersteller sichtbar) oder im freigegebenen/organisatorischen Bereich (wird im Namen des Erstellers ausgeführt, ist aber für Organisationsmitglieder sichtbar). Die Parameter `scope` und `runAs` steuern dies zum Zeitpunkt der Erstellung. Organisationsadministratoren können alle freigegebenen Jobs aktualisieren oder löschen. Nicht-Administrator-Mitglieder können nur ihre eigenen verwalten.
 

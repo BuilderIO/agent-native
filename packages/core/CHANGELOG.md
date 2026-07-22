@@ -1,5 +1,52 @@
 # @agent-native/core
 
+## 0.115.4
+
+### Patch Changes
+
+- 2154ad1: Fix Builder preview credential relay failing behind a proxy. The relay handler now derives the request origin from `x-forwarded-host`/`x-forwarded-proto` (via `getBuilderBrowserOriginForEvent`) instead of the internal loopback host, so `targetOrigin` verification passes on hosted preview deployments.
+
+## 0.115.3
+
+### Patch Changes
+
+- a841109: Teach visual-plan agents to create and promote full-fidelity design surfaces without losing scoped CSS or duplicating an existing plan.
+
+## 0.115.2
+
+### Patch Changes
+
+- f0601ec: Collapse duplicate assistant tool-call ids in the shared agent loop so providers do not reject replayed tool-call history.
+
+## 0.115.1
+
+### Patch Changes
+
+- 321567c: Add `app-branding` and `app-permissions` to the default framework skill set. `app-branding` is layout-aware — it handles both the centralized `app/lib/app-config.ts` source-of-truth layout and the inlined layout where the name/title live across `package.json`, route `meta()`, and `app/root.tsx`. Generated apps using `frameworkSkills: "default"` now receive both skills on scaffold and `skills update`.
+
+## 0.115.0
+
+### Minor Changes
+
+- 0341a7d: Allow the published CLI to scaffold the hidden CRM template explicitly, and include factory-backed actions in production static registries.
+- 0341a7d: Pass trusted trigger automation lineage and a stored policy id to action runs.
+- 0341a7d: Add reusable per-app dashboard storage factories, bounded revision history, and provider-neutral panel source resolvers.
+- 0341a7d: Add Salesforce workspace connections and CRM reader metadata for template-owned integrations.
+
+### Patch Changes
+
+- 0341a7d: Allow hosted authenticated requests to use deployment-level transactional email configuration.
+- 0341a7d: Keep Netlify-hosted apps and their databases warm with site-local scheduled health checks.
+- 0341a7d: Prevent duplicate Thinking statuses and scroll bounce during streamed reasoning, while giving active tool rows a clear live state and new tool rows a subtle entrance.
+- 0341a7d: Require an explicit workspace connection when making Salesforce provider API requests, so each request uses a matched instance URL and OAuth account.
+- 0341a7d: Prevent model gateways from breaking extension edits by using a compact required update contract and normalizing optional placeholder arguments before validation.
+- 0341a7d: Fix Salesforce token refresh when configured with Consumer Key/Secret.
+- 0341a7d: Allow recurring jobs to bind an explicit MCP tool allowlist and resolve those connected capabilities with the job's existing user/org OAuth context.
+- 0341a7d: Teach the agent-native-docs skill to reuse node_modules reference source with rg and cp: version-matched installed source beats web docs, and every first-party template's corpus is fair game to copy and adapt, not just runtime internals that need the customizing-agent-native ladder.
+- 0341a7d: Make the missing-AI composer state visibly actionable with a Connect AI button.
+- Updated dependencies [0341a7d]
+  - @agent-native/toolkit@0.9.0
+
 ## 0.114.16
 
 ### Patch Changes

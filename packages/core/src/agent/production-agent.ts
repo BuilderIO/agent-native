@@ -8,7 +8,11 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import { isAgentActionStopError, type ActionCaller } from "../action.js";
+import {
+  isAgentActionStopError,
+  type ActionAutomationContext,
+  type ActionCaller,
+} from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
@@ -3083,6 +3087,21 @@ function normalizeToolCallInputForHistory(
   return { rawInput: input };
 }
 
+function dedupeAssistantToolCallsById(
+  content: import("./engine/types.js").EngineContentPart[],
+): import("./engine/types.js").EngineContentPart[] {
+  const seenToolCallIds = new Set<string>();
+  const deduped: import("./engine/types.js").EngineContentPart[] = [];
+  for (const part of content) {
+    if (part.type === "tool-call") {
+      if (seenToolCallIds.has(part.id)) continue;
+      seenToolCallIds.add(part.id);
+    }
+    deduped.push(part);
+  }
+  return deduped;
+}
+
 function toolInputSchemaErrorResult(
   toolName: string,
   input: unknown,
@@ -3106,6 +3125,91 @@ const rawToolInputAjv = new Ajv({
 });
 
 const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+
+const optionalPlaceholderAjv = new Ajv({
+  strict: false,
+  allErrors: false,
+  coerceTypes: false,
+  useDefaults: false,
+  removeAdditional: false,
+});
+
+const optionalPlaceholderValidatorCache = new WeakMap<
+  object,
+  ValidateFunction
+>();
+
+function isStructurallyEmptyToolValue(value: unknown): boolean {
+  if (value === false) return true;
+  if (value === null) return true;
+  if (typeof value === "string") return value.trim().length === 0;
+  if (Array.isArray(value)) {
+    return (
+      value.length === 0 ||
+      value.every(
+        (item) =>
+          item !== null &&
+          typeof item === "object" &&
+          !Array.isArray(item) &&
+          Object.keys(item).length === 0,
+      )
+    );
+  }
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.keys(value).length === 0
+  );
+}
+
+function schemaAcceptsToolValue(schema: object, value: unknown): boolean {
+  let validator = optionalPlaceholderValidatorCache.get(schema);
+  if (!validator) {
+    try {
+      validator = optionalPlaceholderAjv.compile(schema);
+      optionalPlaceholderValidatorCache.set(schema, validator);
+    } catch {
+      return false;
+    }
+  }
+  return Boolean(validator(value));
+}
+
+/**
+ * Some model gateways fill every optional tool field with an empty sentinel
+ * instead of omitting it. One schema-invalid empty value proves that pattern;
+ * only then strip the other optional empty/default sentinels from the call.
+ * Calls whose empty values are all schema-valid keep their intentional clears.
+ */
+function normalizeOptionalToolPlaceholders(
+  schema: RawJsonSchema | undefined,
+  input: unknown,
+): { input: unknown; changed: boolean } {
+  if (!schema?.properties || !input || typeof input !== "object") {
+    return { input, changed: false };
+  }
+  if (Array.isArray(input)) return { input, changed: false };
+
+  const required = new Set(
+    Array.isArray(schema.required) ? schema.required : [],
+  );
+  const placeholders: string[] = [];
+  let hasSchemaInvalidPlaceholder = false;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (required.has(key) || !isStructurallyEmptyToolValue(value)) continue;
+    const propertySchema = schema.properties[key];
+    if (!propertySchema || typeof propertySchema !== "object") continue;
+    placeholders.push(key);
+    if (!schemaAcceptsToolValue(propertySchema, value)) {
+      hasSchemaInvalidPlaceholder = true;
+    }
+  }
+  if (!hasSchemaInvalidPlaceholder) return { input, changed: false };
+
+  const normalized = { ...(input as Record<string, unknown>) };
+  for (const key of placeholders) delete normalized[key];
+  return { input: normalized, changed: true };
+}
 
 function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
   const cached = rawToolInputValidatorCache.get(schema);
@@ -3163,6 +3267,8 @@ export async function runAgentLoop(opts: {
   orgId?: string | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
+  /** Trusted trigger lineage for automation-dispatched action calls. */
+  automation?: ActionAutomationContext;
   /** Concrete execution id used for cross-app trace correlation. */
   runId?: string;
   /** Verified/telemetry-only delegated lineage supplied by the transport. */
@@ -3905,6 +4011,8 @@ export async function runAgentLoop(opts: {
       }
     }
 
+    assistantContent = dedupeAssistantToolCallsById(assistantContent);
+
     const assistantContentForHistory = assistantContent.map((part) =>
       part.type === "tool-call"
         ? {
@@ -4068,11 +4176,20 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
+      const actionEntry = actions[toolCall.name];
+      const placeholderNormalization = actionEntry
+        ? normalizeOptionalToolPlaceholders(
+            actionEntry.tool.parameters,
+            toolCall.input,
+          )
+        : { input: toolCall.input, changed: false };
+      if (placeholderNormalization.changed) {
+        toolCall = { ...toolCall, input: placeholderNormalization.input };
+      }
       const wireToolInput = JSON.stringify(toolCall.input ?? {});
       const normalizedToolInput = normalizeToolCallInputForHistory(
         toolCall.input,
       );
-      const actionEntry = actions[toolCall.name];
       const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
         toolName: toolCall.name,
         entry: actionEntry,
@@ -4227,6 +4344,7 @@ export async function runAgentLoop(opts: {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
                     caller: opts.actionCaller ?? "tool",
+                    automation: opts.automation,
                     networkProtocol: opts.networkProtocol,
                     networkId: opts.networkId,
                     networkPeer: opts.networkPeer,
@@ -4490,7 +4608,7 @@ export async function runAgentLoop(opts: {
       });
 
       const toolCallSchemaError = toolCallErrors.get(toolCall.id);
-      if (toolCallSchemaError) {
+      if (toolCallSchemaError && !placeholderNormalization.changed) {
         const result = finalizeToolErrorResult(
           toolInputSchemaErrorResult(
             toolCall.name,
@@ -4663,6 +4781,7 @@ export async function runAgentLoop(opts: {
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
           caller: opts.actionCaller ?? "tool",
+          automation: opts.automation,
           networkProtocol: opts.networkProtocol,
           networkId: opts.networkId,
           networkPeer: opts.networkPeer,

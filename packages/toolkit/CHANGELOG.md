@@ -1,5 +1,17 @@
 # @agent-native/toolkit
 
+## 0.9.0
+
+### Minor Changes
+
+- 0341a7d: Add an ejectable dashboard presentation kit with cards, tables, date ranges, chart state rendering, and layout helpers.
+
+## 0.8.3
+
+### Patch Changes
+
+- 5c78d2d: Fix cramped calendar day grid under Tailwind v4 and make the date picker responsive: smaller cell size on mobile, 20% smaller on desktop, and a viewport-bounded popover width.
+
 ## 0.8.2
 
 ### Patch Changes
