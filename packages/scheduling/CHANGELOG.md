@@ -1,5 +1,17 @@
 # @agent-native/scheduling
 
+## 0.1.32
+
+### Patch Changes
+
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+  - @agent-native/toolkit@0.10.0
+
 ## 0.1.31
 
 ### Patch Changes
