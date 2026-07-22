@@ -197,9 +197,7 @@ export function signBuilderPreviewRelayState(input: {
 }
 
 function builderRelayTargetDomainSuffixes(): string[] {
-  return (
-    process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? ""
-  )
+  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? "")
     .split(",")
     .map((suffix) => suffix.trim().toLowerCase())
     .filter((suffix) => {
