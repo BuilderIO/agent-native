@@ -172,7 +172,20 @@ function findSmartBlock(
 ): HTMLElement | null {
   let el: HTMLElement | null = target;
   while (el && root.contains(el)) {
-    if (isTextLeaf(el)) return el;
+    if (isTextLeaf(el)) {
+      // A bullet/numbered list item must be edited together with its
+      // siblings so Enter can create a new <li> natively — editing a
+      // single <li> in isolation traps Enter inside that one item.
+      const parent = el.parentElement;
+      if (
+        el.tagName === "LI" &&
+        parent &&
+        (parent.tagName === "UL" || parent.tagName === "OL")
+      ) {
+        return parent;
+      }
+      return el;
+    }
     // The click landed on a container (e.g. a flex wrapper around stat
     // rows). If that container is a smart group, use IT as the block so
     // the user gets multi-chunk editing of everything inside.
@@ -1218,7 +1231,9 @@ export default function SlideEditor({
     // intent (rich-block edit vs single-line commit) doesn't change while
     // they're editing the same node, so latch it.
     const isMultiLineLeaf =
-      isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName);
+      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
+      ((editingEl.tagName === "UL" || editingEl.tagName === "OL") &&
+        isSmartGroup(editingEl));
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -1750,6 +1765,17 @@ export default function SlideEditor({
 
       showImageOverlay(target);
 
+      // A single click directly on text enters edit mode immediately —
+      // matches the double-click behavior so highlighting text and using
+      // formatting shortcuts works without an extra click first.
+      if (!readOnly && isHtmlSlide && slideContent) {
+        const block = findSmartBlock(target, slideContent);
+        if (block) {
+          enterInlineEdit(block);
+          return;
+        }
+      }
+
       // Send style-editing postMessage with a unique selector for the clicked element
       const selectableEl = slideContent
         ? findSelectableElement(target, slideContent)
@@ -1772,6 +1798,9 @@ export default function SlideEditor({
       clearMultiSelection,
       clearSelectedElement,
       selectElementForStyling,
+      readOnly,
+      isHtmlSlide,
+      enterInlineEdit,
     ],
   );
 
