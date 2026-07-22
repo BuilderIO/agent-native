@@ -383,10 +383,39 @@ const signalsSchema = [
   ),
 ].join(";\n");
 
+const dashboardsSchema = [
+  ownableTable(
+    "crm_dashboards",
+    `  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT 'Untitled',
+  config TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_by TEXT,
+  archived_at TEXT`,
+  ),
+  ownableTable(
+    "crm_dashboard_revisions",
+    `  id TEXT PRIMARY KEY,
+  dashboard_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  config TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_by TEXT`,
+  ),
+  sharesTable("crm_dashboard_shares"),
+  `CREATE INDEX IF NOT EXISTS crm_dashboards_owner_updated_idx ON crm_dashboards (owner_email, org_id, updated_at)`,
+  `CREATE INDEX IF NOT EXISTS crm_dashboard_revisions_dashboard_created_idx ON crm_dashboard_revisions (dashboard_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS crm_dashboard_shares_principal_idx ON crm_dashboard_shares (resource_id, principal_type, principal_id)`,
+].join(";\n");
+
 const runCrmMigrations = runMigrations(
   [
     { version: 1, name: "crm-initial-thin-mirror-schema", sql: initialSchema },
     { version: 2, name: "crm-signals-engine-schema", sql: signalsSchema },
+    { version: 3, name: "crm-dashboard-storage-schema", sql: dashboardsSchema },
   ],
   { table: "crm_migrations" },
 );

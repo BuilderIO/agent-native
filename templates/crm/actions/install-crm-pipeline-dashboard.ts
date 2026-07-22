@@ -1,8 +1,5 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
-import {
-  runDataProgram,
-  upsertDataProgram,
-} from "@agent-native/core/data-programs";
+import { upsertDataProgram } from "@agent-native/core/data-programs";
 import { z } from "zod";
 
 import { crmDashboardStore } from "../server/db/index.js";
@@ -11,30 +8,22 @@ import {
   createPipelineDashboardConfig,
   crmPipelineDashboardId,
   CRM_PIPELINE_PROGRAM_CODE,
+  CRM_PIPELINE_PROGRAM_COLUMNS,
   CRM_PIPELINE_PROGRAM_NAME,
   CRM_PIPELINE_PROGRAM_TITLE,
   CRM_PIPELINE_REFRESH_TTL_MS,
   CRM_PIPELINE_DASHBOARD_TITLE,
   requireDashboardAccess,
 } from "./_crm-dashboard.js";
+import getCrmPipelineData from "./get-crm-pipeline-data.js";
 
 export default defineAction({
   description:
-    "Install or update your CRM Pipeline dashboard and its owned data program. Safe to rerun: it verifies the program first, upserts it by owner and name, then revision-writes the dashboard.",
+    "Install or update your CRM Pipeline dashboard and its owned data program. Safe to rerun: it verifies the access-scoped source first, upserts the program by owner and name, then revision-writes the dashboard.",
   schema: z.object({}),
   run: async (_args, ctx?: ActionRunContext) => {
     const access = requireDashboardAccess(ctx);
-    const preview = await runDataProgram({
-      code: CRM_PIPELINE_PROGRAM_CODE,
-      params: {},
-      ctx: { userEmail: access.userEmail, orgId: access.orgId ?? null },
-      triggeredBy: "preview",
-    });
-    if (!preview.ok) {
-      throw new Error(
-        `CRM Pipeline dashboard program verification failed (${preview.error.code}): ${preview.error.message}`,
-      );
-    }
+    const preview = await getCrmPipelineData.run({}, ctx);
 
     const program = await upsertDataProgram({
       appId: CRM_APP_ID,
@@ -43,7 +32,7 @@ export default defineAction({
       description:
         "Access-scoped opportunity totals by stage for the CRM Pipeline dashboard.",
       code: CRM_PIPELINE_PROGRAM_CODE,
-      outputColumns: JSON.stringify(preview.schema),
+      outputColumns: JSON.stringify(CRM_PIPELINE_PROGRAM_COLUMNS),
       refreshMode: "ttl",
       refreshTtlMs: CRM_PIPELINE_REFRESH_TTL_MS,
       background: false,
@@ -84,7 +73,7 @@ export default defineAction({
       created: !existing,
       programPreview: {
         rowCount: preview.rows.length,
-        columns: preview.schema,
+        columns: CRM_PIPELINE_PROGRAM_COLUMNS,
         truncated: preview.truncated,
       },
     };

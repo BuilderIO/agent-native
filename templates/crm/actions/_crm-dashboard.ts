@@ -10,12 +10,14 @@ export const CRM_PIPELINE_PROGRAM_NAME = "crm-pipeline-by-stage";
 export const CRM_PIPELINE_PROGRAM_TITLE = "CRM pipeline by stage";
 export const CRM_PIPELINE_REFRESH_TTL_MS = 5 * 60_000;
 
-export const CRM_PIPELINE_PROGRAM_CODE = `const result = await appAction("get-crm-pipeline-data");
-emit(result.rows, [
+export const CRM_PIPELINE_PROGRAM_COLUMNS = [
   { name: "stage", type: "string" },
   { name: "pipelineValue", type: "number" },
   { name: "opportunities", type: "number" },
-]);`;
+] as const;
+
+export const CRM_PIPELINE_PROGRAM_CODE = `const result = await appAction("get-crm-pipeline-data");
+emit(result.rows, ${JSON.stringify(CRM_PIPELINE_PROGRAM_COLUMNS, null, 2)});`;
 
 export function requireDashboardAccess(
   ctx?: ActionRunContext,

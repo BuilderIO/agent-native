@@ -4,6 +4,7 @@ import {
   createPipelineDashboardConfig,
   crmPipelineDashboardId,
   CRM_PIPELINE_PROGRAM_CODE,
+  CRM_PIPELINE_PROGRAM_COLUMNS,
 } from "./_crm-dashboard.js";
 
 describe("CRM Pipeline dashboard pack", () => {
@@ -39,5 +40,8 @@ describe("CRM Pipeline dashboard pack", () => {
       'appAction("get-crm-pipeline-data")',
     );
     expect(CRM_PIPELINE_PROGRAM_CODE).toContain("emit(result.rows");
+    expect(CRM_PIPELINE_PROGRAM_CODE).toContain(
+      JSON.stringify(CRM_PIPELINE_PROGRAM_COLUMNS, null, 2),
+    );
   });
 });

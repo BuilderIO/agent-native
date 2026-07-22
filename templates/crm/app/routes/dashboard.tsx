@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { CrmDashboardPanel } from "@/components/crm/CrmDashboardPanel";
 import { PageHeader, SetupEmptyState } from "@/components/crm/Surface";
 import { crmDashboardMetaTitle } from "@/i18n/en-US";
+import { dashboardDataPanelId } from "@/lib/dashboard";
 import type { CrmDashboard } from "@/lib/types";
 
 export function meta() {
@@ -108,6 +109,7 @@ export default function DashboardRoute() {
             key={panel.id}
             dashboardId={dashboard.id}
             panel={panel}
+            dataPanelId={dashboardDataPanelId(dashboard.config.panels, panel)}
           />
         ))}
       </div>

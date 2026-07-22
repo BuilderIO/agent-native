@@ -22,13 +22,15 @@ type PanelResult = {
 export function CrmDashboardPanel({
   dashboardId,
   panel,
+  dataPanelId = panel.id,
 }: {
   dashboardId: string;
   panel: CrmDashboardPanelConfig;
+  dataPanelId?: string;
 }) {
   const query = useActionQuery<PanelResult>(
     "get-crm-dashboard-panel" as never,
-    { dashboardId, panelId: panel.id } as never,
+    { dashboardId, panelId: dataPanelId } as never,
   );
   const error = query.error instanceof Error ? query.error.message : undefined;
   const rows = query.data?.rows ?? [];
