@@ -106,7 +106,13 @@ export default defineConfig({
 });
 ```
 
-플러그인은 빌드 시 가상 테마 CSS를 생성해 공개 캐시 가능 셸에 주입합니다. 버전 1에서는 요청별 또는 조직별로 테마를 선택하지 않습니다.
+개발 환경과 React Router 프로덕션 빌드 모두에 포함되도록 앱 루트에서 가상 스타일시트를 한 번 import합니다.
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+플러그인은 해당 가상 테마 CSS를 빌드 시 생성합니다. 시맨틱 토큰은 scaffold의 fallback 값을 재정의하지만 fallback 전용 토큰은 제거하지 않습니다. 버전 1에서는 요청별 또는 조직별로 테마를 선택하지 않습니다.
 
 ## 17가지 시맨틱 계약
 

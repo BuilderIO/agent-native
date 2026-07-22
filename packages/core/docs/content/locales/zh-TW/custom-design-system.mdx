@@ -106,7 +106,13 @@ export default defineConfig({
 });
 ```
 
-外掛會產生虛擬主題 CSS，並在建置時將其注入公開、可快取的 shell。版本 1 不會根據每個請求或組織選擇主題。
+從應用程式根目錄匯入一次虛擬樣式表，讓開發環境和 React Router 正式環境建置都包含它：
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+外掛會在建置時產生該虛擬主題 CSS。其語意 token 會覆寫 scaffold 的 fallback 值，但不會移除僅作為 fallback 的 token。版本 1 不會根據每個請求或組織選擇主題。
 
 ## 17 個語意契約
 

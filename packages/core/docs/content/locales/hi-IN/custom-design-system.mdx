@@ -106,7 +106,13 @@ export default defineConfig({
 });
 ```
 
-Plugin बिल्ड-टाइम पर virtual theme CSS बनाकर उसे सार्वजनिक, cacheable shell में inject करता है। Version 1 प्रति request या organization के लिए अलग थीम नहीं चुनता।
+Virtual stylesheet को app root से एक बार import करें, ताकि development और React Router production builds दोनों इसे शामिल करें:
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+Plugin उस virtual theme CSS को build-time पर बनाता है। उसके semantic tokens scaffold की fallback values को override करते हैं, लेकिन केवल fallback के रूप में उपलब्ध tokens को हटाते नहीं हैं। Version 1 प्रति request या organization के लिए अलग theme नहीं चुनता।
 
 ## 17 semantic contracts
 

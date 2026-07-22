@@ -133,8 +133,16 @@ export default defineConfig({
 });
 ```
 
-Das Plugin erzeugt das virtuelle Theme-CSS und fügt es zur Buildzeit in die
-öffentliche, cachebare Shell ein. Version 1 wählt kein Theme pro Anfrage oder
+Importieren Sie das virtuelle Stylesheet einmal aus dem App-Root, damit es in
+Entwicklungs- und React-Router-Produktionsbuilds enthalten ist:
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+Das Plugin erzeugt dieses virtuelle Theme-CSS zur Buildzeit. Seine semantischen
+Tokens überschreiben die Fallback-Werte des Scaffolds, ohne reine
+Fallback-Tokens zu entfernen. Version 1 wählt kein Theme pro Anfrage oder
 Organisation.
 
 ## Die 17 semantischen Verträge

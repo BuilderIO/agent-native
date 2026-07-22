@@ -106,7 +106,13 @@ export default defineConfig({
 });
 ```
 
-O plugin gera o CSS virtual do tema e o injeta no shell público armazenável em cache durante o build. A versão 1 não escolhe um tema por solicitação nem por organização.
+Importe a folha de estilos virtual uma vez pela raiz do aplicativo para incluí-la tanto no desenvolvimento quanto nos builds de produção do React Router:
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+O plugin gera esse CSS virtual do tema durante o build. Seus tokens semânticos substituem os valores de fallback do scaffold sem remover tokens que existem apenas como fallback. A versão 1 não escolhe um tema por solicitação nem por organização.
 
 ## Os 17 contratos semânticos
 

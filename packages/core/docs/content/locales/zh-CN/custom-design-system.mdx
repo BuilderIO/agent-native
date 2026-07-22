@@ -106,7 +106,13 @@ export default defineConfig({
 });
 ```
 
-插件会在构建时生成虚拟主题 CSS，并将其注入公开且可缓存的 shell。版本 1 不会按请求或按组织选择主题。
+从应用根目录导入一次虚拟样式表，使开发环境和 React Router 生产构建都包含它：
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+插件会在构建时生成该虚拟主题 CSS。其语义 token 会覆盖脚手架的 fallback 值，但不会移除仅作 fallback 的 token。版本 1 不会按请求或按组织选择主题。
 
 ## 17 个语义契约
 
