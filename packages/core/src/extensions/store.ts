@@ -184,7 +184,9 @@ export async function ensureExtensionsTables(): Promise<void> {
       await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
       await ensureExtensionsArchivedColumn(client, pg);
-      await retryOnDdlRace(() => client.execute(EXTENSIONS_ARCHIVED_AT_INDEX_SQL));
+      await retryOnDdlRace(() =>
+        client.execute(EXTENSIONS_ARCHIVED_AT_INDEX_SQL),
+      );
       await ensureExtensionsGlobalHideColumns(client, pg);
       await retryOnDdlRace(() =>
         client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL),
@@ -370,7 +372,11 @@ async function ensureExtensionsArchivedColumn(
   await client
     .execute("ALTER TABLE tools ADD COLUMN archived_at TEXT")
     .catch((err: any) => {
-      if (!String(err?.message ?? err).toLowerCase().includes("duplicate")) {
+      if (
+        !String(err?.message ?? err)
+          .toLowerCase()
+          .includes("duplicate")
+      ) {
         throw err;
       }
     });
