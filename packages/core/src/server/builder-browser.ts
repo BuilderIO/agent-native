@@ -26,6 +26,8 @@ export const BUILDER_RELAY_STATE_PARAM = "_an_relay";
 export const BUILDER_RELAY_SECRET_ENV = "AGENT_NATIVE_BUILDER_RELAY_SECRET";
 export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
   "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS";
+export const BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV =
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES";
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
@@ -151,15 +153,18 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
   ) {
     return false;
   }
-  const configured = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
-  if (!configured) return false;
-  return configured
+  const exactOriginMatch = (process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean)
     .some((origin) => origin === value && !origin.includes("*"));
+  return (
+    exactOriginMatch ||
+    builderRelayTargetDomainSuffixes().some((suffix) =>
+      hostname.endsWith(suffix),
+    )
+  );
 }
-
 export function signBuilderPreviewRelayState(input: {
   ownerEmail: string;
   targetOrigin: string;
@@ -189,6 +194,31 @@ export function signBuilderPreviewRelayState(input: {
     "base64url",
   );
   return { state: `${encoded}.${builderRelayMac(encoded)}`, payload };
+}
+
+function builderRelayTargetDomainSuffixes(): string[] {
+  return (process.env[BUILDER_RELAY_TARGET_DOMAIN_SUFFIXES_ENV] ?? "")
+    .split(",")
+    .map((suffix) => suffix.trim().toLowerCase())
+    .filter((suffix) => {
+      if (!suffix.startsWith(".") || suffix.includes("*")) return false;
+      const hostname = suffix.slice(1);
+      if (!hostname.includes(".") || hostname.length > 253) return false;
+      if (
+        !hostname
+          .split(".")
+          .every((label) =>
+            /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label),
+          )
+      ) {
+        return false;
+      }
+      try {
+        return new URL(`https://${hostname}`).hostname === hostname;
+      } catch {
+        return false;
+      }
+    });
 }
 
 export function verifyBuilderPreviewRelayState(
