@@ -3,6 +3,7 @@ import {
   IconBuilding,
   IconChecklist,
   IconLayoutDashboard,
+  IconChartBar,
   IconMessageCircle,
   IconPencilCheck,
   IconRoute,
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 
 const navigation = [
   { to: "/", label: "My work", icon: IconLayoutDashboard, end: true },
+  { to: "/dashboard", label: "Pipeline", icon: IconChartBar },
   { to: "/accounts", label: "Accounts", icon: IconBuilding },
   { to: "/people", label: "People", icon: IconUsers },
   { to: "/opportunities", label: "Opportunities", icon: IconRoute },

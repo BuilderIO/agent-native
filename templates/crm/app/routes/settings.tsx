@@ -2,8 +2,13 @@ import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
   SettingsTabsPage,
   useAgentSettingsTabs,
+  type SettingsTabItem,
 } from "@agent-native/core/client/settings";
+import { IconWaveSine } from "@tabler/icons-react";
+import { useMemo } from "react";
 import { useLocation } from "react-router";
+
+import { IntelligenceSettings } from "@/components/crm/IntelligenceSettings";
 
 import changelog from "../../CHANGELOG.md?raw";
 
@@ -13,10 +18,25 @@ export function meta() {
 
 export default function SettingsRoute() {
   const location = useLocation();
-  const tabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const tabs = useMemo<SettingsTabItem[]>(
+    () => [
+      {
+        id: "intelligence",
+        label: "Intelligence",
+        icon: IconWaveSine,
+        keywords: "signals trackers keywords smart detectors call evidence",
+        content: <IntelligenceSettings />,
+      },
+      ...agentSettingsTabs,
+    ],
+    [agentSettingsTabs],
+  );
   const defaultTab = location.pathname.includes("connections")
     ? "connections"
-    : "general";
+    : location.pathname.includes("intelligence")
+      ? "intelligence"
+      : "general";
 
   return (
     <SettingsTabsPage

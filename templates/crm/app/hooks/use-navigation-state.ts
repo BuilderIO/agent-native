@@ -10,6 +10,8 @@ export interface CrmNavigationState {
   recordId?: string;
   viewId?: string;
   query?: string;
+  settingsSection?: "intelligence";
+  dashboardId?: string;
 }
 
 export interface CrmNavigateCommand {
@@ -17,6 +19,8 @@ export interface CrmNavigateCommand {
   recordId?: string;
   viewId?: string;
   query?: string;
+  settingsSection?: "intelligence";
+  dashboardId?: string;
 }
 
 export function useNavigationState() {
@@ -26,6 +30,7 @@ export function useNavigationState() {
     getNavigationState: ({ pathname, search }) => {
       const params = new URLSearchParams(search);
       const recordMatch = pathname.match(/^\/records\/([^/?#]+)/);
+      const settingsMatch = pathname.match(/^\/settings\/([^/?#]+)/);
       return {
         view: viewFromPath(pathname),
         path: appPath(`${pathname}${search}`),
@@ -33,14 +38,22 @@ export function useNavigationState() {
           ? decodeURIComponent(recordMatch[1])
           : undefined,
         viewId: params.get("view") ?? undefined,
+        dashboardId: params.get("id") ?? undefined,
         query: params.get("q") ?? undefined,
+        settingsSection:
+          settingsMatch?.[1] === "intelligence" ? "intelligence" : undefined,
       };
     },
     getCommandPath: (command) => {
       const params = new URLSearchParams();
       if (command.viewId) params.set("view", command.viewId);
+      if (command.dashboardId) params.set("id", command.dashboardId);
       if (command.query) params.set("q", command.query);
-      const path = pathForView(command.view, command.recordId);
+      const path = pathForView(
+        command.view,
+        command.recordId,
+        command.settingsSection,
+      );
       return `${path}${params.size ? `?${params}` : ""}`;
     },
   });

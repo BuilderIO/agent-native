@@ -1,7 +1,7 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
 import { accessFilter } from "@agent-native/core/sharing";
-import { desc } from "drizzle-orm";
+import { asc, desc } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -21,7 +21,7 @@ import {
   listCrmSignals,
   listCrmTasks,
 } from "../server/db/crm-store.js";
-import { getDb, schema } from "../server/db/index.js";
+import { crmDashboardStore, getDb, schema } from "../server/db/index.js";
 
 type VisibleView =
   | "work"
@@ -32,6 +32,7 @@ type VisibleView =
   | "tasks"
   | "proposals"
   | "views"
+  | "dashboard"
   | "ask"
   | "setup"
   | "settings";
@@ -47,6 +48,7 @@ export default defineAction({
       view?: VisibleView;
       recordId?: string;
       viewId?: string;
+      dashboardId?: string;
       query?: string;
     } | null;
     const url = await readAppStateForCurrentTab("__url__");
@@ -83,6 +85,21 @@ export default defineAction({
       case "views":
         screen.savedViews = await listCrmSavedViews({ limit: 50 });
         break;
+      case "dashboard":
+        {
+          const dashboards = await crmDashboardStore.list({
+            userEmail: ctx?.userEmail,
+            orgId: ctx?.orgId ?? undefined,
+          });
+          screen.dashboards = dashboards;
+          screen.dashboard = navigation?.dashboardId
+            ? (dashboards.find(
+                (dashboard: { id: string }) =>
+                  dashboard.id === navigation.dashboardId,
+              ) ?? null)
+            : (dashboards[0] ?? null);
+        }
+        break;
       case "ask":
         [screen.overview, screen.savedViews] = await Promise.all([
           getCrmOverview(),
@@ -90,8 +107,11 @@ export default defineAction({
         ]);
         break;
       case "setup":
+        screen.connections = await visibleConnections();
+        break;
       case "settings":
         screen.connections = await visibleConnections();
+        screen.signalTrackers = await visibleSignalTrackers();
         break;
       case "work":
       case undefined:
@@ -158,4 +178,41 @@ async function visibleConnections() {
     .where(accessFilter(schema.crmConnections, schema.crmConnectionShares))
     .orderBy(desc(schema.crmConnections.updatedAt))
     .limit(20);
+}
+
+async function visibleSignalTrackers() {
+  const trackers = await getDb()
+    .select({
+      id: schema.crmSignalTrackers.id,
+      name: schema.crmSignalTrackers.name,
+      description: schema.crmSignalTrackers.description,
+      kind: schema.crmSignalTrackers.kind,
+      keywordsJson: schema.crmSignalTrackers.keywordsJson,
+      classifierPrompt: schema.crmSignalTrackers.classifierPrompt,
+      enabled: schema.crmSignalTrackers.enabled,
+      isDefault: schema.crmSignalTrackers.isDefault,
+    })
+    .from(schema.crmSignalTrackers)
+    .where(
+      accessFilter(schema.crmSignalTrackers, schema.crmSignalTrackerShares),
+    )
+    .orderBy(asc(schema.crmSignalTrackers.name));
+  return trackers.map((tracker) => ({
+    ...tracker,
+    keywords: safeKeywords(tracker.keywordsJson),
+    keywordsJson: undefined,
+  }));
+}
+
+function safeKeywords(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (keyword): keyword is string => typeof keyword === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
 }

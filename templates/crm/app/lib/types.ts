@@ -65,6 +65,22 @@ export interface CrmOverview {
   records?: CrmRecordSummary[];
 }
 
+export interface CrmDashboardPanelConfig {
+  id: string;
+  title: string;
+  source: "program";
+  query: string;
+  chartType: "metric" | "bar" | "table";
+}
+
+export interface CrmDashboard {
+  id: string;
+  kind: "pipeline";
+  title: string;
+  config: { version: 1; panels: CrmDashboardPanelConfig[] };
+  updatedAt: string;
+}
+
 export function recordId(record: unknown): string | undefined {
   if (!record || typeof record !== "object") return undefined;
   const value = record as Record<string, unknown>;

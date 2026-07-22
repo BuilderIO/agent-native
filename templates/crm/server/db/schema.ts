@@ -1,3 +1,4 @@
+import { createDashboardStorageSchema } from "@agent-native/core/dashboard-storage";
 import { getDialect } from "@agent-native/core/db";
 import {
   createSharesTable,
@@ -427,3 +428,14 @@ export const crmSyncRuns = table("crm_sync_runs", {
 });
 
 export const crmSyncRunShares = createSharesTable("crm_sync_run_shares");
+
+const crmDashboardStorageSchema = createDashboardStorageSchema({
+  dashboardsTable: "crm_dashboards",
+  revisionsTable: "crm_dashboard_revisions",
+  sharesTable: "crm_dashboard_shares",
+});
+
+export const crmDashboards = crmDashboardStorageSchema.dashboards;
+export const crmDashboardRevisions =
+  crmDashboardStorageSchema.dashboardRevisions;
+export const crmDashboardShares = crmDashboardStorageSchema.dashboardShares;

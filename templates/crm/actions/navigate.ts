@@ -11,6 +11,7 @@ const viewSchema = z.enum([
   "tasks",
   "proposals",
   "views",
+  "dashboard",
   "ask",
   "setup",
   "settings",
@@ -24,6 +25,7 @@ const paths = {
   tasks: "/tasks",
   proposals: "/proposals",
   views: "/views",
+  dashboard: "/dashboard",
   ask: "/ask",
   setup: "/setup",
   settings: "/settings",
@@ -36,17 +38,25 @@ export default defineAction({
     view: viewSchema,
     recordId: z.string().trim().min(1).max(200).optional(),
     viewId: z.string().trim().min(1).max(200).optional(),
+    dashboardId: z.string().trim().min(1).max(200).optional(),
     query: z.string().trim().max(200).optional(),
+    settingsSection: z.enum(["intelligence"]).optional(),
   }),
   http: false,
   run: async (args) => {
     if (args.view === "record" && !args.recordId) {
       throw new Error("recordId is required when navigating to a CRM record.");
     }
-    const path =
+    const basePath =
       args.view === "record"
         ? `/records/${encodeURIComponent(args.recordId!)}`
-        : paths[args.view];
+        : args.view === "settings" && args.settingsSection
+          ? `/settings/${args.settingsSection}`
+          : paths[args.view];
+    const path =
+      args.view === "dashboard" && args.dashboardId
+        ? `${basePath}?id=${encodeURIComponent(args.dashboardId)}`
+        : basePath;
     await writeAppStateForCurrentTab("navigate", { ...args, path });
     return { navigatingTo: path };
   },

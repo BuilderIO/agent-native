@@ -9,6 +9,7 @@ export default [
   route("tasks", "./routes/tasks.tsx"),
   route("proposals", "./routes/proposals.tsx"),
   route("views", "./routes/views.tsx"),
+  route("dashboard", "./routes/dashboard.tsx"),
   route("ask", "./routes/ask.tsx"),
   route("setup", "./routes/setup.tsx"),
   route("settings/*", "./routes/settings.tsx"),

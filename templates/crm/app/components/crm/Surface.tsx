@@ -55,11 +55,13 @@ export function SetupEmptyState({
   description = "Start with the built-in SQL CRM, or connect a scoped workspace CRM. No provider credentials are stored in this app.",
   onSync,
   isSyncing = false,
+  actionLabel,
 }: {
   title?: string;
   description?: string;
   onSync?: () => void;
   isSyncing?: boolean;
+  actionLabel?: string;
 }) {
   return (
     <div className="grid min-h-[360px] place-items-center p-6">
@@ -84,7 +86,7 @@ export function SetupEmptyState({
           </Button>
           {onSync ? (
             <Button onClick={onSync} disabled={isSyncing}>
-              {isSyncing ? "Syncing…" : "Sync recent records"}
+              {isSyncing ? "Working…" : (actionLabel ?? "Sync recent records")}
             </Button>
           ) : null}
         </div>

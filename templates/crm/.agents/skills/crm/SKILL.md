@@ -56,6 +56,12 @@ and HubSpot/Salesforce Connected/Hybrid behavior.
   results with `record-crm-smart-signal` or one atomic
   `record-crm-call-insight` batch; each quote/timestamp must cite the exact
   bounded evidence row. Use `review-crm-signal` for human confirmation.
+- Use `create-crm-signal-tracker` to add a keyword or smart tracker, and
+  `manage-crm-signal-tracker` to enable, disable, or delete one tracker with
+  editor access. Tracker management is local configuration only: it never
+  invokes a model or mutates a connected provider. Navigate with
+  `{ view: "settings", settingsSection: "intelligence" }` to open the
+  Intelligence settings tab.
 - Do not identify or merge records by email/domain alone. Provider identity is
   connection + provider + object type + remote id, and relationships retain
   direction.
@@ -81,6 +87,14 @@ and HubSpot/Salesforce Connected/Hybrid behavior.
 - Use `list-crm-saved-views` and `save-crm-saved-view` for saved views. Use
   `list-crm-tasks` and `manage-crm-task` for CRM follow-ups. Use `navigate` to
   show a requested view instead of merely describing it.
+- Use `install-crm-pipeline-dashboard` to install the owner-scoped Pipeline
+  dashboard. Its stored data program calls the bounded, access-scoped
+  `get-crm-pipeline-data` action through `appAction`; do not reimplement the
+  aggregate with a provider request or put CRM rows in dashboard config. Use
+  `get-crm-dashboard` / `list-crm-dashboards` to inspect dashboards,
+  `save-crm-dashboard` with `expectedUpdatedAt` for safe edits, and
+  `list-crm-dashboard-revisions` / `restore-crm-dashboard-revision` to review
+  or restore prior dashboard configurations.
 
 ## Four-area provider changes
 

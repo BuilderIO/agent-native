@@ -23,28 +23,32 @@ and write policy.
 
 ## Actions
 
-| Action                                                                | Purpose                                                                                     |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `get-crm-overview`                                                    | Read the scoped CRM summary and connection/mirror health.                                   |
-| `configure-native-crm`                                                | Start a local-authoritative Native SQL CRM without a provider connection.                   |
-| `configure-crm-connection`                                            | Register an authorized HubSpot or Salesforce workspace Connection for the companion mirror. |
-| `list-crm-records`                                                    | List a bounded set of CRM records using declared filters.                                   |
-| `get-crm-record`                                                      | Read one record and its permitted scoped detail.                                            |
-| `sync-crm`                                                            | Refresh a declared mirror cohort; never treat it as an export-all operation.                |
-| `list-crm-saved-views` / `save-crm-saved-view`                        | List or save scoped CRM views.                                                              |
-| `list-crm-tasks` / `manage-crm-task`                                  | Read and manage CRM follow-up tasks.                                                        |
-| `update-crm-record`                                                   | Submit a typed, access-checked, revision-aware record mutation.                             |
-| `list-crm-proposals` / `apply-crm-proposals`                          | Review provider proposals and record the upstream handoff.                                  |
-| `attach-call-evidence`                                                | Attach a bounded call evidence reference; never attach a transcript or media.               |
-| `create-crm-signal-tracker` / `list-crm-signal-trackers`              | Configure or inspect keyword and delegated-agent moment detectors.                          |
-| `run-crm-signal-trackers` / `list-crm-signal-hits`                    | Find deterministic hits and prepare bounded smart/summary agent work.                       |
-| `record-crm-smart-signal` / `record-crm-call-insight`                 | Persist only evidence-grounded delegated results as reviewable signals.                     |
-| `review-crm-signal`                                                   | Confirm or dismiss one grounded CRM signal.                                                 |
-| `view-screen`                                                         | Read current navigation, selection, and visible CRM context.                                |
-| `navigate`                                                            | Move the UI to overview, records, tasks, proposals, or settings.                            |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and make authorized, read-only exact provider API requests.                        |
-| `query-staged-dataset`                                                | Reduce staged, paginated provider results for broad analyses.                               |
-| data program, automation, extension surfaces                          | Use shared framework capabilities under their scoped access and data limits.                |
+| Action                                                                                 | Purpose                                                                                                 |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `get-crm-overview`                                                                     | Read the scoped CRM summary and connection/mirror health.                                               |
+| `configure-native-crm`                                                                 | Start a local-authoritative Native SQL CRM without a provider connection.                               |
+| `configure-crm-connection`                                                             | Register an authorized HubSpot or Salesforce workspace Connection for the companion mirror.             |
+| `list-crm-records`                                                                     | List a bounded set of CRM records using declared filters.                                               |
+| `get-crm-record`                                                                       | Read one record and its permitted scoped detail.                                                        |
+| `sync-crm`                                                                             | Refresh a declared mirror cohort; never treat it as an export-all operation.                            |
+| `list-crm-saved-views` / `save-crm-saved-view`                                         | List or save scoped CRM views.                                                                          |
+| `install-crm-pipeline-dashboard`                                                        | Idempotently verify and install the CRM-owned Pipeline dashboard and data program.                     |
+| `get-crm-pipeline-data`                                                                  | Read bounded, access-scoped opportunity totals by stage for the dashboard program.                     |
+| `get-crm-dashboard` / `list-crm-dashboards` / `save-crm-dashboard`                      | Read, list, or revision-write access-scoped Pipeline dashboards.                                       |
+| `list-crm-dashboard-revisions` / `restore-crm-dashboard-revision`                       | Inspect and restore a dashboard's bounded revision history.                                            |
+| `list-crm-tasks` / `manage-crm-task`                                                   | Read and manage CRM follow-up tasks.                                                                    |
+| `update-crm-record`                                                                    | Submit a typed, access-checked, revision-aware record mutation.                                         |
+| `list-crm-proposals` / `apply-crm-proposals`                                           | Review provider proposals and record the upstream handoff.                                              |
+| `attach-call-evidence`                                                                 | Attach a bounded call evidence reference; never attach a transcript or media.                           |
+| `create-crm-signal-tracker` / `list-crm-signal-trackers` / `manage-crm-signal-tracker` | Create, inspect, enable, disable, or delete access-scoped keyword and delegated-agent moment detectors. |
+| `run-crm-signal-trackers` / `list-crm-signal-hits`                                     | Find deterministic hits and prepare bounded smart/summary agent work.                                   |
+| `record-crm-smart-signal` / `record-crm-call-insight`                                  | Persist only evidence-grounded delegated results as reviewable signals.                                 |
+| `review-crm-signal`                                                                    | Confirm or dismiss one grounded CRM signal.                                                             |
+| `view-screen`                                                                          | Read current navigation, selection, and visible CRM context.                                            |
+| `navigate`                                                                             | Move the UI to overview, records, tasks, proposals, or settings.                                        |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request`                  | Discover and make authorized, read-only exact provider API requests.                                    |
+| `query-staged-dataset`                                                                 | Reduce staged, paginated provider results for broad analyses.                                           |
+| data program, automation, extension surfaces                                           | Use shared framework capabilities under their scoped access and data limits.                            |
 
 ## Agent behavior
 
@@ -70,6 +74,15 @@ and write policy.
   run locally; smart detectors and call summaries are delegated through agent
   chat. Record only exact, bounded evidence citations through the signal record
   actions. Never pass or reconstruct a transcript.
+- Manage a tracker only with editor access. Enabling, disabling, and deleting a
+  tracker are local CRM configuration changes: they never invoke a model or
+  mutate a connected provider. Use `navigate` with
+  `{ view: "settings", settingsSection: "intelligence" }` to open its settings tab.
+- Use `install-crm-pipeline-dashboard` to set up the Pipeline view. It owns one
+  per-user data program that calls `get-crm-pipeline-data`; do not replace it
+  with a provider-specific action or embed raw rows in dashboard config. Use
+  `save-crm-dashboard` with `expectedUpdatedAt` for dashboard edits, and
+  `restore-crm-dashboard-revision` to roll back a saved revision.
 
 ## Four-area change guide
 

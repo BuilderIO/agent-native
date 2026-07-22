@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import createTracker from "./create-crm-signal-tracker.js";
+import manageTracker from "./manage-crm-signal-tracker.js";
 import recordInsight from "./record-crm-call-insight.js";
 import recordSmartSignal from "./record-crm-smart-signal.js";
 import runTrackers from "./run-crm-signal-trackers.js";
@@ -21,6 +22,29 @@ describe("CRM signals action boundaries", () => {
     expect(
       createTracker.schema.safeParse({ name: "Objection", kind: "smart" })
         .success,
+    ).toBe(false);
+  });
+
+  it("requires an explicit tracker operation and state when managing trackers", () => {
+    expect(
+      manageTracker.schema.safeParse({
+        trackerId: "tracker-1",
+        operation: "set-enabled",
+        enabled: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      manageTracker.schema.safeParse({
+        trackerId: "tracker-1",
+        operation: "set-enabled",
+      }).success,
+    ).toBe(false);
+    expect(
+      manageTracker.schema.safeParse({
+        trackerId: "tracker-1",
+        operation: "delete",
+        enabled: false,
+      }).success,
     ).toBe(false);
   });
 

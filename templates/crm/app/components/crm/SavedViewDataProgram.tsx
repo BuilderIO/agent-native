@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { DataTable } from "@agent-native/toolkit/dashboard";
 import { Badge } from "@agent-native/toolkit/ui/badge";
 import { IconChartDots } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
@@ -68,32 +69,12 @@ export function SavedViewDataProgram({ data }: { data: unknown }) {
         ) : null}
       </div>
       {preview?.sampleRows?.length ? (
-        <div className="mt-4 overflow-x-auto rounded-md border border-border/70">
-          <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead className="bg-muted/60 text-xs text-muted-foreground">
-              <tr>
-                {preview.columns?.slice(0, 8).map((column) => (
-                  <th key={column.name} className="px-3 py-2 font-medium">
-                    {column.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/70">
-              {preview.sampleRows.slice(0, 5).map((row, index) => (
-                <tr key={index}>
-                  {preview.columns?.slice(0, 8).map((column) => (
-                    <td
-                      key={column.name}
-                      className="max-w-64 truncate px-3 py-2"
-                    >
-                      {displayCell(row[column.name])}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-4 overflow-hidden rounded-md border border-border/70">
+          <DataTable
+            data={preview.sampleRows.slice(0, 5)}
+            columns={preview.columns?.slice(0, 8).map((column) => column.name)}
+            maxRows={5}
+          />
         </div>
       ) : null}
     </section>
@@ -108,12 +89,4 @@ function linkedProgramViewId(data: unknown) {
   return typeof view.id === "string" && typeof view.dataProgramId === "string"
     ? view.id
     : undefined;
-}
-
-function displayCell(value: unknown) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string" || typeof value === "number")
-    return String(value);
-  return "—";
 }

@@ -1,3 +1,4 @@
+import { createDashboardStorage } from "@agent-native/core/dashboard-storage";
 import { registerDataProgramsShareable } from "@agent-native/core/data-programs";
 import { createGetDb } from "@agent-native/core/db";
 import { registerShareableResource } from "@agent-native/core/sharing";
@@ -6,6 +7,37 @@ import * as schema from "./schema.js";
 
 export const getDb = createGetDb(schema);
 export { schema };
+
+export interface CrmDashboardConfig {
+  version: 1;
+  panels: Array<{
+    id: string;
+    title: string;
+    source: "program";
+    query: string;
+    chartType: "metric" | "bar" | "table";
+  }>;
+}
+
+export const crmDashboardStore = createDashboardStorage<
+  "pipeline",
+  CrmDashboardConfig
+>({
+  schema: {
+    dashboards: schema.crmDashboards,
+    dashboardRevisions: schema.crmDashboardRevisions,
+    dashboardShares: schema.crmDashboardShares,
+  },
+  getDb,
+  resourceType: "crm-dashboard",
+  displayName: "CRM dashboard",
+  validateKind: (kind): kind is "pipeline" => kind === "pipeline",
+  getResourcePath: (dashboard) => `/dashboard?id=${dashboard.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
+});
+
+crmDashboardStore.registerShareable();
 
 registerDataProgramsShareable();
 

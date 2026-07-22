@@ -24,6 +24,7 @@ const INITIAL_TOOL_NAMES = [
   "apply-crm-proposals",
   "attach-call-evidence",
   "create-crm-signal-tracker",
+  "manage-crm-signal-tracker",
   "list-crm-signal-trackers",
   "run-crm-signal-trackers",
   "list-crm-signal-hits",
