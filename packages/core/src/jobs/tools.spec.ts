@@ -134,6 +134,44 @@ describe("manage-jobs tool", () => {
       expect(resourcePutMock.mock.calls[0][0]).toBe("alice@example.com");
     });
 
+    it("persists only explicit MCP tool capabilities with a job", async () => {
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "hourly-meeting-todos",
+          schedule: "0 * * * *",
+          instructions: "Import explicit action items.",
+          scope: "personal",
+          mcpTools: [
+            "mcp__meeting-notes__list_meetings",
+            "mcp__meeting-notes__get_transcript",
+          ],
+        }),
+      );
+
+      expect(out.mcpTools).toEqual([
+        "mcp__meeting-notes__list_meetings",
+        "mcp__meeting-notes__get_transcript",
+      ]);
+      const { meta } = parseJobFrontmatter(resourcePutMock.mock.calls[0][2]);
+      expect(meta.mcpTools).toEqual(out.mcpTools);
+    });
+
+    it("rejects arbitrary non-MCP capability references", async () => {
+      const out = JSON.parse(
+        await run({
+          action: "create",
+          name: "unsafe-job",
+          schedule: "0 * * * *",
+          instructions: "Do work.",
+          mcpTools: ["https://example.com/mcp"],
+        }),
+      );
+
+      expect(out.error).toMatch(/mcpTools must contain only framework MCP/);
+      expect(resourcePutMock).not.toHaveBeenCalled();
+    });
+
     it("partitions shared jobs by the active request org", async () => {
       getRequestOrgIdMock.mockReturnValue("org-2");
       await run({

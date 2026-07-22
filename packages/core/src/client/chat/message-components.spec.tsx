@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasUnresolvedTool,
+  computeLatestRunningToolCallId,
   getAssistantToolSummaryInfo,
   isCollapsibleAssistantWorkPart,
   messageTextFromContent,
@@ -238,6 +239,91 @@ describe("isHiddenUserMessage", () => {
         content: [{ type: "text", text: "What changed?" }],
       }),
     ).toBe(false);
+  });
+});
+
+describe("computeLatestRunningToolCallId", () => {
+  it("never shimmers an older message's dangling unresolved tool", () => {
+    expect(
+      computeLatestRunningToolCallId(
+        [
+          {
+            type: "tool-call",
+            toolCallId: "tc_1",
+            toolName: "read-file",
+            argsText: "",
+            args: {},
+          },
+        ],
+        { chatRunning: true, isLast: false },
+      ),
+    ).toBeNull();
+  });
+
+  it("picks the last unresolved tool among parallel calls", () => {
+    expect(
+      computeLatestRunningToolCallId(
+        [
+          {
+            type: "tool-call",
+            toolCallId: "tc_1",
+            toolName: "read-file",
+            argsText: "",
+            args: {},
+          },
+          {
+            type: "tool-call",
+            toolCallId: "tc_2",
+            toolName: "list-files",
+            argsText: "",
+            args: {},
+          },
+        ],
+        { chatRunning: true, isLast: true },
+      ),
+    ).toBe("tc_2");
+  });
+
+  it("picks an older running tool over a newer resolved one", () => {
+    expect(
+      computeLatestRunningToolCallId(
+        [
+          {
+            type: "tool-call",
+            toolCallId: "tc_1",
+            toolName: "read-file",
+            argsText: "",
+            args: {},
+          },
+          {
+            type: "tool-call",
+            toolCallId: "tc_2",
+            toolName: "list-files",
+            argsText: "",
+            args: {},
+            result: "done",
+          },
+        ],
+        { chatRunning: true, isLast: true },
+      ),
+    ).toBe("tc_1");
+  });
+
+  it("returns null when the chat is idle and no part reports activity", () => {
+    expect(
+      computeLatestRunningToolCallId(
+        [
+          {
+            type: "tool-call",
+            toolCallId: "tc_1",
+            toolName: "read-file",
+            argsText: "",
+            args: {},
+          },
+        ],
+        { chatRunning: false, isLast: true },
+      ),
+    ).toBeNull();
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -60,6 +60,20 @@
       "development": "./dist/collab-ui/*.js",
       "import": "./dist/collab-ui/*.js",
       "default": "./dist/collab-ui/*.js"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard/index.d.ts",
+      "browser": "./dist/dashboard/index.js",
+      "development": "./dist/dashboard/index.js",
+      "import": "./dist/dashboard/index.js",
+      "default": "./dist/dashboard/index.js"
+    },
+    "./dashboard/*": {
+      "types": "./dist/dashboard/*.d.ts",
+      "browser": "./dist/dashboard/*.js",
+      "development": "./dist/dashboard/*.js",
+      "import": "./dist/dashboard/*.js",
+      "default": "./dist/dashboard/*.js"
     },
     "./chat-history": {
       "types": "./dist/chat-history/index.d.ts",

@@ -60,7 +60,7 @@ export function PlanVisualSurface({
   onDesignElementStyleChange,
 }: PlanVisualSurfaceProps) {
   const t = useT();
-  const designCanvas = isDesignCanvas(canvas);
+  const designCanvas = isDesignCanvas(canvas, blockLookup);
   const [selectedDesignElement, setSelectedDesignElement] =
     useState<DesignElementSelection | null>(null);
   const selectedDesignElementKey = selectedDesignElement
@@ -226,10 +226,17 @@ export function PlanVisualSurface({
   return null;
 }
 
-function isDesignCanvas(canvas: PlanContent["canvas"] | undefined) {
+function isDesignCanvas(
+  canvas: PlanContent["canvas"] | undefined,
+  blockLookup: Map<string, PlanBlock>,
+) {
   return Boolean(
     canvas?.mode === "design" ||
-    canvas?.frames.some((frame) => frame.wireframe?.renderMode === "design"),
+    canvas?.frames.some((frame) => {
+      if (frame.wireframe) return frame.wireframe.renderMode === "design";
+      const block = frame.blockId ? blockLookup.get(frame.blockId) : undefined;
+      return block?.type === "wireframe" && block.data.renderMode === "design";
+    }),
   );
 }
 

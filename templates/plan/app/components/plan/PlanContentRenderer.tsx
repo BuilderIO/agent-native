@@ -652,10 +652,24 @@ export function PlanContentRenderer({
     hiddenChangedFileBlockIds,
     hideChangedFiles,
   ]);
-  const blockLookup = useMemo(
-    () => new Map(content.blocks.map((block) => [block.id, block])),
-    [content.blocks],
-  );
+  const blockLookup = useMemo(() => {
+    const blocks = new Map<string, PlanBlock>();
+    const visit = (block: PlanBlock) => {
+      blocks.set(block.id, block);
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) {
+          for (const child of tab.blocks) visit(child);
+        }
+      }
+      if (block.type === "columns") {
+        for (const column of block.data.columns) {
+          for (const child of column.blocks) visit(child);
+        }
+      }
+    };
+    for (const block of content.blocks) visit(block);
+    return blocks;
+  }, [content.blocks]);
   const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
     if (!isRecap) return new Map();
     const map = new Map<string, string>();
