@@ -311,3 +311,7 @@ Esses limites são explícitos para que um pacote adaptador possa fazer afirmaç
 - [**Primitivas de UI do Toolkit**](/docs/toolkit-ui) — adaptadores locais, integração do provedor e imports de primitivas compartilhadas.
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — propriedade de recursos reutilizáveis e limites de pacotes.
 - [**Kit de configurações**](/docs/toolkit-settings) e [**Kit de compartilhamento**](/docs/toolkit-sharing) — controladores de recursos compartilhados que preservam as actions do aplicativo e os contratos de acesso.
+
+## Chat example coverage
+
+The runnable [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) and [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) examples register all 17 contract components and render 16/17 through the adapters. `Menu` remains the explicit gap because the agent-panel header contains a live compound submenu that the v1 data-only contract cannot express. The assistant-ui composer/message renderer, cmdk internals, and Tiptap editor remain v1 non-goals.

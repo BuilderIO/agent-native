@@ -425,3 +425,7 @@ propres à une seule fonctionnalité.
 - [**Settings Kit**](/docs/toolkit-settings) et [**Sharing Kit**](/docs/toolkit-sharing)
   — contrôleurs de fonctionnalités partagés qui préservent les actions de
   l’application et les contrats d’accès.
+
+## Chat example coverage
+
+The runnable [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) and [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) examples register all 17 contract components and render 16/17 through the adapters. `Menu` remains the explicit gap because the agent-panel header contains a live compound submenu that the v1 data-only contract cannot express. The assistant-ui composer/message renderer, cmdk internals, and Tiptap editor remain v1 non-goals.

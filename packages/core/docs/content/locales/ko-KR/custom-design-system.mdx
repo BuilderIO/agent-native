@@ -309,3 +309,7 @@ export const ActionButton: DesignSystemComponents["ActionButton"] = ({
 - [**Toolkit UI Primitives**](/docs/toolkit-ui) — 로컬 어댑터, 프로바이더 연결 및 공유 프리미티브 import.
 - [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — 재사용 가능한 기능 소유권과 패키지 경계.
 - [**Settings Kit**](/docs/toolkit-settings) 및 [**Sharing Kit**](/docs/toolkit-sharing) — 앱 액션과 액세스 계약을 보존하는 공유 기능 컨트롤러.
+
+## Chat example coverage
+
+The runnable [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) and [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) examples register all 17 contract components and render 16/17 through the adapters. `Menu` remains the explicit gap because the agent-panel header contains a live compound submenu that the v1 data-only contract cannot express. The assistant-ui composer/message renderer, cmdk internals, and Tiptap editor remain v1 non-goals.
