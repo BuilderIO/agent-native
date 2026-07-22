@@ -44,6 +44,7 @@ type ToolDisplayPart = {
   type?: string;
   toolCallId?: string;
   toolName?: string;
+  argsText?: string;
   args?: Record<string, unknown>;
 };
 
@@ -51,6 +52,19 @@ function normalizedAgentName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const name = value.trim().toLowerCase();
   return name || null;
+}
+
+function callAgentTarget(part: ToolDisplayPart): string | null {
+  const parsedTarget = normalizedAgentName(part.args?.agent);
+  if (parsedTarget) return parsedTarget;
+  if (!part.argsText) return null;
+
+  try {
+    const args = JSON.parse(part.argsText) as Record<string, unknown>;
+    return normalizedAgentName(args.agent);
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -68,7 +82,7 @@ export function isCallAgentToolCallShadowed(
     return false;
   }
 
-  const target = normalizedAgentName(part.args?.agent);
+  const target = callAgentTarget(part);
   if (!target) return false;
 
   return parts.slice(index + 1).some((candidate) => {

@@ -58,6 +58,33 @@ describe("tool display labels", () => {
     );
   });
 
+  it("shadows a streaming call-agent row whose arguments only exist as text", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        argsText: JSON.stringify({
+          agent: "analytics",
+          message: "Count signups",
+        }),
+        args: {},
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        argsText: "",
+        args: {},
+      },
+    ];
+
+    expect(isCallAgentToolCallShadowed(parts, 0)).toBe(true);
+    expect(shadowedCallAgentToolCallIds(parts)).toEqual(
+      new Set(["call-analytics"]),
+    );
+  });
+
   it("keeps unmatched and differently targeted call-agent rows visible", () => {
     const unmatched = [
       {
