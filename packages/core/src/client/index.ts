@@ -224,9 +224,16 @@ export {
 } from "./review/index.js";
 export {
   BuilderConnectCard,
+  DefaultBuilderConnectCardView,
   ProviderReadinessBadge,
   SetupConnectionsPage,
+  useBuilderConnectCardController,
+  type BuilderConnectCardAction,
+  type BuilderConnectCardControllerOptions,
   type BuilderConnectCardProps,
+  type BuilderConnectCardStatus,
+  type BuilderConnectCardViewModel,
+  type DefaultBuilderConnectCardViewProps,
   type ProviderReadinessBadgeProps,
   type SetupConnectionsPageProps,
 } from "./setup-connections/index.js";
