@@ -11,7 +11,8 @@ currently render through the registered Ant Design adapters:
 - `ActionButton`/`IconButton`: chat-history rail and shared actions.
 - `TextField`/`TextArea`/`Picker`/`Checkbox`/`Switch`/`Tabs`: settings and
   sharing controls.
-- `Dialog`/`Avatar`/`Status`: the sharing dialog.
+- `Dialog`/`Avatar`/`Status`: the real Core sharing dialog on the shipped
+  `/design-system-proof` route.
 - `Tooltip`/`Popover`/`Spinner`/`Skeleton`: agent-panel and sidebar chrome.
 - `Surface`: the Builder connection card.
 
@@ -33,6 +34,11 @@ source.
 The framework-owned sign-in page is outside the design-system bridge. Use the
 authenticated settings, sharing, chat-history, and agent-panel surfaces when
 comparing the Ant Design adapter with another adapter.
+
+The app's everyday chat sharing control remains the legacy popover. The
+`/design-system-proof` route exists so the complete Core `ShareDialog` contract
+is reachable and visually testable without claiming that popover is already an
+Ant Design dialog.
 
 The remaining Radix-owned controls receive the build-time semantic tokens and
 are listed above so the boundary stays visible. Verify with:

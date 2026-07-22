@@ -199,12 +199,14 @@ render 16/17 through those adapters in the normalized shared surfaces:
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ActionButton`, `IconButton`                                    | Chat-history rail, settings actions, sharing actions                                                                                               |
 | `TextField`, `TextArea`, `Picker`, `Checkbox`, `Switch`, `Tabs` | Settings and sharing controls                                                                                                                      |
-| `Dialog`, `Avatar`, `Status`                                    | Share dialog                                                                                                                                       |
+| `Dialog`, `Avatar`, `Status`                                    | Core Share dialog on each example's shipped `/design-system-proof` route                                                                           |
 | `Tooltip`, `Popover`, `Spinner`, `Skeleton`                     | Agent-panel, runs-tray, and sidebar chrome                                                                                                         |
 | `Surface`                                                       | Builder connection card                                                                                                                            |
 | `Menu`                                                          | Explicit gap: the agent-panel header menu embeds the live `RunsTrayMenuItem` compound submenu, which the v1 data-only menu contract cannot express |
 
 The `Menu` row is intentionally called out rather than counted as bridged.
+The everyday Chat share button remains the legacy popover; the proof route makes
+the complete Core `ShareDialog` reachable without misrepresenting that popover.
 The assistant-ui composer/message renderer, cmdk command-menu internals, and
 Tiptap editor remain v1 non-goals. Their surrounding chrome is tokenized or
 bridged where the semantic contract fits. If a product needs arbitrary nested
