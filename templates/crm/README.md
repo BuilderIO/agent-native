@@ -54,10 +54,30 @@ Opportunities.
   records, run the default Pricing, Competitors, Objections, Next steps,
   Budget, and Timing detectors, then confirm or dismiss the grounded results.
   Clips remains the owner of recording, transcript, consent, and media access.
+- **Clips review recipe**: from a chosen CRM record, prepare a default-off
+  `clip.created` recipe. After explicit activation, its Clips-owned trigger
+  ignores the event media URL, resolves the clip through an access-checked
+  read action, and attaches only its opaque ID, durable HTTPS `/r/<id>` page,
+  and capture time to that exact CRM record. It never copies media or a
+  transcript, infers another record, or authorizes a provider write.
+- **Pipeline dashboard**: install the CRM-owned Pipeline dashboard to get
+  action-backed stage, amount, and close-date panels. Its data program and
+  dashboard revisions are access-scoped CRM records; the reusable chart and
+  table presentation comes from the Toolkit dashboard kit.
 - **Read and write safety**: provider reads use the connection's effective
   permissions. Upstream changes are revision-aware, access-checked proposals
   in this release; finish the approved change in HubSpot or Salesforce and do
   not claim a provider write completed from CRM.
+
+## Review and delegation policy
+
+CRM records the actor, expected remote revision, idempotency key, field-level
+provenance, and an audit event for each mutation request. Local, reversible
+routine work can execute in CRM. Agent-initiated provider changes become
+reviewable proposals; destructive, bulk, and named-risk changes remain gated.
+Delegated authority is narrow and stored as policy—it never expands record or
+field access, bypasses the write firewall, or turns a provider result into an
+unverified success.
 
 Salesforce reads are validated against the current connection actor and field
 permissions before mirrored data is returned. A service-account mirror never

@@ -32,14 +32,15 @@ and write policy.
 | `get-crm-record`                                                                       | Read one record and its permitted scoped detail.                                                        |
 | `sync-crm`                                                                             | Refresh a declared mirror cohort; never treat it as an export-all operation.                            |
 | `list-crm-saved-views` / `save-crm-saved-view`                                         | List or save scoped CRM views.                                                                          |
-| `install-crm-pipeline-dashboard`                                                        | Idempotently verify and install the CRM-owned Pipeline dashboard and data program.                     |
-| `get-crm-pipeline-data`                                                                  | Read bounded, access-scoped opportunity totals by stage for the dashboard program.                     |
-| `get-crm-dashboard` / `list-crm-dashboards` / `save-crm-dashboard`                      | Read, list, or revision-write access-scoped Pipeline dashboards.                                       |
-| `list-crm-dashboard-revisions` / `restore-crm-dashboard-revision`                       | Inspect and restore a dashboard's bounded revision history.                                            |
+| `install-crm-pipeline-dashboard`                                                       | Idempotently verify and install the CRM-owned Pipeline dashboard and data program.                      |
+| `get-crm-pipeline-data`                                                                | Read bounded, access-scoped opportunity totals by stage for the dashboard program.                      |
+| `get-crm-dashboard` / `list-crm-dashboards` / `save-crm-dashboard`                     | Read, list, or revision-write access-scoped Pipeline dashboards.                                        |
+| `list-crm-dashboard-revisions` / `restore-crm-dashboard-revision`                      | Inspect and restore a dashboard's bounded revision history.                                             |
 | `list-crm-tasks` / `manage-crm-task`                                                   | Read and manage CRM follow-up tasks.                                                                    |
 | `update-crm-record`                                                                    | Submit a typed, access-checked, revision-aware record mutation.                                         |
 | `list-crm-proposals` / `apply-crm-proposals`                                           | Review provider proposals and record the upstream handoff.                                              |
 | `attach-call-evidence`                                                                 | Attach a bounded call evidence reference; never attach a transcript or media.                           |
+| `get-crm-automation-recipe`                                                            | Return the default-off, record-selected Clips call-evidence review recipe.                              |
 | `create-crm-signal-tracker` / `list-crm-signal-trackers` / `manage-crm-signal-tracker` | Create, inspect, enable, disable, or delete access-scoped keyword and delegated-agent moment detectors. |
 | `run-crm-signal-trackers` / `list-crm-signal-hits`                                     | Find deterministic hits and prepare bounded smart/summary agent work.                                   |
 | `record-crm-smart-signal` / `record-crm-call-insight`                                  | Persist only evidence-grounded delegated results as reviewable signals.                                 |
@@ -70,6 +71,11 @@ and write policy.
   exact preview and approval. This release does not complete provider writes:
   review the proposal, direct the user to make the change in HubSpot or
   Salesforce, and never claim the upstream change succeeded.
+- A stored automation may execute only the `crm-sales-routine-local-v1` pack:
+  one routine, compensatable local update to one record. The trigger dispatcher,
+  not action input, supplies that policy context. Provider updates remain
+  proposals; ownership, amount, stage, deletion, bulk, and external effects
+  stay approval-gated or denied.
 - Use `run-crm-signal-trackers` for attached Clips evidence. Keyword detectors
   run locally; smart detectors and call summaries are delegated through agent
   chat. Record only exact, bounded evidence citations through the signal record
@@ -78,6 +84,15 @@ and write policy.
   tracker are local CRM configuration changes: they never invoke a model or
   mutate a connected provider. Use `navigate` with
   `{ view: "settings", settingsSection: "intelligence" }` to open its settings tab.
+- The Clips review recipe is default-off and always scoped to one explicit CRM
+  record. It may subscribe to `clip.created` only after the user explicitly
+  approves the exact A2A activation call. The trigger belongs to Clips, where
+  `clip.created` is registered. It must ignore the event URL, call
+  `prepare-crm-call-evidence` with the event clip ID, and send only that bounded
+  durable HTTPS `/r/<id>` reference back to `attach-call-evidence` for the
+  selected record. It rejects media, tokens, transcripts, inferred records,
+  tasks, field/provider writes, and broader scopes. Use
+  `get-crm-automation-recipe` before configuring this flow.
 - Use `install-crm-pipeline-dashboard` to set up the Pipeline view. It owns one
   per-user data program that calls `get-crm-pipeline-data`; do not replace it
   with a provider-specific action or embed raw rows in dashboard config. Use

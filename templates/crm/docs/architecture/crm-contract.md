@@ -81,6 +81,17 @@ the run, record, tracker, and evidence scopes agree and every quote/timestamp
 is grounded to the stored evidence excerpt. Clips retains recording,
 transcript, consent, recovery, and media ownership.
 
+The default-off Clips review recipe is scoped to one explicitly selected CRM
+record. It may react to `clip.created` only after a human approves the exact
+A2A activation call. The trigger is installed in Clips, where that event is
+registered. It ignores the event URL and calls the access-checked
+`prepare-crm-call-evidence` read action with the opaque clip id. CRM receives
+only the returned durable HTTPS `/r/<id>` page, id, and capture time, then links
+it to the selected record through `attach-call-evidence`. Media, transcripts,
+temporary grants, inferred records, tasks, field updates, and provider writes
+are outside this delegation. This preserves both CRM record ACLs and Clips page
+access without duplicating source media.
+
 ## Field storage policy
 
 Unknown fields are **not mirrored**. A field value enters the mirror only when

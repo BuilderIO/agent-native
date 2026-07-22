@@ -50,6 +50,8 @@ and HubSpot/Salesforce Connected/Hybrid behavior.
 - Never save raw provider payloads, media, screenshots, audio, video,
   transcripts, base64 data, or file bodies in CRM SQL. `attach-call-evidence`
   stores only a source URL/id, bounded quote, timestamp, speaker, and metadata.
+  For Clips, use only a durable `/share/<id>` or `/r/<id>` page URL with no
+  access token or transcript fragment; never use a `clip.created` event URL.
 - Use `run-crm-signal-trackers` only over evidence already attached to the CRM
   record. Keyword hits are deterministic. Smart detector and summary requests
   must go through agent chat, never a direct model call. Persist delegated
@@ -81,6 +83,11 @@ and HubSpot/Salesforce Connected/Hybrid behavior.
   `apply-crm-proposals` to review the change and record the upstream handoff;
   direct the user to complete it in HubSpot or Salesforce and never claim it
   was applied without a confirmed adapter result.
+- The only stored delegation pack is `crm-sales-routine-local-v1`. It applies
+  only when a trusted automation trigger supplies that policy id and only to
+  one routine local record update. Do not pass policy ids as action input;
+  provider mutations stay proposal-first and risky, destructive, bulk, or
+  external-effect work stays gated.
 - Native SQL writes are local-authoritative CRM mutations. They remain
   access-checked, idempotent, and audited, but have no provider handoff or
   remote revision to claim.
@@ -95,6 +102,17 @@ and HubSpot/Salesforce Connected/Hybrid behavior.
   `save-crm-dashboard` with `expectedUpdatedAt` for safe edits, and
   `list-crm-dashboard-revisions` / `restore-crm-dashboard-revision` to review
   or restore prior dashboard configurations.
+- Use `get-crm-automation-recipe` for the default-off Clips call-evidence
+  review recipe after the user explicitly selects a CRM record. The recipe is a
+  configuration aid, not permission to activate an automation. Before enabling
+  it, show the exact Clips-owned `clip.created` trigger, the selected CRM
+  record, and its one bounded local evidence-reference write, then obtain a
+  fresh approval. Use the recipe's exact `call-agent` input and content-bound
+  `approvedActions` grant. The Clips trigger must call
+  `prepare-crm-call-evidence`; never use the event URL or copy media/transcript
+  content. The downstream CRM call may only invoke `attach-call-evidence` for
+  that selected record and cannot create tasks, field updates, proposals, or
+  provider mutations.
 
 ## Four-area provider changes
 
