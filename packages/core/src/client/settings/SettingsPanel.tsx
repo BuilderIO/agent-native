@@ -1,4 +1,11 @@
-import * as SelectPrimitive from "@radix-ui/react-select";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -85,6 +92,22 @@ import {
   useBuilderStatus,
 } from "./useBuilderStatus.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof ToolkitButton>
+>(({ className, ...props }, ref) => (
+  <ToolkitButton
+    ref={ref}
+    variant="ghost"
+    className={cn(
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100",
+      className,
+    )}
+    {...props}
+  />
+));
+Button.displayName = "SettingsPrimitiveButton";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -197,69 +220,49 @@ function SettingsSelect({
         <p className={fieldLabelClass(isPage)}>{label}</p>
         {labelAdornment}
       </div>
-      <SelectPrimitive.Root
-        value={value}
-        onValueChange={onValueChange}
-        disabled={disabled}
-      >
-        <SelectPrimitive.Trigger
+      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+        <SelectTrigger
           className={cn(
-            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60",
+            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 [&>svg]:text-muted-foreground [&>svg]:opacity-100",
             isPage ? "h-10 text-sm" : "h-9 text-[12px]",
           )}
           aria-label={label}
           style={controlStyle}
         >
-          <SelectPrimitive.Value>
-            {selected?.label ?? value}
-          </SelectPrimitive.Value>
-          <SelectPrimitive.Icon asChild>
-            <IconChevronDown size={16} className="text-muted-foreground" />
-          </SelectPrimitive.Icon>
-        </SelectPrimitive.Trigger>
-        <SelectPrimitive.Portal>
-          <SelectPrimitive.Content
-            position="popper"
-            sideOffset={6}
-            className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-          >
-            <SelectPrimitive.Viewport className="p-1">
-              {options.map((option) => (
-                <SelectPrimitive.Item
-                  key={option.value}
-                  value={option.value}
-                  className={cn(
-                    "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40",
-                    isPage ? "py-2.5 text-sm" : "py-2.5 text-[12px]",
-                  )}
-                  style={controlStyle}
-                >
-                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
-                    <SelectPrimitive.ItemIndicator>
-                      <IconCheck size={14} />
-                    </SelectPrimitive.ItemIndicator>
+          <SelectValue>{selected?.label ?? value}</SelectValue>
+        </SelectTrigger>
+        <SelectContent
+          position="popper"
+          sideOffset={6}
+          className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
+        >
+          {options.map((option) => (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              className={cn(
+                "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40 [&>span:first-child]:top-2.5 [&>span:first-child]:size-4 [&>span:first-child]:text-muted-foreground [&>span:first-child>svg]:size-3.5",
+                isPage ? "py-2.5 text-sm" : "py-2.5 text-[12px]",
+              )}
+              style={controlStyle}
+            >
+              <div className="flex min-w-0 flex-col">
+                <span className="text-foreground">{option.label}</span>
+                {option.description ? (
+                  <span
+                    className={cn(
+                      "mt-0.5 leading-relaxed text-muted-foreground",
+                      isPage ? "text-xs" : "text-[11px]",
+                    )}
+                  >
+                    {option.description}
                   </span>
-                  <div className="flex min-w-0 flex-col">
-                    <SelectPrimitive.ItemText>
-                      <span className="text-foreground">{option.label}</span>
-                    </SelectPrimitive.ItemText>
-                    {option.description ? (
-                      <span
-                        className={cn(
-                          "mt-0.5 leading-relaxed text-muted-foreground",
-                          isPage ? "text-xs" : "text-[11px]",
-                        )}
-                      >
-                        {option.description}
-                      </span>
-                    ) : null}
-                  </div>
-                </SelectPrimitive.Item>
-              ))}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      </SelectPrimitive.Root>
+                ) : null}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }
@@ -375,27 +378,27 @@ function DisconnectBuilderButton() {
   if (phase === "armed") {
     return (
       <>
-        <button
+        <Button
           type="button"
           onClick={handleDisconnectClick}
           className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
         >
           Confirm disconnect
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={handleCancel}
           className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
         >
           Cancel
-        </button>
+        </Button>
       </>
     );
   }
 
   return (
     <>
-      <button
+      <Button
         type="button"
         onClick={handleDisconnectClick}
         disabled={phase === "busy"}
@@ -410,7 +413,7 @@ function DisconnectBuilderButton() {
         ) : (
           "Disconnect"
         )}
-      </button>
+      </Button>
       {err && <span className="text-[10px] text-destructive">{err}</span>}
     </>
   );
@@ -485,7 +488,7 @@ function UseBuilderCard({
         {connectUrl || credentialSource !== "env" ? (
           <div className="flex items-center gap-2 mt-2.5">
             {connectUrl && (
-              <button
+              <Button
                 type="button"
                 onClick={() =>
                   builderFlow.start({ trackingSource, trackingFlow })
@@ -499,7 +502,7 @@ function UseBuilderCard({
                     ? "Connect account"
                     : "Reconnect"}
                 <IconExternalLink size={isPage ? 14 : 10} />
-              </button>
+              </Button>
             )}
             {credentialSource !== "env" ? <DisconnectBuilderButton /> : null}
           </div>
@@ -511,7 +514,7 @@ function UseBuilderCard({
   if (!connectUrl) return null;
 
   return (
-    <button
+    <Button
       type="button"
       onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
@@ -565,7 +568,7 @@ function UseBuilderCard({
           className="shrink-0 text-muted-foreground mt-0.5"
         />
       </div>
-    </button>
+    </Button>
   );
 }
 
@@ -1180,7 +1183,7 @@ function LLMSectionInner({
 
                 {isOpenAiEngine && (
                   <div className="border-t border-border/70 pt-2">
-                    <button
+                    <Button
                       type="button"
                       onClick={() => setAdvancedOpen((v) => !v)}
                       className="flex w-full cursor-pointer items-center justify-between gap-2 rounded px-0.5 py-1 text-left hover:text-foreground"
@@ -1199,7 +1202,7 @@ function LLMSectionInner({
                       <span className="truncate text-[10px] text-muted-foreground">
                         OpenAI-compatible endpoint
                       </span>
-                    </button>
+                    </Button>
 
                     {advancedOpen && (
                       <div className="mt-1.5 space-y-1.5">
@@ -1251,7 +1254,7 @@ function LLMSectionInner({
                           </label>
                         )}
                         {envVar && envConfigured && endpointChanged && (
-                          <button
+                          <Button
                             type="button"
                             onClick={handleSave}
                             disabled={saving}
@@ -1264,7 +1267,7 @@ function LLMSectionInner({
                             ) : (
                               "Save endpoint"
                             )}
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}
@@ -1294,7 +1297,7 @@ function LLMSectionInner({
                       className={cn(textInputClass(isPage), "flex-1")}
                       style={isPage ? CONTROL_STYLE_PAGE : undefined}
                     />
-                    <button
+                    <Button
                       onClick={handleSave}
                       disabled={!providerSettingsChanged || saving}
                       className={pillButtonClass(isPage, "solid")}
@@ -1309,12 +1312,12 @@ function LLMSectionInner({
                       ) : (
                         "Save"
                       )}
-                    </button>
+                    </Button>
                   </div>
                 ) : null}
 
                 <div className="flex items-center gap-2">
-                  <button
+                  <Button
                     onClick={handleTest}
                     disabled={testing}
                     className={pillButtonClass(isPage, "outline")}
@@ -1330,19 +1333,19 @@ function LLMSectionInner({
                     ) : (
                       "Test"
                     )}
-                  </button>
+                  </Button>
                   {engineChanged && (
-                    <button
+                    <Button
                       onClick={handleApply}
                       className={pillButtonClass(isPage, "solid")}
                     >
                       Apply
-                    </button>
+                    </Button>
                   )}
                   {settingsStatus != null && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
+                        <Button
                           onClick={handleDisconnect}
                           className={cn(
                             pillButtonClass(isPage, "outline"),
@@ -1350,7 +1353,7 @@ function LLMSectionInner({
                           )}
                         >
                           Disconnect
-                        </button>
+                        </Button>
                       </TooltipTrigger>
                       <TooltipContent>
                         Clear the saved engine — the app will fall back to the
@@ -1663,7 +1666,7 @@ function AppModelDefaultsSectionInner({
               />
 
               <div className="flex items-center gap-1.5">
-                <button
+                <Button
                   type="button"
                   onClick={save}
                   disabled={!hasPendingChange || saving}
@@ -1679,15 +1682,15 @@ function AppModelDefaultsSectionInner({
                   ) : (
                     "Save"
                   )}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   onClick={reset}
                   disabled={!settings.canUpdate || !hasAppDefault || saving}
                   className={pillButtonClass(isPage, "outline")}
                 >
                   Reset
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -1848,17 +1851,23 @@ function EmailSectionInner({
             >
               Provider
             </span>
-            <select
+            <Select
               value={emailProvider}
-              onChange={(e) =>
-                setEmailProvider(e.target.value as "resend" | "sendgrid")
+              onValueChange={(value) =>
+                setEmailProvider(value as "resend" | "sendgrid")
               }
-              className={cn(textInputClass(isPage), "w-full")}
-              style={isPage ? CONTROL_STYLE_PAGE : undefined}
             >
-              <option value="resend">Resend</option>
-              <option value="sendgrid">SendGrid</option>
-            </select>
+              <SelectTrigger
+                className={cn(textInputClass(isPage), "w-full")}
+                style={isPage ? CONTROL_STYLE_PAGE : undefined}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="resend">Resend</SelectItem>
+                <SelectItem value="sendgrid">SendGrid</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
           {emailProvider === "resend" ? (
@@ -1889,7 +1898,7 @@ function EmailSectionInner({
                     placeholder="re_..."
                     className={emailInputCls}
                   />
-                  <button
+                  <Button
                     onClick={saveResend}
                     disabled={!resendKey.trim() || saving}
                     className={emailBtnCls}
@@ -1901,7 +1910,7 @@ function EmailSectionInner({
                     ) : (
                       "Save"
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
               {fromConfigured ? (
@@ -1927,7 +1936,7 @@ function EmailSectionInner({
                     className={emailInputCls}
                   />
                   {!resendConfigured ? null : (
-                    <button
+                    <Button
                       onClick={saveResend}
                       disabled={!fromAddr.trim() || saving}
                       className={emailBtnCls}
@@ -1939,7 +1948,7 @@ function EmailSectionInner({
                       ) : (
                         "Save"
                       )}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -1972,7 +1981,7 @@ function EmailSectionInner({
                     placeholder="SG...."
                     className={emailInputCls}
                   />
-                  <button
+                  <Button
                     onClick={saveSendgrid}
                     disabled={!sendgridKey.trim() || saving}
                     className={emailBtnCls}
@@ -1984,7 +1993,7 @@ function EmailSectionInner({
                     ) : (
                       "Save"
                     )}
-                  </button>
+                  </Button>
                 </div>
               )}
               {fromConfigured ? (
@@ -2010,7 +2019,7 @@ function EmailSectionInner({
                     className={emailInputCls}
                   />
                   {!sendgridConfigured ? null : (
-                    <button
+                    <Button
                       onClick={saveSendgrid}
                       disabled={!fromAddr.trim() || saving}
                       className={emailBtnCls}
@@ -2022,7 +2031,7 @@ function EmailSectionInner({
                       ) : (
                         "Save"
                       )}
-                    </button>
+                    </Button>
                   )}
                 </div>
               )}
@@ -2246,7 +2255,7 @@ function AgentLimitsSectionInner({
                 )}
                 style={isPage ? CONTROL_STYLE_PAGE : undefined}
               />
-              <button
+              <Button
                 type="button"
                 onClick={save}
                 disabled={!hasPendingChange || saving}
@@ -2262,8 +2271,8 @@ function AgentLimitsSectionInner({
                 ) : (
                   "Save"
                 )}
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={reset}
                 disabled={
@@ -2274,7 +2283,7 @@ function AgentLimitsSectionInner({
                 className={pillButtonClass(isPage, "outline")}
               >
                 Reset
-              </button>
+              </Button>
             </div>
             {!settings.canUpdate && (
               <p
@@ -2441,13 +2450,13 @@ function CapabilityStatusStrip({
             ) : builderConnected ? (
               "Connected"
             ) : (
-              <button
+              <Button
                 type="button"
                 onClick={onOpenLlm}
                 className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
               >
                 Connect
-              </button>
+              </Button>
             )
           }
         />
@@ -2590,7 +2599,7 @@ function AccountSectionInner({
           className="hidden"
           onChange={handleAvatarChange}
         />
-        <button
+        <Button
           type="button"
           disabled={!email || uploading}
           onClick={() => fileInputRef.current?.click()}
@@ -2602,7 +2611,7 @@ function AccountSectionInner({
           {uploading
             ? t("settings.profileUploading")
             : t("settings.profileChangePhoto")}
-        </button>
+        </Button>
       </div>
       <form
         className="space-y-1.5"
@@ -2646,7 +2655,7 @@ function AccountSectionInner({
               </p>
             )}
           </div>
-          <button
+          <Button
             type="submit"
             disabled={
               !email ||
@@ -2660,7 +2669,7 @@ function AccountSectionInner({
             {updateProfile.isPending
               ? t("settings.profileSaving")
               : t("settings.profileSave")}
-          </button>
+          </Button>
         </div>
       </form>
     </SettingsSection>

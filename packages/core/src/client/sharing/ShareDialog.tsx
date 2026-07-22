@@ -1,4 +1,16 @@
-import * as Select from "@radix-ui/react-select";
+import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconX,
   IconTrash,
@@ -9,11 +21,9 @@ import {
   IconLink,
   IconMail,
   IconCode,
-  IconChevronDown,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
@@ -103,18 +113,18 @@ function displayName(email: string, members: OrgMember[]): string {
 }
 
 const BUTTON_BASE =
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0";
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors active:!scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0";
 const BUTTON_OUTLINE_SM = cn(
   BUTTON_BASE,
-  "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+  "!h-9 !px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
 );
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
-  "h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90",
+  "!h-9 !px-4 bg-primary text-primary-foreground hover:bg-primary/90",
 );
 const BUTTON_GHOST_ICON = cn(
   BUTTON_BASE,
-  "h-8 w-8 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+  "!h-8 !w-8 !p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
 
 const VIS_ICONS: Record<Visibility, typeof IconLock> = {
@@ -208,38 +218,34 @@ export function ShareDialog(props: ShareDialogProps) {
     setTab(hasLinkTab ? "link" : "invite");
   }, [open, hasLinkTab]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   const titleText = resourceTitle
     ? t("share.titleWithResource", { title: resourceTitle })
     : t("share.titleWithType", { type: resourceType });
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[2000] flex items-start justify-center bg-black/40 p-4 sm:items-center"
-      onClick={onClose}
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose();
+      }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
+      <DialogContent
+        hideClose
+        motion="instant"
+        overlayClassName="!z-[2000] !bg-black/40 !backdrop-blur-none !transition-none"
+        className="!top-4 !z-[2010] !block !max-h-none !w-[calc(100vw-2rem)] !max-w-lg !translate-y-0 !gap-0 !overflow-visible !rounded-xl !border-border !bg-popover !p-0 !text-popover-foreground !shadow-2xl sm:!top-1/2 sm:!-translate-y-1/2"
         aria-label={titleText}
-        className="w-full max-w-lg rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl outline-none"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
           <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-semibold" title={titleText}>
+            <DialogTitle
+              className="truncate !text-base !leading-normal !tracking-normal !text-inherit"
+              title={titleText}
+            >
               {titleText}
-            </div>
+            </DialogTitle>
             {sharesQuery.data?.ownerEmail ? (
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
                 {t("share.owner", {
@@ -248,14 +254,16 @@ export function ShareDialog(props: ShareDialogProps) {
               </div>
             ) : null}
           </div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             aria-label={t("share.close")}
             onClick={onClose}
-            className={BUTTON_GHOST_ICON}
+            className={cn(BUTTON_GHOST_ICON, "[&_svg]:!size-auto")}
           >
             <IconX size={16} />
-          </button>
+          </Button>
         </div>
 
         {tabsEnabled ? (
@@ -315,13 +323,12 @@ export function ShareDialog(props: ShareDialogProps) {
         </div>
 
         <div className="flex justify-end border-t border-border px-5 py-3">
-          <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
+          <Button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
             {t("share.done")}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -336,13 +343,14 @@ function TabTrigger(props: {
   label: string;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       role="tab"
       aria-selected={props.active}
       onClick={props.onClick}
       className={cn(
-        "inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+        "inline-flex !h-auto items-center gap-1.5 !rounded-none border-b-2 !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-transparent active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0 [&_svg]:!size-auto",
         props.active
           ? "border-foreground text-foreground"
           : "border-transparent text-muted-foreground hover:text-foreground",
@@ -350,7 +358,7 @@ function TabTrigger(props: {
     >
       {props.icon}
       {props.label}
-    </button>
+    </Button>
   );
 }
 
@@ -564,14 +572,16 @@ function InviteTab(props: {
                 {cap(s.role)}
               </span>
               {canManage ? (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="icon"
                   aria-label={t("share.remove")}
                   onClick={() => handleRemove(s)}
-                  className={BUTTON_GHOST_ICON}
+                  className={cn(BUTTON_GHOST_ICON, "[&_svg]:!size-auto")}
                 >
                   <IconTrash size={14} />
-                </button>
+                </Button>
               ) : null}
             </li>
           ))}
@@ -669,23 +679,25 @@ function CopyField({
             className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-xs font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         )}
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="icon"
           onClick={copy}
           aria-label={t("share.copy")}
-          className={cn(BUTTON_OUTLINE_SM, "w-9 px-0")}
+          className={cn(BUTTON_OUTLINE_SM, "!w-9 !px-0 [&_svg]:!size-auto")}
         >
           {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        </button>
+        </Button>
       </div>
     </div>
   );
 }
 
 const selectContentClass =
-  "z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md";
+  "!z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md";
 const selectItemClass =
-  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+  "relative flex w-full cursor-pointer select-none !items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>span:first-child]:!top-2 [&>span:first-child_svg]:!size-[14px]";
 
 function SelectItems({
   items,
@@ -695,25 +707,16 @@ function SelectItems({
   return (
     <>
       {items.map((it) => (
-        <Select.Item
-          key={it.value}
-          value={it.value}
-          className={selectItemClass}
-        >
-          <span className="absolute start-2 top-2 flex h-4 w-4 items-center justify-center">
-            <Select.ItemIndicator>
-              <IconCheck size={14} />
-            </Select.ItemIndicator>
-          </span>
+        <SelectItem key={it.value} value={it.value} className={selectItemClass}>
           <span className="flex flex-col">
-            <Select.ItemText>{it.label}</Select.ItemText>
+            <span>{it.label}</span>
             {it.description ? (
               <span className="text-xs text-muted-foreground">
                 {it.description}
               </span>
             ) : null}
           </span>
-        </Select.Item>
+        </SelectItem>
       ))}
     </>
   );
@@ -725,34 +728,27 @@ function RoleSelect(props: { value: Role; onChange: (v: Role) => void }) {
   const current =
     roleOptions.find((o) => o.value === props.value) ?? roleOptions[0];
   return (
-    <Select.Root
+    <Select
       value={props.value}
       onValueChange={(v) => props.onChange(v as Role)}
     >
-      <Select.Trigger
+      <SelectTrigger
         aria-label={t("share.role")}
         className={cn(
           BUTTON_BASE,
-          "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+          "!h-9 !w-auto !px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground [&_svg]:!size-[14px] [&_svg]:!opacity-100",
         )}
       >
-        <Select.Value>{current.label}</Select.Value>
-        <Select.Icon>
-          <IconChevronDown size={14} />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Content
-          className={selectContentClass}
-          position="popper"
-          sideOffset={4}
-        >
-          <Select.Viewport>
-            <SelectItems items={roleOptions} />
-          </Select.Viewport>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
+        <SelectValue>{current.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        className={selectContentClass}
+        position="popper"
+        sideOffset={4}
+      >
+        <SelectItems items={roleOptions} />
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -775,41 +771,34 @@ function VisibilitySelect(props: {
     return true;
   });
   return (
-    <Select.Root
+    <Select
       value={props.value}
       onValueChange={(v) => props.onChange(v as Visibility)}
       disabled={props.disabled}
     >
-      <Select.Trigger
+      <SelectTrigger
         aria-label={t("share.generalAccess")}
         className={cn(
           BUTTON_BASE,
-          "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          "!h-7 !w-auto !px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground [&_svg]:!size-[14px] [&_svg]:!opacity-100",
         )}
       >
-        <Select.Value>{current.label}</Select.Value>
-        <Select.Icon>
-          <IconChevronDown size={14} />
-        </Select.Icon>
-      </Select.Trigger>
-      <Select.Portal>
-        <Select.Content
-          className={selectContentClass}
-          position="popper"
-          sideOffset={4}
-        >
-          <Select.Viewport>
-            <SelectItems
-              items={options.map((k) => ({
-                value: k,
-                label: visibilityMeta[k].label,
-                description: visibilityMeta[k].description,
-              }))}
-            />
-          </Select.Viewport>
-        </Select.Content>
-      </Select.Portal>
-    </Select.Root>
+        <SelectValue>{current.label}</SelectValue>
+      </SelectTrigger>
+      <SelectContent
+        className={selectContentClass}
+        position="popper"
+        sideOffset={4}
+      >
+        <SelectItems
+          items={options.map((k) => ({
+            value: k,
+            label: visibilityMeta[k].label,
+            description: visibilityMeta[k].description,
+          }))}
+        />
+      </SelectContent>
+    </Select>
   );
 }
 

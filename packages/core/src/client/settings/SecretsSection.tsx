@@ -4,6 +4,14 @@
  * progressively discloses its controls.
  */
 
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   IconCheck,
   IconChevronRight,
@@ -30,6 +38,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { cn } from "../utils.js";
+
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof ToolkitButton>
+>(({ className, ...props }, ref) => (
+  <ToolkitButton
+    ref={ref}
+    variant="ghost"
+    className={cn(
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100",
+      className,
+    )}
+    {...props}
+  />
+));
+Button.displayName = "SecretsPrimitiveButton";
 
 interface SecretStatus {
   key: string;
@@ -189,13 +214,13 @@ function KeysHeader({
       <p className="text-[11px] font-medium text-foreground">Keys</p>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
           >
             <IconPlus size={11} />
             New
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
           {availableSecrets.length > 0 && (
@@ -369,7 +394,7 @@ function SecretCard({
 
   return (
     <div className="border-b border-border last:border-b-0">
-      <button
+      <Button
         type="button"
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
@@ -388,7 +413,7 @@ function SecretCard({
           </code>
         )}
         <span className="shrink-0">{pill}</span>
-      </button>
+      </Button>
 
       {open && (
         <div className="border-t border-border/60 bg-accent/20 px-3 pb-3 pt-2.5">
@@ -448,7 +473,7 @@ function SecretCard({
                   }
                   className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
                 />
-                <button
+                <Button
                   type="button"
                   onClick={handleSave}
                   disabled={!value.trim() || busy !== null}
@@ -465,12 +490,12 @@ function SecretCard({
                   ) : (
                     "Save"
                   )}
-                </button>
+                </Button>
               </div>
               <div className="flex items-center gap-1.5">
                 {secret.status === "set" && (
                   <>
-                    <button
+                    <Button
                       type="button"
                       onClick={handleTest}
                       disabled={busy !== null}
@@ -481,8 +506,8 @@ function SecretCard({
                       ) : (
                         "Test"
                       )}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
                       onClick={() => setConfirmDelete(true)}
                       disabled={busy !== null}
@@ -490,7 +515,7 @@ function SecretCard({
                     >
                       <IconTrash size={10} />
                       Remove
-                    </button>
+                    </Button>
                   </>
                 )}
                 {secret.docsUrl && (
@@ -510,7 +535,7 @@ function SecretCard({
                   <span className="min-w-0 flex-1">
                     Remove this saved value?
                   </span>
-                  <button
+                  <Button
                     type="button"
                     onClick={handleDelete}
                     disabled={busy !== null}
@@ -521,15 +546,15 @@ function SecretCard({
                     ) : (
                       "Confirm"
                     )}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
                     onClick={() => setConfirmDelete(false)}
                     disabled={busy !== null}
                     className="rounded border border-border px-1.5 py-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -737,26 +762,32 @@ function AdHocKeysSection({
             placeholder="Description (optional)"
           />
           <div className="flex items-center gap-2">
-            <select
-              aria-label="Scope"
+            <Select
               value={formScope}
-              onChange={(e) =>
-                setFormScope(e.target.value as "user" | "workspace")
+              onValueChange={(value) =>
+                setFormScope(value as "user" | "workspace")
               }
-              className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
             >
-              <option value="user">Personal</option>
-              <option value="workspace">Workspace</option>
-            </select>
+              <SelectTrigger
+                aria-label="Scope"
+                className="h-auto w-auto rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">Personal</SelectItem>
+                <SelectItem value="workspace">Workspace</SelectItem>
+              </SelectContent>
+            </Select>
             <div className="ms-auto flex items-center gap-1.5">
-              <button
+              <Button
                 type="button"
                 onClick={resetForm}
                 className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={handleAdd}
                 disabled={!formName.trim() || !formValue.trim() || formBusy}
@@ -768,7 +799,7 @@ function AdHocKeysSection({
                 ) : (
                   "Save"
                 )}
-              </button>
+              </Button>
             </div>
           </div>
           {formError && <p className="text-[10px] text-red-500">{formError}</p>}
@@ -822,7 +853,7 @@ function AdHocKeysSection({
                 <div className="shrink-0">
                   {confirmDeleteName === key.name ? (
                     <div className="flex items-center gap-1">
-                      <button
+                      <Button
                         type="button"
                         onClick={() => handleDelete(key.name)}
                         disabled={deletingName === key.name}
@@ -833,25 +864,25 @@ function AdHocKeysSection({
                         ) : (
                           "Confirm"
                         )}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
                         onClick={() => setConfirmDeleteName(null)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
+                        <Button
                           type="button"
                           onClick={() => setConfirmDeleteName(key.name)}
                           className="text-muted-foreground hover:text-red-500"
                         >
                           <IconTrash size={12} />
-                        </button>
+                        </Button>
                       </TooltipTrigger>
                       <TooltipContent>Delete</TooltipContent>
                     </Tooltip>

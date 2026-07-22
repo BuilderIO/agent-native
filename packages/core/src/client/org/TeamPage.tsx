@@ -1,3 +1,11 @@
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
 import {
   Table,
   TableBody,
@@ -28,7 +36,14 @@ import {
   IconUsersGroup,
   IconHelpCircle,
 } from "@tabler/icons-react";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from "react";
 
 import type { DomainMatchOrg } from "../../org/types.js";
 import {
@@ -38,6 +53,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
 import {
   useOrg,
   useOrgMembers,
@@ -56,6 +72,22 @@ import {
   type InviteRole,
   type SyncA2ASecretResult,
 } from "./hooks.js";
+
+const Button = forwardRef<
+  HTMLButtonElement,
+  ComponentPropsWithoutRef<typeof ToolkitButton>
+>(({ className, ...props }, ref) => (
+  <ToolkitButton
+    ref={ref}
+    variant="ghost"
+    className={cn(
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100",
+      className,
+    )}
+    {...props}
+  />
+));
+Button.displayName = "TeamPrimitiveButton";
 
 export interface TeamPageProps {
   /**
@@ -122,7 +154,7 @@ function PendingInvitationsCard() {
               {t("org.invitedByLabel", { name: inv.invitedBy })}
             </div>
           </div>
-          <button
+          <Button
             type="button"
             onClick={() => acceptInvitation.mutate(inv.id)}
             disabled={acceptInvitation.isPending}
@@ -133,7 +165,7 @@ function PendingInvitationsCard() {
             ) : (
               t("org.accept")
             )}
-          </button>
+          </Button>
         </div>
       ))}
       <ErrorText error={acceptInvitation.error} />
@@ -166,7 +198,7 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
               </div>
               <div className="text-sm font-medium">{m.orgName}</div>
             </div>
-            <button
+            <Button
               type="button"
               disabled={joinByDomain.isPending && pendingId === m.orgId}
               onClick={() => {
@@ -182,7 +214,7 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
               ) : (
                 t("org.join")
               )}
-            </button>
+            </Button>
           </div>
         ))}
       </div>
@@ -204,13 +236,13 @@ function CreateOrgCard({ description }: { description?: string }) {
         {description || t("org.createOrgCardDescription")}
       </p>
       {!showForm ? (
-        <button
+        <Button
           type="button"
           onClick={() => setShowForm(true)}
           className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
         >
           {t("org.createOrganization")}
-        </button>
+        </Button>
       ) : (
         <div className="space-y-2">
           <input
@@ -222,7 +254,7 @@ function CreateOrgCard({ description }: { description?: string }) {
             autoFocus
           />
           <div className="flex gap-2">
-            <button
+            <Button
               type="button"
               disabled={!name.trim() || createOrg.isPending}
               onClick={() =>
@@ -240,8 +272,8 @@ function CreateOrgCard({ description }: { description?: string }) {
               ) : (
                 t("org.create")
               )}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => {
                 setShowForm(false);
@@ -250,7 +282,7 @@ function CreateOrgCard({ description }: { description?: string }) {
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               {t("org.cancel")}
-            </button>
+            </Button>
           </div>
           <ErrorText error={createOrg.error} />
         </div>
@@ -268,7 +300,7 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
 
   if (!editing) {
     return (
-      <button
+      <Button
         type="button"
         onClick={() => {
           setDraft(name);
@@ -278,7 +310,7 @@ function OrgNameDisplay({ name, canEdit }: { name: string; canEdit: boolean }) {
       >
         {name}
         <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100" />
-      </button>
+      </Button>
     );
   }
 
@@ -356,18 +388,22 @@ function MembersCard() {
             </div>
           </div>
           {hasMultipleOrgs && (
-            <select
+            <Select
               value={org.orgId ?? ""}
-              onChange={(e) => switchOrg.mutate(e.target.value || null)}
+              onValueChange={(value) => switchOrg.mutate(value || null)}
               disabled={switchOrg.isPending}
-              className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto"
             >
-              {org.orgs.map((o) => (
-                <option key={o.orgId} value={o.orgId}>
-                  {o.orgName}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {org.orgs.map((o) => (
+                  <SelectItem key={o.orgId} value={o.orgId}>
+                    {o.orgName}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
 
@@ -423,14 +459,14 @@ function MembersTableCard({
           </p>
         </div>
         {canInvite && !showInviteForm && (
-          <button
+          <Button
             type="button"
             onClick={() => setShowInviteForm(true)}
             className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
           >
             <IconUserPlus className="h-3.5 w-3.5" />
             {t("org.inviteMembers")}
-          </button>
+          </Button>
         )}
       </div>
       {canInvite && showInviteForm && (
@@ -576,11 +612,13 @@ function MemberRow({
         {canManage ? (
           <div className="flex shrink-0 items-center justify-end gap-1">
             {editing ? (
-              <select
-                autoFocus
+              <Select
                 value={role}
-                onChange={(e) => {
-                  const next = e.target.value === "admin" ? "admin" : "member";
+                onOpenChange={(open) => {
+                  if (!open) setEditing(false);
+                }}
+                onValueChange={(value) => {
+                  const next = value === "admin" ? "admin" : "member";
                   if (next !== role) {
                     changeRole.mutate(
                       { email, role: next },
@@ -590,37 +628,43 @@ function MemberRow({
                     setEditing(false);
                   }
                 }}
-                onBlur={() => setEditing(false)}
                 disabled={changeRole.isPending}
-                className="rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
               >
-                <option value="member">{t("org.member")}</option>
-                <option value="admin">{t("org.admin")}</option>
-              </select>
+                <SelectTrigger
+                  autoFocus
+                  className="h-auto w-auto rounded-md border border-border bg-background px-1.5 py-0.5 text-[11px]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="member">{t("org.member")}</SelectItem>
+                  <SelectItem value="admin">{t("org.admin")}</SelectItem>
+                </SelectContent>
+              </Select>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => setEditing(true)}
                     className="text-muted-foreground hover:text-foreground"
                   >
                     <IconPencil className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("org.changeRole")}</TooltipContent>
               </Tooltip>
             )}
             {confirmingRemove ? (
               <div className="flex items-center gap-1">
-                <button
+                <Button
                   type="button"
                   onClick={() => setConfirmingRemove(false)}
                   className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
                   {t("org.cancel")}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   disabled={removeMember.isPending}
                   onClick={() =>
@@ -631,19 +675,19 @@ function MemberRow({
                   className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
                 >
                   {t("org.remove")}
-                </button>
+                </Button>
               </div>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     disabled={removeMember.isPending}
                     onClick={() => setConfirmingRemove(true)}
                     className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
                   >
                     <IconTrash className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("org.removeMember")}</TooltipContent>
               </Tooltip>
@@ -810,26 +854,32 @@ function BulkInviteForm({
               className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
               autoFocus={i === drafts.length - 1}
             />
-            <select
+            <Select
               value={draft.role}
-              onChange={(e) =>
+              onValueChange={(value) =>
                 setDraft(i, {
-                  role: e.target.value === "admin" ? "admin" : "member",
+                  role: value === "admin" ? "admin" : "member",
                 })
               }
               disabled={!canSetAdmin}
-              title={
-                canSetAdmin
-                  ? undefined
-                  : "Only the organization owner can invite admins"
-              }
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
             >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
+              <SelectTrigger
+                title={
+                  canSetAdmin
+                    ? undefined
+                    : "Only the organization owner can invite admins"
+                }
+                className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+              </SelectContent>
+            </Select>
             {drafts.length > 1 && (
-              <button
+              <Button
                 type="button"
                 onClick={() =>
                   setDrafts((prev) => prev.filter((_, j) => j !== i))
@@ -837,14 +887,14 @@ function BulkInviteForm({
                 className="text-muted-foreground hover:text-red-500"
               >
                 <IconX className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
           </div>
         ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
+        <Button
           type="button"
           onClick={() =>
             setDrafts((prev) => [...prev, { email: "", role: "member" }])
@@ -853,23 +903,23 @@ function BulkInviteForm({
         >
           <IconPlus className="h-3.5 w-3.5" />
           Add another
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={() => setPasteOpen((v) => !v)}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
           <IconUserPlus className="h-3.5 w-3.5" />
           Paste many
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={() => fileRef.current?.click()}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
           <IconFileImport className="h-3.5 w-3.5" />
           Import CSV
-        </button>
+        </Button>
         <input
           ref={fileRef}
           type="file"
@@ -897,18 +947,22 @@ function BulkInviteForm({
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
           />
           <div className="flex items-center gap-2">
-            <select
+            <Select
               value={pasteRole}
-              onChange={(e) =>
-                setPasteRole(e.target.value === "admin" ? "admin" : "member")
+              onValueChange={(value) =>
+                setPasteRole(value === "admin" ? "admin" : "member")
               }
               disabled={!canSetAdmin}
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50"
             >
-              <option value="member">Add as members</option>
-              <option value="admin">Add as admins</option>
-            </select>
-            <button
+              <SelectTrigger className="h-auto w-auto rounded-md border border-border bg-background px-2 py-1.5 text-xs disabled:opacity-50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Add as members</SelectItem>
+                <SelectItem value="admin">Add as admins</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
               type="button"
               onClick={() => {
                 appendEmails(parseEmailList(pasteValue), pasteRole);
@@ -919,8 +973,8 @@ function BulkInviteForm({
               className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
             >
               Add
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => {
                 setPasteValue("");
@@ -929,13 +983,13 @@ function BulkInviteForm({
               className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       <div className="flex items-center gap-2">
-        <button
+        <Button
           type="button"
           disabled={validDrafts.length === 0 || bulkInvite.isPending}
           onClick={submit}
@@ -950,14 +1004,14 @@ function BulkInviteForm({
               {validDrafts.length === 1 ? "invite" : "invites"}
             </span>
           )}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={onClose}
           className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           Close
-        </button>
+        </Button>
       </div>
 
       <p className="text-[11px] text-muted-foreground">
@@ -1039,7 +1093,7 @@ function DomainSettingsSection({
               </span>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     onClick={() => {
                       setDraft(domain);
@@ -1048,26 +1102,26 @@ function DomainSettingsSection({
                     className="text-muted-foreground hover:text-foreground"
                   >
                     <IconPencil className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Edit domain</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
+                  <Button
                     type="button"
                     disabled={setOrgDomain.isPending}
                     onClick={() => setOrgDomain.mutate(null)}
                     className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
                   >
                     <IconX className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Remove domain</TooltipContent>
               </Tooltip>
             </>
           ) : (
-            <button
+            <Button
               type="button"
               onClick={() => {
                 setDraft(ownDomain);
@@ -1077,7 +1131,7 @@ function DomainSettingsSection({
             >
               <IconAt className="h-3.5 w-3.5" />
               Allow {ownDomain || "your domain"} to auto-join
-            </button>
+            </Button>
           )}
         </div>
       ) : (
@@ -1094,7 +1148,7 @@ function DomainSettingsSection({
             className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
             autoFocus
           />
-          <button
+          <Button
             type="button"
             disabled={setOrgDomain.isPending}
             onClick={save}
@@ -1105,14 +1159,14 @@ function DomainSettingsSection({
             ) : (
               "Save"
             )}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => setEditing(false)}
             className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
       <ErrorText error={setOrgDomain.error} />
@@ -1214,7 +1268,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
           <>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
                   onClick={() => setRevealed(!revealed)}
                   className="text-muted-foreground hover:text-foreground"
@@ -1224,7 +1278,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                   ) : (
                     <IconEye className="h-3.5 w-3.5" />
                   )}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>
                 {revealed ? "Hide secret" : "Reveal secret"}
@@ -1232,7 +1286,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
                   onClick={copyToClipboard}
                   className="text-muted-foreground hover:text-foreground"
@@ -1242,7 +1296,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                   ) : (
                     <IconCopy className="h-3.5 w-3.5" />
                   )}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent>Copy secret</TooltipContent>
             </Tooltip>
@@ -1250,7 +1304,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         )}
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Button
               type="button"
               onClick={regenerate}
               disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
@@ -1262,7 +1316,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                 <IconRefresh className="h-3.5 w-3.5" />
               )}
               Regenerate
-            </button>
+            </Button>
           </TooltipTrigger>
           <TooltipContent>
             Regenerate secret and sync to connected apps
@@ -1271,7 +1325,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
         {secret && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <button
+              <Button
                 type="button"
                 onClick={() => syncToApps()}
                 disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
@@ -1283,7 +1337,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
                   <IconCloudUpload className="h-3.5 w-3.5" />
                 )}
                 Sync to apps
-              </button>
+              </Button>
             </TooltipTrigger>
             <TooltipContent>
               Push this secret to every connected app
@@ -1320,14 +1374,14 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       )}
 
       {!pasteMode ? (
-        <button
+        <Button
           type="button"
           onClick={() => setPasteMode(true)}
           className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
           <IconKey className="h-3.5 w-3.5" />
           Paste secret from another app
-        </button>
+        </Button>
       ) : (
         <div className="flex items-center gap-2">
           <input
@@ -1345,7 +1399,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-foreground"
             autoFocus
           />
-          <button
+          <Button
             type="button"
             disabled={!pasteValue.trim() || setA2ASecret.isPending}
             onClick={saveSecret}
@@ -1356,8 +1410,8 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             ) : (
               "Save"
             )}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => {
               setPasteMode(false);
@@ -1366,7 +1420,7 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Cancel
-          </button>
+          </Button>
         </div>
       )}
 

@@ -51,6 +51,8 @@ interface DialogContentProps extends React.ComponentPropsWithoutRef<
     typeof DialogPrimitive.Portal
   >["container"];
   closeLabel?: string;
+  overlayClassName?: string;
+  overlayStyle?: React.CSSProperties;
 }
 
 const DialogContent = React.forwardRef<
@@ -65,12 +67,18 @@ const DialogContent = React.forwardRef<
       motion = "default",
       container,
       closeLabel = "Close",
+      overlayClassName,
+      overlayStyle,
       ...props
     },
     ref,
   ) => (
     <DialogPortal container={container}>
-      <DialogOverlay motion={motion} />
+      <DialogOverlay
+        motion={motion}
+        className={overlayClassName}
+        style={overlayStyle}
+      />
       <DialogPrimitive.Content
         ref={ref}
         className={cn(

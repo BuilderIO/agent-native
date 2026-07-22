@@ -1,0 +1,23 @@
+import { readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
+
+const normalizedSurfaces = [
+  "./settings/SettingsPanel.tsx",
+  "./settings/SecretsSection.tsx",
+  "./org/TeamPage.tsx",
+];
+
+describe("Core design-system primitive normalization", () => {
+  it.each(normalizedSurfaces)(
+    "%s routes buttons and pickers through Toolkit primitives",
+    (sourcePath) => {
+      const source = readFileSync(new URL(sourcePath, import.meta.url), "utf8");
+
+      expect(source).toContain("@agent-native/toolkit/ui/button");
+      expect(source).toContain("@agent-native/toolkit/ui/select");
+      expect(source).not.toMatch(/<(?:button|select)\b/);
+      expect(source).not.toContain("@radix-ui/react-select");
+    },
+  );
+});

@@ -193,6 +193,98 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).not.toContain("Result for launch");
   });
 
+  it("uses the shared dialog and command primitives without changing the keyboard-surface presentation", () => {
+    renderMenu();
+
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]");
+    const command = document.querySelector<HTMLElement>("[cmdk-root]");
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    const list = document.querySelector<HTMLElement>("[cmdk-list]");
+    const overlay = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-state=open]"),
+    ).find(
+      (element) => element !== dialog && !element.hasAttribute("cmdk-root"),
+    );
+
+    expect(dialog).toBeTruthy();
+    expect(command).toBeTruthy();
+    expect(input).toBeTruthy();
+    expect(list).toBeTruthy();
+    expect(dialog?.className).toContain("top-[15vh]");
+    expect(dialog?.className).toContain("bg-popover");
+    expect(dialog?.style.animation).toBe("none");
+    expect(dialog?.style.transition).toBe("none");
+    expect(overlay?.className).toContain("z-50");
+    expect(overlay?.className).toContain("bg-black/50");
+    expect(overlay?.style.backdropFilter).toBe("none");
+    expect(overlay?.style.transition).toBe("none");
+    expect(document.activeElement).toBe(input);
+    expect(dialog?.querySelector("button")).toBeNull();
+  });
+
+  it("keeps arrow-key selection and Enter activation on shared command items", () => {
+    const selectFirst = vi.fn();
+    const selectSecond = vi.fn();
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <CommandMenu open onOpenChange={onOpenChange} showAgentFallback={false}>
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={selectFirst} deferSelect={false}>
+              First action
+            </CommandMenu.Item>
+            <CommandMenu.Item onSelect={selectSecond} deferSelect={false}>
+              Second action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    expect(input).toBeTruthy();
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(selectFirst).not.toHaveBeenCalled();
+    expect(selectSecond).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("delegates Escape dismissal to the shared dialog", () => {
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <CommandMenu open onOpenChange={onOpenChange} showAgentFallback={false}>
+          <CommandMenu.Group heading="Actions">
+            <CommandMenu.Item onSelect={() => undefined}>
+              Static action
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("can opt into opening from a contenteditable target", () => {
     function ShortcutHarness() {
       const [open, setOpen] = React.useState(false);
