@@ -1761,10 +1761,14 @@ function getCoreDependencyVersion(): string {
   // dependency no longer matches the toolkit range this CLI just wrote into
   // the scaffold via getOwnPackageDependencyVersion() — reintroducing the
   // exact duplicate/mismatched-toolkit class of bug this pinning exists to
-  // prevent. This code only runs from an already-published CLI (npx must
-  // have fetched this exact version from the registry to execute it), so the
-  // pinned version is always installable. Local file deps stay opt-in so
-  // scaffolded repos remain portable by default.
+  // prevent. For the common case — `npx @agent-native/core@<version> create`
+  // against the public registry — this exact version is guaranteed
+  // installable, since npx just fetched it. Private/offline mirrors with a
+  // retention window narrower than "every historical version" are a known
+  // gap; `getCorePackageVersion()` returning undefined (e.g. malformed own
+  // package.json) falls back to `latest` rather than failing scaffolding
+  // outright. Local file deps stay opt-in so scaffolded repos remain
+  // portable by default.
   return getCorePackageVersion() ?? "latest";
 }
 
