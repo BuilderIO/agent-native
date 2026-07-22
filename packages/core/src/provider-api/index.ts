@@ -385,6 +385,7 @@ export interface ProviderApiConfig {
   id: ProviderApiId;
   label: string;
   defaultBaseUrl: string;
+  requiresConnectionId?: boolean;
   baseUrlCredentialKey?: string;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
@@ -1217,6 +1218,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "salesforce",
     label: "Salesforce",
     defaultBaseUrl: "https://login.salesforce.com",
+    requiresConnectionId: true,
     auth: {
       type: "oauth-bearer",
       oauthProvider: "salesforce",
@@ -1611,6 +1613,7 @@ export function listProviderApiCatalog(
     id: config.id,
     label: config.label,
     defaultBaseUrl: config.defaultBaseUrl,
+    requiresConnectionId: config.requiresConnectionId ?? false,
     baseUrlCredentialKey: config.baseUrlCredentialKey ?? null,
     auth: describeAuth(config.auth),
     credentialKeys: config.credentialKeys,
@@ -1786,6 +1789,11 @@ export async function executeProviderApiRequest(
 
   // --- built-in provider path (original code) ---
   const config = builtIn!;
+  if (config.requiresConnectionId && !args.connectionId?.trim()) {
+    throw new Error(
+      `${config.label} Provider API requests require a workspace connectionId.`,
+    );
+  }
   const ctx = requireRuntimeCredentialContext(
     runtime,
     config.credentialKeys[0] ?? config.id,

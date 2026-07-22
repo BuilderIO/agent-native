@@ -918,6 +918,34 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("requires a Salesforce workspace connectionId before resolving a request", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: { access_token: "salesforce-oauth-example" },
+      },
+    ]);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "salesforce",
+        path: "/services/data/v60.0/sobjects/Account",
+      }),
+    ).rejects.toThrow(
+      "Salesforce Provider API requests require a workspace connectionId.",
+    );
+
+    expect(resolveWorkspaceConnectionForApp).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps a Salesforce OAuth token on its exact connection instance", async () => {
     listOAuthAccountsByOwner.mockResolvedValue([
       {
