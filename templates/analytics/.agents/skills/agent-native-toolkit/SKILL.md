@@ -86,8 +86,9 @@ in the moment of agent use.
 - **Chat history kit**: presentational chat lists and recent-chat rails belong
   in Toolkit; Core keeps thread persistence, agent execution, transport, and
   page-to-sidebar handoff. Use Toolkit's `ChatHistoryRail` for the standard
-  five-item sidebar preview, ellipsis disclosure up to fifteen, and bottom New
-  chat action. Apps inject routing, labels, and domain actions.
+  five-item sidebar preview and a footer row with New chat followed by an
+  ellipsis disclosure up to fifteen. Apps inject routing, labels, and domain
+  actions.
 - **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
   `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
   Access tabs plus a Personal/Organization scope toggle. The canonical home
