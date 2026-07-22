@@ -800,16 +800,20 @@ export default function RecordingPage() {
 
   usePlayerShortcuts({ playerRef, chapters });
 
-  const tracking = useViewTracking({
-    recordingId: recordingId ?? "",
-    videoRef: {
+  const trackedVideoRef = useMemo(
+    () => ({
       get current() {
         return playerRef.current?.video ?? null;
       },
-    } as any,
+    }),
+    [],
+  ) as React.RefObject<HTMLVideoElement | null>;
+
+  const tracking = useViewTracking({
+    recordingId: recordingId ?? "",
+    videoRef: trackedVideoRef,
     durationMs: recording?.durationMs ?? 0,
-    // Skip tracking for the owner — they shouldn't inflate their own views.
-    disabled: role === "owner",
+    disabled: role === "owner", // Skip tracking for the owner: they shouldn't inflate their own views.
   });
 
   if (!recordingId) return null;

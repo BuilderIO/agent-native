@@ -579,13 +579,18 @@ export default function ShareRoute() {
 
   usePlayerShortcuts({ playerRef });
 
-  const tracking = useViewTracking({
-    recordingId: shareId ?? "",
-    videoRef: {
+  const trackedVideoRef = useMemo(
+    () => ({
       get current() {
         return playerRef.current?.video ?? null;
       },
-    } as any,
+    }),
+    [],
+  ) as React.RefObject<HTMLVideoElement | null>;
+
+  const tracking = useViewTracking({
+    recordingId: shareId ?? "",
+    videoRef: trackedVideoRef,
     durationMs: recording?.durationMs ?? 0,
     trackOpenWithoutVideo: isLoomEmbedBacked,
   });
