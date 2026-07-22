@@ -4,7 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ActionButton } from "../design-system/components.js";
+import { ActionButton, IconButton } from "../design-system/components.js";
 import { defineDesignSystem } from "../design-system/definition.js";
 import { ToolkitProvider } from "../provider.js";
 import type { ChatHistoryItem } from "./ChatHistoryList.js";
@@ -194,6 +194,75 @@ describe("ChatHistoryRail", () => {
     act(() => actions[0]?.click());
     expect(onNewChat).toHaveBeenCalledOnce();
     expect(CustomActionButton).toHaveBeenCalled();
+  });
+
+  it("routes the default footer through the semantic action bridge", () => {
+    const onNewChat = vi.fn();
+    const CustomActionButton = vi.fn(
+      ({ children, onPress }: Parameters<typeof ActionButton>[0]) => (
+        <button
+          data-semantic-action
+          type="button"
+          onClick={(event) => onPress?.(event)}
+        >
+          {children}
+        </button>
+      ),
+    );
+    const CustomIconButton = vi.fn(
+      ({ icon, label, onPress }: Parameters<typeof IconButton>[0]) => (
+        <button
+          data-semantic-icon
+          type="button"
+          aria-label={label}
+          onClick={(event) => onPress?.(event)}
+        >
+          {icon}
+        </button>
+      ),
+    );
+    const designSystem = defineDesignSystem({
+      name: "Acme",
+      components: {
+        ActionButton: CustomActionButton,
+        IconButton: CustomIconButton,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <ToolkitProvider designSystem={designSystem}>
+          <ChatHistoryRail
+            items={makeItems(6)}
+            onSelect={() => {}}
+            onNewChat={onNewChat}
+            railLabels={railLabels}
+          />
+        </ToolkitProvider>,
+      );
+    });
+
+    const newChat = container.querySelector<HTMLButtonElement>(
+      "[data-semantic-action]",
+    );
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "[data-semantic-icon]",
+    );
+    expect(newChat).not.toBeNull();
+    expect(disclosure?.getAttribute("aria-label")).toBe("Show more chats");
+    expect(CustomActionButton.mock.calls[0]?.[0]).toMatchObject({
+      emphasis: "ghost",
+      size: "compact",
+      leadingIcon: expect.anything(),
+    });
+    expect(CustomIconButton.mock.calls[0]?.[0]).toMatchObject({
+      size: "compact",
+      "aria-expanded": false,
+      label: "Show more chats",
+    });
+
+    act(() => newChat?.click());
+    expect(onNewChat).toHaveBeenCalledOnce();
   });
 
   it("keeps native button semantics and focus in the default view", () => {

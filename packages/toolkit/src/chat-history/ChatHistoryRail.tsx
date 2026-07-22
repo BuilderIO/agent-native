@@ -1,6 +1,7 @@
 import { IconDots, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
+import { ActionButton, IconButton } from "../design-system/components.js";
 import { DesignSystemErrorBoundary } from "../design-system/error-boundary.js";
 import {
   ChatHistoryList,
@@ -62,25 +63,29 @@ export function DefaultChatHistoryRailView({
 
   const footer = (
     <div className="an-chat-history-rail__footer">
-      <button
+      <ActionButton
         type="button"
         className="an-chat-history-rail__new-chat"
-        onClick={onNewChat}
+        emphasis="ghost"
+        size="compact"
+        leadingIcon={
+          <IconPlus size={13} strokeWidth={1.8} aria-hidden="true" />
+        }
+        onPress={onNewChat}
       >
-        <IconPlus size={13} strokeWidth={1.8} aria-hidden="true" />
         <span>{newChatLabel}</span>
-      </button>
+      </ActionButton>
       {canExpand && (
-        <button
+        <IconButton
           type="button"
           className="an-chat-history-rail__disclosure"
-          onClick={toggleExpanded}
+          size="compact"
+          icon={<IconDots size={14} strokeWidth={1.8} aria-hidden="true" />}
+          onPress={toggleExpanded}
           aria-expanded={expanded}
-          aria-label={disclosureLabel}
+          label={disclosureLabel}
           title={disclosureLabel}
-        >
-          <IconDots size={14} strokeWidth={1.8} aria-hidden="true" />
-        </button>
+        />
       )}
     </div>
   );

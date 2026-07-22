@@ -122,6 +122,12 @@ sharing use the same model: actions, state, side effects, and tracking live in a
 feature controller; both the built-in view and the customer slot consume its
 view model.
 
+The v1 `ChatHistoryRail` `renderRail` slot is intentionally opaque: it replaces
+the rail view wholesale while receiving the shared controller and list props.
+Discrete header, footer, or row slots are out of scope until a second product
+needs them. This keeps the proving slice bounded without allowing a custom view
+to fork history state or actions.
+
 <Diagram
   id="controller-render-invariant"
   data={{

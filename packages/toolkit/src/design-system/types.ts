@@ -39,10 +39,14 @@ export interface DesignSystemStyleProps {
 
 export interface DesignSystemAccessibleProps {
   id?: string;
+  title?: string;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
   "aria-controls"?: string;
+  "aria-expanded"?: boolean;
+  "aria-haspopup"?: boolean | "dialog" | "grid" | "listbox" | "menu" | "tree";
+  "aria-pressed"?: boolean | "mixed";
 }
 
 export interface DesignSystemOverlayProps extends DesignSystemStyleProps {

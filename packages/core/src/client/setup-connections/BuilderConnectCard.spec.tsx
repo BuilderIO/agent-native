@@ -8,9 +8,10 @@ import { BuilderConnectCard } from "./BuilderConnectCard.js";
 import type { BuilderConnectCardViewModel } from "./useBuilderConnectCardController.js";
 
 const mocks = vi.hoisted(() => ({
-  actionButton: undefined as unknown,
   useBuilderConnectCardController: vi.fn(),
   semanticActionProps: undefined as Record<string, unknown> | undefined,
+  semanticStatusProps: undefined as Record<string, unknown> | undefined,
+  semanticSurfaceProps: undefined as Record<string, unknown> | undefined,
 }));
 
 vi.mock("./useBuilderConnectCardController.js", () => ({
@@ -24,17 +25,25 @@ vi.mock("@agent-native/toolkit/design-system", async (importOriginal) => {
     >();
   return {
     ...actual,
-    useDesignSystem: () =>
-      mocks.actionButton
-        ? { components: { ActionButton: mocks.actionButton } }
-        : undefined,
     ActionButton: ({ children, onPress, ...props }: any) => {
       mocks.semanticActionProps = props;
       return (
-        <button data-semantic-action="true" onClick={() => onPress()}>
+        <button
+          data-semantic-action="true"
+          disabled={props.disabled}
+          onClick={() => onPress?.()}
+        >
           {children}
         </button>
       );
+    },
+    Status: ({ children, ...props }: any) => {
+      mocks.semanticStatusProps = props;
+      return <span data-semantic-status="true">{children}</span>;
+    },
+    Surface: ({ children, ...props }: any) => {
+      mocks.semanticSurfaceProps = props;
+      return <section data-semantic-surface="true">{children}</section>;
     },
   };
 });
@@ -63,8 +72,9 @@ describe("BuilderConnectCard", () => {
       },
     };
     mocks.useBuilderConnectCardController.mockReturnValue(viewModel);
-    mocks.actionButton = undefined;
     mocks.semanticActionProps = undefined;
+    mocks.semanticStatusProps = undefined;
+    mocks.semanticSurfaceProps = undefined;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -86,7 +96,18 @@ describe("BuilderConnectCard", () => {
     );
     expect(container.textContent).toContain("Builder connect");
     expect(container.textContent).toContain("Ready to connect");
-    expect(container.querySelector("[data-semantic-action]")).toBeNull();
+    expect(container.querySelector("[data-semantic-action]")).not.toBeNull();
+    expect(container.querySelector("[data-semantic-status]")).not.toBeNull();
+    expect(container.querySelector("[data-semantic-surface]")).not.toBeNull();
+    expect(mocks.semanticSurfaceProps).toMatchObject({
+      as: "section",
+      elevation: "low",
+      padding: "none",
+    });
+    expect(mocks.semanticStatusProps).toMatchObject({
+      tone: "neutral",
+      size: "compact",
+    });
 
     act(() => (container.querySelector("button") as HTMLButtonElement).click());
     expect(viewModel.action?.onPress).toHaveBeenCalledOnce();
@@ -111,10 +132,7 @@ describe("BuilderConnectCard", () => {
     );
   });
 
-  it("uses the semantic action contract when a design system supplies it", () => {
-    mocks.actionButton = function CompanyActionButton() {
-      return null;
-    };
+  it("uses the semantic action contract for pending state", () => {
     viewModel.pending = true;
     viewModel.action = {
       ...viewModel.action!,

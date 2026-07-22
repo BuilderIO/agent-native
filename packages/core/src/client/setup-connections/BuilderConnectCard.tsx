@@ -1,9 +1,10 @@
 import {
   ActionButton,
   DesignSystemErrorBoundary,
-  useDesignSystem,
+  Status,
+  Surface,
 } from "@agent-native/toolkit/design-system";
-import { IconCheck, IconLoader2, IconPlugConnected } from "@tabler/icons-react";
+import { IconCheck, IconPlugConnected } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
 import { cn } from "../utils.js";
@@ -32,11 +33,19 @@ export function DefaultBuilderConnectCardView({
   viewModel,
   className,
 }: DefaultBuilderConnectCardViewProps) {
-  const designSystem = useDesignSystem();
   const action = viewModel.action;
+  const statusTone =
+    viewModel.status.kind === "connected"
+      ? "success"
+      : viewModel.status.kind === "checking"
+        ? "info"
+        : "neutral";
 
   return (
-    <section
+    <Surface
+      as="section"
+      elevation="low"
+      padding="none"
       className={cn(
         "rounded-lg border border-border bg-background p-4 shadow-sm",
         className,
@@ -62,9 +71,13 @@ export function DefaultBuilderConnectCardView({
             <h2 className="text-sm font-semibold text-foreground">
               {viewModel.title}
             </h2>
-            <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <Status
+              tone={statusTone}
+              size="compact"
+              className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+            >
               {viewModel.status.label}
-            </span>
+            </Status>
           </div>
           <p className="mt-1 text-sm leading-5 text-muted-foreground">
             {viewModel.description}
@@ -73,39 +86,24 @@ export function DefaultBuilderConnectCardView({
             <p className="mt-2 text-xs text-destructive">{viewModel.error}</p>
           ) : null}
           {action ? (
-            designSystem?.components?.ActionButton ? (
-              <div className="mt-3">
-                <ActionButton
-                  type="button"
-                  intent="primary"
-                  size="compact"
-                  pending={action.pending}
-                  disabled={action.disabled}
-                  leadingIcon={<IconPlugConnected />}
-                  onPress={action.onPress}
-                >
-                  {action.label}
-                </ActionButton>
-              </div>
-            ) : (
-              <button
+            <div className="mt-3">
+              <ActionButton
                 type="button"
-                onClick={action.onPress}
+                intent="primary"
+                size="compact"
+                pending={action.pending}
                 disabled={action.disabled}
-                className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+                leadingIcon={<IconPlugConnected className="size-3.5" />}
+                onPress={action.onPress}
               >
-                {action.pending ? (
-                  <IconLoader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <IconPlugConnected className="size-3.5" />
-                )}
                 {action.label}
-              </button>
-            )
+              </ActionButton>
+            </div>
           ) : null}
         </div>
       </div>
-    </section>
+    </Surface>
   );
 }
 

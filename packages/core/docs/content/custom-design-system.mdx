@@ -223,6 +223,12 @@ widget. `BuilderConnectCard` and `ChatHistoryRail` are the first proving slices;
 settings and sharing follow the same controller/default-view/custom-view
 invariant.
 
+`ChatHistoryRail` keeps one deliberately opaque `renderRail` slot in v1. The
+slot replaces the rail view wholesale and receives the shared controller plus
+list props; discrete header, footer, and row slots are deferred until a second
+product needs them. This bounds the API while keeping history state and actions
+on the shared controller.
+
 If a slot cannot express the required product change, inspect and eject the
 smallest published unit:
 
