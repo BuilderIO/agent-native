@@ -1,6 +1,6 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
-  IconDots,
+  IconDotsVertical,
   IconLock,
   IconWorld,
   IconUsersGroup,
@@ -319,7 +319,7 @@ export function RecordingCard({
 
       {/* Body */}
       <div className="relative z-10 flex-1 space-y-2 p-3 pointer-events-none">
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
             {hasDefaultTitle ? (
               <Skeleton
@@ -372,10 +372,10 @@ export function RecordingCard({
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <button
-                  className="pointer-events-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="pointer-events-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                   aria-label={t("clipsFinalRaw.recordingMenu")}
                 >
-                  <IconDots className="h-4 w-4" />
+                  <IconDotsVertical className="h-4 w-4" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
