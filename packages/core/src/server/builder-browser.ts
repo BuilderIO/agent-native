@@ -197,14 +197,22 @@ export function verifyBuilderPreviewRelayState(
 ): BuilderPreviewRelayState | null {
   if (!state) return null;
   const parts = state.split(".");
+  console.log(`shomix - checking sus`);
+
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  console.log(`shomix - parts[0] - ${parts[0]}`);
+  console.log(`shomix - parts[1] - ${parts[1]}`);
   if (!safeEqualText(builderRelayMac(parts[0]), parts[1])) return null;
   let value: unknown;
+
+  console.log(`shomix - checked the secret that part looks good`);
   try {
     value = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
   } catch {
     return null;
   }
+  console.log(`shomix - was able to parse the json`);
+
   if (!value || typeof value !== "object") return null;
   const payload = value as Partial<BuilderPreviewRelayState>;
   const now = options.now ?? Date.now();
