@@ -136,7 +136,6 @@ export interface TextAreaProps
   description?: ReactNode;
   errorMessage?: ReactNode;
   placeholder?: string;
-  list?: string;
   name?: string;
   rows?: number;
   maxLength?: number;

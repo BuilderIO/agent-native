@@ -765,7 +765,6 @@ export function AppDefaultModelField({
           if (event.key === "Enter") onEnter?.();
         }}
         placeholder={defaultModel ?? "model-id"}
-        list={`app-model-suggestions-${engine}`}
         autoComplete="off"
         aria-label="Model"
         className={cn(

@@ -104,7 +104,6 @@ const contentProps = (props: {
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
   "aria-controls"?: string;
-  list?: string;
 }) => ({
   className: props.className,
   style: props.style,
@@ -113,7 +112,6 @@ const contentProps = (props: {
   "aria-labelledby": props["aria-labelledby"],
   "aria-describedby": props["aria-describedby"],
   "aria-controls": props["aria-controls"],
-  list: props.list,
 });
 
 const ActionButton: DesignSystemComponents["ActionButton"] = ({
