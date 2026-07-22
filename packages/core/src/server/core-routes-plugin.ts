@@ -2400,13 +2400,15 @@ export function createCoreRoutesPlugin(
             BUILDER_RELAY_STATE_PARAM,
           );
           if (relayStateRaw) {
-          console.log(`shomix - /builder/callback - called`);
+          console.log(`shomix - relayStateRaw - ${relayStateRaw}`);
 
             let relayPayload: BuilderPreviewRelayState | null = null;
             try {
               relayPayload =
                 verifyBuilderPreviewRelayStateForCallback(relayStateRaw);
-            } catch {
+                console.log(`shomix - relayPayload - ${relayPayload}`);
+            } catch (err) {
+              console.log(`shomix - error while verifiing payload - ${err.message}`);
               // A preview relay must fail closed when its dedicated shared
               // secret is absent on the corporate callback deployment.
             }
