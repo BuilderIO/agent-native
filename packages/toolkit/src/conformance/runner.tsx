@@ -389,6 +389,21 @@ const checks: readonly ConformanceCheck[] = [
         "Tooltip must honor controlled open and portalContainer.",
       );
       unmount(probe);
+
+      const defaultOpenProbe = mount(
+        <components.Tooltip
+          trigger={<button>Help by default</button>}
+          content="Default tooltip"
+          defaultOpen
+          portalContainer={portal}
+        />,
+      );
+      await settle();
+      invariant(
+        portal.textContent?.includes("Default tooltip"),
+        "Tooltip must honor defaultOpen and portalContainer.",
+      );
+      unmount(defaultOpenProbe);
       portal.remove();
     },
   },
@@ -412,6 +427,21 @@ const checks: readonly ConformanceCheck[] = [
       click(item, document);
       invariant(selected === "archive", "Menu must report selected item ids.");
       unmount(probe);
+
+      const defaultOpenProbe = mount(
+        <components.Menu
+          trigger={<button>Default actions</button>}
+          items={[{ id: "restore", label: "Restore" }]}
+          defaultOpen
+          onAction={() => {}}
+        />,
+      );
+      await settle();
+      invariant(
+        elementWithText(document, '[role="menuitem"]', "Restore"),
+        "Menu must honor defaultOpen.",
+      );
+      unmount(defaultOpenProbe);
     },
   },
   {

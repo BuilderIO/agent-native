@@ -417,21 +417,31 @@ const Tooltip: DesignSystemComponents["Tooltip"] = ({
   placement = "top",
   portalContainer,
   ...props
-}) => (
-  <MuiTooltip
-    {...contentProps(props)}
-    title={content}
-    open={disabled ? false : open}
-    onOpen={() => onOpenChange?.(true)}
-    onClose={() => onOpenChange?.(false)}
-    enterDelay={delayMs}
-    placement={placement}
-    disableHoverListener={disabled}
-    slotProps={{ popper: { container: overlayContainer(portalContainer) } }}
-  >
-    {trigger}
-  </MuiTooltip>
-);
+}) => {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const isOpen = open ?? internalOpen;
+  return (
+    <MuiTooltip
+      {...contentProps(props)}
+      title={content}
+      open={disabled ? false : isOpen}
+      onOpen={() => {
+        if (open === undefined) setInternalOpen(true);
+        onOpenChange?.(true);
+      }}
+      onClose={() => {
+        if (open === undefined) setInternalOpen(false);
+        onOpenChange?.(false);
+      }}
+      enterDelay={delayMs}
+      placement={placement}
+      disableHoverListener={disabled}
+      slotProps={{ popper: { container: overlayContainer(portalContainer) } }}
+    >
+      {trigger}
+    </MuiTooltip>
+  );
+};
 
 function menuItems(
   items: readonly MenuItem[],

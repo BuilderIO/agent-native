@@ -447,6 +447,8 @@ const Menu: DesignSystemComponents["Menu"] = ({
   closeOnAction = true,
   ...props
 }) => {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const isOpen = open ?? internalOpen;
   const menuItems = sections
     ? sections.flatMap((section) => dropdownItems(section.items))
     : dropdownItems(items ?? []);
@@ -465,11 +467,17 @@ const Menu: DesignSystemComponents["Menu"] = ({
         items: menuItems,
         onClick: ({ key }) => {
           onAction(key);
-          if (closeOnAction) onOpenChange?.(false);
+          if (closeOnAction) {
+            if (open === undefined) setInternalOpen(false);
+            onOpenChange?.(false);
+          }
         },
       }}
-      open={open}
-      onOpenChange={onOpenChange}
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (open === undefined) setInternalOpen(next);
+        onOpenChange?.(next);
+      }}
       trigger={["click"]}
     >
       {wrappedTrigger}
