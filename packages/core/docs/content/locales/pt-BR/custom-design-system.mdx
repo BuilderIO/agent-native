@@ -13,12 +13,12 @@ Consulte o [exemplo executável de Chat com Material UI](https://github.com/Buil
 
 ## Escolha o menor nível de personalização
 
-| Nível | Use para | O que permanece compartilhado |
-| ----- | -------- | ----------------------------- |
-| **Tokens de tema** | Alinhamento rápido da marca nas superfícies padrão e ainda não adaptadas | Componentes, controladores e comportamento do Toolkit |
-| **Componentes semânticos** | Controles da empresa, como botões, campos, seletores, diálogos, menus e superfícies | Controladores de recursos e contratos do produto |
-| **Slots de produto** | Layout específico da empresa para um recurso, como o cartão de conexão ou a faixa de histórico do chat | Controlador e actions do recurso |
-| **Ejetar** | Comportamento ou estrutura de produto que não pode ser expressa por um slot compatível | Contratos do runtime Core; o recurso ejetado passa a pertencer ao aplicativo |
+| Nível                      | Use para                                                                                               | O que permanece compartilhado                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| **Tokens de tema**         | Alinhamento rápido da marca nas superfícies padrão e ainda não adaptadas                               | Componentes, controladores e comportamento do Toolkit                        |
+| **Componentes semânticos** | Controles da empresa, como botões, campos, seletores, diálogos, menus e superfícies                    | Controladores de recursos e contratos do produto                             |
+| **Slots de produto**       | Layout específico da empresa para um recurso, como o cartão de conexão ou a faixa de histórico do chat | Controlador e actions do recurso                                             |
+| **Ejetar**                 | Comportamento ou estrutura de produto que não pode ser expressa por um slot compatível                 | Contratos do runtime Core; o recurso ejetado passa a pertencer ao aplicativo |
 
 Comece pelos tokens, adicione componentes semânticos onde seu sistema tiver um equivalente, use um slot de produto para composição no nível do recurso e ejete apenas a menor unidade que ainda precisar de propriedade.
 
@@ -114,30 +114,30 @@ O contrato trata deliberadamente de significado e comportamento, não do formato
 
 ### Contratos de folhas
 
-| Componente | Contrato obrigatório | Semântica opcional importante |
-| ---------- | -------------------- | ----------------------------- |
+| Componente     | Contrato obrigatório                      | Semântica opcional importante                                                            |
+| -------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `ActionButton` | `children` e `onPress` quando necessários | `intent`, `emphasis`, `size`, `pending`, ícones, estado desabilitado, tipo de botão, ref |
-| `IconButton` | `label` e `icon` acessíveis | semântica de botão correspondente a `ActionButton` |
-| `TextField` | `value` de string controlado, `onChange` | rótulo, descrição, erro, tipo/modo de entrada, validação, adornos, eventos, ref |
-| `TextArea` | `value` de string controlado, `onChange` | rótulo, descrição, erro, linhas, validação, eventos, ref |
-| `Spinner` | indicador de progresso | rótulo acessível e tamanho semântico |
-| `Skeleton` | placeholder não interativo | largura, altura, formato de linha/retângulo/círculo |
-| `Status` | `children` | tom neutro/informação/sucesso/aviso/perigo, ícone, tamanho |
-| `Surface` | `children` | elemento semântico, elevação, preenchimento, comportamento de pressionar interativo |
-| `Avatar` | `name` acessível | fonte da imagem, fallback, tamanho, status de presença, ref da imagem |
+| `IconButton`   | `label` e `icon` acessíveis               | semântica de botão correspondente a `ActionButton`                                       |
+| `TextField`    | `value` de string controlado, `onChange`  | rótulo, descrição, erro, tipo/modo de entrada, validação, adornos, eventos, ref          |
+| `TextArea`     | `value` de string controlado, `onChange`  | rótulo, descrição, erro, linhas, validação, eventos, ref                                 |
+| `Spinner`      | indicador de progresso                    | rótulo acessível e tamanho semântico                                                     |
+| `Skeleton`     | placeholder não interativo                | largura, altura, formato de linha/retângulo/círculo                                      |
+| `Status`       | `children`                                | tom neutro/informação/sucesso/aviso/perigo, ícone, tamanho                               |
+| `Surface`      | `children`                                | elemento semântico, elevação, preenchimento, comportamento de pressionar interativo      |
+| `Avatar`       | `name` acessível                          | fonte da imagem, fallback, tamanho, status de presença, ref da imagem                    |
 
 ### Contratos de comportamento
 
-| Componente | Contrato obrigatório | Comportamento sob responsabilidade do adaptador |
-| ---------- | -------------------- | ----------------------------------------------- |
-| `Tooltip` | gatilho e conteúdo | estado aberto controlado/não controlado, atraso, posicionamento, comportamento do portal |
-| `Menu` | gatilho, itens/seções, `onAction` | navegação por teclado, itens aninhados, seleção, dispensa, comportamento do portal |
-| `Popover` | gatilho e filhos | estado aberto controlado/não controlado, dispensa, foco, modalidade, comportamento do portal |
-| `Dialog` | `open` controlado, `onOpenChange`, título, filhos | semântica do diálogo, dispensa, foco inicial/restaurado, comportamento de portal e empilhamento |
-| `Picker` | `mode`, opções, `value` controlado, `onChange` | semântica de select/combobox, pesquisa/estado aberto, validação, estado de carregamento/vazio |
-| `Checkbox` | `checked` controlado, `onChange` | semântica de checkbox, estado indeterminado/obrigatório/inválido |
-| `Switch` | `checked` controlado, `onChange` | semântica de switch e estado desabilitado |
-| `Tabs` | itens, `value` controlado, `onChange` | semântica de abas, orientação, ativação automática/manual |
+| Componente | Contrato obrigatório                              | Comportamento sob responsabilidade do adaptador                                                 |
+| ---------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `Tooltip`  | gatilho e conteúdo                                | estado aberto controlado/não controlado, atraso, posicionamento, comportamento do portal        |
+| `Menu`     | gatilho, itens/seções, `onAction`                 | navegação por teclado, itens aninhados, seleção, dispensa, comportamento do portal              |
+| `Popover`  | gatilho e filhos                                  | estado aberto controlado/não controlado, dispensa, foco, modalidade, comportamento do portal    |
+| `Dialog`   | `open` controlado, `onOpenChange`, título, filhos | semântica do diálogo, dispensa, foco inicial/restaurado, comportamento de portal e empilhamento |
+| `Picker`   | `mode`, opções, `value` controlado, `onChange`    | semântica de select/combobox, pesquisa/estado aberto, validação, estado de carregamento/vazio   |
+| `Checkbox` | `checked` controlado, `onChange`                  | semântica de checkbox, estado indeterminado/obrigatório/inválido                                |
+| `Switch`   | `checked` controlado, `onChange`                  | semântica de switch e estado desabilitado                                                       |
+| `Tabs`     | itens, `value` controlado, `onChange`             | semântica de abas, orientação, ativação automática/manual                                       |
 
 `intent` é `primary`, `neutral` ou `danger`; `emphasis` é `solid`, `outline` ou `ghost`; e o tamanho é `compact`, `default` ou `large`. Esses valores descrevem a finalidade, não um nome de classe ou variante da UI padrão.
 

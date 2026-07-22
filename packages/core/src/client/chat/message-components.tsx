@@ -860,6 +860,49 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   });
 }
 
+export function assistantMessageHasCompletedCustomUi(
+  content: unknown,
+): boolean {
+  if (!Array.isArray(content)) return false;
+  let lastTextIndex = -1;
+  for (let index = 0; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part &&
+      typeof part === "object" &&
+      (part as { type?: unknown }).type === "text"
+    ) {
+      lastTextIndex = index;
+    }
+  }
+  let hasCompletedTool = false;
+  let lastCompletedToolIsCustomUi = false;
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (!part || typeof part !== "object") continue;
+    const record = part as {
+      type?: unknown;
+      result?: unknown;
+      isError?: unknown;
+      activity?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    if (
+      record.type !== "tool-call" ||
+      record.activity === true ||
+      record.result === undefined ||
+      record.isError === true
+    ) {
+      continue;
+    }
+    hasCompletedTool = true;
+    lastCompletedToolIsCustomUi =
+      record.chatUI !== undefined || record.mcpApp !== undefined;
+  }
+  return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
 // Only the last assistant message may shimmer as "the currently running
 // tool" — an older message's dangling unresolved tool-call must never
 // shimmer once a later run is active.
@@ -903,12 +946,19 @@ export function shouldShowMissingFinalResponse({
   statusIsTerminal,
   hasAssistantText,
   hasUnresolvedTool,
+  hasCompletedCustomUi,
 }: {
   statusIsTerminal: boolean;
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
+  hasCompletedCustomUi?: boolean;
 }): boolean {
-  return statusIsTerminal && !hasAssistantText && !hasUnresolvedTool;
+  return (
+    statusIsTerminal &&
+    !hasAssistantText &&
+    !hasUnresolvedTool &&
+    !hasCompletedCustomUi
+  );
 }
 
 export function shouldShowAssistantWorkSummary({
@@ -977,16 +1027,25 @@ const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
 export function isCollapsibleAssistantWorkPart(part: {
   type?: string;
   toolName?: string;
+  chatUI?: unknown;
+  mcpApp?: unknown;
 }): boolean {
   if (part.type === "reasoning") return true;
   return (
     part.type === "tool-call" &&
-    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "")
+    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
+    part.chatUI === undefined &&
+    part.mcpApp === undefined
   );
 }
 
 export function getAssistantToolSummaryInfo(
-  parts: readonly { type?: string; toolName?: string }[],
+  parts: readonly {
+    type?: string;
+    toolName?: string;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
 ): { startIndex: number; hiddenToolCount: number } {
   const toolCallIndices = parts.reduce<number[]>((indices, part, index) => {
     if (part.type === "tool-call" && isCollapsibleAssistantWorkPart(part)) {
@@ -1013,9 +1072,16 @@ function groupAssistantWorkParts(
   part: {
     type?: string;
     toolName?: string;
+    chatUI?: unknown;
+    mcpApp?: unknown;
   },
   index: number,
-  parts: readonly { type?: string; toolName?: string }[],
+  parts: readonly {
+    type?: string;
+    toolName?: string;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
 ): ["group-work"] | ["group-work", "group-ran-tools"] | null {
   if (isCollapsibleAssistantWorkPart(part)) {
     const { startIndex } = getAssistantToolSummaryInfo(parts);
@@ -1028,7 +1094,12 @@ function groupAssistantWorkParts(
 }
 
 function isAssistantToolSummaryPart(
-  parts: readonly { type?: string; toolName?: string }[],
+  parts: readonly {
+    type?: string;
+    toolName?: string;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
   index: number,
   startIndex: number,
 ): boolean {
@@ -1073,10 +1144,14 @@ export function AssistantMessage() {
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const responseConnectionText = messageTextFromContent(msg.content);
   const statusIsTerminal = assistantMessageStatusIsTerminal(msg);
+  const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
+    msg.content,
+  );
   const showMissingFinalResponse = shouldShowMissingFinalResponse({
     statusIsTerminal,
     hasAssistantText: responseConnectionText.trim().length > 0,
     hasUnresolvedTool,
+    hasCompletedCustomUi,
   });
   const responseConnectionContext = latestUserMessageText(thread.messages);
   const isComplete = shouldShowAssistantMessageFooter({

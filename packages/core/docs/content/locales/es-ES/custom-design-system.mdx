@@ -20,12 +20,12 @@ Consulta los ejemplos ejecutables de [Material UI Chat](https://github.com/Build
 
 ## Elige el nivel mínimo de personalización
 
-| Nivel                    | Úsalo para                                                                                  | Lo que permanece compartido                              |
-| ------------------------ | -------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **Tokens de tema**       | Alineación rápida con la marca en superficies predeterminadas y aún no adaptadas            | Componentes, controladores y comportamiento de Toolkit    |
-| **Componentes semánticos** | Controles de la empresa como botones, campos, selectores, diálogos, menús y superficies   | Controladores de funciones y contratos del producto       |
-| **Ranuras de producto**  | Un diseño específico de la empresa para una función, como la tarjeta de conexión o el raíl del historial del chat | El controlador y las acciones de la función                |
-| **Eject**                | Comportamiento o estructura del producto que no puede expresarse mediante una ranura compatible | Contratos del runtime de Core; la función expulsada pasa a ser propiedad de la app |
+| Nivel                      | Úsalo para                                                                                                        | Lo que permanece compartido                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| **Tokens de tema**         | Alineación rápida con la marca en superficies predeterminadas y aún no adaptadas                                  | Componentes, controladores y comportamiento de Toolkit                             |
+| **Componentes semánticos** | Controles de la empresa como botones, campos, selectores, diálogos, menús y superficies                           | Controladores de funciones y contratos del producto                                |
+| **Ranuras de producto**    | Un diseño específico de la empresa para una función, como la tarjeta de conexión o el raíl del historial del chat | El controlador y las acciones de la función                                        |
+| **Eject**                  | Comportamiento o estructura del producto que no puede expresarse mediante una ranura compatible                   | Contratos del runtime de Core; la función expulsada pasa a ser propiedad de la app |
 
 Empieza con tokens, añade componentes semánticos cuando tu sistema tenga un
 equivalente, usa una ranura de producto para la composición a nivel de función
@@ -141,30 +141,30 @@ se controlan donde el estado del producto debe seguir siendo portable.
 
 ### Contratos de hoja
 
-| Componente      | Contrato requerido                    | Semántica opcional importante                                                      |
-| --------------- | ------------------------------------- | ---------------------------------------------------------------------------------- |
-| `ActionButton`  | `children` y `onPress` cuando haga falta | `intent`, `emphasis`, `size`, `pending`, iconos, estado deshabilitado, tipo de botón, ref |
-| `IconButton`    | `label` accesible, `icon`             | Semántica de botón equivalente a `ActionButton`                                   |
-| `TextField`     | `value` string controlado, `onChange` | etiqueta, descripción, error, tipo/modo de entrada, validación, adornos, eventos, ref |
-| `TextArea`      | `value` string controlado, `onChange` | etiqueta, descripción, error, filas, validación, eventos, ref                    |
-| `Spinner`       | Indicador de progreso                 | etiqueta accesible y tamaño semántico                                             |
-| `Skeleton`      | Marcador de posición no interactivo   | ancho, alto, forma de línea/rectángulo/círculo                                    |
-| `Status`        | `children`                            | tono neutro/informativo/éxito/advertencia/peligro, icono, tamaño                  |
-| `Surface`       | `children`                            | elemento semántico, elevación, relleno, comportamiento de pulsación interactivo  |
-| `Avatar`        | `name` accesible                      | fuente de imagen, fallback, tamaño, estado de presencia, ref de imagen           |
+| Componente     | Contrato requerido                       | Semántica opcional importante                                                             |
+| -------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `ActionButton` | `children` y `onPress` cuando haga falta | `intent`, `emphasis`, `size`, `pending`, iconos, estado deshabilitado, tipo de botón, ref |
+| `IconButton`   | `label` accesible, `icon`                | Semántica de botón equivalente a `ActionButton`                                           |
+| `TextField`    | `value` string controlado, `onChange`    | etiqueta, descripción, error, tipo/modo de entrada, validación, adornos, eventos, ref     |
+| `TextArea`     | `value` string controlado, `onChange`    | etiqueta, descripción, error, filas, validación, eventos, ref                             |
+| `Spinner`      | Indicador de progreso                    | etiqueta accesible y tamaño semántico                                                     |
+| `Skeleton`     | Marcador de posición no interactivo      | ancho, alto, forma de línea/rectángulo/círculo                                            |
+| `Status`       | `children`                               | tono neutro/informativo/éxito/advertencia/peligro, icono, tamaño                          |
+| `Surface`      | `children`                               | elemento semántico, elevación, relleno, comportamiento de pulsación interactivo           |
+| `Avatar`       | `name` accesible                         | fuente de imagen, fallback, tamaño, estado de presencia, ref de imagen                    |
 
 ### Contratos de comportamiento
 
-| Componente | Contrato requerido                                  | Comportamiento que posee el adaptador                                               |
-| ---------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `Tooltip`  | activador y contenido                               | estado abierto controlado/no controlado, retardo, ubicación, comportamiento del portal |
-| `Menu`     | activador, elementos/secciones, `onAction`          | navegación por teclado, elementos anidados, selección, cierre, comportamiento del portal |
+| Componente | Contrato requerido                                  | Comportamiento que posee el adaptador                                                       |
+| ---------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `Tooltip`  | activador y contenido                               | estado abierto controlado/no controlado, retardo, ubicación, comportamiento del portal      |
+| `Menu`     | activador, elementos/secciones, `onAction`          | navegación por teclado, elementos anidados, selección, cierre, comportamiento del portal    |
 | `Popover`  | activador y children                                | estado abierto controlado/no controlado, cierre, foco, modalidad, comportamiento del portal |
-| `Dialog`   | `open` controlado, `onOpenChange`, título, children | semántica de diálogo, cierre, foco inicial/restaurado, portal y apilado           |
-| `Picker`   | `mode`, opciones, `value` controlado, `onChange`    | semántica de select/combobox, búsqueda/estado abierto, validación, carga/vacío     |
-| `Checkbox` | `checked` controlado, `onChange`                    | semántica de casilla, estado indeterminado/requerido/inválido                      |
-| `Switch`   | `checked` controlado, `onChange`                    | semántica de interruptor y estado deshabilitado                                    |
-| `Tabs`     | elementos, `value` controlado, `onChange`          | semántica de pestañas, orientación, activación automática/manual                   |
+| `Dialog`   | `open` controlado, `onOpenChange`, título, children | semántica de diálogo, cierre, foco inicial/restaurado, portal y apilado                     |
+| `Picker`   | `mode`, opciones, `value` controlado, `onChange`    | semántica de select/combobox, búsqueda/estado abierto, validación, carga/vacío              |
+| `Checkbox` | `checked` controlado, `onChange`                    | semántica de casilla, estado indeterminado/requerido/inválido                               |
+| `Switch`   | `checked` controlado, `onChange`                    | semántica de interruptor y estado deshabilitado                                             |
+| `Tabs`     | elementos, `value` controlado, `onChange`           | semántica de pestañas, orientación, activación automática/manual                            |
 
 `intent` es `primary`, `neutral` o `danger`; `emphasis` es `solid`, `outline` o
 `ghost`; y el tamaño es `compact`, `default` o `large`. Estos valores describen

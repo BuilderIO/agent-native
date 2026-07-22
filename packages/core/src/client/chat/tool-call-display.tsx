@@ -1067,7 +1067,10 @@ function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
 function isReconnectSummarizablePart(part: ContentPart): boolean {
   return (
     part.type === "reasoning" ||
-    (part.type === "tool-call" && part.toolName !== "connect-builder")
+    (part.type === "tool-call" &&
+      part.toolName !== "connect-builder" &&
+      part.chatUI === undefined &&
+      part.mcpApp === undefined)
   );
 }
 

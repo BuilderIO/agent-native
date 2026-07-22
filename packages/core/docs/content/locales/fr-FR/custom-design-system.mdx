@@ -21,12 +21,12 @@ Consultez les exemples exécutables [Material UI Chat](https://github.com/Builde
 
 ## Choisir le niveau de personnalisation minimal
 
-| Niveau                     | À utiliser pour                                                                             | Ce qui reste partagé                                      |
-| ------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **Tokens de thème**       | Alignement rapide sur la marque dans les surfaces par défaut et pas encore adaptées         | Composants, contrôleurs et comportement Toolkit           |
-| **Composants sémantiques** | Contrôles d’entreprise tels que boutons, champs, sélecteurs, boîtes de dialogue, menus et surfaces | Contrôleurs de fonctionnalité et contrats produit        |
-| **Slots produit**         | Mise en page propre à l’entreprise pour une fonctionnalité, comme la carte de connexion ou le rail d’historique du chat | Contrôleur et actions de la fonctionnalité                |
-| **Eject**                 | Comportement ou structure produit qui ne peut pas être exprimé par un slot pris en charge   | Contrats du runtime Core ; la fonctionnalité éjectée appartient à l’application |
+| Niveau                     | À utiliser pour                                                                                                         | Ce qui reste partagé                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Tokens de thème**        | Alignement rapide sur la marque dans les surfaces par défaut et pas encore adaptées                                     | Composants, contrôleurs et comportement Toolkit                                 |
+| **Composants sémantiques** | Contrôles d’entreprise tels que boutons, champs, sélecteurs, boîtes de dialogue, menus et surfaces                      | Contrôleurs de fonctionnalité et contrats produit                               |
+| **Slots produit**          | Mise en page propre à l’entreprise pour une fonctionnalité, comme la carte de connexion ou le rail d’historique du chat | Contrôleur et actions de la fonctionnalité                                      |
+| **Eject**                  | Comportement ou structure produit qui ne peut pas être exprimé par un slot pris en charge                               | Contrats du runtime Core ; la fonctionnalité éjectée appartient à l’application |
 
 Commencez par les tokens, ajoutez des composants sémantiques lorsque votre
 système dispose d’un équivalent, utilisez un slot produit pour la composition au
@@ -146,30 +146,30 @@ contrôlés partout où l’état produit doit rester portable.
 
 ### Contrats de feuilles
 
-| Composant       | Contrat requis                         | Sémantique facultative importante                                                   |
-| --------------- | -------------------------------------- | ----------------------------------------------------------------------------------- |
-| `ActionButton`  | `children` et `onPress` si nécessaire  | `intent`, `emphasis`, `size`, `pending`, icônes, état désactivé, type de bouton, ref |
-| `IconButton`    | `label` accessible, `icon`             | Sémantique de bouton correspondant à `ActionButton`                                |
-| `TextField`     | chaîne `value` contrôlée, `onChange`   | libellé, description, erreur, type/mode de saisie, validation, adornments, événements, ref |
-| `TextArea`      | chaîne `value` contrôlée, `onChange`   | libellé, description, erreur, lignes, validation, événements, ref                   |
-| `Spinner`       | indicateur de progression              | libellé accessible et taille sémantique                                             |
-| `Skeleton`      | placeholder non interactif             | largeur, hauteur, forme ligne/rectangle/cercle                                     |
-| `Status`        | `children`                             | ton neutre/info/succès/avertissement/danger, icône, taille                          |
-| `Surface`       | `children`                             | élément sémantique, élévation, padding, comportement de pression interactif         |
-| `Avatar`        | `name` accessible                      | source d’image, fallback, taille, état de présence, ref d’image                     |
+| Composant      | Contrat requis                        | Sémantique facultative importante                                                          |
+| -------------- | ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `ActionButton` | `children` et `onPress` si nécessaire | `intent`, `emphasis`, `size`, `pending`, icônes, état désactivé, type de bouton, ref       |
+| `IconButton`   | `label` accessible, `icon`            | Sémantique de bouton correspondant à `ActionButton`                                        |
+| `TextField`    | chaîne `value` contrôlée, `onChange`  | libellé, description, erreur, type/mode de saisie, validation, adornments, événements, ref |
+| `TextArea`     | chaîne `value` contrôlée, `onChange`  | libellé, description, erreur, lignes, validation, événements, ref                          |
+| `Spinner`      | indicateur de progression             | libellé accessible et taille sémantique                                                    |
+| `Skeleton`     | placeholder non interactif            | largeur, hauteur, forme ligne/rectangle/cercle                                             |
+| `Status`       | `children`                            | ton neutre/info/succès/avertissement/danger, icône, taille                                 |
+| `Surface`      | `children`                            | élément sémantique, élévation, padding, comportement de pression interactif                |
+| `Avatar`       | `name` accessible                     | source d’image, fallback, taille, état de présence, ref d’image                            |
 
 ### Contrats de comportement
 
-| Composant  | Contrat requis                                      | Comportement géré par l’adaptateur                                                  |
-| ---------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `Tooltip`  | déclencheur et contenu                              | état ouvert contrôlé/non contrôlé, délai, placement, comportement du portail        |
-| `Menu`     | déclencheur, éléments/sections, `onAction`         | navigation clavier, éléments imbriqués, sélection, fermeture, comportement du portail |
-| `Popover`  | déclencheur et children                             | état ouvert contrôlé/non contrôlé, fermeture, focus, modalité, comportement du portail |
-| `Dialog`   | `open` contrôlé, `onOpenChange`, titre, children    | sémantique du dialogue, fermeture, focus initial/restauré, portail et empilement  |
-| `Picker`   | `mode`, options, `value` contrôlée, `onChange`      | sémantique select/combobox, recherche/état ouvert, validation, chargement/vide      |
-| `Checkbox` | `checked` contrôlé, `onChange`                      | sémantique de case, état indéterminé/requis/invalide                                |
-| `Switch`   | `checked` contrôlé, `onChange`                      | sémantique du switch et état désactivé                                              |
-| `Tabs`     | éléments, `value` contrôlée, `onChange`            | sémantique des onglets, orientation, activation automatique/manuelle                |
+| Composant  | Contrat requis                                   | Comportement géré par l’adaptateur                                                     |
+| ---------- | ------------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `Tooltip`  | déclencheur et contenu                           | état ouvert contrôlé/non contrôlé, délai, placement, comportement du portail           |
+| `Menu`     | déclencheur, éléments/sections, `onAction`       | navigation clavier, éléments imbriqués, sélection, fermeture, comportement du portail  |
+| `Popover`  | déclencheur et children                          | état ouvert contrôlé/non contrôlé, fermeture, focus, modalité, comportement du portail |
+| `Dialog`   | `open` contrôlé, `onOpenChange`, titre, children | sémantique du dialogue, fermeture, focus initial/restauré, portail et empilement       |
+| `Picker`   | `mode`, options, `value` contrôlée, `onChange`   | sémantique select/combobox, recherche/état ouvert, validation, chargement/vide         |
+| `Checkbox` | `checked` contrôlé, `onChange`                   | sémantique de case, état indéterminé/requis/invalide                                   |
+| `Switch`   | `checked` contrôlé, `onChange`                   | sémantique du switch et état désactivé                                                 |
+| `Tabs`     | éléments, `value` contrôlée, `onChange`          | sémantique des onglets, orientation, activation automatique/manuelle                   |
 
 `intent` vaut `primary`, `neutral` ou `danger` ; `emphasis` vaut `solid`,
 `outline` ou `ghost` ; et la taille vaut `compact`, `default` ou `large`. Ces

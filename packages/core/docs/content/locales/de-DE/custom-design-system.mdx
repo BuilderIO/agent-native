@@ -21,12 +21,12 @@ Lücken in v1 finden Sie in den ausführbaren Beispielen für [Material UI Chat]
 
 ## Die kleinste Anpassungsstufe wählen
 
-| Stufe                    | Verwenden Sie sie für                                                                        | Was gemeinsam bleibt                                      |
-| ------------------------ | --------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **Theme-Tokens**         | Schnelle Markenanpassung in Standard- und noch nicht angepassten Oberflächen                 | Toolkit-Komponenten, Controller und Verhalten             |
-| **Semantische Komponenten** | Unternehmenseigene Steuerelemente wie Buttons, Felder, Picker, Dialoge, Menüs und Oberflächen | Feature-Controller und Produktverträge                    |
-| **Produktslots**         | Ein unternehmensspezifisches Layout für ein Feature, etwa die Verbindungskarte oder die Chat-Verlaufsschiene | Controller und Actions des Features                       |
-| **Eject**                | Produktverhalten oder -struktur, die sich nicht über einen unterstützten Slot ausdrücken lässt | Verträge der Core-Laufzeit; das ausgeworfene Feature gehört der App |
+| Stufe                       | Verwenden Sie sie für                                                                                        | Was gemeinsam bleibt                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| **Theme-Tokens**            | Schnelle Markenanpassung in Standard- und noch nicht angepassten Oberflächen                                 | Toolkit-Komponenten, Controller und Verhalten                       |
+| **Semantische Komponenten** | Unternehmenseigene Steuerelemente wie Buttons, Felder, Picker, Dialoge, Menüs und Oberflächen                | Feature-Controller und Produktverträge                              |
+| **Produktslots**            | Ein unternehmensspezifisches Layout für ein Feature, etwa die Verbindungskarte oder die Chat-Verlaufsschiene | Controller und Actions des Features                                 |
+| **Eject**                   | Produktverhalten oder -struktur, die sich nicht über einen unterstützten Slot ausdrücken lässt               | Verträge der Core-Laufzeit; das ausgeworfene Feature gehört der App |
 
 Beginnen Sie mit Tokens, ergänzen Sie semantische Komponenten, wenn Ihr System
 ein Äquivalent besitzt, verwenden Sie für die Komposition auf Feature-Ebene
@@ -145,30 +145,30 @@ dort gesteuert, wo der Produktzustand portierbar bleiben muss.
 
 ### Blattverträge
 
-| Komponente      | Erforderlicher Vertrag                 | Wichtige optionale Semantik                                                        |
-| --------------- | -------------------------------------- | ---------------------------------------------------------------------------------- |
-| `ActionButton`  | `children` und bei Bedarf `onPress`    | `intent`, `emphasis`, `size`, `pending`, Icons, deaktivierter Zustand, Button-Typ, Ref |
-| `IconButton`    | Barrierefreies `label`, `icon`         | Button-Semantik wie bei `ActionButton`                                            |
-| `TextField`     | Kontrollierter String `value`, `onChange` | Label, Beschreibung, Fehler, Eingabetyp/-modus, Validierung, Adornments, Events, Ref |
-| `TextArea`      | Kontrollierter String `value`, `onChange` | Label, Beschreibung, Fehler, Zeilen, Validierung, Events, Ref                     |
-| `Spinner`       | Fortschrittsanzeige                    | Barrierefreies Label und semantische Größe                                        |
-| `Skeleton`      | Nicht interaktiver Platzhalter         | Breite, Höhe, Zeilen-/Rechteck-/Kreisform                                         |
-| `Status`        | `children`                             | Neutraler Info-/Erfolgs-/Warn-/Gefahrenton, Icon, Größe                            |
-| `Surface`       | `children`                             | Semantisches Element, Elevation, Padding, interaktives Press-Verhalten             |
-| `Avatar`        | Barrierefreier `name`                  | Bildquelle, Fallback, Größe, Präsenzstatus, Bild-Ref                              |
+| Komponente     | Erforderlicher Vertrag                    | Wichtige optionale Semantik                                                            |
+| -------------- | ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| `ActionButton` | `children` und bei Bedarf `onPress`       | `intent`, `emphasis`, `size`, `pending`, Icons, deaktivierter Zustand, Button-Typ, Ref |
+| `IconButton`   | Barrierefreies `label`, `icon`            | Button-Semantik wie bei `ActionButton`                                                 |
+| `TextField`    | Kontrollierter String `value`, `onChange` | Label, Beschreibung, Fehler, Eingabetyp/-modus, Validierung, Adornments, Events, Ref   |
+| `TextArea`     | Kontrollierter String `value`, `onChange` | Label, Beschreibung, Fehler, Zeilen, Validierung, Events, Ref                          |
+| `Spinner`      | Fortschrittsanzeige                       | Barrierefreies Label und semantische Größe                                             |
+| `Skeleton`     | Nicht interaktiver Platzhalter            | Breite, Höhe, Zeilen-/Rechteck-/Kreisform                                              |
+| `Status`       | `children`                                | Neutraler Info-/Erfolgs-/Warn-/Gefahrenton, Icon, Größe                                |
+| `Surface`      | `children`                                | Semantisches Element, Elevation, Padding, interaktives Press-Verhalten                 |
+| `Avatar`       | Barrierefreier `name`                     | Bildquelle, Fallback, Größe, Präsenzstatus, Bild-Ref                                   |
 
 ### Verhaltensverträge
 
-| Komponente | Erforderlicher Vertrag                                  | Verhalten im Besitz des Adapters                                                   |
-| ---------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `Tooltip`  | Trigger und Inhalt                                      | Kontrollierter/un kontrollierter geöffneter Zustand, Verzögerung, Platzierung, Portalverhalten |
-| `Menu`     | Trigger, Elemente/Abschnitte, `onAction`               | Tastaturnavigation, verschachtelte Elemente, Auswahl, Schließen, Portalverhalten  |
+| Komponente | Erforderlicher Vertrag                                 | Verhalten im Besitz des Adapters                                                                  |
+| ---------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `Tooltip`  | Trigger und Inhalt                                     | Kontrollierter/un kontrollierter geöffneter Zustand, Verzögerung, Platzierung, Portalverhalten    |
+| `Menu`     | Trigger, Elemente/Abschnitte, `onAction`               | Tastaturnavigation, verschachtelte Elemente, Auswahl, Schließen, Portalverhalten                  |
 | `Popover`  | Trigger und Children                                   | Kontrollierter/un kontrollierter geöffneter Zustand, Schließen, Fokus, Modalität, Portalverhalten |
-| `Dialog`   | Kontrolliertes `open`, `onOpenChange`, Titel, Children | Dialog-Semantik, Schließen, initialer/wiederhergestellter Fokus, Portal- und Stacking-Verhalten |
-| `Picker`   | `mode`, Optionen, kontrolliertes `value`, `onChange`   | Select-/Combobox-Semantik, Suche/geöffneter Zustand, Validierung, Laden/leerer Zustand |
-| `Checkbox` | Kontrolliertes `checked`, `onChange`                   | Checkbox-Semantik, unbestimmter/erforderlicher/ungültiger Zustand                   |
-| `Switch`   | Kontrolliertes `checked`, `onChange`                   | Switch-Semantik und deaktivierter Zustand                                         |
-| `Tabs`     | Elemente, kontrolliertes `value`, `onChange`           | Tab-Semantik, Ausrichtung, automatische/manuelle Aktivierung                       |
+| `Dialog`   | Kontrolliertes `open`, `onOpenChange`, Titel, Children | Dialog-Semantik, Schließen, initialer/wiederhergestellter Fokus, Portal- und Stacking-Verhalten   |
+| `Picker`   | `mode`, Optionen, kontrolliertes `value`, `onChange`   | Select-/Combobox-Semantik, Suche/geöffneter Zustand, Validierung, Laden/leerer Zustand            |
+| `Checkbox` | Kontrolliertes `checked`, `onChange`                   | Checkbox-Semantik, unbestimmter/erforderlicher/ungültiger Zustand                                 |
+| `Switch`   | Kontrolliertes `checked`, `onChange`                   | Switch-Semantik und deaktivierter Zustand                                                         |
+| `Tabs`     | Elemente, kontrolliertes `value`, `onChange`           | Tab-Semantik, Ausrichtung, automatische/manuelle Aktivierung                                      |
 
 `intent` ist `primary`, `neutral` oder `danger`; `emphasis` ist `solid`,
 `outline` oder `ghost`; und die Größe ist `compact`, `default` oder `large`.

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  assistantMessageHasCompletedCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
@@ -136,6 +137,42 @@ describe("shouldShowMissingFinalResponse", () => {
         hasUnresolvedTool: false,
       }),
     ).toBe(false);
+    expect(
+      shouldShowMissingFinalResponse({
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        hasCompletedCustomUi: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasCompletedCustomUi", () => {
+  it("recognizes a completed action-declared renderer as a response", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+        {
+          type: "tool-call",
+          result: "done",
+          toolName: "list-todos",
+        },
+      ]),
+    ).toBe(false);
   });
 });
 
@@ -213,6 +250,16 @@ describe("isCollapsibleAssistantWorkPart", () => {
       }),
     ).toBe(true);
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
+  });
+
+  it("keeps custom UI outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "render-todo-list-inline",
+        chatUI: { renderer: "todo-demo.todo-list-inline" },
+      }),
+    ).toBe(false);
   });
 });
 

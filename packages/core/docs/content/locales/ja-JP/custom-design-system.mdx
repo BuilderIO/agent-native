@@ -13,12 +13,12 @@ Agent Native では、自社の React コンポーネントを使ってアプリ
 
 ## 最小のカスタマイズ階層を選ぶ
 
-| 階層 | 用途 | 共有されるもの |
-| --- | --- | --- |
-| **Theme tokens** | デフォルトおよび未対応のサーフェスをすばやくブランドに合わせる | Toolkit コンポーネント、コントローラー、動作 |
-| **Semantic components** | ボタン、フィールド、ピッカー、ダイアログ、メニュー、サーフェスなどの自社コントロール | フィーチャーコントローラーとプロダクトコントラクト |
-| **Product slots** | 接続カードやチャット履歴レールなど、1 つのフィーチャーの自社固有レイアウト | フィーチャーのコントローラーとアクション |
-| **Eject** | サポートされるスロットでは表現できないプロダクトの動作や構造 | Core ランタイムのコントラクト。eject したフィーチャーはアプリ所有になる |
+| 階層                    | 用途                                                                                 | 共有されるもの                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| **Theme tokens**        | デフォルトおよび未対応のサーフェスをすばやくブランドに合わせる                       | Toolkit コンポーネント、コントローラー、動作                            |
+| **Semantic components** | ボタン、フィールド、ピッカー、ダイアログ、メニュー、サーフェスなどの自社コントロール | フィーチャーコントローラーとプロダクトコントラクト                      |
+| **Product slots**       | 接続カードやチャット履歴レールなど、1 つのフィーチャーの自社固有レイアウト           | フィーチャーのコントローラーとアクション                                |
+| **Eject**               | サポートされるスロットでは表現できないプロダクトの動作や構造                         | Core ランタイムのコントラクト。eject したフィーチャーはアプリ所有になる |
 
 トークンから始め、システムに相当するものがある箇所でセマンティックコンポーネントを追加し、フィーチャーレベルの構成にはプロダクトスロットを使い、それでも所有権が必要な最小単位だけを eject してください。
 
@@ -114,30 +114,30 @@ export default defineConfig({
 
 ### リーフコントラクト
 
-| コンポーネント | 必須コントラクト | 重要な任意セマンティクス |
-| --- | --- | --- |
+| コンポーネント | 必須コントラクト                     | 重要な任意セマンティクス                                                            |
+| -------------- | ------------------------------------ | ----------------------------------------------------------------------------------- |
 | `ActionButton` | 必要に応じた `children` と `onPress` | `intent`、`emphasis`、`size`、`pending`、アイコン、disabled state、button type、ref |
-| `IconButton` | アクセシブルな `label`、`icon` | `ActionButton` と同等のボタンセマンティクス |
-| `TextField` | 制御された文字列 `value`、`onChange` | label、description、error、input type/mode、validation、adornments、events、ref |
-| `TextArea` | 制御された文字列 `value`、`onChange` | label、description、error、rows、validation、events、ref |
-| `Spinner` | プログレスインジケーター | アクセシブルな label とセマンティックサイズ |
-| `Skeleton` | 非インタラクティブなプレースホルダー | width、height、line/rectangle/circle shape |
-| `Status` | `children` | neutral/info/success/warning/danger の tone、icon、size |
-| `Surface` | `children` | semantic element、elevation、padding、interactive press behavior |
-| `Avatar` | アクセシブルな `name` | image source、fallback、size、presence status、image ref |
+| `IconButton`   | アクセシブルな `label`、`icon`       | `ActionButton` と同等のボタンセマンティクス                                         |
+| `TextField`    | 制御された文字列 `value`、`onChange` | label、description、error、input type/mode、validation、adornments、events、ref     |
+| `TextArea`     | 制御された文字列 `value`、`onChange` | label、description、error、rows、validation、events、ref                            |
+| `Spinner`      | プログレスインジケーター             | アクセシブルな label とセマンティックサイズ                                         |
+| `Skeleton`     | 非インタラクティブなプレースホルダー | width、height、line/rectangle/circle shape                                          |
+| `Status`       | `children`                           | neutral/info/success/warning/danger の tone、icon、size                             |
+| `Surface`      | `children`                           | semantic element、elevation、padding、interactive press behavior                    |
+| `Avatar`       | アクセシブルな `name`                | image source、fallback、size、presence status、image ref                            |
 
 ### ビヘイビアコントラクト
 
-| コンポーネント | 必須コントラクト | アダプターが所有する動作 |
-| --- | --- | --- |
-| `Tooltip` | trigger と content | 制御/非制御の open state、delay、placement、portal behavior |
-| `Menu` | trigger、items/sections、`onAction` | キーボードナビゲーション、ネストした項目、selection、dismissal、portal behavior |
-| `Popover` | trigger と children | 制御/非制御の open state、dismissal、focus、modality、portal behavior |
-| `Dialog` | 制御された `open`、`onOpenChange`、title、children | dialog semantics、dismissal、initial/restore focus、portal と stacking behavior |
-| `Picker` | `mode`、options、制御された `value`、`onChange` | select/combobox semantics、search/open state、validation、loading/empty state |
-| `Checkbox` | 制御された `checked`、`onChange` | checkbox semantics、indeterminate/required/invalid state |
-| `Switch` | 制御された `checked`、`onChange` | switch semantics と disabled state |
-| `Tabs` | items、制御された `value`、`onChange` | tab semantics、orientation、automatic/manual activation |
+| コンポーネント | 必須コントラクト                                   | アダプターが所有する動作                                                        |
+| -------------- | -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Tooltip`      | trigger と content                                 | 制御/非制御の open state、delay、placement、portal behavior                     |
+| `Menu`         | trigger、items/sections、`onAction`                | キーボードナビゲーション、ネストした項目、selection、dismissal、portal behavior |
+| `Popover`      | trigger と children                                | 制御/非制御の open state、dismissal、focus、modality、portal behavior           |
+| `Dialog`       | 制御された `open`、`onOpenChange`、title、children | dialog semantics、dismissal、initial/restore focus、portal と stacking behavior |
+| `Picker`       | `mode`、options、制御された `value`、`onChange`    | select/combobox semantics、search/open state、validation、loading/empty state   |
+| `Checkbox`     | 制御された `checked`、`onChange`                   | checkbox semantics、indeterminate/required/invalid state                        |
+| `Switch`       | 制御された `checked`、`onChange`                   | switch semantics と disabled state                                              |
+| `Tabs`         | items、制御された `value`、`onChange`              | tab semantics、orientation、automatic/manual activation                         |
 
 `intent` は `primary`、`neutral`、`danger` のいずれか、`emphasis` は `solid`、`outline`、`ghost` のいずれかです。サイズは `compact`、`default`、`large` です。これらの値は目的を表し、デフォルト UI のクラス名や variant 名を表すものではありません。
 

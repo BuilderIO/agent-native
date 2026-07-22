@@ -680,6 +680,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(frame?.getAttribute("data-extension-mode")).toBe("transient");
     expect(container.textContent).toContain("Sensitivity controls");
     expect(container.textContent).not.toContain("render inline extension");
+    expect(container.querySelector('[aria-label="Open extension"]')).toBeNull();
+    expect(container.querySelector(".border")).toBeNull();
   });
 
   it("keeps built-in data widget renderer identities stable across resolves", () => {

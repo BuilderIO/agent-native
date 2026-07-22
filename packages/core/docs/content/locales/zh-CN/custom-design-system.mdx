@@ -13,12 +13,12 @@ Agent Native 可以使用公司的 React 组件渲染应用自有屏幕和共享
 
 ## 选择最小的自定义层级
 
-| 层级 | 适用场景 | 仍然共享的内容 |
-| --- | --- | --- |
-| **Theme tokens** | 快速统一默认界面和尚未适配的界面品牌 | Toolkit 组件、控制器和行为 |
-| **Semantic components** | 公司自己的按钮、字段、选择器、对话框、菜单和表面等控件 | 功能控制器和产品契约 |
-| **Product slots** | 某个功能的公司专属布局，例如连接卡片或聊天历史栏 | 该功能的控制器和操作 |
-| **Eject** | 受支持的插槽无法表达的产品行为或结构 | Core 运行时契约；被 eject 的功能归应用所有 |
+| 层级                    | 适用场景                                               | 仍然共享的内容                             |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| **Theme tokens**        | 快速统一默认界面和尚未适配的界面品牌                   | Toolkit 组件、控制器和行为                 |
+| **Semantic components** | 公司自己的按钮、字段、选择器、对话框、菜单和表面等控件 | 功能控制器和产品契约                       |
+| **Product slots**       | 某个功能的公司专属布局，例如连接卡片或聊天历史栏       | 该功能的控制器和操作                       |
+| **Eject**               | 受支持的插槽无法表达的产品行为或结构                   | Core 运行时契约；被 eject 的功能归应用所有 |
 
 从令牌开始，在系统有对应项的地方添加语义组件；使用 product slot 进行功能级组合；只有仍需要由你负责的最小单元才进行 eject。
 
@@ -114,30 +114,30 @@ export default defineConfig({
 
 ### 叶级契约
 
-| 组件 | 必需契约 | 重要的可选语义 |
-| --- | --- | --- |
+| 组件           | 必需契约                             | 重要的可选语义                                                                  |
+| -------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
 | `ActionButton` | 根据需要提供 `children` 和 `onPress` | `intent`、`emphasis`、`size`、`pending`、图标、disabled state、button type、ref |
-| `IconButton` | 可访问的 `label`、`icon` | 与 `ActionButton` 匹配的按钮语义 |
-| `TextField` | 受控字符串 `value`、`onChange` | label、description、error、input type/mode、validation、adornments、events、ref |
-| `TextArea` | 受控字符串 `value`、`onChange` | label、description、error、rows、validation、events、ref |
-| `Spinner` | 进度指示器 | 可访问的 label 和语义尺寸 |
-| `Skeleton` | 不可交互的占位符 | width、height、line/rectangle/circle shape |
-| `Status` | `children` | neutral/info/success/warning/danger 色调、icon、size |
-| `Surface` | `children` | semantic element、elevation、padding、interactive press behavior |
-| `Avatar` | 可访问的 `name` | image source、fallback、size、presence status、image ref |
+| `IconButton`   | 可访问的 `label`、`icon`             | 与 `ActionButton` 匹配的按钮语义                                                |
+| `TextField`    | 受控字符串 `value`、`onChange`       | label、description、error、input type/mode、validation、adornments、events、ref |
+| `TextArea`     | 受控字符串 `value`、`onChange`       | label、description、error、rows、validation、events、ref                        |
+| `Spinner`      | 进度指示器                           | 可访问的 label 和语义尺寸                                                       |
+| `Skeleton`     | 不可交互的占位符                     | width、height、line/rectangle/circle shape                                      |
+| `Status`       | `children`                           | neutral/info/success/warning/danger 色调、icon、size                            |
+| `Surface`      | `children`                           | semantic element、elevation、padding、interactive press behavior                |
+| `Avatar`       | 可访问的 `name`                      | image source、fallback、size、presence status、image ref                        |
 
 ### 行为契约
 
-| 组件 | 必需契约 | 由适配器负责的行为 |
-| --- | --- | --- |
-| `Tooltip` | trigger 和 content | 受控/非受控 open state、delay、placement、portal behavior |
-| `Menu` | trigger、items/sections、`onAction` | 键盘导航、嵌套项、selection、dismissal、portal behavior |
-| `Popover` | trigger 和 children | 受控/非受控 open state、dismissal、focus、modality、portal behavior |
-| `Dialog` | 受控的 `open`、`onOpenChange`、title、children | dialog semantics、dismissal、initial/restore focus、portal 和 stacking behavior |
-| `Picker` | `mode`、options、受控的 `value`、`onChange` | select/combobox semantics、search/open state、validation、loading/empty state |
-| `Checkbox` | 受控的 `checked`、`onChange` | checkbox semantics、indeterminate/required/invalid state |
-| `Switch` | 受控的 `checked`、`onChange` | switch semantics 和 disabled state |
-| `Tabs` | items、受控的 `value`、`onChange` | tab semantics、orientation、automatic/manual activation |
+| 组件       | 必需契约                                       | 由适配器负责的行为                                                              |
+| ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Tooltip`  | trigger 和 content                             | 受控/非受控 open state、delay、placement、portal behavior                       |
+| `Menu`     | trigger、items/sections、`onAction`            | 键盘导航、嵌套项、selection、dismissal、portal behavior                         |
+| `Popover`  | trigger 和 children                            | 受控/非受控 open state、dismissal、focus、modality、portal behavior             |
+| `Dialog`   | 受控的 `open`、`onOpenChange`、title、children | dialog semantics、dismissal、initial/restore focus、portal 和 stacking behavior |
+| `Picker`   | `mode`、options、受控的 `value`、`onChange`    | select/combobox semantics、search/open state、validation、loading/empty state   |
+| `Checkbox` | 受控的 `checked`、`onChange`                   | checkbox semantics、indeterminate/required/invalid state                        |
+| `Switch`   | 受控的 `checked`、`onChange`                   | switch semantics 和 disabled state                                              |
+| `Tabs`     | items、受控的 `value`、`onChange`              | tab semantics、orientation、automatic/manual activation                         |
 
 `intent` 是 `primary`、`neutral` 或 `danger`；`emphasis` 是 `solid`、`outline` 或 `ghost`；size 是 `compact`、`default` 或 `large`。这些值描述用途，而不是默认 UI 的 class 或 variant 名称。
 

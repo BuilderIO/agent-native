@@ -2666,6 +2666,45 @@ describe("SSE event processor error classification", () => {
     ]);
   });
 
+  it("treats a completed custom UI as the final response", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "render-todo-list-inline",
+            input: {},
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          {
+            type: "tool_done",
+            tool: "render-todo-list-inline",
+            result: '{"ok":true}',
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-custom-ui",
+        undefined,
+        "run-custom-ui",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "render-todo-list-inline",
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        }),
+      ],
+    });
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+  });
+
   it("does not add a missing-final warning when text arrives after the last completed tool", async () => {
     const results = await drain(
       readSSEStream(

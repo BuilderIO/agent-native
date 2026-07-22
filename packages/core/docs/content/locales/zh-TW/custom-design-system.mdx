@@ -13,12 +13,12 @@ Agent Native 可以使用公司的 React 元件呈現應用程式擁有的畫面
 
 ## 選擇最小的自訂層級
 
-| 層級 | 適用情況 | 保持共用的部分 |
-| ---- | -------- | -------------- |
-| **主題 token** | 快速統一預設及尚未介面卡化介面的品牌樣式 | Toolkit 元件、控制器和行為 |
-| **語意元件** | 公司按鈕、欄位、選擇器、對話框、選單和介面等控制項 | 功能控制器和產品契約 |
-| **產品插槽** | 某項功能的公司專用版面，例如連線卡或聊天記錄列 | 功能控制器和 actions |
-| **Eject** | 支援的插槽無法表達的產品行為或結構 | Core 執行階段契約；被 eject 的功能歸應用程式所有 |
+| 層級           | 適用情況                                           | 保持共用的部分                                   |
+| -------------- | -------------------------------------------------- | ------------------------------------------------ |
+| **主題 token** | 快速統一預設及尚未介面卡化介面的品牌樣式           | Toolkit 元件、控制器和行為                       |
+| **語意元件**   | 公司按鈕、欄位、選擇器、對話框、選單和介面等控制項 | 功能控制器和產品契約                             |
+| **產品插槽**   | 某項功能的公司專用版面，例如連線卡或聊天記錄列     | 功能控制器和 actions                             |
+| **Eject**      | 支援的插槽無法表達的產品行為或結構                 | Core 執行階段契約；被 eject 的功能歸應用程式所有 |
 
 從 token 開始，在系統有對應物的地方加入語意元件，使用產品插槽進行功能層級的組合，只有仍需要由你擁有的最小單位才執行 eject。
 
@@ -114,30 +114,30 @@ export default defineConfig({
 
 ### 葉節點契約
 
-| 元件 | 必要契約 | 重要的可選語意 |
-| ---- | -------- | -------------- |
+| 元件           | 必要契約                           | 重要的可選語意                                                         |
+| -------------- | ---------------------------------- | ---------------------------------------------------------------------- |
 | `ActionButton` | 需要時提供 `children` 和 `onPress` | `intent`、`emphasis`、`size`、`pending`、圖示、停用狀態、按鈕類型、ref |
-| `IconButton` | 可存取的 `label`、`icon` | 與 `ActionButton` 相符的按鈕語意 |
-| `TextField` | 受控字串 `value`、`onChange` | 標籤、說明、錯誤、輸入類型/模式、驗證、裝飾、事件、ref |
-| `TextArea` | 受控字串 `value`、`onChange` | 標籤、說明、錯誤、列數、驗證、事件、ref |
-| `Spinner` | 進度指示器 | 可存取標籤和語意尺寸 |
-| `Skeleton` | 不可互動的佔位符 | 寬度、高度、線條/矩形/圓形形狀 |
-| `Status` | `children` | 中性/資訊/成功/警告/危險色調、圖示、尺寸 |
-| `Surface` | `children` | 語意元素、仰角、內距、互動按壓行為 |
-| `Avatar` | 可存取的 `name` | 圖片來源、fallback、尺寸、存在狀態、圖片 ref |
+| `IconButton`   | 可存取的 `label`、`icon`           | 與 `ActionButton` 相符的按鈕語意                                       |
+| `TextField`    | 受控字串 `value`、`onChange`       | 標籤、說明、錯誤、輸入類型/模式、驗證、裝飾、事件、ref                 |
+| `TextArea`     | 受控字串 `value`、`onChange`       | 標籤、說明、錯誤、列數、驗證、事件、ref                                |
+| `Spinner`      | 進度指示器                         | 可存取標籤和語意尺寸                                                   |
+| `Skeleton`     | 不可互動的佔位符                   | 寬度、高度、線條/矩形/圓形形狀                                         |
+| `Status`       | `children`                         | 中性/資訊/成功/警告/危險色調、圖示、尺寸                               |
+| `Surface`      | `children`                         | 語意元素、仰角、內距、互動按壓行為                                     |
+| `Avatar`       | 可存取的 `name`                    | 圖片來源、fallback、尺寸、存在狀態、圖片 ref                           |
 
 ### 行為契約
 
-| 元件 | 必要契約 | 由介面卡負責的行為 |
-| ---- | -------- | ------------------ |
-| `Tooltip` | 觸發器和內容 | 受控/非受控開啟狀態、延遲、位置、portal 行為 |
-| `Menu` | 觸發器、項目/區段、`onAction` | 鍵盤導覽、巢狀項目、選取、關閉、portal 行為 |
-| `Popover` | 觸發器和子項目 | 受控/非受控開啟狀態、關閉、焦點、模態、portal 行為 |
-| `Dialog` | 受控 `open`、`onOpenChange`、標題、子項目 | 對話框語意、關閉、初始/還原焦點、portal 和堆疊行為 |
-| `Picker` | `mode`、選項、受控 `value`、`onChange` | select/combobox 語意、搜尋/開啟狀態、驗證、載入/空白狀態 |
-| `Checkbox` | 受控 `checked`、`onChange` | checkbox 語意、indeterminate/required/invalid 狀態 |
-| `Switch` | 受控 `checked`、`onChange` | switch 語意和停用狀態 |
-| `Tabs` | 項目、受控 `value`、`onChange` | 分頁語意、方向、自動/手動啟用 |
+| 元件       | 必要契約                                  | 由介面卡負責的行為                                       |
+| ---------- | ----------------------------------------- | -------------------------------------------------------- |
+| `Tooltip`  | 觸發器和內容                              | 受控/非受控開啟狀態、延遲、位置、portal 行為             |
+| `Menu`     | 觸發器、項目/區段、`onAction`             | 鍵盤導覽、巢狀項目、選取、關閉、portal 行為              |
+| `Popover`  | 觸發器和子項目                            | 受控/非受控開啟狀態、關閉、焦點、模態、portal 行為       |
+| `Dialog`   | 受控 `open`、`onOpenChange`、標題、子項目 | 對話框語意、關閉、初始/還原焦點、portal 和堆疊行為       |
+| `Picker`   | `mode`、選項、受控 `value`、`onChange`    | select/combobox 語意、搜尋/開啟狀態、驗證、載入/空白狀態 |
+| `Checkbox` | 受控 `checked`、`onChange`                | checkbox 語意、indeterminate/required/invalid 狀態       |
+| `Switch`   | 受控 `checked`、`onChange`                | switch 語意和停用狀態                                    |
+| `Tabs`     | 項目、受控 `value`、`onChange`            | 分頁語意、方向、自動/手動啟用                            |
 
 `intent` 是 `primary`、`neutral` 或 `danger`；`emphasis` 是 `solid`、`outline` 或 `ghost`；尺寸是 `compact`、`default` 或 `large`。這些值描述用途，而不是預設 UI 中的 class 或 variant 名稱。
 
