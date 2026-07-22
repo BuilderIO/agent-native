@@ -124,4 +124,45 @@ describe("AppSyncState multi-app isolation", () => {
     expect(ids).toHaveLength(2);
     expect(ids[0]).not.toBe(ids[1]);
   });
+
+  it("does not reuse an org-A access decision under an org-B session", async () => {
+    const flush = async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    };
+    // Resource is allowed only in org-a.
+    const resolveAccess = vi.fn(
+      async (_rt: string, _rid: string, ctx: { orgId: string | undefined }) =>
+        ctx.orgId === "org-a" ? { ok: true } : null,
+    );
+    const s = new AppSyncState({
+      getDb: () => makeDb(),
+      isPostgres: () => false,
+      resolveAccess,
+    });
+    // Owned by someone else + resource-scoped → forces the access-aware branch.
+    const event = {
+      owner: "other@x",
+      resourceType: "doc",
+      resourceId: "d1",
+    };
+
+    // org-a: first call misses (fail-closed), then the cached allow lands.
+    expect(s.canSeeChangeForUser(event, "u@x", "org-a")).toBe(false);
+    await flush();
+    expect(s.canSeeChangeForUser(event, "u@x", "org-a")).toBe(true);
+
+    // org-b must NOT inherit org-a's allow — the cache key includes orgId.
+    expect(s.canSeeChangeForUser(event, "u@x", "org-b")).toBe(false);
+    await flush();
+    expect(s.canSeeChangeForUser(event, "u@x", "org-b")).toBe(false);
+
+    expect(resolveAccess).toHaveBeenCalledWith("doc", "d1", {
+      userEmail: "u@x",
+      orgId: "org-a",
+    });
+    expect(resolveAccess).toHaveBeenCalledWith("doc", "d1", {
+      userEmail: "u@x",
+      orgId: "org-b",
+    });
+  });
 });

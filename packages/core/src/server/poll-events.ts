@@ -85,12 +85,23 @@ export function createPollEventsHandler(
     };
 
     state.getPollEmitter().on(POLL_CHANGE_EVENT, push);
-    getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, pushAwareness);
+    // Awareness lives ONLY on the process-global emitter and is filtered via the
+    // module-level (default-state) access path — both untenable in a multi-app
+    // gateway process, where they'd leak another app's presence/document id and
+    // resolve access against the wrong tenant. Fail closed: only the default
+    // (in-process) instance forwards awareness. The gateway advertises
+    // `no-awareness` so collab keeps its own presence cadence.
+    const forwardAwareness = state === getDefaultAppSyncState();
+    if (forwardAwareness) {
+      getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, pushAwareness);
+    }
 
     stream.onClosed(() => {
       closed = true;
       state.getPollEmitter().off(POLL_CHANGE_EVENT, push);
-      getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, pushAwareness);
+      if (forwardAwareness) {
+        getAwarenessEmitter().off(AWARENESS_CHANGE_EVENT, pushAwareness);
+      }
     });
 
     return stream.send();

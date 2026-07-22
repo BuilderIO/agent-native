@@ -18,12 +18,13 @@ import {
   defineEventHandler,
   getMethod,
   type H3Event,
+  setResponseHeader,
   setResponseStatus,
 } from "h3";
 
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
-import { getBuilderBranchProjectId } from "./builder-browser.js";
+import { resolveBuilderBranchProjectId } from "./builder-browser.js";
 import { isSameOriginRequest } from "./request-origin.js";
 import { signRealtimeSubscribeToken } from "./short-lived-token.js";
 
@@ -43,6 +44,10 @@ export function getRealtimeSigningSecret(): string | undefined {
 
 export function createRealtimeTokenHandler() {
   return defineEventHandler(async (event: H3Event) => {
+    // Identity-bearing token, valid ~10 min — never cacheable by the browser or
+    // any intermediary. Set once up front so every return path carries it.
+    setResponseHeader(event, "Cache-Control", "private, no-store");
+
     if (getMethod(event) !== "GET") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -58,7 +63,11 @@ export function createRealtimeTokenHandler() {
       return { error: "Authentication required" };
     }
 
-    const projectId = getBuilderBranchProjectId();
+    // Resolve the project id via the async resolver so hosted apps whose id
+    // lives in a request-scoped app/org/workspace secret (not an env var) also
+    // work — the sync env-only lookup would 404 them and silently drop the
+    // gateway.
+    const projectId = await resolveBuilderBranchProjectId();
     const secret = getRealtimeSigningSecret();
     if (!projectId || !secret) {
       // Hosted realtime isn't provisioned for this app. 404 lets the client

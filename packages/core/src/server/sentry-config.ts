@@ -83,12 +83,19 @@ export function resolveRealtimeClientConfig(): {
   transport: "hosted";
   gatewayBaseUrl: string;
 } | null {
+  // Fail closed: emit hosted config only when BOTH the transport is hosted AND
+  // an explicit gateway URL is set. No production default — this ships into the
+  // CDN-cached shell served to every visitor, so a mis-set staging/preview/
+  // self-hosted env must stay on the local transport rather than silently
+  // point every browser at api.builder.io. This gating is mirrored byte-for-
+  // byte in the worker emitter in `deploy/build.ts` (kept in sync deliberately).
   if (firstNonEmpty(process.env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
     return null;
   }
-  const gatewayBaseUrl =
-    firstNonEmpty(process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL) ??
-    "https://api.builder.io/agent-native/gateway/v1/realtime";
+  const gatewayBaseUrl = firstNonEmpty(
+    process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL,
+  );
+  if (!gatewayBaseUrl) return null;
   return { transport: "hosted", gatewayBaseUrl };
 }
 

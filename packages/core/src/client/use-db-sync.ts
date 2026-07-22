@@ -4,6 +4,7 @@ import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
 import {
   parseHandshakeFrame,
   parseTokenFrame,
+  REALTIME_PROTOCOL_VERSION,
   REALTIME_SSE_HANDSHAKE_EVENT,
   REALTIME_SSE_TOKEN_EVENT,
 } from "../realtime-protocol.js";
@@ -286,7 +287,10 @@ interface TransportSubscription {
    * subscribers with their own fallback loops (e.g. the collab doc poll)
    * relax their cadence while the push path is healthy.
    */
-  onSseStateChange?: (connected: boolean) => void;
+  onSseStateChange?: (
+    connected: boolean,
+    capabilities?: readonly string[],
+  ) => void;
 }
 
 class SyncTransport {
@@ -339,9 +343,14 @@ class SyncTransport {
   }
 
   /**
-   * Mint a subscribe token from the app's same-origin endpoint. On any
-   * non-2xx (404 = gateway not provisioned, 401 = no session) or network
-   * error, health-gate to the local app instead of stalling.
+   * Mint a subscribe token from the app's same-origin endpoint.
+   *
+   * Only TERMINAL outcomes health-gate to local: 404 (gateway not provisioned)
+   * and 401/403 (not authorized) — retrying those for this tab is pointless.
+   * TRANSIENT failures (5xx/429 from a cold Netlify function, network errors)
+   * keep the hosted intent and ride the jittered reconnect + unhealthy-threshold
+   * path, so a deploy / scale-to-zero blip doesn't permanently abandon the
+   * gateway for the tab.
    */
   private mintToken(): Promise<boolean> {
     if (!this.gateway || this.mode !== "hosted") return Promise.resolve(false);
@@ -350,25 +359,42 @@ class SyncTransport {
     this.tokenMintInFlight = (async () => {
       try {
         const res = await fetch(mintUrl, { credentials: "same-origin" });
-        if (!res.ok) {
+        if (res.ok) {
+          const data = (await res.json()) as { token?: unknown };
+          if (typeof data?.token === "string" && data.token) {
+            this.token = data.token;
+            this.consecutiveFailures = 0;
+            return true;
+          }
+          // 2xx without a token is a terminal misconfiguration.
           this.revertToLocal();
           return false;
         }
-        const data = (await res.json()) as { token?: unknown };
-        if (typeof data?.token === "string" && data.token) {
-          this.token = data.token;
-          return true;
+        if (res.status === 404 || res.status === 401 || res.status === 403) {
+          this.revertToLocal();
+          return false;
         }
-        this.revertToLocal();
+        this.onGatewayTransientFailure();
         return false;
       } catch {
-        this.revertToLocal();
+        this.onGatewayTransientFailure();
         return false;
       } finally {
         this.tokenMintInFlight = null;
       }
     })();
     return this.tokenMintInFlight;
+  }
+
+  /**
+   * A transient gateway failure (mint 5xx/429, network). Keep hosted intent but
+   * count toward the unhealthy threshold; revert to local only once it trips.
+   */
+  private onGatewayTransientFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= HOSTED_UNHEALTHY_THRESHOLD) {
+      this.revertToLocal();
+    }
   }
 
   /**
@@ -417,7 +443,7 @@ class SyncTransport {
     } else {
       this.reschedule();
     }
-    sub.onSseStateChange?.(this.sseConnected);
+    sub.onSseStateChange?.(this.sseConnected, this.capabilities);
   }
 
   remove(id: symbol): void {
@@ -484,8 +510,18 @@ class SyncTransport {
   private setSseConnected(connected: boolean): void {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
+    this.notifySseState();
+  }
+
+  /**
+   * Notify subscribers of the current SSE state AND the negotiated gateway
+   * capabilities. Called on connect/disconnect and again once the handshake
+   * arrives, so a consumer (e.g. collab) can decide — for instance — not to
+   * relax its presence cadence on a `no-awareness` hosted stream.
+   */
+  private notifySseState(): void {
     for (const sub of this.subscribers.values()) {
-      sub.onSseStateChange?.(connected);
+      sub.onSseStateChange?.(this.sseConnected, this.capabilities);
     }
   }
 
@@ -617,12 +653,30 @@ class SyncTransport {
       // normalizeEventPayload as spurious data events.
       source.addEventListener(REALTIME_SSE_HANDSHAKE_EVENT, (e) => {
         const hs = parseHandshakeFrame((e as MessageEvent).data);
-        if (hs) this.capabilities = hs.capabilities;
+        if (!hs) return;
+        if (hs.protocol !== REALTIME_PROTOCOL_VERSION) {
+          // Surface an unexpected protocol rather than silently adopting its
+          // capabilities; keep the conservative (no advertised capabilities)
+          // stance so downstream (collab) does not relax on assumptions.
+          console.warn(
+            `[agent-native] unsupported realtime protocol ${hs.protocol} (expected ${REALTIME_PROTOCOL_VERSION})`,
+          );
+          return;
+        }
+        this.capabilities = hs.capabilities;
+        // Re-notify subscribers now that capabilities are known — the initial
+        // connected notification fired before the handshake arrived.
+        this.notifySseState();
       });
       source.addEventListener(REALTIME_SSE_TOKEN_EVENT, (e) => {
         const frame = parseTokenFrame((e as MessageEvent).data);
-        // Rotation is for the NEXT (re)connect; the live stream stays open.
-        if (frame?.token) this.token = frame.token;
+        if (!frame?.token) return;
+        this.token = frame.token;
+        // EventSource can't change a live stream's URL, and its auto-reconnect
+        // reuses the original (old-token) URL. Close and reconnect (jittered) so
+        // the rotated token is actually used on the next connect.
+        this.closeEvents();
+        this.scheduleGatewayReconnect();
       });
     }
   }
@@ -836,7 +890,10 @@ export interface SubscribeSyncEventsOptions {
   /** Receives every batch of change events (SSE push or poll). */
   onEvents: (events: SyncEvent[], version: number | undefined) => void;
   /** Notified when the shared SSE connection opens/closes (and once on join). */
-  onSseStateChange?: (connected: boolean) => void;
+  onSseStateChange?: (
+    connected: boolean,
+    capabilities?: readonly string[],
+  ) => void;
   pollUrl?: string;
   sseUrl?: string | false;
   pauseWhenHidden?: boolean;

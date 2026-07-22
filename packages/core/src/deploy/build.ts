@@ -952,13 +952,16 @@ function getSentryClientConfigScript() {
 }
 
 function getRealtimeClientConfigScript() {
+  // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
+  // server/sentry-config.ts (worker bundles a string copy; it can't import it).
+  // Fail closed: require BOTH hosted transport AND an explicit gateway URL — no
+  // production default, since this ships into the CDN-cached shell.
   const env = globalThis.process?.env || {};
   if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
     return null;
   }
-  const gatewayBaseUrl =
-    firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL) ||
-    "https://api.builder.io/agent-native/gateway/v1/realtime";
+  const gatewayBaseUrl = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  if (!gatewayBaseUrl) return null;
   const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
   return (
     '<script data-agent-native-realtime-config>' +

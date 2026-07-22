@@ -45,6 +45,7 @@ import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
+import { REALTIME_CAP_NO_AWARENESS } from "../realtime-protocol.js";
 export {
   dedupeCollabUsersByEmail,
   emailToColor,
@@ -326,6 +327,12 @@ class CollabDocConnection {
   private pollVersion = 0;
   private lastPolledVersion = 0;
   private sseActive = false;
+  // Whether the active SSE stream actually forwards awareness. The hosted
+  // Realtime Gateway advertises `no-awareness` (it can't see the in-process
+  // awareness emitter), so on that transport we must NOT relax the presence
+  // poll cadence — otherwise remote cursors go stale. In-process SSE forwards
+  // awareness and sends no handshake, so this stays true there.
+  private sseAwarenessCovered = false;
   private sseSubscribedWithPause: boolean | null = null;
   private unsubscribeCollabEvents: (() => void) | null = null;
   private unsubscribeAwarenessEvents: (() => void) | null = null;
@@ -760,8 +767,13 @@ class CollabDocConnection {
         if (this.disposed || !this.syncActive) return;
         for (const change of events) this.handleSharedEvent(change);
       },
-      onSseStateChange: (connected) => {
+      onSseStateChange: (connected, capabilities) => {
         this.sseActive = connected;
+        // Only treat SSE as covering awareness when it's connected AND does not
+        // advertise `no-awareness` (the hosted gateway does). Drives whether we
+        // relax the presence poll — see getActivePollInterval.
+        this.sseAwarenessCovered =
+          connected && !capabilities?.includes(REALTIME_CAP_NO_AWARENESS);
         if (connected) this.consecutiveErrors = 0;
       },
       pauseWhenHidden,
@@ -811,7 +823,10 @@ class CollabDocConnection {
   }
 
   private getActivePollInterval(): number {
-    return this.sseActive
+    // Relax to the slow cadence only when SSE is genuinely carrying awareness;
+    // on a `no-awareness` hosted stream keep the fast cadence so presence/
+    // cursor state doesn't go stale (the gateway doesn't forward awareness).
+    return this.sseActive && this.sseAwarenessCovered
       ? this.effectivePollIntervalWithSse
       : this.effectivePollInterval;
   }

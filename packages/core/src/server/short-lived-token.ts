@@ -254,6 +254,15 @@ export function signRealtimeSubscribeToken(
   key: string,
 ): string {
   if (!key) throw new Error("signRealtimeSubscribeToken requires a key");
+  // Fail closed: a token with neither owner nor orgId carries no authorization
+  // identity, so canSeeChangeForUser would only ever match global/unowned
+  // events. Every issuer (mint endpoint + the gateway's rotation re-mint) must
+  // supply at least one identity claim.
+  if (!claims.owner && !claims.orgId) {
+    throw new Error(
+      "signRealtimeSubscribeToken requires an owner or orgId claim",
+    );
+  }
   const ttl = claims.ttlSeconds ?? DEFAULT_REALTIME_TTL_SECONDS;
   const payload: DecodedRealtimeClaims = {
     typ: REALTIME_SUBSCRIBE_TOKEN_TYPE,

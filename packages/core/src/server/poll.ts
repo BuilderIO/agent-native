@@ -180,10 +180,15 @@ async function readActionMarkerMaxUpdatedAt(db: {
 
 function accessCacheKey(
   userEmail: string,
+  orgId: string | undefined,
   resourceType: string,
   resourceId: string,
 ): string {
-  return `${userEmail}|${resourceType}|${resourceId}`;
+  // orgId is part of the key: org visibility and org shares are org-scoped, so a
+  // user in multiple orgs must not reuse an org-A decision under an org-B
+  // session. The trailing `|resourceType|resourceId` still lets
+  // invalidateCollabAccessCache match by suffix.
+  return `${userEmail}|${orgId ?? ""}|${resourceType}|${resourceId}`;
 }
 
 function accessResourceKey(resourceType: string, resourceId: string): string {
@@ -492,18 +497,25 @@ export class AppSyncState {
       `;
 
         if (this.isPg()) {
-          await ensureTableExists("sync_events", createSql);
+          // Run DDL against THIS app's DB, not the process-global one — the
+          // gateway injects a per-app getDb, and ddl-guard otherwise probes/
+          // creates via the global exec.
+          const injectedClient = client;
+          await ensureTableExists("sync_events", createSql, { injectedClient });
           await ensureIndexExists(
             "sync_events_version_idx",
             "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
+            { injectedClient },
           );
           await ensureIndexExists(
             "sync_events_owner_version_idx",
             "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
+            { injectedClient },
           );
           await ensureIndexExists(
             "sync_events_org_version_idx",
             "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
+            { injectedClient },
           );
           return true;
         }
@@ -730,6 +742,7 @@ export class AppSyncState {
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
         userEmail,
+        orgId,
         event.resourceType,
         event.resourceId,
       );
@@ -1432,9 +1445,12 @@ export function getChangesSinceForUser(
  * Without auth + filtering, an anonymous attacker could poll the deployment
  * and infer cross-tenant activity from the global event stream.
  */
-export function createPollHandler() {
-  const state = getDefaultAppSyncState();
-  state.wireLocalEmitters();
+export function createPollHandler(
+  state: AppSyncState = getDefaultAppSyncState(),
+) {
+  // Only the default (in-process) instance wires the local emitters; a gateway
+  // per-app instance learns of changes by tailing its own DB.
+  if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
   return defineEventHandler(async (event) => {
     const session = await getSession(event).catch(() => null);
     if (!session?.email) {
