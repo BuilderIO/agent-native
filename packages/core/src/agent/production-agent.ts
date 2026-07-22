@@ -3083,6 +3083,21 @@ function normalizeToolCallInputForHistory(
   return { rawInput: input };
 }
 
+function dedupeAssistantToolCallsById(
+  content: import("./engine/types.js").EngineContentPart[],
+): import("./engine/types.js").EngineContentPart[] {
+  const seenToolCallIds = new Set<string>();
+  const deduped: import("./engine/types.js").EngineContentPart[] = [];
+  for (const part of content) {
+    if (part.type === "tool-call") {
+      if (seenToolCallIds.has(part.id)) continue;
+      seenToolCallIds.add(part.id);
+    }
+    deduped.push(part);
+  }
+  return deduped;
+}
+
 function toolInputSchemaErrorResult(
   toolName: string,
   input: unknown,
@@ -3904,6 +3919,8 @@ export async function runAgentLoop(opts: {
         }
       }
     }
+
+    assistantContent = dedupeAssistantToolCallsById(assistantContent);
 
     const assistantContentForHistory = assistantContent.map((part) =>
       part.type === "tool-call"
