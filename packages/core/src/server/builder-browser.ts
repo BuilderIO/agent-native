@@ -347,51 +347,87 @@ export function verifyBuilderRelayRequest(input: {
   payload: BuilderPreviewRelayState;
   body: BuilderRelayRequestBody;
 } | null {
-  console.log(`shomix - verifyBuilderRelayRequest:`);
-  console.log(`shomix - body - ${input.body}`);
-  console.log(`shomix - timestamp - ${input.timestamp}`);
-  console.log(`shomix - flowId - ${input.flowId}`);
-  console.log(`shomix - signature - ${input.signature}`);
-  console.log(`shomix - requestOrigin - ${input.requestOrigin}`);
-  console.log(`shomix - requestBasePath - ${input.requestBasePath}`);
-  console.log(`shomix - now - ${input.now}`);
   const timestamp = Number(input.timestamp);
   const now = input.now ?? Date.now();
+  console.log(
+    `shomix - verifyBuilderRelayRequest - timestamp=${input.timestamp} flowId=${input.flowId} hasSignature=${!!input.signature} requestOrigin=${input.requestOrigin} requestBasePath=${input.requestBasePath}`,
+  );
+  if (!Number.isFinite(timestamp)) {
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: timestamp not finite (${input.timestamp})`,
+    );
+    return null;
+  }
+  if (Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS) {
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: skew too large now=${now} timestamp=${timestamp} diff=${Math.abs(now - timestamp)} max=${BUILDER_RELAY_REQUEST_SKEW_MS}`,
+    );
+    return null;
+  }
+  if (!input.flowId) {
+    console.log(`shomix - verifyBuilderRelayRequest - NULL: missing flowId`);
+    return null;
+  }
+  if (!input.signature) {
+    console.log(`shomix - verifyBuilderRelayRequest - NULL: missing signature`);
+    return null;
+  }
   if (
-    !Number.isFinite(timestamp) ||
-    Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS ||
-    !input.flowId ||
-    !input.signature ||
     !safeEqualText(
       builderRelayRequestSignature(timestamp, input.flowId, input.body),
       input.signature,
     )
   ) {
-    console.log(`shomix - first check has failed`);
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: signature mismatch expected=${builderRelayRequestSignature(timestamp, input.flowId, input.body)} got=${input.signature}`,
+    );
     return null;
   }
   let body: BuilderRelayRequestBody;
   try {
     body = JSON.parse(input.body) as BuilderRelayRequestBody;
   } catch {
-    console.log(`shomix - failed to parse body - ${input.body}`);
+    console.log(`shomix - verifyBuilderRelayRequest - NULL: body JSON parse failed`);
     return null;
   }
   const payload = verifyBuilderPreviewRelayState(body.relayState, { now });
+  if (!payload) {
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: verifyBuilderPreviewRelayState returned null`,
+    );
+    return null;
+  }
+  if (payload.flowId !== input.flowId) {
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: flowId mismatch payload=${payload.flowId} input=${input.flowId}`,
+    );
+    return null;
+  }
+  if (payload.targetOrigin !== input.requestOrigin) {
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: targetOrigin mismatch payload=${payload.targetOrigin} requestOrigin=${input.requestOrigin}`,
+    );
+    return null;
+  }
+  if (payload.basePath !== input.requestBasePath) {
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: basePath mismatch payload=${payload.basePath} requestBasePath=${input.requestBasePath}`,
+    );
+    return null;
+  }
   if (
-    !payload ||
-    payload.flowId !== input.flowId ||
-    payload.targetOrigin !== input.requestOrigin ||
-    payload.basePath !== input.requestBasePath ||
     !body.credentials ||
     typeof body.credentials.privateKey !== "string" ||
     typeof body.credentials.publicKey !== "string" ||
     !body.credentials.privateKey ||
     !body.credentials.publicKey
   ) {
-    console.log(`shomix - bad payload`);
+    console.log(
+      `shomix - verifyBuilderRelayRequest - NULL: bad credentials hasCredentials=${!!body.credentials} hasPrivateKey=${!!body.credentials?.privateKey} hasPublicKey=${!!body.credentials?.publicKey}`,
+    );
     return null;
   }
+  console.log(`shomix - verifyBuilderRelayRequest - OK: verified`);
   const nullableString = (value: unknown): string | null =>
     typeof value === "string" ? value : null;
   const nullableBoolean = (value: unknown): boolean | null =>
@@ -417,6 +453,7 @@ export function verifyBuilderRelayRequest(input: {
     },
   };
 }
+
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (ch) => {
