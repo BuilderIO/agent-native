@@ -241,10 +241,12 @@ export default defineConfig({
 
 ### 3. Ajouter le plugin du serveur de collaboration
 
-Toujours définir `resourceType` sur le nom de la ressource partageable enregistrée
-via `registerShareableResource`. Sans cela, les événements push de collaboration sont diffusés
-à tous les utilisateurs authentifiés sans portée au niveau du document et au serveur
-enregistre un avertissement unique.
+Choisissez le mode d'accès correspondant au modèle de données. Les enregistrements
+possédés ou partageables utilisent `mode: "resource"` avec le type enregistré via
+`registerShareableResource`. Les enregistrements délibérément partagés avec tous les
+utilisateurs authentifiés du déploiement utilisent explicitement
+`mode: "all-authenticated"`. N'inventez jamais un type de ressource pour faire
+disparaître un avertissement.
 
 ```ts
 // server/plugins/collab.ts
@@ -254,9 +256,12 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+Omettre `access` est un comportement historique obsolète. Il se comporte comme
+`all-authenticated`, journalise un avertissement et est signalé par Doctor.
 
 ### 4. Utilisez le hook client
 
@@ -602,22 +607,35 @@ plug-in :
 
 ## Sécurité {#security}
 
-### Toujours définir `resourceType`
+### Choisir explicitement le modèle d'accès
+
+Pour les ressources possédées ou partageables, utilisez le type enregistré via
+`registerShareableResource` :
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-Sans `resourceType`, le plugin enregistre un avertissement et diffuse une collaboration push
-événements à tous les utilisateurs authentifiés sur le déploiement sans niveau de document
-cadrage. Les non-propriétaires se rabattent sur le rattrapage du vecteur d'état (sûr mais plus élevé
-latence), que `resourceType` soit défini ou non.
+Pour une ressource volontairement partagée dans tout le déploiement :
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+N'inventez pas de `resourceType` pour supprimer un avertissement : le mode
+`resource` n'est valide que si le modèle de propriété et de partage correspondant
+existe. Omettre `access` reste pris en charge pour la compatibilité historique,
+se comporte comme `all-authenticated`, journalise un avertissement et est signalé
+par Doctor. Les bénéficiaires non propriétaires disposant d'un accès explicite
+utilisent le rattrapage par vecteur d'état (sûr, mais plus lent).
 
 ### Contrôles d'accès
 
-Toutes les routes de collaboration nécessitent une authentification. Lorsque `resourceType` est défini, lit
+Toutes les routes de collaboration nécessitent une authentification. En mode `resource`, les lectures
 exigent au moins un accès de spectateur et les écritures nécessitent un accès d'éditeur, en utilisant
 mêmes assistants `resolveAccess` / `assertAccess` que le système de partage. Un 404
 (et non 403) est renvoyé en cas d'échec d'accès pour éviter toute fuite de l'existence du document.
@@ -630,7 +648,7 @@ Remplacement par plugin :
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -762,7 +780,7 @@ couches au-dessus du même état de conscience.
 - [Real-Time Sync](/docs/client#usedbsync) — le `useDbSync` + `useChangeVersion`
   système qui fournit la réconciliation de l'éditeur de conduite de bosses `updatedAt`.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  et `assertAccess` pour le modèle d'accès référencé par `resourceType`.
+  et `assertAccess` pour la collaboration limitée à une ressource.
 - [Sharing](/docs/sharing) – comment les documents sont partagés et comment l'accès est accordé.
 - [Template: Content](/docs/template-content) — implémentation de référence de
   édition collaborative de texte enrichi.

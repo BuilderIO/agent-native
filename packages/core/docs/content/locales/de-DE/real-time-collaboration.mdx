@@ -238,10 +238,12 @@ export default defineConfig({
 
 ### 3. Fügen Sie das Collab-Server-Plugin hinzu
 
-Legen Sie `resourceType` immer auf den Namen der registrierten gemeinsam nutzbaren Ressource fest
-über `registerShareableResource`. Ohne sie werden Collab-Push-Ereignisse zugestellt
-an alle authentifizierten Benutzer ohne Scoping auf Dokumentebene und an den Server
-protokolliert eine einmalige Warnung.
+Wählen Sie den Zugriffsmodus passend zum Datenmodell. Ressourcen mit Besitz- oder
+Freigabemodell verwenden `mode: "resource"` mit dem über
+`registerShareableResource` registrierten Typ. Ressourcen, die bewusst für alle
+authentifizierten Benutzer der Bereitstellung sichtbar sind, verwenden ausdrücklich
+`mode: "all-authenticated"`. Erfinden Sie keinen Ressourcentyp, nur um eine
+Warnung zu unterdrücken.
 
 ```ts
 // server/plugins/collab.ts
@@ -251,9 +253,12 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+Das Weglassen von `access` ist veraltetes Legacy-Verhalten. Es verhält sich wie
+`all-authenticated`, protokolliert eine Warnung und wird von Doctor gemeldet.
 
 ### 4. Verwenden Sie den Client-Hook
 
@@ -599,22 +604,35 @@ Plugin:
 
 ## Sicherheit {#security}
 
-### Legen Sie immer `resourceType` fest
+### Zugriffsmodell ausdrücklich wählen
+
+Verwenden Sie für Ressourcen mit Besitz- oder Freigabemodell den über
+`registerShareableResource` registrierten Typ:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-Ohne `resourceType` protokolliert das Plugin eine Warnung und sendet Collab Push
-Ereignisse für alle authentifizierten Benutzer in der Bereitstellung ohne Dokumentebene
-Scoping. Nichteigentümer greifen auf die Aufholjagd des Landesvektors zurück (sicher, aber höher
-Latenz), unabhängig davon, ob `resourceType` eingestellt ist.
+Für eine bewusst in der gesamten Bereitstellung freigegebene Ressource:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+Erfinden Sie keinen `resourceType`, um eine Warnung zu entfernen: Der Modus
+`resource` ist nur richtig, wenn das entsprechende Besitz- und Freigabemodell
+existiert. Das Weglassen von `access` bleibt für Legacy-Kompatibilität unterstützt,
+verhält sich wie `all-authenticated`, protokolliert eine Warnung und wird von Doctor
+gemeldet. Freigabeempfänger ohne Besitz, aber mit ausdrücklichem Zugriff, verwenden
+den State-Vector-Abgleich (sicher, aber mit höherer Latenz).
 
 ### Zugriffsprüfungen
 
-Alle Collab-Routen erfordern eine Authentifizierung. Wenn `resourceType` gesetzt ist, lautet es:
+Alle Collab-Routen erfordern eine Authentifizierung. Im Modus `resource`
 erfordern mindestens Betrachterzugriff und Schreibvorgänge erfordern Editorzugriff unter Verwendung von
 gleiche `resolveAccess` / `assertAccess`-Helfer wie das Freigabesystem. Ein 404
 (nicht 403) wird bei Zugriffsfehlern zurückgegeben, um zu verhindern, dass ein Dokument existiert.
@@ -627,7 +645,7 @@ Pro Plugin überschreiben:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -759,7 +777,7 @@ Ebenen über dem gleichen Bewusstseinszustand.
 - [Real-Time Sync](/docs/client#usedbsync) – der `useDbSync` + `useChangeVersion`
   System, das den `updatedAt` Bump-Drive-Editor-Abgleich ermöglicht.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  und `assertAccess` für das Zugriffsmodell, auf das `resourceType` verweist.
+  und `assertAccess` für ressourcenbezogene Zusammenarbeit.
 - [Sharing](/docs/sharing) – wie Dokumente geteilt werden und wie der Zugriff gewährt wird.
 - [Template: Content](/docs/template-content) – Referenzimplementierung von
   kollaborative Rich-Text-Bearbeitung.

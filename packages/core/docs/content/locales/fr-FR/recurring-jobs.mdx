@@ -9,7 +9,7 @@ Une **tâche récurrente** est une invite qui s'exécute selon une planification
 
 Les tâches récurrentes se déclenchent selon une horloge. Pour réagir aux _événements_ (une réservation créée, un e-mail reçu) — même format de fichier `jobs/` plus conditions — voir [Automations](/docs/automations).
 
-Les tâches sont en direct dans le [workspace](/docs/workspace) sur `jobs/<name>.md` — juste un fichier Markdown avec le frontmatter YAML. Pas d'enregistrement, pas de câblage. Déposez le fichier et le framework le récupère.
+Les tâches sont en direct dans le [Ressources de l'agent](/docs/agent-resources) sur `jobs/<name>.md` — juste un fichier Markdown avec le frontmatter YAML. Pas d'enregistrement, pas de câblage. Déposez le fichier et le framework le récupère.
 
 ## Un fichier de travail {#job-file}
 
@@ -40,12 +40,12 @@ Les tâches sont en direct dans le [workspace](/docs/workspace) sur `jobs/<name>
     {
       lines: "7-12",
       label: "L'invite",
-      note: "Le corps n'est qu'une invite : l'agent l'exécute à chaque déclenchement avec tous ses outils et son contexte d'espace de travail normaux.",
+      note: "Le corps n'est qu'une invite : l'agent l'exécute à chaque déclenchement avec tous ses outils et son contexte de l'agent normaux.",
     },
   ]}
 />
 
-C'est tout. Le corps est une invite que l'agent exécute à chaque déclenchement planifié. L'agent a accès aux mêmes outils et au même contexte d'espace de travail que dans un chat interactif : actions, skills, mémoire, serveurs MCP connectés, sous-agents.
+C'est tout. Le corps est une invite que l'agent exécute à chaque déclenchement planifié. L'agent a accès aux mêmes outils et au même contexte de l'agent que dans un chat interactif : actions, skills, mémoire, serveurs MCP connectés, sous-agents.
 
 ## Première question {#frontmatter}
 
@@ -54,7 +54,7 @@ C'est tout. Le corps est une invite que l'agent exécute à chaque déclenchemen
 | `schedule`   | expression cron               | _(obligatoire)_ | Cron standard à 5 champs. `"0 7 * * *"` = tous les jours à 07h00 ; `"0 */4 * * *"` = toutes les 4 heures.                                 |
 | `enabled`    | booléen                       | `true`          | Basculez vers `false` pour mettre en pause sans supprimer la tâche.                                                                       |
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` s'exécute avec l'identité du propriétaire de la tâche et `ANTHROPIC_API_KEY`. `"shared"` utilise la clé de l'organisation.    |
-| `createdBy`  | e-mail                        | _(auto)_        | Rempli lorsque le travail est créé via l'espace de travail UI ou par l'agent.                                                             |
+| `createdBy`  | e-mail                        | _(auto)_        | Rempli lorsque le travail est créé via l'ressources de l'agent UI ou par l'agent.                                                         |
 | `orgId`      | chaîne                        | _(auto)_        | Portée de l'organisation ; hérité de l'organisation active du créateur.                                                                   |
 | `lastRun`    | Horodatage ISO                | _(géré)_        | Écrit par le planificateur après chaque exécution.                                                                                        |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(géré)_        | Dernier résultat.                                                                                                                         |
@@ -101,7 +101,7 @@ Le framework comprend des utilitaires cron (`isValidCron()` et `describeCron()`)
 
 ### Depuis l'onglet Espace de travail
 
-`+` → **Tâche planifiée** dans le panneau de l'espace de travail. Remplissez l'invite et le calendrier. Enregistre sous `jobs/<slug>.md` et commence à s'exécuter au prochain tick correspondant.
+`+` → **Tâche planifiée** dans le panneau de l'ressources de l'agent. Remplissez l'invite et le calendrier. Enregistre sous `jobs/<slug>.md` et commence à s'exécuter au prochain tick correspondant.
 
 ### En demandant à l'agent
 
@@ -201,7 +201,7 @@ Le planificateur est un plugin de framework (la routine interne `processRecurrin
 
 ## Débogage d'une tâche {#debugging}
 
-- Ouvrez `jobs/<name>.md` dans l'espace de travail : le premier plan affiche `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- Ouvrez `jobs/<name>.md` dans l'ressources de l'agent : le premier plan affiche `lastRun`, `lastStatus`, `lastError`, `nextRun`.
 - **Testez-le sans attendre :** il n'y a pas d'outil de tir forcé. Pour effectuer le même travail à la demande, collez l'invite du travail dans le chat de l'agent et laissez-le s'y exécuter, ou définissez temporairement le planning sur la minute suivante afin que le planificateur le récupère au tick suivant (puis restaurez le vrai cron).
 - **Mettez-le en pause :** retournez `enabled: false`. Le fichier reste en place, arrête simplement de s'exécuter.
 
@@ -222,7 +222,7 @@ Un seul outil `manage-jobs` est enregistré dans chaque modèle. Le paramètre `
 
 Ne confondez pas les tâches récurrentes avec `@agent-native/scheduling` :
 
-- **Tâches récurrentes (cette page)** — _invites_ planifiées par cron que l'agent exécute en arrière-plan. Au niveau du framework. Vit dans l'espace de travail. S'exécute sur n'importe quelle application native d'agent.
+- **Tâches récurrentes (cette page)** — _invites_ planifiées par cron que l'agent exécute en arrière-plan. Au niveau du framework. Vit dans l'ressources de l'agent. S'exécute sur n'importe quelle application native d'agent.
 - **`@agent-native/scheduling`** — un package de domaine réutilisable pour créer des fonctionnalités de calendrier/réservation (types d'événements, fenêtres de disponibilité, réservations). Alimente le modèle `calendar` et les surfaces de planification personnalisées.
 
 Les tâches récurrentes sont : "Comment faire en sorte que l'agent agisse seul ?" Le package de planification est « Comment puis-je créer une application de calendrier ? » Différentes préoccupations.
@@ -230,6 +230,6 @@ Les tâches récurrentes sont : "Comment faire en sorte que l'agent agisse seul
 ## Quelle est la prochaine étape
 
 - [**Automations**](/docs/automations) : ajoutez des déclencheurs d'événements et des conditions au même format `jobs/`
-- [**Workspace**](/docs/workspace) — où les tâches cohabitent avec skills, la mémoire et les agents personnalisés
+- [**Ressources de l'agent**](/docs/agent-resources) — où les tâches cohabitent avec skills, la mémoire et les agents personnalisés
 - [**Actions**](/docs/actions) — les outils qu'un travail appelle
 - [**Agent Teams**](/docs/agent-teams) — les tâches génèrent souvent des sous-agents pour effectuer un travail parallèle

@@ -423,6 +423,18 @@ async function waitForDashboardReportReady(
         return {
           ready: root?.getAttribute("data-dashboard-report-ready") ?? null,
           loadingCount: root?.querySelectorAll("[data-dashboard-report-loading='true']").length ?? null,
+          loadingPanels: Array.from(
+            root?.querySelectorAll("[data-dashboard-report-loading='true']") ?? [],
+          ).reduce((panels, loadingNode) => {
+            const panel = loadingNode.closest("[data-dashboard-report-panel-id]");
+            const id = panel?.getAttribute("data-dashboard-report-panel-id");
+            if (!id || panels.some((entry) => entry.id === id)) return panels;
+            panels.push({
+              id,
+              title: panel?.getAttribute("data-dashboard-report-panel-title") ?? "",
+            });
+            return panels;
+          }, []),
           text: document.body?.innerText?.slice(0, 1000) ?? "",
           url: location.href,
         };

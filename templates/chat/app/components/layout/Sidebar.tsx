@@ -9,7 +9,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
@@ -17,7 +17,6 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
-  IconPlus,
   IconSettings,
 } from "@tabler/icons-react";
 import { useEffect, useMemo } from "react";
@@ -104,6 +103,12 @@ function persistedActiveThreadId() {
   }
 }
 
+function persistActiveThreadId(threadId: string) {
+  try {
+    localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
+  } catch {}
+}
+
 function threadIdFromPath(pathname: string) {
   const match = pathname.match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -142,7 +147,7 @@ function ChatThreadsSection() {
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, 12),
+        .slice(0, 15),
     [threads],
   );
   const displayedActiveThreadId =
@@ -184,6 +189,7 @@ function ChatThreadsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
+    persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
       options?.isNew ? "/" : chatThreadPath(threadId),
@@ -223,50 +229,35 @@ function ChatThreadsSection() {
 
   return (
     <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("chat.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("chat.newChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("chat.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={displayedActiveThreadId}
-          onSelect={(threadId) => openThread(threadId)}
-          renameMaxLength={160}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
-          labels={{
-            options: (item) =>
-              t("chat.optionsFor", { title: item.titleText ?? "" }),
-            renameInput: (item) =>
-              t("chat.renameThread", { title: item.titleText ?? "" }),
-            rename: t("chat.renameChat"),
-            pin: t("chat.pinChat"),
-            unpin: t("chat.unpinChat"),
-            delete: t("chat.archiveChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("chat.newChat"),
+          showMore: t("chat.chats"),
+          showLess: t("chat.chats"),
+        }}
+        renameMaxLength={160}
+        onTogglePin={(threadId) => {
+          const thread = visibleThreads.find((item) => item.id === threadId);
+          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        }}
+        onRename={handleRenameThread}
+        onDelete={(threadId) => void handleArchiveThread(threadId)}
+        labels={{
+          options: (item) =>
+            t("chat.optionsFor", { title: item.titleText ?? "" }),
+          renameInput: (item) =>
+            t("chat.renameThread", { title: item.titleText ?? "" }),
+          rename: t("chat.renameChat"),
+          pin: t("chat.pinChat"),
+          unpin: t("chat.unpinChat"),
+          delete: t("chat.archiveChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -445,28 +436,13 @@ export function Sidebar({
           />
         </div>
 
-        <div
-          className={cn(
-            collapsed ? "flex justify-center px-1 py-1" : "px-3 py-2",
-          )}
-        >
-          <FeedbackButton
-            variant={collapsed ? "icon" : "sidebar"}
-            side="right"
-            align={collapsed ? "center" : "end"}
-          />
-        </div>
-
-        {collapseButton ? (
-          <div
-            className={cn(
-              collapsed
-                ? "flex justify-center px-1 py-1"
-                : "flex justify-end px-3 py-2",
-            )}
-          >
+        {!collapsed ? (
+          <div className="flex items-center justify-end gap-1 px-3 py-2">
+            <FeedbackButton className="min-w-0 flex-1" side="right" />
             {collapseButton}
           </div>
+        ) : collapseButton ? (
+          <div className="flex justify-center px-1 py-1">{collapseButton}</div>
         ) : null}
       </div>
     </aside>

@@ -15,6 +15,11 @@ const mocks = vi.hoisted(() => ({
   resolveCredential: vi.fn(),
   select: vi.fn(),
   ssrfSafeFetch: vi.fn(),
+  writeAppState: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/application-state", () => ({
+  writeAppState: mocks.writeAppState,
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -191,6 +196,16 @@ describe("export-to-brain", () => {
       reason: "missing-ingest-token",
     });
     expect(mocks.ssrfSafeFetch).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "clips-brain-export-recording-1",
+      expect.objectContaining({
+        recordingId: "recording-1",
+        status: "failed",
+        attempts: 0,
+        reason: "missing-ingest-token",
+        nextAttemptAt: expect.any(String),
+      }),
+    );
   });
 
   it("exports one recording with an absolute source URL and proof of capture", async () => {
@@ -230,6 +245,41 @@ describe("export-to-brain", () => {
       mocks.meetings,
       mocks.meetingShares,
     );
+  });
+
+  it("sends a canonical meeting summary before the transcript", async () => {
+    configureDestination();
+    queueSelectResults([
+      [transcript],
+      [
+        {
+          id: "meeting-1",
+          recordingId: recording.id,
+          title: "Weekly product review",
+          summaryMd: "The team committed to the new launch sequence.",
+          actualStart: null,
+          scheduledStart: recording.createdAt,
+        },
+      ],
+      [],
+      [],
+    ]);
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      Response.json({ ok: true, capture: { id: "capture-example" } }),
+    );
+
+    await action.run({
+      recordingId: recording.id,
+      lookbackDays: 28,
+      limit: 100,
+      concurrency: 4,
+    });
+
+    const [, request] = mocks.ssrfSafeFetch.mock.calls[0]!;
+    expect(JSON.parse(request.body)).toMatchObject({
+      transcript:
+        "Summary\nThe team committed to the new launch sequence.\n\nTranscript\nTranscript text",
+    });
   });
 
   it("reports privacy quarantine instead of claiming export success", async () => {

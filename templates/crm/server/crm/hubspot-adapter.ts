@@ -751,7 +751,10 @@ export class HubSpotCrmAdapter implements CrmAdapter {
     }
     if (scope.updatedAfter) {
       filters.push({
-        propertyName: "hs_lastmodifieddate",
+        propertyName:
+          scope.objectType.toLowerCase() === "contacts"
+            ? "lastmodifieddate"
+            : "hs_lastmodifieddate",
         operator: "GTE",
         value: scope.updatedAfter,
       });

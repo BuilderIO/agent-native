@@ -67,6 +67,10 @@ const DEFAULT_SCOPES = ["builds", "functions", "runtime"];
 const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
+  [
+    "VITE_AGENT_NATIVE_FEEDBACK_URL",
+    "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
+  ],
   ["VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED", "true"],
   ["VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE", "1"],
 ]);

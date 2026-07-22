@@ -87,15 +87,15 @@ Wenn Sie eine einzelne Vorlage eigenständig ausführen, benötigen Sie Dispatch
 
 Sieben Funktionen, die alle auf derselben Workspace-Datenbank basieren, die auch die anderen Apps verwenden:
 
-| Fähigkeit                         | Was es Ihnen bietet                                                                                      | Einrichten                                                     |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **Zentraler Posteingang**         | Slack, E-Mail, Telegram, WhatsApp erreichen alle einen Agenten mit gemeinsamem Speicher + Tools          | **Einstellungen → Nachrichten** ([Messaging](/docs/messaging)) |
-| **Geheimer Tresor**               | Speichern Sie jeden Berechtigungsnachweis einmal. rotieren an einer Stelle in jeder App                  | **Vault** + Zugriffsmodus (alle Apps oder manuell)             |
-| **App-übergreifende Delegierung** | Leitet eine Anfrage über A2A an die richtige Fach-App weiter und antwortet im Thread                     | Automatisch ([A2A](/docs/a2a-protocol))                        |
-| **Einheitliches MCP-Gateway**     | Ein MCP-Connector für externe Agenten erreicht jede gewährte Workspace-App                               | [External Agents](/docs/external-agents)                       |
-| **Arbeitsbereichsressourcen**     | Autor skills/instructions/profiles einmal; Apps erben sie zur Laufzeit                                   | **Ressourcen** ([Workspace](/docs/workspace#global-resources)) |
-| **Träume**                        | Überprüft vergangene Läufe/Feedback und schlägt dauerhafte Verbesserungen vor, die Sie genehmigen können | Registerkarte „Träume\*\*“                                     |
-| **Genehmigungsablauf**            | Gate-sensitive Laufzeitänderungen hinter der Inline-Administratorüberprüfung                             | **Versandgenehmigungsrichtlinie**                              |
+| Fähigkeit                         | Was es Ihnen bietet                                                                                      | Einrichten                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Zentraler Posteingang**         | Slack, E-Mail, Telegram, WhatsApp erreichen alle einen Agenten mit gemeinsamem Speicher + Tools          | **Einstellungen → Nachrichten** ([Messaging](/docs/messaging))              |
+| **Geheimer Tresor**               | Speichern Sie jeden Berechtigungsnachweis einmal. rotieren an einer Stelle in jeder App                  | **Vault** + Zugriffsmodus (alle Apps oder manuell)                          |
+| **App-übergreifende Delegierung** | Leitet eine Anfrage über A2A an die richtige Fach-App weiter und antwortet im Thread                     | Automatisch ([A2A](/docs/a2a-protocol))                                     |
+| **Einheitliches MCP-Gateway**     | Ein MCP-Connector für externe Agenten erreicht jede gewährte Workspace-App                               | [External Agents](/docs/external-agents)                                    |
+| **Arbeitsbereichsressourcen**     | Autor skills/instructions/profiles einmal; Apps erben sie zur Laufzeit                                   | **Ressourcen** ([Agent-Ressourcen](/docs/agent-resources#global-resources)) |
+| **Träume**                        | Überprüft vergangene Läufe/Feedback und schlägt dauerhafte Verbesserungen vor, die Sie genehmigen können | Registerkarte „Träume\*\*“                                                  |
+| **Genehmigungsablauf**            | Gate-sensitive Laufzeitänderungen hinter der Inline-Administratorüberprüfung                             | **Versandgenehmigungsrichtlinie**                                           |
 
 Jedes wird unten detailliert beschrieben.
 
@@ -130,7 +130,7 @@ The single MCP connector URL external agents add (e.g. `https://dispatch.agent-n
 
 Skills, Leitplankenanweisungen, Agentenprofile und Referenzressourcen können einmal in Dispatch erstellt und vom Rest des Arbeitsbereichs übernommen werden. Ressourcen mit dem Geltungsbereich **Alle Apps** sind global: Dispatch speichert sie einmal im Arbeitsbereichsbereich und jeder App-Agent liest sie zur Laufzeit. Sie werden nicht in jede App kopiert und es gibt keinen manuellen Synchronisierungsschritt zwischen Arbeitsbereich und Ressourcen. Von der App freigegebene Ressourcen und persönliche Ressourcen können die Standardeinstellungen des Arbeitsbereichs lokal überschreiben oder einschränken.
 
-Siehe [Workspace — Global resources](/docs/workspace#global-resources) für die kanonische Pfadtabelle, das Starterpaket und das Override-Modell.
+Siehe [Agent-Ressourcen — Global resources](/docs/agent-resources#global-resources) für die kanonische Pfadtabelle, das Starterpaket und das Override-Modell.
 
 MCP-Serverressourcen verwenden JSON und sind absichtlich nur HTTP. Speichern Sie Token in
 Versenden Sie Vault, gewähren oder synchronisieren Sie diese Schlüssel mit den Ziel-Apps und verweisen Sie darauf

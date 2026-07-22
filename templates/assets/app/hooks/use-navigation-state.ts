@@ -1,7 +1,4 @@
-import {
-  isAgentChatHomeHandoffActive,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client/agent-chat";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
@@ -204,8 +201,7 @@ export function useNavigationState() {
     onNavigate: (_command, path) => {
       if (
         isCreatePath(location.pathname) &&
-        !isCreatePath(pathnameFromPath(path)) &&
-        isAgentChatHomeHandoffActive(ASSETS_CHAT_STORAGE_KEY)
+        !isCreatePath(pathnameFromPath(path))
       ) {
         markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
       }

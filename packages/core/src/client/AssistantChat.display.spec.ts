@@ -1604,6 +1604,47 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
+  it("lets a resolved final tool carry the active state without duplicate Thinking", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checked the schema." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "db-query",
+              argsText: "{}",
+              args: {},
+              result: "done",
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("shows Thinking after completed reasoning when no tool carries the active state", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checked the schema." },
+            { type: "text", text: "Interim update." },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
   it("keeps a specific activity status when only a different tool card is visible", () => {
     expect(
       shouldShowGlobalRunningStatus({

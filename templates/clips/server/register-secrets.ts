@@ -219,6 +219,48 @@ registerRequiredSecret({
   required: false,
 });
 
+// ── Brain transcript ingest ──────────────────────────────────────────
+// Both values are workspace-scoped: every clip in the workspace must reach
+// the same Brain source, while the encrypted secret store keeps the token out
+// of action responses, application state, and client bundles.
+
+registerRequiredSecret({
+  key: "BRAIN_INGEST_URL",
+  label: "Brain ingest URL",
+  description:
+    "Signed Brain generic-ingest endpoint for ready Clips transcripts. Pair with BRAIN_INGEST_TOKEN.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    try {
+      const url = new URL(value);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? true
+        : { ok: false, error: "Use an HTTP or HTTPS URL." };
+    } catch {
+      return { ok: false, error: "Enter a valid ingest URL." };
+    }
+  },
+});
+
+registerRequiredSecret({
+  key: "BRAIN_INGEST_TOKEN",
+  label: "Brain ingest token",
+  description:
+    "Bearer token for the configured Brain ingest URL. Stored encrypted and never returned to Clips clients or export receipts.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    return typeof value === "string" && value.trim().length >= 8
+      ? true
+      : { ok: false, error: "Token looks too short." };
+  },
+});
+
 // ── Dark-launched media worker plumbing ──────────────────────────────
 // These are optional until the ai-services worker is deployed. When enabled,
 // Clips enqueues background video compression jobs there instead of using

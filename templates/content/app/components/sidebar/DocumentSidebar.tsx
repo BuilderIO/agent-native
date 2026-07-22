@@ -2093,7 +2093,7 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 px-3 py-2">
         {isCodeMode ? <DevDatabaseLink /> : null}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center justify-end gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
           <div className="flex shrink-0 items-center gap-0.5">
             <NotionButton />

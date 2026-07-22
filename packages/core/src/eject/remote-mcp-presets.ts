@@ -18,17 +18,49 @@ import { createElement, type ComponentType, type ReactElement } from "react";
 export * from "@agent-native/core/client/resources/runtime";
 
 function preset(id: string): DefaultMcpIntegration {
-  return {
-    ...RUNTIME_DEFAULT_MCP_INTEGRATIONS.find(
-      (integration) => integration.id === id,
-    )!,
-  };
+  const runtimePreset = RUNTIME_DEFAULT_MCP_INTEGRATIONS.find(
+    (integration) => integration.id === id,
+  );
+  if (runtimePreset) return { ...runtimePreset };
+
+  if (id === "granola") {
+    return {
+      id: "granola",
+      name: "Granola",
+      provider: "granola",
+      description: "Search meeting notes, transcripts, and action items.",
+      descriptionKey: "mcpIntegrations.catalog.granola.description",
+      useCase:
+        "meeting notes, recordings, transcripts, action items, follow-ups",
+      useCaseKey: "mcpIntegrations.catalog.granola.useCase",
+      url: "https://mcp.granola.ai/mcp",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      verification: "preflight-only",
+      logoUrl: "",
+      docsUrl: "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+      setupNoteKey: "mcpIntegrations.catalog.granola.setupNote",
+      keywords: [
+        "meetings",
+        "meeting notes",
+        "recordings",
+        "transcripts",
+        "action items",
+        "follow-ups",
+        "decisions",
+      ],
+    };
+  }
+
+  throw new Error(`MCP preset ${id} is missing from the runtime catalog.`);
 }
 
 export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   preset("context7"),
   preset("sentry"),
   preset("notion"),
+  preset("granola"),
   preset("semgrep"),
   preset("linear"),
   preset("atlassian"),

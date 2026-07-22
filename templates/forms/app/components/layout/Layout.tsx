@@ -40,6 +40,7 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: "forms",
     chatPath: "/ask",
+    requireActiveHandoff: false,
   });
 
   // Bind chat to the currently-open form. The `/forms/:id` URL covers

@@ -17,9 +17,6 @@ import { useOptionalLocale } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
-const DEFAULT_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
-
 function isSyntheticAgentNativeAnonymousEmail(
   value: string | null | undefined,
 ): boolean {
@@ -234,7 +231,8 @@ export interface FeedbackButtonProps {
    */
   variant?: "sidebar" | "icon" | "outlined";
   label?: string;
-  url?: string;
+  /** Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. Missing, blank, or null hides the control. */
+  url?: string | null;
   className?: string;
   /** Which side the popover opens on. Defaults match the variant. */
   side?: "top" | "bottom" | "left" | "right";
@@ -267,10 +265,38 @@ const honeypotStyle: CSSProperties = {
   overflow: "hidden",
 };
 
-export function FeedbackButton({
+function clientEnv(): Record<string, string | boolean | undefined> | undefined {
+  const importMetaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | boolean | undefined> };
+    }
+  ).process?.env;
+
+  if (importMetaEnv && processEnv) return { ...processEnv, ...importMetaEnv };
+  return importMetaEnv ?? processEnv;
+}
+
+export function resolveFeedbackUrl(url?: string | null): string | null {
+  const value =
+    url === undefined ? clientEnv()?.VITE_AGENT_NATIVE_FEEDBACK_URL : url;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function FeedbackButton(props: FeedbackButtonProps) {
+  const url = resolveFeedbackUrl(props.url);
+  if (!url) return null;
+  return <FeedbackPopoverButton {...props} url={url} />;
+}
+
+function FeedbackPopoverButton({
   variant = "sidebar",
   label,
-  url = DEFAULT_FEEDBACK_URL,
+  url,
   className,
   side,
   align = "end",
@@ -281,7 +307,7 @@ export function FeedbackButton({
   open: controlledOpen,
   onOpenChange,
   trigger: customTrigger,
-}: FeedbackButtonProps) {
+}: Omit<FeedbackButtonProps, "url"> & { url: string }) {
   const target = parseTarget(url);
   const { session } = useSession();
   const localeContext = useOptionalLocale();

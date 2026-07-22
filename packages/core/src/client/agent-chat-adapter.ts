@@ -23,6 +23,7 @@ import { agentNativePath } from "./api-path.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   AgentAutoContinueSignal,
+  appendMissingFinalResponseWarning,
   type AgentActivityTrailEntry,
   type AgentAutoContinueErrorInfo,
   type ContentPart,
@@ -2321,14 +2322,22 @@ export function createAgentChatAdapter(
 
           if (status === "completed") {
             // The turn finished server-side; the events we managed to fold are
-            // the durable transcript. Finalize with them.
+            // the durable transcript. Never turn a terminal tool-only chunk
+            // into a blank successful message when no explicit `done` event
+            // passed through the normal SSE finalizer.
             settleInterruptedToolCalls(content, undefined, {
               includeActivity: true,
             });
+            const runWarning = appendMissingFinalResponseWarning(content);
             yield {
               content: [...content],
               status: { type: "complete" as const, reason: "stop" as const },
-              metadata: { custom: { ...(runId ? { runId } : {}) } },
+              metadata: {
+                custom: {
+                  ...(runId ? { runId } : {}),
+                  ...(runWarning ? { runWarning } : {}),
+                },
+              },
             } as ChatModelRunResult;
             clearActiveRun();
             return;

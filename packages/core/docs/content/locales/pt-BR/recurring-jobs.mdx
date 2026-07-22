@@ -9,7 +9,7 @@ Um **trabalho recorrente** é um prompt executado em uma programação cron. É 
 
 Os trabalhos recorrentes são acionados em um relógio. Para reagir a _eventos_ (uma reserva criada, um e-mail recebido) — mesmo formato de arquivo `jobs/` mais condições — consulte [Automations](/docs/automations).
 
-Os trabalhos ficam no [workspace](/docs/workspace) em `jobs/<name>.md` — apenas um arquivo Markdown com frontmatter YAML. Sem registro, sem fiação. Solte o arquivo e a estrutura o pegará.
+Os trabalhos ficam no [Recursos do Agente](/docs/agent-resources) em `jobs/<name>.md` — apenas um arquivo Markdown com frontmatter YAML. Sem registro, sem fiação. Solte o arquivo e a estrutura o pegará.
 
 ## Um arquivo de trabalho {#job-file}
 
@@ -40,12 +40,12 @@ Os trabalhos ficam no [workspace](/docs/workspace) em `jobs/<name>.md` — apena
     {
       lines: "7-12",
       label: "O prompt",
-      note: "O corpo é apenas um prompt — o agente o executa a cada disparo com todas as suas ferramentas normais e contexto de espaço de trabalho.",
+      note: "O corpo é apenas um prompt — o agente o executa a cada disparo com todas as suas ferramentas normais e contexto do agente.",
     },
   ]}
 />
 
-É isso. O corpo é um prompt que o agente executa em cada disparo agendado. O agente tem acesso a todas as mesmas ferramentas e contexto de espaço de trabalho que possui em um chat interativo: actions, skills, memória, servidores MCP conectados, subagentes.
+É isso. O corpo é um prompt que o agente executa em cada disparo agendado. O agente tem acesso a todas as mesmas ferramentas e contexto do agente que possui em um chat interativo: actions, skills, memória, servidores MCP conectados, subagentes.
 
 ## Princípio {#frontmatter}
 
@@ -54,7 +54,7 @@ Os trabalhos ficam no [workspace](/docs/workspace) em `jobs/<name>.md` — apena
 | `schedule`   | expressão cron                     | _(obrigatório)_ | Cron padrão de 5 campos. `"0 7 * * *"` = todos os dias às 07h00; `"0 */4 * * *"` = a cada 4 horas.                                 |
 | `enabled`    | booleano                           | `true`          | Mude para `false` para pausar sem excluir o trabalho.                                                                              |
 | `runAs`      | `"creator"` \| `"shared"`          | `"creator"`     | `"creator"` é executado com a identidade do proprietário do trabalho e `ANTHROPIC_API_KEY`. `"shared"` usa a chave da organização. |
-| `createdBy`  | e-mail                             | _(automático)_  | Preenchido quando o trabalho é criado por meio do espaço de trabalho UI ou pelo agente.                                            |
+| `createdBy`  | e-mail                             | _(automático)_  | Preenchido quando o trabalho é criado por meio do recursos do agente UI ou pelo agente.                                            |
 | `orgId`      | string                             | _(automático)_  | Escopo da organização; herdado da organização ativa do criador.                                                                    |
 | `lastRun`    | Carimbo de data e hora ISO         | _(gerenciado)_  | Escrito pelo agendador após cada execução.                                                                                         |
 | `lastStatus` | `"success"` \| `"error"` \| …      | _(gerenciado)_  | Resultado mais recente.                                                                                                            |
@@ -222,7 +222,7 @@ Uma única ferramenta `manage-jobs` é registrada em cada modelo. O parâmetro `
 
 Não confunda trabalhos recorrentes com `@agent-native/scheduling`:
 
-- **Trabalhos recorrentes (esta página)** — _prompts_ agendados em cron que o agente executa em segundo plano. Nível de estrutura. Mora no espaço de trabalho. Funciona em qualquer aplicativo nativo do agente.
+- **Trabalhos recorrentes (esta página)** — _prompts_ agendados em cron que o agente executa em segundo plano. Nível de estrutura. Mora no recursos do agente. Funciona em qualquer aplicativo nativo do agente.
 - **`@agent-native/scheduling`** — um pacote de domínio reutilizável para criar recursos de calendário/reserva (tipos de eventos, janelas de disponibilidade, reservas). Ativa o modelo `calendar` e superfícies de agendamento personalizadas.
 
 Trabalhos recorrentes são "como faço para o agente agir por conta própria?" O pacote de agendamento é "como faço para construir um aplicativo de calendário?" Preocupações diferentes.
@@ -230,6 +230,6 @@ Trabalhos recorrentes são "como faço para o agente agir por conta própria?" O
 ## O que vem a seguir
 
 - [**Automations**](/docs/automations) — adicione gatilhos de eventos e condições ao mesmo formato `jobs/`
-- [**Workspace**](/docs/workspace) — onde os trabalhos ficam junto com skills, memória e agentes personalizados
+- [**Recursos do Agente**](/docs/agent-resources) — onde os trabalhos ficam junto com skills, memória e agentes personalizados
 - [**Actions**](/docs/actions) — as ferramentas que um trabalho exige
 - [**Agent Teams**](/docs/agent-teams) — jobs geralmente geram subagentes para fazer trabalho paralelo

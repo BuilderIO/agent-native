@@ -168,7 +168,7 @@ export function Sidebar() {
 
             <div className="px-3 py-2">
               <DevDatabaseLink />
-              <div className="flex items-center gap-1">
+              <div className="flex items-center justify-end gap-1">
                 <FeedbackButton className="min-w-0 flex-1" />
                 <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>

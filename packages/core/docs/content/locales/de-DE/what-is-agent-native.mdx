@@ -194,7 +194,7 @@ Wenn der Agent einen E-Mail-Entwurf erstellt, wird dieser im UI angezeigt. Wenn 
 
 Der Grund dafür, dass sich Tools wie Claude Code so leistungsstark anfühlen, ist nicht das Modell – es ist die **Anpassungsebene**: Anweisungen pro Projekt, skills, Speicher, Unteragenten, verbundene Dienste. Sie können den Agenten an Ihre Codebasis, Ihre Vorlieben und Ihr Team anpassen.
 
-Agent-native bietet jedem Benutzer die gleiche Anpassungsebene – ohne die App jemals zu verlassen. Jede App verfügt über einen persönlichen **Arbeitsbereich**, in dem Sie (oder jeder in Ihrem Team) Folgendes tun kann:
+Agent-native bietet jedem Benutzer die gleiche Anpassungsebene – ohne die App jemals zu verlassen. Jede App verfügt über persönliche **Agent-Ressourcen**, mit denen Sie (oder jeder in Ihrem Team) Folgendes tun können:
 
 - Bearbeiten Sie teamweite Regeln, die jeder Agent liest
 - Lassen Sie den Agenten die Einstellungen automatisch speichern, wenn Sie sie korrigieren
@@ -203,9 +203,9 @@ Agent-native bietet jedem Benutzer die gleiche Anpassungsebene – ohne die App 
 - Planen Sie Jobs so, dass sie auf einem Cron ausgeführt werden (z. B. „jeden Montagmorgen, letzte Woche zusammenfassen“)
 - Verbinden Sie externe Dienste (Gmail, Stripe, Slack, interne APIs) über benutzerspezifische MCP-Server
 
-Der Clou: Es wird alles in der Datenbank gespeichert, nicht im Dateisystem. Es muss keine Entwicklungsumgebung eingerichtet werden, kein Container pro Benutzer. Jeder Benutzer erhält seinen eigenen vollständigen Arbeitsbereich – persönlichen Speicher, persönliche Verbindungen, persönliche skills – praktisch kostenlos, da es sich um alle Zeilen einer Tabelle handelt. Das macht die Flexibilität auf Claude-Codeebene in einem echten mandantenfähigen SaaS-Produkt realisierbar.
+Der Clou: Es wird alles in der Datenbank gespeichert, nicht im Dateisystem. Es muss keine Entwicklungsumgebung eingerichtet werden, kein Container pro Benutzer. Jeder Benutzer erhält seinen eigenen vollständigen Satz von Agent-Ressourcen – persönlichen Speicher, persönliche Verbindungen, persönliche skills – praktisch kostenlos, da es sich um alle Zeilen einer Tabelle handelt. Das macht die Flexibilität auf Claude-Codeebene in einem echten mandantenfähigen SaaS-Produkt realisierbar.
 
-Das vollständige Konzept finden Sie unter [Workspace](/docs/workspace).
+Das vollständige Konzept finden Sie unter [Agent-Ressourcen](/docs/agent-resources).
 
 ## Was es anders macht {#what-makes-it-different}
 
@@ -301,7 +301,7 @@ Eine Aktion, viele Oberflächen: Der Agent ruft es als Tool auf, der UI nennt es
 - [**Agent Surfaces**](/docs/agent-surfaces) – wählen Sie Headless, Rich Chat, eingebettetes Sidecar oder vollständige App
 - [**Key Concepts**](/docs/key-concepts) – die Architektur: SQL, actions, Polling-Synchronisierung, Kontextbewusstsein, Portabilität
 - [**Templates**](/docs/cloneable-saas) – Vorlagen als vollständige Produkte, die Sie besitzen
-- [**Workspace**](/docs/workspace) – die benutzerspezifische Anpassungsschicht (skills, Speicher, Anweisungen, MCP), unterstützt durch SQL, nicht durch Dateien
+- [**Agent-Ressourcen**](/docs/agent-resources) – die benutzerspezifische Anpassungsschicht (skills, Speicher, Anweisungen, MCP), unterstützt durch SQL, nicht durch Dateien
 - [**Dispatch**](/docs/dispatch) – die Workspace-Steuerungsebene: Geheimspeicher, Slack/E-Mail-Posteingang, anwendungsübergreifende Delegierung
 - [**Extensions**](/docs/extensions) – Sandbox-Mini-Apps, die der Agent sofort ohne Codeänderungen erstellt
 - [**Drop-in Agent**](/docs/drop-in-agent) – Mounten Sie `<AgentPanel>` in jede React-App

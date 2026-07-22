@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs brain"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter brain build && pnpm exec tsx templates/brain/jobs/emit-netlify-brain-queue-cron.ts"
 publish = "templates/brain/dist"
 functions = "templates/brain/.netlify/functions-internal"
 
@@ -15,3 +15,7 @@ NPM_CONFIG_PRODUCTION = "false"
 # auto-continuation path can hand off before Netlify kills the function.
 [functions."*"]
 timeout = 75
+
+[functions.brain-queue-sweep-background]
+timeout = 900
+memory = "2gb"

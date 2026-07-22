@@ -2580,7 +2580,8 @@ export function buildCommentBody(env: NodeJS.ProcessEnv = process.env): string {
     base,
   );
   const darkImageUrl = trustedRecapImageUrl(env.RECAP_DARK_IMAGE_URL, base);
-  const fallbackImageUrl = lightImageUrl || darkImageUrl;
+  const fallbackImageUrl =
+    env.RECAP_SHOT_OK === "false" ? undefined : lightImageUrl || darkImageUrl;
 
   if (!fallbackImageUrl) {
     const diagnostic =
@@ -3492,6 +3493,9 @@ const RECAP_SHOT_VIEWPORT = {
 const RECAP_SHOT_DEVICE_SCALE_FACTOR = 2;
 const RECAP_DOCUMENT_SELECTOR = "[data-plan-document]";
 const RECAP_DOCUMENT_WAIT_TIMEOUT = 30_000;
+const RECAP_DOCUMENT_LOAD_ATTEMPTS = 2;
+const RECAP_SHOT_HARD_TIMEOUT =
+  RECAP_DOCUMENT_WAIT_TIMEOUT * RECAP_DOCUMENT_LOAD_ATTEMPTS + 30_000;
 
 /**
  * Identity shim for esbuild's `__name` helper, injected into the browser before
@@ -3533,6 +3537,14 @@ function shouldTrySystemChromeFallback(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
   return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
     message,
+  );
+}
+
+function shouldRetryRecapDocumentLoad(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    /waitForSelector:\s*Timeout/i.test(message) &&
+    message.includes(RECAP_DOCUMENT_SELECTOR)
   );
 }
 
@@ -3660,9 +3672,9 @@ export async function runShot(
   let reason = "";
   let browser: import("playwright").Browser | undefined;
   const hardTimer = setTimeout(() => {
-    done({ ok: false, reason: "hard 60s timeout reached" });
+    done({ ok: false, reason: "hard 90s timeout reached" });
     process.exit(0);
-  }, 60_000);
+  }, RECAP_SHOT_HARD_TIMEOUT);
   try {
     browser = await launchRecapChromium(chromium!);
     const context = await browser.newContext({
@@ -3719,35 +3731,54 @@ export async function runShot(
       });
     }
     const page = await context.newPage();
-    const navigationResponse = await page.goto(captureUrl, {
-      waitUntil: "domcontentloaded",
-      timeout: 45_000,
-    });
-    if (!navigationResponse) {
-      throw new Error("recap page did not return an HTTP response");
+    for (
+      let attempt = 1;
+      attempt <= RECAP_DOCUMENT_LOAD_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const navigationResponse = await page.goto(captureUrl, {
+          waitUntil: "domcontentloaded",
+          timeout: 45_000,
+        });
+        if (!navigationResponse) {
+          throw new Error("recap page did not return an HTTP response");
+        }
+        if (!navigationResponse.ok()) {
+          throw new Error(
+            `recap page returned HTTP ${navigationResponse.status()} while loading ${navigationResponse.url()}`,
+          );
+        }
+        const contentType = navigationResponse.headers()["content-type"] ?? "";
+        if (contentType && !/\btext\/html\b/i.test(contentType)) {
+          throw new Error(
+            `recap page returned unexpected content type ${contentType} while loading ${navigationResponse.url()}`,
+          );
+        }
+        await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => {
+          // The selectors below are the real readiness signal for screenshots.
+          // Some recap pages keep long-lived/background requests open.
+        });
+        // The app shell renders <main> and the loading skeleton before the plan
+        // query resolves. Waiting for the actual document root prevents a
+        // successful-looking screenshot from capturing that transient skeleton.
+        await page.waitForSelector(RECAP_DOCUMENT_SELECTOR, {
+          timeout: RECAP_DOCUMENT_WAIT_TIMEOUT,
+          state: "visible",
+        });
+        break;
+      } catch (err) {
+        if (
+          attempt === RECAP_DOCUMENT_LOAD_ATTEMPTS ||
+          !shouldRetryRecapDocumentLoad(err)
+        ) {
+          throw err;
+        }
+        process.stderr.write(
+          `[recap shot] recap document did not become ready; retrying once\n`,
+        );
+      }
     }
-    if (!navigationResponse.ok()) {
-      throw new Error(
-        `recap page returned HTTP ${navigationResponse.status()} while loading ${navigationResponse.url()}`,
-      );
-    }
-    const contentType = navigationResponse.headers()["content-type"] ?? "";
-    if (contentType && !/\btext\/html\b/i.test(contentType)) {
-      throw new Error(
-        `recap page returned unexpected content type ${contentType} while loading ${navigationResponse.url()}`,
-      );
-    }
-    await page.waitForLoadState("load", { timeout: 15_000 }).catch(() => {
-      // The selectors below are the real readiness signal for screenshots.
-      // Some recap pages keep long-lived/background requests open.
-    });
-    // The app shell renders <main> and the loading skeleton before the plan
-    // query resolves. Waiting for the actual document root prevents a
-    // successful-looking screenshot from capturing that transient skeleton.
-    await page.waitForSelector(RECAP_DOCUMENT_SELECTOR, {
-      timeout: RECAP_DOCUMENT_WAIT_TIMEOUT,
-      state: "visible",
-    });
     await page.waitForTimeout(1_200);
     await page.evaluate(
       (background) => {

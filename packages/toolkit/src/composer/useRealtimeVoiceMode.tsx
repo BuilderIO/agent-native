@@ -1018,6 +1018,7 @@ function voiceCopy(t: (key: string) => string): RealtimeVoiceModeCopy {
     startWithOpenAiKey: t("agentPanel.voiceMode.startWithOpenAiKey"),
     startVoiceMode: t("agentPanel.voiceMode.start"),
     keepDictating: t("agentPanel.voiceMode.keepDictating"),
+    rememberPreference: t("agentPanel.voiceMode.rememberPreference"),
     showChat: t("agentPanel.voiceMode.showChat"),
     hideChat: t("agentPanel.voiceMode.hideChat"),
     endVoiceMode: t("agentPanel.voiceMode.end"),
@@ -1353,7 +1354,7 @@ function useRealtimeVoiceModeController(
         analyser.fftSize = 512;
         const source = context.createMediaStreamSource(stream);
         source.connect(analyser);
-        const buffer = new Uint8Array(analyser.frequencyBinCount);
+        const buffer = new Uint8Array(analyser.fftSize);
         if (channel === "input") {
           inputSourceRef.current?.disconnect();
           inputSourceRef.current = source;
@@ -1728,9 +1729,10 @@ function useRealtimeVoiceModeController(
       audio.setAttribute("playsinline", "");
       audioRef.current = audio;
       peer.ontrack = (trackEvent) => {
-        const remoteStream = trackEvent.streams[0] ?? null;
+        const remoteStream =
+          trackEvent.streams[0] ?? new MediaStream([trackEvent.track]);
         audio.srcObject = remoteStream;
-        if (remoteStream) attachAudioMeter(remoteStream, "output");
+        attachAudioMeter(remoteStream, "output");
         void audio.play().catch(() => undefined);
       };
 

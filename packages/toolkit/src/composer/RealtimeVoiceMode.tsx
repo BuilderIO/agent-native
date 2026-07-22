@@ -1,4 +1,5 @@
 import { Button } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -62,6 +63,7 @@ export interface RealtimeVoiceModeCopy {
   startWithOpenAiKey: string;
   startVoiceMode: string;
   keepDictating: string;
+  rememberPreference: string;
   showChat: string;
   hideChat: string;
   endVoiceMode: string;
@@ -111,6 +113,8 @@ export interface RealtimeVoiceModeEntryProps {
   onOpenChange?: (open: boolean) => void;
   onStartVoiceMode: () => void;
   onKeepDictating: () => void;
+  preferredMode?: RealtimeVoiceInputMode | null;
+  onRememberPreference?: (mode: RealtimeVoiceInputMode) => void;
   setupRequired?: boolean;
   openAiConfigured?: boolean;
   connectingBuilder?: boolean;
@@ -118,6 +122,8 @@ export interface RealtimeVoiceModeEntryProps {
   onUseOpenAiKey?: () => void;
   className?: string;
 }
+
+export type RealtimeVoiceInputMode = "realtime" | "dictation";
 
 /**
  * Composer mic entry point for apps that support a full-duplex voice session.
@@ -132,6 +138,8 @@ export function RealtimeVoiceModeEntry({
   onOpenChange,
   onStartVoiceMode,
   onKeepDictating,
+  preferredMode = null,
+  onRememberPreference,
   setupRequired = false,
   openAiConfigured = false,
   connectingBuilder = false,
@@ -143,6 +151,8 @@ export function RealtimeVoiceModeEntry({
   const open = controlledOpen ?? uncontrolledOpen;
   const titleId = useId();
   const descriptionId = useId();
+  const rememberPreferenceId = useId();
+  const [rememberPreference, setRememberPreference] = useState(false);
   const [collisionBoundary, setCollisionBoundary] =
     useState<HTMLElement | null>(null);
 
@@ -159,8 +169,9 @@ export function RealtimeVoiceModeEntry({
     onOpenChange?.(nextOpen);
   };
 
-  const choose = (callback: () => void) => {
+  const choose = (mode: RealtimeVoiceInputMode, callback: () => void) => {
     setOpen(false);
+    if (rememberPreference) onRememberPreference?.(mode);
     callback();
   };
 
@@ -177,6 +188,23 @@ export function RealtimeVoiceModeEntry({
               disabled={disabled}
               aria-label={copy.entryButtonLabel}
               aria-expanded={open}
+              onClick={(event) => {
+                if (!preferredMode) return;
+                if (
+                  preferredMode === "realtime" &&
+                  (providerStatusPending || setupRequired)
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                choose(
+                  preferredMode,
+                  preferredMode === "realtime"
+                    ? onStartVoiceMode
+                    : onKeepDictating,
+                );
+              }}
               className={cn(
                 "size-7 shrink-0 text-muted-foreground hover:text-foreground",
                 className,
@@ -197,43 +225,54 @@ export function RealtimeVoiceModeEntry({
         collisionPadding={16}
         data-collision-boundary={collisionBoundary ? "agent-panel" : "viewport"}
         className={cn(
-          "p-4",
+          setupRequired ? "p-4" : "p-3",
           setupRequired
             ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]"
-            : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,22rem),22rem)]",
+            : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,18rem),18rem)]",
         )}
         aria-labelledby={titleId}
-        aria-describedby={descriptionId}
+        aria-describedby={setupRequired ? descriptionId : undefined}
       >
-        <div className="grid gap-3">
+        <div className={cn("grid", setupRequired ? "gap-3" : "gap-2.5")}>
           <div className="grid gap-1">
             <h2 id={titleId} className="text-sm font-semibold text-foreground">
               {setupRequired ? copy.setupTitle : copy.promptTitle}
             </h2>
-            <p
-              id={descriptionId}
-              className="text-sm leading-relaxed text-muted-foreground"
-            >
-              {setupRequired ? copy.setupDescription : copy.promptDescription}
-            </p>
+            {setupRequired ? (
+              <p
+                id={descriptionId}
+                className="text-sm leading-relaxed text-muted-foreground"
+              >
+                {copy.setupDescription}
+              </p>
+            ) : null}
           </div>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => choose(onKeepDictating)}
-            >
-              {copy.keepDictating}
-            </Button>
+          <div
+            className={cn(
+              "gap-2",
+              setupRequired
+                ? "flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end"
+                : "grid",
+            )}
+          >
             {setupRequired ? (
               <>
                 <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => choose("dictation", onKeepDictating)}
+                >
+                  {copy.keepDictating}
+                </Button>
+                <Button
+                  type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => choose(onUseOpenAiKey ?? onStartVoiceMode)}
+                  onClick={() =>
+                    choose("realtime", onUseOpenAiKey ?? onStartVoiceMode)
+                  }
                 >
                   {openAiConfigured
                     ? copy.startWithOpenAiKey
@@ -244,7 +283,9 @@ export function RealtimeVoiceModeEntry({
                   size="sm"
                   className="whitespace-nowrap"
                   disabled={connectingBuilder}
-                  onClick={() => choose(onConnectBuilder ?? onStartVoiceMode)}
+                  onClick={() =>
+                    choose("realtime", onConnectBuilder ?? onStartVoiceMode)
+                  }
                 >
                   {connectingBuilder ? (
                     <IconLoader2 className="animate-spin" />
@@ -253,21 +294,49 @@ export function RealtimeVoiceModeEntry({
                 </Button>
               </>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={providerStatusPending}
-                onClick={() => choose(onStartVoiceMode)}
-              >
-                {providerStatusPending ? (
-                  <IconLoader2 className="animate-spin" />
-                ) : (
-                  <IconMicrophone />
-                )}
-                {copy.startVoiceMode}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full"
+                  disabled={providerStatusPending}
+                  onClick={() => choose("realtime", onStartVoiceMode)}
+                >
+                  {providerStatusPending ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : (
+                    <IconMicrophone />
+                  )}
+                  {copy.startVoiceMode}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => choose("dictation", onKeepDictating)}
+                >
+                  {copy.keepDictating}
+                </Button>
+              </>
             )}
           </div>
+
+          {!setupRequired ? (
+            <label
+              htmlFor={rememberPreferenceId}
+              className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+            >
+              <Checkbox
+                id={rememberPreferenceId}
+                checked={rememberPreference}
+                onCheckedChange={(checked) =>
+                  setRememberPreference(checked === true)
+                }
+              />
+              {copy.rememberPreference}
+            </label>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
@@ -312,7 +381,7 @@ export interface RealtimeVoiceModeInlineSettings {
 
 const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
 const WAVEFORM_WEIGHTS = [0.55, 0.82, 1, 0.82, 0.55];
-const AUDIO_ACTIVITY_THRESHOLD = 0.035;
+const AUDIO_ACTIVITY_THRESHOLD = 0.1;
 
 function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(false);
@@ -831,6 +900,7 @@ export function RealtimeVoiceModeDock({
               className={cn(
                 "relative isolate size-16 overflow-visible rounded-full ring-1 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
+                state === "working" && "agent-realtime-voice-working",
               )}
             >
               <span className="relative z-10 flex items-center justify-center">

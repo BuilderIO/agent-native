@@ -2024,7 +2024,7 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("does not render non-tool activity as visible content", async () => {
+  it("turns a terminal activity-only run into a visible final warning", async () => {
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -2040,20 +2040,24 @@ describe("SSE event processor error classification", () => {
       ),
     );
 
-    expect(results).toEqual([
-      {
-        content: [],
-        metadata: {
-          custom: {
-            activityTrail: [
-              {
-                label: "Contacting model",
-              },
-            ],
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+        },
+      ],
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          activityTrail: [{ label: "Contacting model" }],
+          runWarning: {
+            errorCode: "final_response_missing",
+            recoverable: true,
           },
         },
       },
-    ]);
+    });
   });
 
   it("fills the pending tool activity card when tool_start arrives", async () => {

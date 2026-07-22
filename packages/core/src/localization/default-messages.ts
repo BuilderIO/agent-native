@@ -33,6 +33,47 @@ const messages = {
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
   },
+  agentResources: {
+    openDocs: "Open {{section}} documentation",
+    backToResources: "Back to agent resources",
+    createFile: {
+      nameLabel: "File name",
+      namePlaceholder: "notes/ideas",
+      menuDescription: "Add a new file by name",
+    },
+    files: {
+      title: "Files",
+      description: "Files the agent can read and write.",
+    },
+    instructions: {
+      title: "Instructions",
+      description:
+        "The rules, preferences, and project guidance that steer the agent.",
+    },
+    agents: {
+      title: "Agents",
+      description:
+        "Reusable profiles for focused sub-agents and delegated work.",
+    },
+    memory: {
+      title: "Memory",
+      description: "Durable notes the agent can retrieve across conversations.",
+    },
+    skills: {
+      title: "Skills",
+      description:
+        "Specialized instructions that give the agent repeatable abilities.",
+    },
+    learnings: {
+      title: "Learnings",
+      description:
+        "Corrections and patterns worth carrying forward for future work.",
+    },
+    remoteAgents: {
+      title: "Remote agents",
+      description: "Other agents this agent can call through A2A.",
+    },
+  },
   featureFlags: {
     title: "Feature flags",
     description: "Control staged capabilities without changing a deployment.",
@@ -276,7 +317,7 @@ const messages = {
     checkingAiConnection: "Checking AI connection...",
     voiceMode: {
       entryButtonLabel: "Use microphone",
-      promptTitle: "Talk to your app",
+      promptTitle: "Use your voice",
       promptDescription:
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
@@ -285,8 +326,9 @@ const messages = {
       connectBuilder: "Connect Builder.io",
       useOpenAiKey: "Add your own keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Start voice mode",
-      keepDictating: "Keep dictating",
+      start: "Real-time voice",
+      keepDictating: "Dictate",
+      rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
       end: "End voice mode",
@@ -744,9 +786,9 @@ const messages = {
     connect: "Connect",
     connectWithOAuth: "Connect with OAuth",
     useApiToken: "Use API token",
-    connectSuggestion: "Connect {{name}} to use this link in chat",
+    connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
-      "Connect {{name}} with an API token to use this link in chat",
+      "Connect {{name}} with an API token to use it in chat",
     dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
@@ -794,6 +836,13 @@ const messages = {
         useCase: "Documentation, knowledge management, notes, content creation",
         setupNote:
           "Notion MCP uses user OAuth. Enterprise workspaces can audit MCP usage and allow or block clients; reconnect after admin policy changes.",
+      },
+      granola: {
+        description: "Search meeting notes, transcripts, and action items.",
+        useCase:
+          "Meeting notes, recordings, transcripts, action items, follow-ups",
+        setupNote:
+          "Granola MCP uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
       },
       semgrep: {
         description: "Scan code for security findings.",

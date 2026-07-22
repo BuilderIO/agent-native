@@ -71,7 +71,7 @@ export function Layout({ children }: LayoutProps) {
     // A direct /chat/:id link already names the thread and must preserve the
     // normal chat-to-sidebar transition. Only the empty home chat needs the
     // recent marker that proves an agent handoff is in flight.
-    requireActiveHandoff: location.pathname === "/",
+    requireActiveHandoff: false,
   });
 
   useEffect(() => {

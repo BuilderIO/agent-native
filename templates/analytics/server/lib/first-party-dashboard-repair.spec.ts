@@ -49,9 +49,11 @@ vi.mock("../db/index.js", () => ({
   schema,
 }));
 
+import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "./canonical-first-party-dashboard-repair";
 import { repairPersistedFirstPartyDashboardQueries } from "./first-party-dashboard-repair";
 import {
   FIRST_PARTY_DASHBOARD_ID,
+  INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
   buildPanel,
 } from "./first-party-metric-catalog";
@@ -256,6 +258,71 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     });
   });
 
+  it("repairs the previously deployed bounded monolithic recurring SQL", async () => {
+    const daily = requiredFirstPartyPanel("recurring-users-by-template");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...daily,
+            sql: INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
+            config: {
+              ...(daily.config ?? {}),
+              description:
+                "Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.",
+            },
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    expect(JSON.parse(updateCalls[0]![0].config).panels[0]).toMatchObject({
+      sql: daily.sql,
+      config: { description: daily.config?.description },
+    });
+  });
+
+  it("repairs only the exact live custom new-vs-recurring panel", async () => {
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            id: "new-vs-recurring-users",
+            sql: LEGACY_NEW_VS_RECURRING_USERS_SQL,
+            config: {
+              description:
+                "Daily signed-in visitors split by first-ever session (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs excluded. A user is New only on their all-time first active day.",
+            },
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql).toContain("WITH first_seen AS");
+    expect(panel.sql).toContain("), activity AS");
+    expect(panel.sql.match(/365 days/g)).toHaveLength(3);
+    expect(panel.config.description).toContain("previous 365 days");
+  });
+
   it("does not write a revision or change when its optimistic update loses", async () => {
     const row = legacyRow();
     const mocks = createDb(row, []);
@@ -295,6 +362,17 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
           {
             id: "recurring-users-by-template",
             sql: "SELECT custom_recurring_users()",
+          },
+        ],
+      }),
+    ],
+    [
+      "a changed custom new-vs-recurring query",
+      JSON.stringify({
+        panels: [
+          {
+            id: "new-vs-recurring-users",
+            sql: `${LEGACY_NEW_VS_RECURRING_USERS_SQL} `,
           },
         ],
       }),

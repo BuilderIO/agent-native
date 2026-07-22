@@ -1,13 +1,13 @@
 ---
 title: "Agent sans rendez-vous"
-description: "Montez le chat de l'agent + l'espace de travail dans n'importe quelle application React avec <AgentPanel>, <AgentSidebar> et sendToAgentChat()."
+description: "Montez le chat et les ressources de l'agent dans n'importe quelle application React avec <AgentPanel>, <AgentSidebar> et sendToAgentChat()."
 ---
 
 # Agent sans rendez-vous
 
 > **Page développeur.** Cette page est destinée aux développeurs qui intègrent l'agent dans une application React. Pour connaître l'expérience de l'utilisateur final en matière d'utilisation de l'agent, voir [Using Your Agent](/docs/using-your-agent).
 
-Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l'agent, l'onglet de l'espace de travail, le terminal CLI, la saisie vocale et toute l'infrastructure associée sont livrés sous la forme d'une poignée de composants React que vous déposez dans n'importe quelle application.
+Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l'agent, l'onglet Ressources de l'agent, le terminal CLI, la saisie vocale et toute l'infrastructure associée sont livrés sous la forme d'une poignée de composants React que vous déposez dans n'importe quelle application.
 
 > **Prérequis :** le serveur doit exécuter `agent-chat-plugin` (il se monte automatiquement dans chaque modèle). Si vous partez de zéro, voir [Server](/docs/server).
 >
@@ -19,7 +19,7 @@ Vous n'avez pas besoin de créer un agent natif à partir de zéro. Le chat de l
 | --------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
 | `<AgentSidebar>`      | Enveloppe la présentation de votre application racine et ajoute un panneau latéral basculable contenant l'agent complet | Vous souhaitez que l'agent soit disponible à côté de votre application sur chaque écran |
 | `<AgentToggleButton>` | Ouvre/ferme `<AgentSidebar>` (mettez-le dans votre en-tête)                                                             | Paire avec `<AgentSidebar>`                                                             |
-| `<AgentPanel>`        | Le panneau brut lui-même – chat + CLI + onglets de l'espace de travail                                                  | Vous souhaitez un contrôle total sur la mise en page ou une page d'agent dédiée         |
+| `<AgentPanel>`        | Le panneau brut lui-même – chat + CLI + onglets Ressources de l'agent                                                   | Vous souhaitez un contrôle total sur la mise en page ou une page d'agent dédiée         |
 | `<AgentChatSurface>`  | Une surface de discussion panneau/page pré-câblée                                                                       | Vous souhaitez discuter sans le wrapper de la barre latérale                            |
 | `<AssistantChat>`     | Rendu de chat de niveau inférieur avec crochets de composition/historique                                               | Vous avez besoin d'un chrome personnalisé autour de la conversation standard UI         |
 | `sendToAgentChat()`   | Envoyer un message au chat par programmation                                                                            | Un bouton qui confie le travail à l'agent au lieu de l'exécuter en ligne                |
@@ -41,7 +41,7 @@ Tous ces éléments sont exportés depuis `@agent-native/core/client`.
       </div>
       <div class="diagram-node panel">
         Panneau de l’agent<br /><small class="diagram-muted"
-          >chat &middot; CLI &middot; workspace</small
+          >chat &middot; CLI &middot; resources</small
         >
       </div>
     </div>
@@ -136,7 +136,7 @@ les enfants restent dans la zone principale de l'application. Le chat de l'agent
   ]}
 />
 
-C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet espace de travail, terminal CLI, saisie vocale et mode plein écran. L'état persiste lors des rechargements via `localStorage`.
+C'est tout. L'utilisateur dispose désormais d'un agent commutable sur chaque page – avec historique des discussions, onglet ressources de l'agent, terminal CLI, saisie vocale et mode plein écran. L'état persiste lors des rechargements via `localStorage`.
 
 ### Accessoires
 
@@ -164,7 +164,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` vous donne les onglets bruts (Chat / CLI / Espace de travail) sans le wrapper de la barre latérale, le bouton de réduction ou toute persistance d'état. Placez-le où vous voulez ; vous gérez la mise en page.
+`<AgentPanel>` vous donne les onglets bruts (Chat / CLI / Ressources de l'agent) sans le wrapper de la barre latérale, le bouton de réduction ou toute persistance d'état. Placez-le où vous voulez ; vous gérez la mise en page.
 
 ### Accessoires sélectionnés
 
@@ -331,5 +331,5 @@ L'utilisateur voit un bouton de discussion dans l'en-tête, peut l'ouvrir et par
 
 - [**Actions**](/docs/actions) — `defineAction()` et `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — sélection, navigation, écran d'affichage
-- [**Workspace**](/docs/workspace) : ce que contient l'onglet Espace de travail (skills, mémoire, serveurs MCP, tâches planifiées)
+- [**Ressources de l'agent**](/docs/agent-resources) : ce que contient l'onglet Ressources de l'agent (skills, mémoire, serveurs MCP, tâches planifiées)
 - [**Voice Input**](/docs/voice-input) — le microphone dans l'éditeur de chat

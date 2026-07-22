@@ -53,6 +53,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { writeBrainExportState } from "../server/lib/brain-export-state.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   getCurrentOwnerEmail,
@@ -66,7 +67,6 @@ import {
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
 import cleanupTranscript from "./cleanup-transcript.js";
-import exportToBrain from "./export-to-brain.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
   AudioOnlyExtractionError,
@@ -309,15 +309,26 @@ function scheduleAutoTranscriptRetry({
   });
 }
 
-function queueBrainExport(recordingId: string): void {
-  void Promise.resolve(exportToBrain.run({ recordingId })).catch(
-    (err: unknown) => {
-      console.warn(
-        `[clips] Brain export skipped for ${recordingId}:`,
-        (err as Error)?.message ?? String(err),
-      );
-    },
-  );
+async function queueBrainExport(recordingId: string): Promise<void> {
+  await writeBrainExportState({
+    recordingId,
+    status: "pending",
+    attempts: 0,
+    updatedAt: new Date().toISOString(),
+    nextAttemptAt: new Date(Date.now() + 60_000).toISOString(),
+  });
+  try {
+    await dispatchPostFinalizeJob({
+      recordingId,
+      kind: "brain-export",
+      requireAccepted: true,
+    });
+  } catch (error) {
+    console.warn(
+      `[clips] Brain export dispatch failed for ${recordingId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 function verboseTranscriptErrors(): boolean {
@@ -542,7 +553,7 @@ export async function importLoomTranscriptForRecording({
           now,
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
-        queueBrainExport(recordingId);
+        await queueBrainExport(recordingId);
         return {
           recordingId,
           status: "ready" as const,
@@ -955,7 +966,7 @@ async function completeReadyTranscript({
   // (`transcript-cleanup-${recordingId}`) before its next 2s tick lands —
   // otherwise the "Cleaning up…" badge can lag for one full poll interval.
   await writeAppState("refresh-signal", { ts: Date.now() });
-  queueBrainExport(recordingId);
+  await queueBrainExport(recordingId);
 
   return {
     recordingId,
@@ -1385,7 +1396,7 @@ const requestTranscriptAction = defineAction({
           now,
         });
         await writeAppState("refresh-signal", { ts: Date.now() });
-        queueBrainExport(args.recordingId);
+        await queueBrainExport(args.recordingId);
         await clearBuilderCreditsExhausted();
 
         // Re-read title fresh — `rec.title` was fetched before the 30+ s
@@ -1647,7 +1658,7 @@ const requestTranscriptAction = defineAction({
       });
 
       await writeAppState("refresh-signal", { ts: Date.now() });
-      queueBrainExport(args.recordingId);
+      await queueBrainExport(args.recordingId);
 
       // Generate transcript-backed metadata without replacing a human title or
       // description. The title action keeps any local heuristic replaceable

@@ -4,6 +4,7 @@ import {
   focusAgentChat,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
@@ -28,6 +29,11 @@ export function CrmLayout({ children }: { children: React.ReactNode }) {
     storageKey: "crm",
     activePath: location.pathname,
     enabled: !isAskRoute,
+  });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "crm",
+    chatPath: "/ask",
+    requireActiveHandoff: false,
   });
 
   useEffect(() => setMobileOpen(false), [location.pathname]);

@@ -25,7 +25,10 @@ and docs. Dispatch is a separate product rather than a Toolkit module.
 
 ```tsx
 import { ToolkitProvider } from "@agent-native/toolkit/provider";
-import { ChatHistoryList } from "@agent-native/toolkit/chat-history";
+import {
+  ChatHistoryList,
+  ChatHistoryRail,
+} from "@agent-native/toolkit/chat-history";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import { ContextMeterView } from "@agent-native/toolkit/context-ui";
 import {
@@ -47,8 +50,14 @@ import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
 
 Import `@agent-native/toolkit/styles.css` after Tailwind to include Toolkit's
 source scanning. If an app renders `SharedRichEditor`, also import
-`@agent-native/toolkit/editor.css`. If an app renders `ChatHistoryList`, also
-import `@agent-native/toolkit/chat-history.css`.
+`@agent-native/toolkit/editor.css`. If an app renders `ChatHistoryList` or
+`ChatHistoryRail`, also import `@agent-native/toolkit/chat-history.css`.
+
+Use `ChatHistoryRail` for app sidebars. It shows five recent chats by default,
+progressively discloses up to fifteen, and keeps the app-provided New chat
+action in a footer row with the ellipsis disclosure on its right. The app
+continues to own thread persistence, sorting, routing, and mutations through
+Core.
 
 Inside template apps, prefer local adapters such as `@/components/ui/button` so
 apps can replace their primitives without changing every callsite.

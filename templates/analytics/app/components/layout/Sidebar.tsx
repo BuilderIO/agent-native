@@ -98,7 +98,7 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 
@@ -1334,7 +1334,7 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, SIDEBAR_PREVIEW_COUNT),
+        .slice(0, 15),
     [threads],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
@@ -1433,40 +1433,37 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
             />
           </div>
         ))}
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={displayedActiveThreadId}
-          onSelect={(threadId) => openThread(threadId)}
-          renameMaxLength={160}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
-          labels={{
-            options: (item) =>
-              t("chat.optionsFor", { title: item.titleText ?? "" }),
-            renameInput: (item) =>
-              t("chat.renameThread", { title: item.titleText ?? "" }),
-            rename: t("chat.renameChat"),
-            pin: t("chat.pinChat"),
-            unpin: t("chat.unpinChat"),
-            delete: t("chat.archiveChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
-      <button
-        type="button"
-        onClick={() => void handleNewChat()}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary"
-      >
-        <IconPlus className="h-3 w-3" />
-        {t("chat.newChat")}
-      </button>
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("chat.newChat"),
+          showMore: t("sidebar.showMore", {
+            count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
+          }),
+          showLess: t("sidebar.showLess"),
+        }}
+        renameMaxLength={160}
+        onTogglePin={(threadId) => {
+          const thread = visibleThreads.find((item) => item.id === threadId);
+          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        }}
+        onRename={handleRenameThread}
+        onDelete={(threadId) => void handleArchiveThread(threadId)}
+        labels={{
+          options: (item) =>
+            t("chat.optionsFor", { title: item.titleText ?? "" }),
+          renameInput: (item) =>
+            t("chat.renameThread", { title: item.titleText ?? "" }),
+          rename: t("chat.renameChat"),
+          pin: t("chat.pinChat"),
+          unpin: t("chat.unpinChat"),
+          delete: t("chat.archiveChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -2936,7 +2933,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <div className="space-y-2 pt-2">
                 <OrgSwitcher />
                 <TooltipProvider delayDuration={200}>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-end gap-1">
                     <DevDatabaseLink />
                     <FeedbackButton className="min-w-0 flex-1" />
                     <div className="flex shrink-0 items-center gap-0.5">

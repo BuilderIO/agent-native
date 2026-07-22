@@ -11,8 +11,6 @@ import {
   IconCode,
   IconClock,
   IconHierarchy2,
-  IconExternalLink,
-  IconHelp,
   IconPlugConnected,
 } from "@tabler/icons-react";
 import React, {
@@ -80,8 +78,14 @@ import {
   type TreeNode,
 } from "./use-resources.js";
 
-const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
+
+export function normalizeResourceFileName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.endsWith("/")) return "";
+  const finalSegment = trimmed.split("/").pop() ?? "";
+  return /\.[^/]+$/.test(finalSegment) ? trimmed : `${trimmed}.md`;
+}
 
 const EMPTY_RESOURCE_ACTION_LABELS: Record<ResourceView, string> = {
   files: "Add file",
@@ -380,9 +384,9 @@ function CreateMenu({
   }, [view]);
 
   const submitFile = () => {
-    const trimmed = value.trim();
-    if (trimmed) {
-      onCreateFile(trimmed);
+    const normalizedName = normalizeResourceFileName(value);
+    if (normalizedName) {
+      onCreateFile(normalizedName);
       setOpen(false);
     }
   };
@@ -606,7 +610,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
     {
       icon: <IconPlus className="h-3.5 w-3.5" />,
       label: "Create File",
-      desc: "Add a new file at a path",
+      desc: t("agentResources.createFile.menuDescription"),
       action: () => setView("file"),
     },
     {
@@ -843,7 +847,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           {view === "file" && (
             <div className="p-3">
               <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                File path
+                {t("agentResources.createFile.nameLabel")}
               </label>
               <input
                 ref={inputRef as React.RefObject<HTMLInputElement>}
@@ -857,12 +861,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
                   }
                 }}
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="notes/ideas.md"
+                placeholder={t("agentResources.createFile.namePlaceholder")}
               />
               <div className="mt-2.5 flex justify-end">
                 <button
                   onClick={submitFile}
-                  disabled={!value.trim()}
+                  disabled={!normalizeResourceFileName(value)}
                   className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
                 >
                   Create
@@ -1145,9 +1149,9 @@ Create skill files under \`skills/<name>/SKILL.md\` to give the agent specialize
 |-------|------|-------------|
 | *(use the skill button to create one)* | \`skills/example/SKILL.md\` | |
 
-## Workspace files
+## Agent resource files
 
-Workspace resources are for files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into workspace visibility when a user explicitly asks to keep them.
+Agent resources are files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into the visible agent resources list when a user explicitly asks to keep them.
 `;
 
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
@@ -1185,6 +1189,7 @@ export function ResourcesPanel({
   resourceTreeVariant = "tree",
   mcpIntegrations,
 }: ResourcesPanelProps = {}) {
+  const t = useT();
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.
   // Solo deployments (no orgId) behave as owner — users can edit their own.
@@ -1398,7 +1403,11 @@ export function ResourcesPanel({
 
   const handleCreateFile = useCallback(
     (parentPath: string, name: string, scope: ResourceScope) => {
-      const path = parentPath ? `${parentPath}/${name}` : name;
+      const normalizedName = normalizeResourceFileName(name);
+      if (!normalizedName) return;
+      const path = parentPath
+        ? `${parentPath}/${normalizedName}`
+        : normalizedName;
       createResource.mutate(
         { path, content: "", shared: scope === "shared" },
         {
@@ -1421,8 +1430,14 @@ export function ResourcesPanel({
 
   const handleCreateFromToolbar = useCallback(
     (targetScope: ResourceScope, name: string) => {
+      const normalizedName = normalizeResourceFileName(name);
+      if (!normalizedName) return;
       createResource.mutate(
-        { path: name, content: "", shared: targetScope === "shared" },
+        {
+          path: normalizedName,
+          content: "",
+          shared: targetScope === "shared",
+        },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
@@ -1662,13 +1677,15 @@ export function ResourcesPanel({
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleBack}
-                    aria-label="Back to workspace"
+                    aria-label={t("agentResources.backToResources")}
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                   >
                     <IconArrowLeft className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Back to workspace</TooltipContent>
+                <TooltipContent>
+                  {t("agentResources.backToResources")}
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
             {selectedMcpServer ? (
@@ -1843,24 +1860,6 @@ export function ResourcesPanel({
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <a
-                      href={WORKSPACE_DOCS_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label="Open Resources docs"
-                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                    >
-                      <IconHelp className="h-3.5 w-3.5" />
-                    </a>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" sideOffset={8}>
-                    Open Resources docs
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
             </>
           )}
           <input
@@ -1915,42 +1914,6 @@ export function ResourcesPanel({
           )
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {!personalTreeQuery.isLoading &&
-              !sharedTreeQuery.isLoading &&
-              !workspaceTreeQuery.isLoading &&
-              visibleWorkspaceTree.length === 0 &&
-              displayedPersonalTree.length === 0 &&
-              displayedSharedTree.length === 0 && (
-                <div className="mx-2 mt-2 rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
-                  <p className="mb-1 font-medium text-foreground">
-                    This is your Workspace
-                  </p>
-                  <p className="mb-1.5 leading-snug">
-                    Files the agent reads and writes — notes, instructions,
-                    skills, custom agents, scheduled jobs, and inherited
-                    workspace context. They live in the database or, in local
-                    file mode, in the attached repo.
-                  </p>
-                  <p className="mb-2 leading-snug">
-                    <span className="text-foreground">Workspace</span> is
-                    inherited from Dispatch or local file mode.{" "}
-                    <span className="text-foreground">Organization</span> is
-                    visible to everyone in your organization
-                    {org?.orgId ? " — only admins can edit. " : ". "}
-                    <span className="text-foreground">Personal</span> is just
-                    for you.
-                  </p>
-                  <a
-                    href={WORKSPACE_DOCS_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-foreground hover:underline"
-                  >
-                    Learn more
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-              )}
             {visibleWorkspaceTree.length > 0 && (
               <ResourceTree
                 tree={visibleWorkspaceTree}

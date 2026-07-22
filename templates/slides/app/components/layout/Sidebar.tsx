@@ -164,7 +164,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             <OrgSwitcher />
           </div>
 
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <DevDatabaseLink />
             <FeedbackButton />
           </div>

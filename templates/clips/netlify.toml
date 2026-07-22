@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs clips"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build && pnpm exec tsx templates/clips/jobs/emit-netlify-brain-export-cron.ts"
 publish = "templates/clips/dist"
 functions = "templates/clips/.netlify/functions-internal"
 
@@ -25,3 +25,6 @@ AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH = "x64"
 # auto-continuation path can hand off before Netlify kills the function.
 [functions."*"]
 timeout = 75
+
+[functions.clips-brain-export-sweep-background]
+timeout = 120

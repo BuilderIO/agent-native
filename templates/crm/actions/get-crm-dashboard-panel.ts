@@ -5,6 +5,7 @@ import { z } from "zod";
 import { crmDashboardStore } from "../server/db/index.js";
 import { CRM_APP_ID } from "../server/lib/provider-api.js";
 import { requireDashboardAccess } from "./_crm-dashboard.js";
+import { initCrmDataPrograms } from "./_crm-data-program-actions.js";
 
 const programResolver = createProgramPanelSourceResolver({ appId: CRM_APP_ID });
 
@@ -25,6 +26,7 @@ export default defineAction({
     if (!dashboard) throw new Error("CRM dashboard was not found.");
     const panel = dashboard.config.panels.find((item) => item.id === panelId);
     if (!panel) throw new Error("CRM dashboard panel was not found.");
+    initCrmDataPrograms();
     return programResolver.resolve(
       { source: panel.source, query: panel.query },
       { userEmail: access.userEmail, orgId: access.orgId ?? null },

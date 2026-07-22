@@ -1,6 +1,8 @@
+import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
+
 import type { SqlPanel } from "./types";
 
-export const REPORT_PANEL_CHUNK_SIZE = 8;
+export const REPORT_PANEL_CHUNK_SIZE = MAX_CONCURRENT_SQL_QUERIES;
 
 export function listReportablePanelIds(panels: SqlPanel[]): string[] {
   return panels

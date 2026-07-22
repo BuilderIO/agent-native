@@ -5,7 +5,7 @@ description: "Bifurcación, CODEOWNERS, revisión de relaciones públicas y cóm
 
 # Gobernanza del espacio de trabajo
 
-> **¿Qué documento de espacio de trabajo?** Esta página cubre **gobernanza**: quién revisa, aprueba y es propietario de qué en muchas aplicaciones en un repositorio. Para conocer la capa de personalización del agente (Recursos del Agente: `AGENTS.md`, memoria, skills, agentes personalizados), consulte [Recursos del Agente](/docs/workspace); para conocer la forma de implementación (un monorepo, muchas aplicaciones), consulte [Multi-App Workspaces](/docs/multi-app-workspace).
+> **¿Qué documento de espacio de trabajo?** Esta página cubre **gobernanza**: quién revisa, aprueba y es propietario de qué en muchas aplicaciones en un repositorio. Para conocer la capa de personalización del agente (Recursos del Agente: `AGENTS.md`, memoria, skills, agentes personalizados), consulte [Recursos del Agente](/docs/agent-resources); para conocer la forma de implementación (un monorepo, muchas aplicaciones), consulte [Multi-App Workspaces](/docs/multi-app-workspace).
 
 Esta guía cubre el aspecto operativo de la ejecución de un espacio de trabajo nativo del agente: cómo bifurcar, quién revisa qué, cómo configurar la propiedad del código y cómo el plano de control de envío encaja en su modelo de gobierno.
 
@@ -207,7 +207,7 @@ La aplicación [Dispatch](/docs/dispatch) es el plano de control de tiempo de ej
 
 Dispatch gestiona: secretos de bóveda, conexiones de espacio de trabajo reutilizables, recursos del espacio de trabajo (skills, instrucciones, perfiles de agentes, servidores MCP), aprobaciones y registros de auditoría. Para la configuración de rutas de aplicaciones públicas (`workspaceApp.audience` / `publicPaths` / `protectedPaths`), consulte [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
 
-Para conocer el modelo de recursos y las rutas canónicas, consulte [Recursos del Agente — Recursos globales](/docs/workspace#global-resources).
+Para conocer el modelo de recursos y las rutas canónicas, consulte [Recursos del Agente — Recursos globales](/docs/agent-resources#global-resources).
 
 ## Lista de verificación de configuración
 
@@ -228,7 +228,7 @@ Para un nuevo espacio de trabajo, después de ejecutar `npx @agent-native/core@l
 - [ ] Registre conexiones de espacio de trabajo reutilizables para cuentas de proveedores compartidos y luego
       otorgar aplicaciones como Brain, Analytics, Mail o Dispatch solo cuando lo necesiten
       esa cuenta
-- [ ] Agregue skills para todo el espacio de trabajo, instrucciones de barandilla y recursos de referencia de marca/empresa a través de la página Recursos. Consulte [Recursos del Agente](/docs/workspace#global-resources) para ver la tabla completa de modelos de recursos y el paquete de inicio recomendado.
+- [ ] Agregue skills para todo el espacio de trabajo, instrucciones de barandilla y recursos de referencia de marca/empresa a través de la página Recursos. Consulte [Recursos del Agente](/docs/agent-resources#global-resources) para ver la tabla completa de modelos de recursos y el paquete de inicio recomendado.
 - [ ] Configurar la política de aprobación y los correos electrónicos del aprobador
 - [ ] Configurar SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) para notificaciones de administrador
 - [ ] Conecte Slack o Telegram para mensajería en el espacio de trabajo

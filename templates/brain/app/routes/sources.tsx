@@ -4,6 +4,14 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@agent-native/toolkit/ui/dialog";
+import {
   IconAlertTriangle,
   IconArchive,
   IconBrandGithub,
@@ -12,6 +20,7 @@ import {
   IconCircleCheck,
   IconCircleDashed,
   IconClock,
+  IconCopy,
   IconDatabaseImport,
   IconDotsVertical,
   IconExternalLink,
@@ -73,6 +82,7 @@ import {
   type BrainCaptureReviewItem,
   type EnqueueCapturesDistillationResponse,
   type CapturesResponse,
+  type CreateSourceResponse,
   type BrainSource,
   type BrainWorkspaceConnectionGrantState,
   type BrainWorkspaceConnectionStatus,
@@ -90,6 +100,10 @@ import {
   sourceReviewRequired,
   sourceType,
 } from "@/lib/brain";
+import {
+  createOneTimeIngestHandoff,
+  type OneTimeIngestHandoff,
+} from "@/lib/ingest-handoff";
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
@@ -1499,16 +1513,25 @@ function SourceFact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function ingestSourceKey(source: BrainSource) {
+  const sourceKey = source.config?.sourceKey;
+  return typeof sourceKey === "string" && sourceKey.trim()
+    ? sourceKey.trim()
+    : null;
+}
+
 function SourceListItem({
   source,
   syncPending,
   onReview,
+  onRotateIngestToken,
   onSync,
   onTune,
 }: {
   source: BrainSource;
   syncPending: boolean;
   onReview: () => void;
+  onRotateIngestToken?: () => void;
   onSync: () => void;
   onTune: () => void;
 }) {
@@ -1602,6 +1625,12 @@ function SourceListItem({
                   <IconSettings2 className="size-4" />
                   {t("sources.tuneSource")}
                 </DropdownMenuItem>
+                {onRotateIngestToken ? (
+                  <DropdownMenuItem onSelect={onRotateIngestToken}>
+                    <IconRefresh className="size-4" />
+                    {t("sources.rotateIngestToken")}
+                  </DropdownMenuItem>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -1633,6 +1662,11 @@ export default function SourcesRoute() {
   const type = params.get("type") ?? "all";
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [ingestHandoff, setIngestHandoff] =
+    useState<OneTimeIngestHandoff | null>(null);
+  const [copiedHandoffField, setCopiedHandoffField] = useState<string | null>(
+    null,
+  );
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
   const [reviewSource, setReviewSource] = useState<BrainSource | null>(null);
   const [captureStatus, setCaptureStatus] =
@@ -1672,7 +1706,7 @@ export default function SourcesRoute() {
     }
   >("update-source" as any);
   const createSource = useActionMutation<
-    unknown,
+    CreateSourceResponse,
     {
       title: string;
       provider: Provider;
@@ -1681,6 +1715,10 @@ export default function SourcesRoute() {
       sourceKey?: string;
     }
   >("create-source" as any);
+  const rotateSourceIngestToken = useActionMutation<
+    CreateSourceResponse,
+    { sourceId: string }
+  >("rotate-source-ingest-token" as any);
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
     "sync-source" as any,
   );
@@ -1818,10 +1856,20 @@ export default function SourcesRoute() {
     setForm((current) => ({ ...current, ...patch }));
   }
 
-  function submitSource() {
+  function closeIngestHandoff() {
+    setIngestHandoff(null);
+    setCopiedHandoffField(null);
+  }
+
+  async function copyIngestHandoffValue(value: string, field: string) {
+    await navigator.clipboard.writeText(value);
+    setCopiedHandoffField(field);
+  }
+
+  async function submitSource() {
     const config = buildConfig(form);
     if (editingSource) {
-      updateSource.mutate({
+      await updateSource.mutateAsync({
         id: editingSource.id,
         title: form.title.trim() || defaultTitle(form.provider, t),
         status:
@@ -1829,15 +1877,37 @@ export default function SourcesRoute() {
         config,
       });
     } else {
-      createSource.mutate({
+      const result = await createSource.mutateAsync({
         title: form.title.trim() || defaultTitle(form.provider, t),
         provider: form.provider,
         visibility: "org",
         config,
         sourceKey: form.sourceKey.trim() || undefined,
       });
+      const handoff = createOneTimeIngestHandoff({
+        origin: window.location.origin,
+        provider: form.provider,
+        result,
+        sourceKey: form.sourceKey,
+      });
+      if (handoff) setIngestHandoff(handoff);
     }
     setSetupOpen(false);
+  }
+
+  async function rotateIngestToken(source: BrainSource) {
+    const sourceKey = ingestSourceKey(source);
+    if (!sourceKey) return;
+    const result = await rotateSourceIngestToken.mutateAsync({
+      sourceId: source.id,
+    });
+    const handoff = createOneTimeIngestHandoff({
+      origin: window.location.origin,
+      provider: source.provider ?? "",
+      result,
+      sourceKey,
+    });
+    if (handoff) setIngestHandoff(handoff);
   }
 
   function toggleCaptureSelection(captureId: string, checked: boolean) {
@@ -1909,8 +1979,17 @@ export default function SourcesRoute() {
             <SourceListItem
               key={source.id}
               source={source}
-              syncPending={syncSource.isPending}
+              syncPending={
+                syncSource.isPending || rotateSourceIngestToken.isPending
+              }
               onReview={() => openCaptureReview(source)}
+              onRotateIngestToken={
+                (source.provider === "clips" ||
+                  source.provider === "generic") &&
+                ingestSourceKey(source)
+                  ? () => void rotateIngestToken(source)
+                  : undefined
+              }
               onSync={() => syncSource.mutate({ sourceId: source.id })}
               onTune={() => openEdit(source)}
             />
@@ -1928,6 +2007,7 @@ export default function SourcesRoute() {
         connectionProvidersQuery.isError ||
         updateSource.isError ||
         createSource.isError ||
+        rotateSourceIngestToken.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ? (
@@ -2301,6 +2381,77 @@ export default function SourcesRoute() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <Dialog
+        open={Boolean(ingestHandoff)}
+        onOpenChange={(open) => {
+          if (!open) closeIngestHandoff();
+        }}
+      >
+        {ingestHandoff ? (
+          <DialogContent className="max-w-xl gap-5">
+            <DialogHeader>
+              <DialogTitle>
+                {t("sources.connectIngestSource", {
+                  source: ingestHandoff.source.title,
+                })}
+              </DialogTitle>
+              <DialogDescription>
+                {t("sources.ingestHandoffDescription")}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4">
+              {[
+                [t("sources.endpoint"), ingestHandoff.endpoint, "endpoint"],
+                [t("sources.sourceKey"), ingestHandoff.sourceKey, "source-key"],
+                [
+                  t("sources.ingestToken"),
+                  ingestHandoff.ingestToken,
+                  "ingest-token",
+                ],
+              ].map(([label, value, field]) => (
+                <div key={field} className="grid gap-2">
+                  <Label htmlFor={`ingest-handoff-${field}`}>{label}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id={`ingest-handoff-${field}`}
+                      value={value}
+                      readOnly
+                      className="min-w-0 font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => void copyIngestHandoffValue(value, field)}
+                    >
+                      {copiedHandoffField === field ? (
+                        <IconChecks className="size-4" />
+                      ) : (
+                        <IconCopy className="size-4" />
+                      )}
+                      {copiedHandoffField === field
+                        ? t("sources.copied")
+                        : t("sources.copy")}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/25 p-3 text-sm leading-6 text-muted-foreground">
+              {t("sources.ingestTokenSecurity")}
+            </div>
+
+            <DialogFooter>
+              <Button type="button" onClick={closeIngestHandoff}>
+                {t("sources.ingestHandoffSaved")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
 
       <Sheet open={setupOpen} onOpenChange={setSetupOpen}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">

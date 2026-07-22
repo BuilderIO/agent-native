@@ -69,7 +69,15 @@ ladder.
   current-user recordings with ready transcripts in the active organization
   and reports exported, quarantined, skipped, and failed counts. Both
   `BRAIN_INGEST_URL` and `BRAIN_INGEST_TOKEN` must be available as scoped Clips
-  secrets.
+  secrets. Transcript completion persists a pending export before handing it to
+  the durable post-finalize worker; delivery receipts include the Brain capture
+  or sensitivity receipt id, while transient failures are swept and retried.
+  The sweep also discovers ready transcripts from the last seven days that
+  predate export-state tracking, in bounded batches, so recent recordings are
+  backfilled after the connection is configured.
+  Netlify builds emit a protected per-minute scheduled sweep because in-process
+  intervals are not durable there. Other serverless hosts must invoke
+  `runBrainExportSweepOnce` from their own scheduler.
 - The transcript embedded by `view-screen` is a bounded preview. If
   `previewTruncated` is true, it may end mid-sentence and does not show where
   transcription ended. Call `get-recording-player-data` before judging

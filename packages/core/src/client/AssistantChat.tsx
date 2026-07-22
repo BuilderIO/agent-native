@@ -173,6 +173,11 @@ import {
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
 import { useT } from "./i18n.js";
+import {
+  addMcpConnectionCompleteListener,
+  consumeMcpConnectionResume,
+  type McpConnectionResumeRequest,
+} from "./resources/mcp-connection-resume.js";
 import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   AgentAutoContinueSignal,
@@ -1513,20 +1518,24 @@ export function resolveAssistantChatRunningStatusLabel({
   return "Thinking";
 }
 
-function contentHasVisibleReasoning(content: unknown): boolean {
+function contentHasVisibleTailReasoning(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
-  return content.some((part) => {
-    if (!part || typeof part !== "object") return false;
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    const part = content[index];
+    if (!part || typeof part !== "object") continue;
     const candidate = part as { type?: unknown; text?: unknown };
-    return (
-      candidate.type === "reasoning" &&
-      typeof candidate.text === "string" &&
-      candidate.text.trim().length > 0
-    );
-  });
+    if (
+      (candidate.type === "text" || candidate.type === "reasoning") &&
+      (typeof candidate.text !== "string" || candidate.text.trim().length === 0)
+    ) {
+      continue;
+    }
+    return candidate.type === "reasoning";
+  }
+  return false;
 }
 
-function contentHasUnresolvedToolCall(
+function contentHasToolCall(
   content: unknown,
   toolName?: string | null,
 ): boolean {
@@ -1540,7 +1549,6 @@ function contentHasUnresolvedToolCall(
     };
     return (
       candidate.type === "tool-call" &&
-      candidate.result === undefined &&
       (!toolName || candidate.toolName === toolName)
     );
   });
@@ -1565,17 +1573,19 @@ export function shouldShowGlobalRunningStatus({
     latestMessage && typeof latestMessage === "object"
       ? (latestMessage as { role?: unknown; content?: unknown })
       : null;
-  const latestMessageHasReasoning =
+  const latestMessageHasTailReasoning =
     message?.role === "assistant" &&
-    contentHasVisibleReasoning(message.content);
-  const latestMessageHasUnresolvedTool =
-    message?.role === "assistant" &&
-    contentHasUnresolvedToolCall(message.content);
+    contentHasVisibleTailReasoning(message.content);
+  const latestMessageHasTool =
+    message?.role === "assistant" && contentHasToolCall(message.content);
+  const reconnectHasTool = contentHasToolCall(reconnectContent);
+  const reconnectHasTailReasoning =
+    contentHasVisibleTailReasoning(reconnectContent);
   const matchingActivityToolIsVisible = Boolean(
     runningActivityTool &&
     ((message?.role === "assistant" &&
-      contentHasUnresolvedToolCall(message.content, runningActivityTool)) ||
-      contentHasUnresolvedToolCall(reconnectContent, runningActivityTool)),
+      contentHasToolCall(message.content, runningActivityTool)) ||
+      contentHasToolCall(reconnectContent, runningActivityTool)),
   );
 
   // A pending card for the same tool is already the running indicator.
@@ -1584,11 +1594,7 @@ export function shouldShowGlobalRunningStatus({
   if (runningActivityLabel && matchingActivityToolIsVisible) {
     return false;
   }
-  if (
-    !runningActivityLabel &&
-    (latestMessageHasUnresolvedTool ||
-      contentHasUnresolvedToolCall(reconnectContent))
-  ) {
+  if (!runningActivityLabel && (latestMessageHasTool || reconnectHasTool)) {
     return false;
   }
   // The reasoning cell already owns the generic Thinking state. Activity
@@ -1596,14 +1602,20 @@ export function shouldShowGlobalRunningStatus({
   // rendering both makes a second Thinking row flash beneath the thought.
   if (
     runningActivityLabel === "Thinking" &&
-    (latestMessageHasReasoning || contentHasVisibleReasoning(reconnectContent))
+    (latestMessageHasTool ||
+      reconnectHasTool ||
+      latestMessageHasTailReasoning ||
+      reconnectHasTailReasoning)
   ) {
     return false;
   }
   if (runningActivityLabel) return true;
 
   return (
-    !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
+    !latestMessageHasTool &&
+    !reconnectHasTool &&
+    !latestMessageHasTailReasoning &&
+    !reconnectHasTailReasoning
   );
 }
 
@@ -4674,6 +4686,40 @@ const AssistantChatInner = forwardRef<
       appendThreadMessage,
       updateComposerContextItems,
     ],
+  );
+
+  const mcpResumeTimerRef = useRef<number | null>(null);
+  const scheduleMcpConnectionResume = useCallback(
+    (request: McpConnectionResumeRequest) => {
+      if (mcpResumeTimerRef.current !== null) {
+        window.clearTimeout(mcpResumeTimerRef.current);
+      }
+      mcpResumeTimerRef.current = window.setTimeout(() => {
+        mcpResumeTimerRef.current = null;
+        void addToQueue(request.message);
+      }, 0);
+    },
+    [addToQueue],
+  );
+
+  useEffect(() => {
+    const pending = consumeMcpConnectionResume();
+    if (pending) scheduleMcpConnectionResume(pending);
+
+    return addMcpConnectionCompleteListener(() => {
+      const completed = consumeMcpConnectionResume();
+      if (completed) scheduleMcpConnectionResume(completed);
+    });
+  }, [scheduleMcpConnectionResume]);
+
+  useEffect(
+    () => () => {
+      if (mcpResumeTimerRef.current !== null) {
+        window.clearTimeout(mcpResumeTimerRef.current);
+        mcpResumeTimerRef.current = null;
+      }
+    },
+    [],
   );
 
   useEffect(() => {

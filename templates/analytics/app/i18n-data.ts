@@ -629,6 +629,11 @@ const enUS = {
     refresh: "Refresh",
     refreshing: "Refreshing...",
     downloadCsv: "Download CSV",
+    exportToGoogleSheets: "Export to Google Sheets",
+    exportingToGoogleSheets: "Exporting to Google Sheets...",
+    googleSheetsExported: "Exported to Google Sheets",
+    openGoogleSheet: "Open sheet",
+    googleSheetsExportFailed: "Couldn't export to Google Sheets: {{message}}",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
     deleteSectionTitle: "Delete section?",
@@ -814,6 +819,11 @@ const enUS = {
   },
   dataSources: {
     uploadFile: "Upload file",
+    googleSheetsExport: "Google Sheets export",
+    googleSheetsExportDescription:
+      "Export dashboard reports to Google Sheets through a shared Google connection.",
+    connected: "Connected",
+    googleSheets: "Google Sheets",
     open: "Open",
     savedValueHint:
       "A value is already saved. Leave blank to keep it, or enter a new value to replace it.",
@@ -1274,6 +1284,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "上传文件",
+      googleSheetsExport: "Google Sheets 导出",
+      googleSheetsExportDescription:
+        "通过共享的 Google 连接将仪表板报告导出到 Google Sheets。",
+      connected: "已连接",
+      googleSheets: "Google Sheets",
       open: "打开",
       savedValueHint: "值已保存。留空以保留它，或输入新值以替换它。",
       githubOAuth: "GitHub OAuth",
@@ -1557,6 +1572,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Subir archivo",
+      googleSheetsExport: "Exportación a Google Sheets",
+      googleSheetsExportDescription:
+        "Exporte informes del panel a Google Sheets mediante una conexión de Google compartida.",
+      connected: "Conectado",
+      googleSheets: "Google Sheets",
       open: "Abierto",
       savedValueHint:
         "Ya hay un valor guardado. Déjelo en blanco para conservarlo o ingrese un nuevo valor para reemplazarlo.",
@@ -1862,6 +1882,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Télécharger le fichier",
+      googleSheetsExport: "Export Google Sheets",
+      googleSheetsExportDescription:
+        "Exportez les rapports du tableau de bord vers Google Sheets grâce à une connexion Google partagée.",
+      connected: "Connecté",
+      googleSheets: "Google Sheets",
       open: "Ouvrir",
       savedValueHint:
         "Une valeur est déjà enregistrée. Laissez vide pour le conserver ou saisissez une nouvelle valeur pour le remplacer.",
@@ -2163,6 +2188,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Datei hochladen",
+      googleSheetsExport: "Google-Sheets-Export",
+      googleSheetsExportDescription:
+        "Exportieren Sie Dashboard-Berichte über eine gemeinsame Google-Verbindung nach Google Sheets.",
+      connected: "Verbunden",
+      googleSheets: "Google Sheets",
       open: "Offen",
       savedValueHint:
         "Ein Wert ist bereits gespeichert. Lassen Sie das Feld leer, um es beizubehalten, oder geben Sie einen neuen Wert ein, um es zu ersetzen.",
@@ -2463,6 +2493,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "ファイルをアップロードする",
+      googleSheetsExport: "Google スプレッドシートへのエクスポート",
+      googleSheetsExportDescription:
+        "共有 Google 接続を使用してダッシュボードレポートを Google スプレッドシートにエクスポートします。",
+      connected: "接続済み",
+      googleSheets: "Google Sheets",
       open: "開ける",
       savedValueHint:
         "値はすでに保存されています。空白のままにして保持するか、新しい値を入力して置き換えます。",
@@ -2758,6 +2793,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "파일 업로드",
+      googleSheetsExport: "Google Sheets 내보내기",
+      googleSheetsExportDescription:
+        "공유 Google 연결을 통해 대시보드 보고서를 Google Sheets로 내보냅니다.",
+      connected: "연결됨",
+      googleSheets: "Google Sheets",
       open: "열려 있는",
       savedValueHint:
         "값이 이미 저장되어 있습니다. 유지하려면 비워두고, 바꾸려면 새 값을 입력하세요.",
@@ -3049,6 +3089,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Carregar arquivo",
+      googleSheetsExport: "Exportação para o Google Sheets",
+      googleSheetsExportDescription:
+        "Exporte relatórios do painel para o Google Sheets por meio de uma conexão Google compartilhada.",
+      connected: "Conectado",
+      googleSheets: "Google Sheets",
       open: "Abrir",
       savedValueHint:
         "Um valor já está salvo. Deixe em branco para mantê-lo ou insira um novo valor para substituí-lo.",
@@ -3345,6 +3390,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "फ़ाइल अपलोड करें",
+      googleSheetsExport: "Google Sheets निर्यात",
+      googleSheetsExportDescription:
+        "साझा Google कनेक्शन के माध्यम से डैशबोर्ड रिपोर्ट को Google Sheets में निर्यात करें।",
+      connected: "कनेक्टेड",
+      googleSheets: "Google Sheets",
       open: "खुला",
       savedValueHint:
         "एक मान पहले से ही सहेजा गया है. इसे रखने के लिए खाली छोड़ दें, या इसे बदलने के लिए एक नया मान दर्ज करें।",
@@ -3632,6 +3682,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "تحميل الملف",
+      googleSheetsExport: "تصدير Google Sheets",
+      googleSheetsExportDescription:
+        "صدّر تقارير لوحة المعلومات إلى Google Sheets من خلال اتصال Google مشترك.",
+      connected: "متصل",
+      googleSheets: "Google Sheets",
       open: "يفتح",
       savedValueHint:
         "تم حفظ القيمة بالفعل. اتركه فارغًا للاحتفاظ به، أو أدخل قيمة جديدة لاستبداله.",
@@ -6059,6 +6114,11 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "放弃更改",
       dismissDemoIntro: "关闭演示介绍",
       downloadCsv: "下载CSV",
+      exportToGoogleSheets: "导出到 Google Sheets",
+      exportingToGoogleSheets: "正在导出到 Google Sheets...",
+      googleSheetsExported: "已导出到 Google Sheets",
+      openGoogleSheet: "打开表格",
+      googleSheetsExportFailed: "无法导出到 Google Sheets：{{message}}",
       dragToReorder: "拖动以重新排序",
       expandFilters: "展开过滤器",
       failedToFormatSql: "无法格式化 SQL",
@@ -6271,6 +6331,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar cambios",
       dismissDemoIntro: "Descartar la introducción de la demostración",
       downloadCsv: "Descargar CSV",
+      exportToGoogleSheets: "Exportar a Google Sheets",
+      exportingToGoogleSheets: "Exportando a Google Sheets...",
+      googleSheetsExported: "Exportado a Google Sheets",
+      openGoogleSheet: "Abrir hoja",
+      googleSheetsExportFailed:
+        "No se pudo exportar a Google Sheets: {{message}}",
       dragToReorder: "Arrastra para reordenar",
       expandFilters: "Ampliar filtros",
       failedToFormatSql: "No se pudo formatear SQL",
@@ -6488,6 +6554,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Ignorer les modifications",
       dismissDemoIntro: "Ignorer l'intro de la démo",
       downloadCsv: "Télécharger CSV",
+      exportToGoogleSheets: "Exporter vers Google Sheets",
+      exportingToGoogleSheets: "Exportation vers Google Sheets...",
+      googleSheetsExported: "Exporté vers Google Sheets",
+      openGoogleSheet: "Ouvrir la feuille",
+      googleSheetsExportFailed:
+        "Impossible d’exporter vers Google Sheets : {{message}}",
       dragToReorder: "Faites glisser pour réorganiser",
       expandFilters: "Développer les filtres",
       failedToFormatSql: "Échec du formatage de SQL",
@@ -6706,6 +6778,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Änderungen verwerfen",
       dismissDemoIntro: "Demo-Intro schließen",
       downloadCsv: "Laden Sie CSV herunter",
+      exportToGoogleSheets: "Nach Google Sheets exportieren",
+      exportingToGoogleSheets: "Export nach Google Sheets...",
+      googleSheetsExported: "Nach Google Sheets exportiert",
+      openGoogleSheet: "Tabelle öffnen",
+      googleSheetsExportFailed:
+        "Export nach Google Sheets fehlgeschlagen: {{message}}",
       dragToReorder: "Zum Neuanordnen ziehen",
       expandFilters: "Filter erweitern",
       failedToFormatSql: "SQL konnte nicht formatiert werden",
@@ -6919,6 +6997,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "変更を破棄する",
       dismissDemoIntro: "デモのイントロを閉じる",
       downloadCsv: "CSVをダウンロード",
+      exportToGoogleSheets: "Google スプレッドシートにエクスポート",
+      exportingToGoogleSheets: "Google スプレッドシートにエクスポート中...",
+      googleSheetsExported: "Google スプレッドシートにエクスポートしました",
+      openGoogleSheet: "シートを開く",
+      googleSheetsExportFailed:
+        "Google スプレッドシートへのエクスポートに失敗しました: {{message}}",
       dragToReorder: "ドラッグして並べ替えます",
       expandFilters: "フィルターを展開する",
       failedToFormatSql: "SQLのフォーマットに失敗しました",
@@ -7131,6 +7215,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "변경사항 취소",
       dismissDemoIntro: "데모 소개 닫기",
       downloadCsv: "CSV 다운로드",
+      exportToGoogleSheets: "Google Sheets로 내보내기",
+      exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
+      googleSheetsExported: "Google Sheets로 내보냈습니다",
+      openGoogleSheet: "시트 열기",
+      googleSheetsExportFailed:
+        "Google Sheets로 내보내지 못했습니다: {{message}}",
       dragToReorder: "드래그하여 재정렬하세요.",
       expandFilters: "필터 확장",
       failedToFormatSql: "SQL을 포맷하지 못했습니다.",
@@ -7347,6 +7437,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar alterações",
       dismissDemoIntro: "Ignorar introdução da demonstração",
       downloadCsv: "Baixar CSV",
+      exportToGoogleSheets: "Exportar para o Google Sheets",
+      exportingToGoogleSheets: "Exportando para o Google Sheets...",
+      googleSheetsExported: "Exportado para o Google Sheets",
+      openGoogleSheet: "Abrir planilha",
+      googleSheetsExportFailed:
+        "Não foi possível exportar para o Google Sheets: {{message}}",
       dragToReorder: "Arraste para reordenar",
       expandFilters: "Expandir filtros",
       failedToFormatSql: "Falha ao formatar SQL",
@@ -7559,6 +7655,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "परिवर्तन त्यागें",
       dismissDemoIntro: "डेमो परिचय ख़ारिज करें",
       downloadCsv: "CSV डाउनलोड करें",
+      exportToGoogleSheets: "Google Sheets में निर्यात करें",
+      exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
+      googleSheetsExported: "Google Sheets में निर्यात किया गया",
+      openGoogleSheet: "शीट खोलें",
+      googleSheetsExportFailed:
+        "Google Sheets में निर्यात नहीं किया जा सका: {{message}}",
       dragToReorder: "पुनः व्यवस्थित करने के लिए खींचें",
       expandFilters: "फ़िल्टर का विस्तार करें",
       failedToFormatSql: "SQL को प्रारूपित करने में विफल",
@@ -7770,6 +7872,11 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "تجاهل التغييرات",
       dismissDemoIntro: "رفض المقدمة التجريبية",
       downloadCsv: "تحميل CSV",
+      exportToGoogleSheets: "تصدير إلى Google Sheets",
+      exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
+      googleSheetsExported: "تم التصدير إلى Google Sheets",
+      openGoogleSheet: "فتح الورقة",
+      googleSheetsExportFailed: "تعذر التصدير إلى Google Sheets: {{message}}",
       dragToReorder: "اسحب لإعادة الترتيب",
       expandFilters: "قم بتوسيع عوامل التصفية",
       failedToFormatSql: "فشل تنسيق SQL",

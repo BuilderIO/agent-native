@@ -4,12 +4,10 @@ import { recordChange } from "@agent-native/core/server";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
-import {
-  FIRST_PARTY_DASHBOARD_ID,
-  repairFirstPartyRecurringUserPanels,
-} from "./first-party-metric-catalog";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -63,7 +61,7 @@ export async function getReportDashboard(
   if (dashboard?.kind === "sql") {
     const config =
       dashboardId === FIRST_PARTY_DASHBOARD_ID
-        ? repairFirstPartyRecurringUserPanels(dashboard.config).config
+        ? repairCanonicalFirstPartyDashboardQueries(dashboard.config).config
         : dashboard.config;
     return {
       id: dashboard.id,

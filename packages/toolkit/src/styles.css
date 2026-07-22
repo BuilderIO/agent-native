@@ -19,3 +19,38 @@
  *     compiled `.js` next to it for consumers that only install `dist/`.
  */
 @source "./**/*.{js,ts,tsx}";
+
+.agent-realtime-voice-working::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  content: "";
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agent-realtime-voice-working::after {
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      transparent 36%,
+      hsl(var(--foreground) / 0.14) 50%,
+      transparent 64%,
+      transparent 100%
+    );
+    background-repeat: repeat;
+    background-size: 14rem 100%;
+    animation: agent-realtime-voice-shine 2.6s linear infinite;
+  }
+
+  @keyframes agent-realtime-voice-shine {
+    from {
+      background-position: 0 0;
+    }
+
+    to {
+      background-position: 14rem 0;
+    }
+  }
+}

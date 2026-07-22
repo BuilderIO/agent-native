@@ -7,7 +7,7 @@ description: "Branching, CODEOWNERS, PR review, and how Dispatch handles runtime
 
 <Callout tone="info">
 
-**Which workspace doc?** This page covers **governance** — who reviews, approves, and owns what across many apps in one repo. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/workspace); for the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace).
+**Which workspace doc?** This page covers **governance** — who reviews, approves, and owns what across many apps in one repo. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/agent-resources); for the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace).
 
 </Callout>
 
@@ -211,7 +211,7 @@ The [Dispatch](/docs/dispatch) app is the workspace's runtime control plane. It 
 
 Dispatch manages: vault secrets, reusable workspace connections, workspace resources (skills, instructions, agent profiles, MCP servers), approvals, and audit logs. For public app route configuration (`workspaceApp.audience` / `publicPaths` / `protectedPaths`), see [Multi-App Workspaces — Public app routes](/docs/multi-app-workspace#deployment).
 
-For the resource model and canonical paths, see [Agent Resources — Global resources](/docs/workspace#global-resources).
+For the resource model and canonical paths, see [Agent Resources — Global resources](/docs/agent-resources#global-resources).
 
 ## Setup Checklist
 
@@ -232,7 +232,7 @@ For a new workspace, after running `npx @agent-native/core@latest create`:
 - [ ] Register reusable workspace connections for shared provider accounts, then
       grant apps such as Brain, Analytics, Mail, or Dispatch only when they need
       that account
-- [ ] Add workspace-wide skills, guardrail instructions, and brand/company reference resources via the Resources page. See [Agent Resources](/docs/workspace#global-resources) for the full resource-model table and the recommended starter pack.
+- [ ] Add workspace-wide skills, guardrail instructions, and brand/company reference resources via the Resources page. See [Agent Resources](/docs/agent-resources#global-resources) for the full resource-model table and the recommended starter pack.
 - [ ] Configure the approval policy and approver emails
 - [ ] Set up SendGrid (`SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`) for admin notifications
 - [ ] Connect Slack or Telegram for workspace messaging
@@ -240,7 +240,7 @@ For a new workspace, after running `npx @agent-native/core@latest create`:
 
 ## What's next {#whats-next}
 
-- [**Agent Resources**](/docs/workspace) — the customization layer this page governs (skills, memory, agents, MCP servers)
+- [**Agent Resources**](/docs/agent-resources) — the customization layer this page governs (skills, memory, agents, MCP servers)
 - [**Multi-App Workspaces**](/docs/multi-app-workspace) — the deployment shape: one monorepo, many apps
 - [**Dispatch**](/docs/dispatch) — the runtime control plane referenced throughout this page
 - [**Sharing**](/docs/sharing) — access control for individual resources, complementing repo-level CODEOWNERS

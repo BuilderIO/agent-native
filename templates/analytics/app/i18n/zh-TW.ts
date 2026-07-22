@@ -392,6 +392,11 @@ const messages = {
   },
   dataSources: {
     uploadFile: "上傳檔案",
+    googleSheetsExport: "Google Sheets 匯出",
+    googleSheetsExportDescription:
+      "透過共用的 Google 連線將儀表板報告匯出至 Google Sheets。",
+    connected: "已連線",
+    googleSheets: "Google Sheets",
     open: "開啟",
     savedValueHint: "值已儲存。留空以保留它，或輸入新值以替換它。",
     githubOAuth: "GitHub OAuth",
@@ -873,6 +878,11 @@ const messages = {
     refresh: "重新整理",
     refreshing: "正在重新整理...",
     downloadCsv: "下載CSV",
+    exportToGoogleSheets: "匯出到 Google Sheets",
+    exportingToGoogleSheets: "正在匯出到 Google Sheets...",
+    googleSheetsExported: "已匯出到 Google Sheets",
+    openGoogleSheet: "開啟試算表",
+    googleSheetsExportFailed: "無法匯出到 Google Sheets：{{message}}",
     viewSql: "檢視 SQL",
     dragToReorder: "拖動以重新排序",
     deleteSectionTitle: "刪除部分？",

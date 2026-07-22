@@ -1,11 +1,7 @@
-import { initDataPrograms } from "@agent-native/core/data-programs";
 import { runScript } from "@agent-native/core/scripts";
 
-import getCrmPipelineData from "./get-crm-pipeline-data.js";
+import { initCrmDataPrograms } from "./_crm-data-program-actions.js";
 
-initDataPrograms({
-  appId: "crm",
-  getActions: () => ({ "get-crm-pipeline-data": getCrmPipelineData }),
-});
+initCrmDataPrograms();
 
 runScript();

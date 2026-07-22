@@ -11,6 +11,7 @@ import {
 } from "h3";
 import { z } from "zod";
 
+import exportToBrain from "../../../../actions/export-to-brain.js";
 import finalizeRecording from "../../../../actions/finalize-recording.js";
 import { ensureRecordingSeekable } from "../../../../actions/lib/ensure-seekable-video.js";
 import requestTranscript from "../../../../actions/request-transcript.js";
@@ -23,7 +24,7 @@ import {
 
 const bodySchema = z.object({
   recordingId: z.string().min(1).max(200),
-  kind: z.enum(["media-ready", "seekable", "transcript"]),
+  kind: z.enum(["media-ready", "seekable", "transcript", "brain-export"]),
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
@@ -107,6 +108,14 @@ export default defineEventHandler(async (event: H3Event) => {
         const result = await finalizeRecording.run({
           id: recordingId,
           mediaVerificationRetryAttempt: retryAttempt ?? 1,
+        });
+        return { ok: true, kind, result };
+      }
+
+      if (kind === "brain-export") {
+        const result = await exportToBrain.run({
+          recordingId,
+          retryAttempt,
         });
         return { ok: true, kind, result };
       }

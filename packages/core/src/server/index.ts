@@ -287,7 +287,9 @@ export {
 } from "../terminal/terminal-plugin.js";
 export {
   createCollabPlugin,
+  type CollabAccess,
   type CollabPluginOptions,
+  type CollabResourceIdResolver,
 } from "./collab-plugin.js";
 
 export {
