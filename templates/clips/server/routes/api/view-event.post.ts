@@ -37,6 +37,7 @@ import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../../db/index.js";
+import { notifyOwnerOfFirstView } from "../../lib/first-view-notification.js";
 import { nanoid, shouldCountView } from "../../lib/recordings.js";
 
 interface ViewEventBody {
@@ -415,6 +416,24 @@ export default defineEventHandler(async (event) => {
       // viewer has no UI tab to invalidate anyway.
       if (kind !== "watch-progress" && sessionEmail) {
         await writeAppState("refresh-signal", { ts: Date.now() });
+      }
+
+      // Best-effort, never block the response: notify the owner the first
+      // time this recording gets a real counted view.
+      if (meetsThreshold && !existing.countedView) {
+        notifyOwnerOfFirstView({
+          recording: {
+            id: recordingId,
+            title: rec.title,
+            ownerEmail: rec.ownerEmail,
+            thumbnailUrl: rec.thumbnailUrl,
+          },
+          viewerEmail,
+          viewerName: resolvedViewerName,
+          completedPct: newCompletedPct,
+        }).catch((err) => {
+          console.warn("[view-event] first-view notify failed:", err);
+        });
       }
 
       // Emit clip.viewed event on view-start — best-effort, never block the response.

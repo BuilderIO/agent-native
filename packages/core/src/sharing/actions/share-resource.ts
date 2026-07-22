@@ -115,7 +115,17 @@ export function shareNotificationMessageId(
   principalId: string,
 ): string {
   const domain = "agent-native.com";
-  return "<share-" + resourceType + "-" + resourceId + "-" + shortHash(principalId) + "@" + domain + ">";
+  return (
+    "<share-" +
+    resourceType +
+    "-" +
+    resourceId +
+    "-" +
+    shortHash(principalId) +
+    "@" +
+    domain +
+    ">"
+  );
 }
 
 function principalIdMatches(
@@ -319,9 +329,7 @@ export default defineAction({
             : args.role === "editor"
               ? "view and edit"
               : "view";
-        const imageUrl = resource
-          ? reg.getThumbnailUrl?.(resource)
-          : undefined;
+        const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
         const secondaryCta = resource
           ? await reg.getSecondaryCta?.(resource, {
               recipientEmail: principalId,

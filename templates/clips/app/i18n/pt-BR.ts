@@ -230,6 +230,10 @@ const messages = {
       "SOP significa Procedimento Operacional Padrão: um runbook passo a passo reutilizável gerado a partir deste clipe.",
     generateTicket: "Gerar tíquete",
     generateEmail: "Gerar e-mail",
+    aiSummarySent: "O resumo está a caminho da sua caixa de entrada",
+    aiSummaryAlreadySent: "Já enviado para sua caixa de entrada",
+    aiSummaryFailed:
+      "Não foi possível enviar o resumo — tente novamente pelo e-mail de compartilhamento",
     share: "Compartilhar",
     fromMeeting: "Da reunião:",
     untitled: "Sem título",

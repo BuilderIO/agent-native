@@ -850,6 +850,14 @@ const migrations = runMigrations(
         `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
       ].join("; "),
     },
+    {
+      version: 51,
+      name: "clips-email-followups",
+      sql: [
+        `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS first_view_notified_at TEXT`,
+        `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS ai_summary_emailed_at TEXT`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );

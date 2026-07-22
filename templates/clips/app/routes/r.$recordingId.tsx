@@ -227,6 +227,8 @@ export default function RecordingPage() {
   const [searchParams] = useSearchParams();
   const startMs = parseTimeParam(searchParams.get("t"));
   const panelParam = searchParams.get("panel");
+  const aiSummarizeParam = searchParams.get("ai");
+  const aiSummarizeToken = searchParams.get("token");
   const { session, isLoading: sessionLoading } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
@@ -291,6 +293,44 @@ export default function RecordingPage() {
       setPanel("comments");
     }
   }, [isCompactLayout, panelParam]);
+
+  const aiSummaryRequestedRef = useRef(false);
+  useEffect(() => {
+    if (aiSummarizeParam !== "summarize" || !aiSummarizeToken || !recordingId) {
+      return;
+    }
+    if (aiSummaryRequestedRef.current) return;
+    aiSummaryRequestedRef.current = true;
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("ai");
+    nextParams.delete("token");
+    const nextSearch = nextParams.toString();
+    window.history.replaceState(
+      null,
+      "",
+      window.location.pathname + (nextSearch ? `?${nextSearch}` : ""),
+    );
+
+    fetch(appPath("/api/ai-summary-email"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recordingId, token: aiSummarizeToken }),
+    })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data: { ok?: boolean; alreadySent?: boolean }) => {
+        if (data.alreadySent) {
+          toast.info(t("recordingPage.aiSummaryAlreadySent"));
+        } else if (data.ok) {
+          toast.success(t("recordingPage.aiSummarySent"));
+        } else {
+          toast.error(t("recordingPage.aiSummaryFailed"));
+        }
+      })
+      .catch(() => {
+        toast.error(t("recordingPage.aiSummaryFailed"));
+      });
+  }, [aiSummarizeParam, aiSummarizeToken, recordingId, searchParams, t]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",

@@ -11,20 +11,33 @@
  * into the original share notification via In-Reply-To/References. Single-
  * use per recipient per recording: claimed atomically via
  * `recording_viewers.ai_summary_emailed_at`.
+ *
+ * Summary generation runs under the recording owner's request context (not
+ * the anonymous caller's) so `cleanup-transcript` resolves the owner's
+ * Builder/Gemini credentials instead of finding none.
  */
 
 import { getDbExec } from "@agent-native/core/db";
-import { getAppProductionUrl } from "@agent-native/core/server/app-url";
-import { readBodyWithSizeLimit } from "@agent-native/core/server/h3-helpers";
-import { verifyShortLivedToken } from "@agent-native/core/server/short-lived-token";
-import { isEmailConfigured, sendEmail } from "@agent-native/core/server/email";
-import { renderEmail } from "@agent-native/core/server/email-template";
+import {
+  getAppProductionUrl,
+  isEmailConfigured,
+  readBodyWithSizeLimit,
+  renderEmail,
+  runWithRequestContext,
+  sendEmail,
+  verifyShortLivedToken,
+} from "@agent-native/core/server";
 import { shareNotificationMessageId } from "@agent-native/core/sharing/actions/share-resource";
 import { and, eq } from "drizzle-orm";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 import cleanupTranscript from "../../../actions/cleanup-transcript.js";
-import { aiSummaryTokenResourceId, CLIPS_EMAIL_FROM, getDb, schema } from "../../db/index.js";
+import {
+  aiSummaryTokenResourceId,
+  CLIPS_EMAIL_FROM,
+  getDb,
+  schema,
+} from "../../db/index.js";
 import { nanoid } from "../../lib/recordings.js";
 
 interface AiSummaryEmailBody {
@@ -161,11 +174,18 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const summary = await cleanupTranscript.run({
-      transcript: transcriptText,
-      task: "summary",
-      context: `Clip title: ${recording.title}`,
-    });
+    const summary = await runWithRequestContext(
+      {
+        userEmail: recording.ownerEmail,
+        orgId: recording.orgId ?? undefined,
+      },
+      () =>
+        cleanupTranscript.run({
+          transcript: transcriptText,
+          task: "summary",
+          context: `Clip title: ${recording.title}`,
+        }),
+    );
     const summaryMd = summary.summaryMd?.trim();
     if (!summaryMd) {
       return { ok: false, error: "summary_empty" };
@@ -177,7 +197,7 @@ export default defineEventHandler(async (event) => {
       process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
     const originalSubject = `${recording.ownerEmail} shared "${recording.title}" with you on ${appName}`;
     const subject = `Re: ${originalSubject}`;
-    const messageId = shareNotificationMessageId(
+    const threadMessageId = shareNotificationMessageId(
       "recording",
       recordingId,
       viewerEmail,
@@ -187,9 +207,7 @@ export default defineEventHandler(async (event) => {
     const { html, text } = renderEmail({
       preheader: `Here's the summary for "${recording.title}"`,
       heading: `Summary: ${recording.title}`,
-      paragraphs: [
-        escapeHtml(summaryMd).replace(/\n+/g, "<br />"),
-      ],
+      paragraphs: [escapeHtml(summaryMd).replace(/\n+/g, "<br />")],
       cta: { label: "Watch the recording", url: recordingUrl },
       footer: `Generated automatically from the transcript of "${escapeHtml(recording.title)}".`,
     });
@@ -202,8 +220,8 @@ export default defineEventHandler(async (event) => {
       from: CLIPS_EMAIL_FROM,
       replyTo: recording.ownerEmail,
       messageId: replyMessageId,
-      inReplyTo: messageId,
-      references: messageId,
+      inReplyTo: threadMessageId,
+      references: threadMessageId,
     });
 
     return { ok: true, sent: true };
