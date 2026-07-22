@@ -39,11 +39,6 @@ page.on("console", (message) => {
 });
 await page.goto("/settings", { waitUntil: "domcontentloaded", timeout: 45_000 });
 await page.waitForTimeout(2_000);
-const manageAgentTab = page.locator('[role="tab"]').nth(1);
-if (await manageAgentTab.count()) {
-  await manageAgentTab.click({ force: true });
-  await page.waitForTimeout(1_000);
-}
 if (page.url().includes("/_agent-native/sign-in")) {
   const email = `qa-${app}-${Date.now()}@example.com`;
   await page.locator('[data-tab="signup"]').click();
@@ -58,6 +53,16 @@ if (page.url().includes("/_agent-native/sign-in")) {
   await page.goto("/settings", { waitUntil: "domcontentloaded", timeout: 45_000 });
 }
 await page.waitForTimeout(2_000);
+const manageAgentTab = page.locator('[role="tab"]').nth(1);
+await manageAgentTab.waitFor({ state: "visible", timeout: 15_000 });
+await manageAgentTab.click({ force: true });
+await page.waitForTimeout(1_000);
+if (mode === "dark") {
+  const voiceSection = page.getByText("Voice Transcription", { exact: true });
+  await voiceSection.waitFor({ state: "visible", timeout: 15_000 });
+  await voiceSection.click({ force: true });
+  await page.waitForTimeout(1_000);
+}
 const info = await page.evaluate(() => ({
   url: location.href,
   title: document.title,
