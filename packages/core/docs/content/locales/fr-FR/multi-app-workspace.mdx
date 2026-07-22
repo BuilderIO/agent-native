@@ -5,7 +5,7 @@ description: "Hébergez de nombreuses applications natives d'agent dans un seul 
 
 # Espaces de travail multi-applications
 
-> **Quel document sur l'espace de travail ?** Cette page couvre la **forme de déploiement** : un monorepo, de nombreuses applications, une authentification partagée et un déploiement unifié. Pour la couche de personnalisation de l'agent (Ressources de l'agent : `AGENTS.md`, mémoire, skills, agents personnalisés), voir [Ressources de l'agent](/docs/workspace) ; pour la gouvernance (qui examine, approuve et possède quoi), voir [Workspace Governance](/docs/workspace-management).
+> **Quel document sur l'espace de travail ?** Cette page couvre la **forme de déploiement** : un monorepo, de nombreuses applications, une authentification partagée et un déploiement unifié. Pour la couche de personnalisation de l'agent (Ressources de l'agent : `AGENTS.md`, mémoire, skills, agents personnalisés), voir [Ressources de l'agent](/docs/agent-resources) ; pour la gouvernance (qui examine, approuve et possède quoi), voir [Workspace Governance](/docs/workspace-management).
 
 Lorsque le vibe-coding d'un outil interne prend un après-midi, vous ne vous arrêtez pas à un seul. Une équipe se retrouve avec un CRM, une boîte de réception d'assistance, un tableau de bord, une console d'opérations – dix petites applications, chacune échafaudée indépendamment. C'est génial jusqu'à ce que vous deviez changer quelque chose dans chacun d'eux.
 
@@ -218,7 +218,7 @@ Tout ce que vous personnalisez de manière transversale se trouve dans `packages
 
 Utilisez `packages/shared` pour les valeurs par défaut au niveau du code qui doivent être fournies avec le dépôt : plugins, actions partagé, code React partagé, système de fichiers `AGENTS.md` et système de fichiers skills. Utilisez les ressources de l'espace de travail Dispatch pour le contexte global modifiable au moment de l'exécution que les administrateurs souhaitent gérer sans modification du code.
 
-Les ressources de répartition sont limitées à **Toutes les applications** (chaque application en hérite au moment de l'exécution, sans étape de copie ou de synchronisation) ou **Applications sélectionnées** (accordées par application pour le contexte spécifique à l'application). Voir [Ressources de l'agent](/docs/workspace#global-resources) pour le tableau complet du modèle de ressource, les conventions de chemin et le pack de démarrage recommandé.
+Les ressources de répartition sont limitées à **Toutes les applications** (chaque application en hérite au moment de l'exécution, sans étape de copie ou de synchronisation) ou **Applications sélectionnées** (accordées par application pour le contexte spécifique à l'application). Voir [Ressources de l'agent](/docs/agent-resources#global-resources) pour le tableau complet du modèle de ressource, les conventions de chemin et le pack de démarrage recommandé.
 
 ## Authentification et RBAC {#auth-and-rbac}
 
@@ -415,7 +415,7 @@ Le modèle de l'espace de travail est intentionnellement étroit. Quelques élé
 
 ## Voir aussi {#see-also}
 
-- [Ressources de l'agent](/docs/workspace) : la couche de personnalisation (`AGENTS.md`, `LEARNINGS.md`, mémoire personnelle, skills, agents personnalisés) que chaque application de l'espace de travail partage.
+- [Ressources de l'agent](/docs/agent-resources) : la couche de personnalisation (`AGENTS.md`, `LEARNINGS.md`, mémoire personnelle, skills, agents personnalisés) que chaque application de l'espace de travail partage.
 - [Workspace Governance](/docs/workspace-management) – branchement, CODEOWNERS, examen des relations publiques sur de nombreuses applications dans un seul dépôt.
 - [Multi-Tenancy](/docs/multi-tenancy) – organisations, rôles et isolation des données par organisation.
 - [Cross-App SSO](/docs/cross-app-sso) : fédération d'identités pour les déploiements de domaines distincts.

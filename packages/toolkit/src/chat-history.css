@@ -16,6 +16,7 @@
 .an-chat-history {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 
@@ -49,6 +50,7 @@
 
 .an-chat-history__list {
   overflow-y: auto;
+  min-width: 0;
   padding: 4px 0;
   max-height: 16rem;
 }
@@ -57,6 +59,10 @@
   max-height: none;
   flex: 1;
   min-height: 0;
+}
+
+.an-chat-history-rail .an-chat-history__state:empty {
+  display: none;
 }
 
 .an-chat-history__state {
@@ -72,6 +78,55 @@
   color: hsl(38 92% 50%);
 }
 
+.an-chat-history-rail__footer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 1px 4px 0;
+}
+
+.an-chat-history-rail__disclosure,
+.an-chat-history-rail__new-chat {
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: hsl(var(--muted-foreground) / 0.72);
+  cursor: pointer;
+}
+
+.an-chat-history-rail__disclosure:hover,
+.an-chat-history-rail__new-chat:hover {
+  background: hsl(var(--accent) / 0.5);
+  color: hsl(var(--accent-foreground));
+}
+
+.an-chat-history-rail__disclosure:focus-visible,
+.an-chat-history-rail__new-chat:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.an-chat-history-rail__disclosure {
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  min-height: 30px;
+}
+
+.an-chat-history-rail__new-chat {
+  flex: 1 1 auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: start;
+}
+
 .an-chat-history__section-label {
   padding: 6px 12px 4px;
   font-size: 10px;
@@ -83,12 +138,14 @@
 .an-chat-history--rail .an-chat-history__section {
   display: grid;
   gap: 1px;
+  min-width: 0;
 }
 
 /* ── Row ──────────────────────────────────────────────────────────────── */
 
 .an-chat-history-row {
   position: relative;
+  min-width: 0;
 }
 
 .an-chat-history--rail .an-chat-history-row {
@@ -99,6 +156,7 @@
 .an-chat-history-row__button {
   display: block;
   width: 100%;
+  min-width: 0;
   padding: 8px 12px;
   border: 0;
   background: transparent;
@@ -141,6 +199,7 @@
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .an-chat-history-row__title {

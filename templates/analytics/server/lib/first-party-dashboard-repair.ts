@@ -4,10 +4,8 @@ import { recordChange } from "@agent-native/core/server";
 import { and, desc, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
-import {
-  FIRST_PARTY_DASHBOARD_ID,
-  repairFirstPartyRecurringUserPanels,
-} from "./first-party-metric-catalog";
+import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export async function repairPersistedFirstPartyDashboardQueries(): Promise<boolean> {
   // guard:allow-unscoped — startup repair targets one fixed canonical dashboard
@@ -36,7 +34,7 @@ export async function repairPersistedFirstPartyDashboardQueries(): Promise<boole
   } catch {
     return false;
   }
-  const repaired = repairFirstPartyRecurringUserPanels(config);
+  const repaired = repairCanonicalFirstPartyDashboardQueries(config);
   if (!repaired.changed) return false;
 
   const repairedAt = new Date().toISOString();

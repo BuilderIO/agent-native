@@ -1,5 +1,4 @@
 import {
-  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
@@ -203,11 +202,7 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (
-        location.pathname === "/ask" &&
-        path !== "/ask" &&
-        isAgentChatHomeHandoffActive("forms")
-      ) {
+      if (location.pathname === "/ask" && path !== "/ask") {
         markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);

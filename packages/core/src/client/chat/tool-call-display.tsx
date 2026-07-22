@@ -94,20 +94,22 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
 
 export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 
-function ToolLongRunningHintShell({
+export function ToolActivityPresentation({
   toolName,
   isRunning,
+  isActiveTail,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
+  isActiveTail: boolean;
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
-  // useState initializer runs once at mount: a row that mounts already
-  // resolved never animates, while a tool appended during an active stream
-  // mounts running and animates in.
-  const [animateEntry] = useState(isRunning);
+  // A batched update can first reveal a tool with its result already attached.
+  // Presentation follows the active chat tail rather than execution state so
+  // that newly revealed completed tools still get their entrance motion.
+  const [animateEntry] = useState(isActiveTail);
 
   useEffect(() => {
     if (!isRunning) {
@@ -125,10 +127,10 @@ function ToolLongRunningHintShell({
     <div
       className={cn(
         "agent-tool-call",
-        animateEntry &&
-          "motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-200 motion-safe:ease-[var(--ease-out-strong)]",
+        animateEntry && "agent-tool-call--entering",
       )}
       data-running={isRunning ? "true" : undefined}
+      data-active-tail={isActiveTail ? "true" : undefined}
     >
       {children}
       {isRunning && showLongRunningHint && (
@@ -554,6 +556,7 @@ export function ToolCallDisplay({
   approval,
   repeatCount,
   isLatestRunning = isRunning,
+  isActiveTail,
 }: {
   toolName: string;
   argsText?: string;
@@ -565,16 +568,24 @@ export function ToolCallDisplay({
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
+  /** The latest tool shown while the overall chat turn is still active. */
+  isActiveTail?: boolean;
+  /** @deprecated Use isActiveTail. */
   isLatestRunning?: boolean;
 }) {
+  const showActiveTail = isActiveTail ?? isLatestRunning;
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
   // is always stable (no conditional hook calls).
   const toolKind = structuredMeta?.toolKind as string | undefined;
   const wrapToolDisplay = (children: React.ReactNode) => (
-    <ToolLongRunningHintShell toolName={toolName} isRunning={isRunning}>
+    <ToolActivityPresentation
+      toolName={toolName}
+      isRunning={isRunning}
+      isActiveTail={showActiveTail}
+    >
       {children}
-    </ToolLongRunningHintShell>
+    </ToolActivityPresentation>
   );
   if (toolKind === "bash") {
     return wrapToolDisplay(
@@ -616,7 +627,7 @@ export function ToolCallDisplay({
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={isRunning}
-      isLatestRunning={isLatestRunning}
+      isActiveTail={showActiveTail}
       approval={approval}
       repeatCount={repeatCount}
     />,
@@ -631,7 +642,7 @@ function ToolCallDisplayGeneric({
   mcpApp,
   chatUI,
   isRunning,
-  isLatestRunning,
+  isActiveTail,
   approval,
   repeatCount,
 }: {
@@ -642,7 +653,7 @@ function ToolCallDisplayGeneric({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
-  isLatestRunning: boolean;
+  isActiveTail: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
@@ -734,6 +745,7 @@ function ToolCallDisplayGeneric({
     resultText: result,
     resultJson: parsedResult,
     isRunning,
+    isActiveTail,
     chatUI,
   };
   const skipRegistryRenderer =
@@ -805,7 +817,7 @@ function ToolCallDisplayGeneric({
         <span
           className={cn(
             "min-w-0 truncate font-normal",
-            isRunning && isLatestRunning && "agent-running-shimmer",
+            isActiveTail && "agent-running-shimmer",
           )}
         >
           {displayName}
@@ -888,6 +900,7 @@ export function ToolCallFallback({
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
   isLatestRunning?: boolean;
+  isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning =
@@ -908,6 +921,7 @@ export function ToolCallFallback({
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      isActiveTail={rest.isActiveTail}
       isLatestRunning={rest.isLatestRunning}
       approval={rest.approval}
       repeatCount={rest.repeatCount}
@@ -935,11 +949,9 @@ export function ReconnectStreamMessage({
     content.at(-1)?.type === "text" ? content.length - 1 : -1;
   const streamingReasoningPartIndex =
     content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
-  const latestRunningToolIndex = content.reduce(
+  const latestActiveToolIndex = content.reduce(
     (latestIndex, part, index) =>
-      part.type === "tool-call" &&
-      part.result === undefined &&
-      (chatRunning || part.activity === true)
+      part.type === "tool-call" && (chatRunning || part.activity === true)
         ? index
         : latestIndex,
     -1,
@@ -983,7 +995,7 @@ export function ReconnectStreamMessage({
         isRunning={
           part.result === undefined && (chatRunning || part.activity === true)
         }
-        isLatestRunning={i === latestRunningToolIndex}
+        isActiveTail={i === latestActiveToolIndex}
         approval={part.approval}
         repeatCount={part.repeatCount}
       />

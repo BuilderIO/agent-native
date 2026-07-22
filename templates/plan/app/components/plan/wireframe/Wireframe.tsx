@@ -194,7 +194,7 @@ function ArtboardFrame({
   const fitRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const theme: "light" | "dark" = resolvedTheme === "dark" ? "dark" : "light";
-  const style = useWireframeStyle();
+  const preferredStyle = useWireframeStyle();
   const preset = SURFACE_PRESETS[surface] ?? SURFACE_PRESETS.desktop;
   const height = canvasSize ?? preset.height;
   const width = canvasWidth ?? preset.width;
@@ -202,6 +202,7 @@ function ArtboardFrame({
   const maxFrameWidth = compact ? preset.width * baseScale : width;
   const [fitScale, setFitScale] = useState(baseScale);
   const designMode = renderMode === "design";
+  const style = designMode ? "clean" : preferredStyle;
   const sketchy = !designMode && style === "sketchy" && !skeleton;
   const roughEnabled = sketchy && roughOverlay;
   const paper = designMode
@@ -560,6 +561,7 @@ function KitWireframe({
       canvasSize={canvasSize}
       canvasWidth={canvasWidth}
       skeleton={data.skeleton}
+      renderMode={data.renderMode}
       showFrame={showFrame}
       selector="[data-rough]"
       caption={data.caption}

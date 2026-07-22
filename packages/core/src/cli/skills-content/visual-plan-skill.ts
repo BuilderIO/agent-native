@@ -301,6 +301,18 @@ and screen ids across both surfaces. The canvas is the inspectable static refere
 the prototype is the interactive version of that same flow, not a separate
 design direction.
 
+Treat “higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,”
+“real design,” and “not a sketch/wireframe” as design-first language even when
+the request also says “mockup.” For a new plan, use \`create-plan-design\`. For
+an existing plan, keep the same plan id and call \`update-visual-plan\` with a
+\`set-visual-render-mode\` patch using \`renderMode: "design"\` plus the upgraded
+screen HTML/CSS in the same update. Ground the result in the real app shell,
+tokens, typography, spacing, and states, and add stable \`data-design-id\`
+targets. Put scoped styles in each screen's \`css\` field, never in a \`<style>\`
+tag. The viewer-local Clean toggle only changes one browser's wireframe
+preference; it is not a fidelity upgrade. Do not create a duplicate plan to
+handle a fidelity follow-up.
+
 ## Wireframe quality — read \`references/wireframe.md\`
 
 UI recap/plan wireframes must meet a strict quality bar — full-width chrome,
@@ -349,7 +361,9 @@ directory before authoring a plan.
   visual surface, canvas only, or canvas + prototype.
 - \`create-ui-plan\`: start a UI-first plan when the work is primarily product UI.
 - \`create-prototype-plan\`: start a prototype-first plan with a functional top
-  review surface.
+  review surface. If the interaction itself must also be high fidelity, set each
+  screen's \`renderMode\` to \`design\` and pass scoped styles through \`css\`;
+  otherwise use \`create-plan-design\` for design-first review.
 - \`create-plan-design\`: start a full-fidelity branded Design-tab plan with an
   optional matching Prototype tab.
 - \`convert-visual-plan-to-prototype\`: convert an existing HTML wireframe canvas
@@ -357,7 +371,10 @@ directory before authoring a plan.
 - \`create-visual-questions\`: use only when the user explicitly asks for a visual
   intake questionnaire, not as \`/visual-plan\` preflight.
 - \`update-visual-plan\`: revise content, status, or comments with targeted
-  \`contentPatches\` (see Core Workflow steps 6-7). \`replace-blocks\` and full
+  \`contentPatches\` (see Core Workflow steps 6-7). Use
+  \`set-visual-render-mode\` with \`renderMode: "design"\` when promoting an
+  existing plan to high fidelity, together with deliberate screen HTML/CSS;
+  render mode alone only removes sketch treatment. \`replace-blocks\` and full
   \`content\` replacement require \`expectedUpdatedAt\` from a fresh
   \`get-visual-plan\` call.
 - \`read-visual-plan-source\`: read the normalized plan as \`plan.mdx\`,

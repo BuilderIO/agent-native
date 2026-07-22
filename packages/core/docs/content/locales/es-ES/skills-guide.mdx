@@ -137,7 +137,7 @@ Crea una habilidad cuando:
 No crees una habilidad cuando:
 
 - La guía ya existe en otra habilidad; en su lugar, amplíela
-- La guía es única: colóquela en `AGENTS.md` o en la memoria del espacio de trabajo
+- La guía es única: colóquela en `AGENTS.md` o en la memoria del agente
 
 ## Formato de habilidad {#skill-format}
 
@@ -295,11 +295,11 @@ Esto reemplaza el antiguo truco de confiar en el código Claude que solo lee `.c
 
 </Callout>
 
-Si el conocimiento se aplica a _todos_ los que trabajan en la aplicación ("siempre prefiera CTE a las subconsultas"), es una habilidad o `LEARNINGS.md` compartida. Si se trata de _este usuario en particular_ ("A Steve le gustan las respuestas concisas"), pertenece a `memory/MEMORY.md`. Consulte [Workspace Memory](/docs/workspace#memory) para conocer el tratamiento completo.
+Si el conocimiento se aplica a _todos_ los que trabajan en la aplicación ("siempre prefiera CTE a las subconsultas"), es una habilidad o `LEARNINGS.md` compartida. Si se trata de _este usuario en particular_ ("A Steve le gustan las respuestas concisas"), pertenece a `memory/MEMORY.md`. Consulte [Recursos del Agente — Memoria](/docs/agent-resources#memory) para conocer el tratamiento completo.
 
 ## Skills frente a recursos SQL {#skills-vs-resources}
 
-Esta página presenta un skill como un archivo en `.agents/skills/<name>/SKILL.md`. [Workspace](/docs/workspace#skills) presenta el mismo skill como un recurso SQL en la ruta `skills/<slug>/SKILL.md`, con alcance de workspace, compartido o personal. Son el mismo concepto desde dos perspectivas: el modo Code lee y escribe el archivo directamente; el modo App lo almacena como una fila de recurso para que funcione sin un sistema de archivos. En ambos casos, crea el contenido con el formato de esta página.
+Esta página presenta un skill como un archivo en `.agents/skills/<name>/SKILL.md`. [Recursos del Agente](/docs/agent-resources#skills) presenta el mismo skill como un recurso SQL en la ruta `skills/<slug>/SKILL.md`, con alcance de workspace, compartido o personal. Son el mismo concepto desde dos perspectivas: el modo Code lee y escribe el archivo directamente; el modo App lo almacena como una fila de recurso para que funcione sin un sistema de archivos. En ambos casos, crea el contenido con el formato de esta página.
 
 ## skills respaldado por la aplicación: detalles completos {#app-backed-skills-full}
 
@@ -424,6 +424,6 @@ las mismas instrucciones sin mantener una segunda copia.
 ## Qué sigue {#whats-next}
 
 - [**Escribir instrucciones del agente**](/docs/writing-agent-instructions) — redactar descripciones de skills y distribuir la guía entre AGENTS.md, skills y memoria
-- [**Workspace**](/docs/workspace#skills) — dónde se almacenan los skills como recursos SQL en el modo App
+- [**Recursos del Agente**](/docs/agent-resources#skills) — dónde se almacenan los skills como recursos SQL en el modo App
 - [**Menciones de agentes**](/docs/agent-mentions) — el activador de comandos `/` que invoca un skill en el chat
 - [**Plugin y marketplace de Plan**](/docs/plan-plugin) — instalación y actualización automática integral de un skill real respaldado por una aplicación

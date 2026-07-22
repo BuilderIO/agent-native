@@ -8,13 +8,16 @@ export default createCollabPlugin({
   contentColumn: "content",
   idColumn: "id",
   autoSeed: true,
-  resourceType: "design",
-  resolveResourceId: async (docId) => {
-    const db = getDb();
-    const [file] = await db
-      .select({ designId: schema.designFiles.designId })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.id, docId));
-    return file?.designId ?? null;
+  access: {
+    mode: "resource",
+    resourceType: "design",
+    resolveResourceId: async (docId) => {
+      const db = getDb();
+      const [file] = await db
+        .select({ designId: schema.designFiles.designId })
+        .from(schema.designFiles)
+        .where(eq(schema.designFiles.id, docId));
+      return file?.designId ?? null;
+    },
   },
 });

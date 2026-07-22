@@ -24,9 +24,10 @@ shared agent sidebar.
 - **Always show the mic alongside the send button.** Cursor replaces send
   with mic when the composer is empty; their users complain. We keep both
   visible — Lovable does the same.
-- **Ask before switching modes.** The mic opens a shadcn popover offering
-  **Start voice mode** and **Keep dictating**; never silently replace the
-  established dictation behavior.
+- **Ask before switching modes.** The mic opens a compact shadcn popover with
+  **Real-time voice** as the primary action and **Dictate** as the secondary;
+  never silently replace the established dictation behavior. Users can choose
+  **Remember my preference** to skip the chooser on later clicks.
 - **Dictation is click-to-toggle, not push-to-talk.** More forgiving in a sidebar, avoids
   host-app hotkey clashes. Keyboard shortcut is `Cmd/Ctrl+Shift+M` and
   `Escape` cancels mid-recording.
@@ -100,6 +101,9 @@ action before requesting microphone permission.
   `application_state["realtime-voice-prefs"]`. Keep this separate from
   `voice-transcription-prefs`, which configures editable dictation rather than
   the speech-to-speech session.
+- Store the optional remembered chooser selection at
+  `application_state["voice-input-preference"]`. Keep it separate from both
+  mode-specific preference objects.
 - Missing-key failures should open Settings focused on the user-scoped
   `OPENAI_API_KEY` field. Never send, log, or echo the key to the browser.
 
@@ -147,11 +151,11 @@ Default behavior:
 
 | File                                                                  | Purpose                                             |
 | --------------------------------------------------------------------- | --------------------------------------------------- |
-| `packages/core/src/client/composer/useVoiceDictation.ts`              | Provider-routing hook (MediaRecorder / Web Speech)  |
-| `packages/core/src/client/composer/VoiceButton.tsx`                   | Mic button + live amplitude + cancel overlay        |
-| `packages/core/src/client/composer/RealtimeVoiceMode.tsx`            | Opt-in popover + persistent speech orb              |
-| `packages/core/src/client/composer/useRealtimeVoiceMode.tsx`         | WebRTC lifecycle, provider events, and tool bridge  |
-| `packages/core/src/client/composer/TiptapComposer.tsx`                | Wires the hook, insertion, and keyboard shortcut    |
+| `packages/toolkit/src/composer/useVoiceDictation.ts`                  | Provider-routing hook (MediaRecorder / Web Speech)  |
+| `packages/toolkit/src/composer/VoiceButton.tsx`                       | Mic button + live amplitude + cancel overlay        |
+| `packages/toolkit/src/composer/RealtimeVoiceMode.tsx`                | Opt-in popover + persistent speech orb              |
+| `packages/toolkit/src/composer/useRealtimeVoiceMode.tsx`             | WebRTC lifecycle, provider events, and tool bridge  |
+| `packages/toolkit/src/composer/TiptapComposer.tsx`                    | Wires the hook, insertion, and keyboard shortcut    |
 | `packages/core/src/client/settings/VoiceTranscriptionSection.tsx`     | Live source + cleanup controls in sidebar settings  |
 | `packages/core/src/client/transcription/BuilderTranscriptionCta.tsx`  | CTA shown when Builder account isn't connected      |
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |

@@ -174,6 +174,58 @@ describe("HubSpotCrmAdapter", () => {
     expect(result.records[0]!.fields).not.toHaveProperty("secret_note");
   });
 
+  it("uses the contact-specific last-modified property for incremental syncs", async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    const crm = adapter(
+      transport((input) => {
+        expect(input.method).toBe("POST");
+        expect(input.path).toMatch(
+          /^\/crm\/v3\/objects\/(contacts|companies|deals)\/search$/,
+        );
+        requestBodies.push(input.body);
+        return { status: 200, body: { results: [] } };
+      }),
+    );
+
+    for (const objectType of ["contacts", "companies", "deals"]) {
+      await crm.syncPage({
+        scope: { objectType, updatedAfter: "2026-07-21T00:00:00.000Z" },
+        fieldAllowList: [],
+        limit: 25,
+      });
+    }
+
+    expect(requestBodies).toEqual([
+      expect.objectContaining({
+        filterGroups: [
+          {
+            filters: [
+              expect.objectContaining({ propertyName: "lastmodifieddate" }),
+            ],
+          },
+        ],
+      }),
+      expect.objectContaining({
+        filterGroups: [
+          {
+            filters: [
+              expect.objectContaining({ propertyName: "hs_lastmodifieddate" }),
+            ],
+          },
+        ],
+      }),
+      expect.objectContaining({
+        filterGroups: [
+          {
+            filters: [
+              expect.objectContaining({ propertyName: "hs_lastmodifieddate" }),
+            ],
+          },
+        ],
+      }),
+    ]);
+  });
+
   it("discovers generic custom object types without normalizing their opaque ids", async () => {
     const mockTransport = transport((input) => {
       if (input.path === "/crm/v3/schemas/2-007") {

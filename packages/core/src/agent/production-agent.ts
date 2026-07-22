@@ -3087,6 +3087,21 @@ function normalizeToolCallInputForHistory(
   return { rawInput: input };
 }
 
+function dedupeAssistantToolCallsById(
+  content: import("./engine/types.js").EngineContentPart[],
+): import("./engine/types.js").EngineContentPart[] {
+  const seenToolCallIds = new Set<string>();
+  const deduped: import("./engine/types.js").EngineContentPart[] = [];
+  for (const part of content) {
+    if (part.type === "tool-call") {
+      if (seenToolCallIds.has(part.id)) continue;
+      seenToolCallIds.add(part.id);
+    }
+    deduped.push(part);
+  }
+  return deduped;
+}
+
 function toolInputSchemaErrorResult(
   toolName: string,
   input: unknown,
@@ -3971,8 +3986,16 @@ export async function runAgentLoop(opts: {
       }
     }
     if (!assistantContent) {
-      // No content — done
-      break;
+      if (!terminalStopReason) {
+        // A stream that disappears without a terminal stop is an interrupted
+        // chunk, not a successful empty answer. Let the continuation path
+        // recover it instead of persisting a tool-only completed turn.
+        send({ type: "auto_continue", reason: "stream_ended" });
+        return usage;
+      }
+      // Route a clean terminal stop with no normalized content through the
+      // empty-final retry/fallback below.
+      assistantContent = [];
     }
 
     if (toolCallErrors.size > 0) {
@@ -3996,6 +4019,8 @@ export async function runAgentLoop(opts: {
       }
     }
 
+    assistantContent = dedupeAssistantToolCallsById(assistantContent);
+
     const assistantContentForHistory = assistantContent.map((part) =>
       part.type === "tool-call"
         ? {
@@ -4005,7 +4030,9 @@ export async function runAgentLoop(opts: {
         : part,
     );
 
-    messages.push({ role: "assistant", content: assistantContentForHistory });
+    if (assistantContentForHistory.length > 0) {
+      messages.push({ role: "assistant", content: assistantContentForHistory });
+    }
 
     const toolCallParts = assistantContent.filter(
       (p): p is import("./engine/types.js").EngineToolCallPart =>

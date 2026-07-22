@@ -9,7 +9,7 @@ A **recurring job** is a prompt that runs on a cron schedule. It's how the agent
 
 Recurring jobs fire on a clock. To react to _events_ (a booking created, an email received) — same `jobs/` file format plus conditions — see [Automations](/docs/automations).
 
-Jobs live in [Agent Resources](/docs/workspace) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
+Jobs live in [Agent Resources](/docs/agent-resources) at `jobs/<name>.md` — just a Markdown file with YAML frontmatter. No registration, no wiring. Drop the file in and the framework picks it up.
 
 ## A job file {#job-file}
 
@@ -40,12 +40,12 @@ Jobs live in [Agent Resources](/docs/workspace) at `jobs/<name>.md` — just a M
     {
       lines: "7-12",
       label: "The prompt",
-      note: "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context.",
+      note: "The body is just a prompt — the agent runs it at each firing with all its normal tools and agent context.",
     },
   ]}
 />
 
-That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and workspace context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
+That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and agent context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
 
 ## Frontmatter {#frontmatter}
 
@@ -54,7 +54,7 @@ That's it. The body is a prompt the agent runs at each scheduled firing. The age
 | `schedule`   | cron expression               | _(required)_ | Standard 5-field cron. `"0 7 * * *"` = every day at 07:00; `"0 */4 * * *"` = every 4 hours.            |
 | `enabled`    | boolean                       | `true`       | Flip to `false` to pause without deleting the job.                                                     |
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`  | `"creator"` runs with the job owner's identity and `ANTHROPIC_API_KEY`. `"shared"` uses the org's key. |
-| `createdBy`  | email                         | _(auto)_     | Populated when the job is created through the workspace UI or by the agent.                            |
+| `createdBy`  | email                         | _(auto)_     | Populated when the job is created through the Agent Resources UI or by the agent.                      |
 | `orgId`      | string                        | _(auto)_     | Org scope; inherited from the creator's active org.                                                    |
 | `lastRun`    | ISO timestamp                 | _(managed)_  | Written by the scheduler after each run.                                                               |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(managed)_  | Latest outcome.                                                                                        |
@@ -211,7 +211,7 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 ## Debugging a job {#debugging}
 
-- Open `jobs/<name>.md` in the workspace — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- Open `jobs/<name>.md` in Agent Resources — the frontmatter shows `lastRun`, `lastStatus`, `lastError`, `nextRun`.
 - **Test it without waiting:** there's no force-fire tool. To exercise the same work on demand, either paste the job's prompt into the agent chat and let it run there, or temporarily set the schedule to the next minute so the scheduler picks it up on the next tick (then restore the real cron).
 - **Pause it:** flip `enabled: false`. The file stays put, just stops running.
 
@@ -234,7 +234,7 @@ A single `manage-jobs` tool is registered in every template. The `action` parame
 
 Don't confuse recurring jobs with `@agent-native/scheduling`:
 
-- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in the workspace. Runs on any agent-native app.
+- **Recurring jobs (this page)** — cron-scheduled _prompts_ the agent runs in the background. Framework-level. Lives in Agent Resources. Runs on any agent-native app.
 - **`@agent-native/scheduling`** — a reusable domain package for building calendar/booking features (event types, availability windows, bookings). Powers the `calendar` template and custom scheduling surfaces.
 
 Recurring jobs are "how do I make the agent act on its own?" The scheduling package is "how do I build a calendar app?" Different concerns.
@@ -242,7 +242,7 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 ## What's next
 
 - [**Automations**](/docs/automations) — add event triggers and conditions to the same `jobs/` format
-- [**Agent Resources**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
+- [**Agent Resources**](/docs/agent-resources) — where jobs live alongside skills, memory, and custom agents
 - [**Actions**](/docs/actions) — the tools a job calls
 - [**MCP Clients**](/docs/mcp-clients) — connect remote or local MCP tools and OAuth grants
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work

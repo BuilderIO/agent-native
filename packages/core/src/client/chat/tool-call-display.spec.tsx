@@ -232,7 +232,27 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBeNull();
-    expect(row?.className).not.toContain("animate-in");
+    expect(row?.className).not.toContain("agent-tool-call--entering");
+  });
+
+  it("animates and shimmers a resolved tool that is the active chat tail", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          result="done"
+          isRunning={false}
+          isActiveTail
+        />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBeNull();
+    expect(row?.getAttribute("data-active-tail")).toBe("true");
+    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
   });
 
   it("animates a tool row that mounts running", () => {
@@ -244,7 +264,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBe("true");
-    expect(row?.className).toContain("animate-in");
+    expect(row?.className).toContain("agent-tool-call--entering");
   });
 
   it("shimmers only the newest running reconnect tool", () => {
@@ -276,6 +296,44 @@ describe("ToolCallDisplay native renderers", () => {
     const shimmer = container.querySelectorAll(".agent-running-shimmer");
     expect(shimmer).toHaveLength(1);
     expect(shimmer[0]?.textContent).toBe("read file");
+  });
+
+  it("keeps only the newest resolved reconnect tool active while the chat runs", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "list-files",
+        argsText: "",
+        args: {},
+        result: "done",
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "read-file",
+        argsText: "",
+        args: {},
+        result: "done",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const activeRows = container.querySelectorAll(
+      '.agent-tool-call[data-active-tail="true"]',
+    );
+    expect(activeRows).toHaveLength(1);
+    expect(activeRows[0]?.textContent).toContain("read file");
+    expect(
+      activeRows[0]?.querySelector(".agent-running-shimmer"),
+    ).not.toBeNull();
   });
 
   it("shows a subtle long-running hint after a running tool stays active", () => {

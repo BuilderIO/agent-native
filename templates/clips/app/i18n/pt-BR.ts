@@ -493,6 +493,7 @@ const messages = {
     makePublicAndCopy: "Tornar público e copiar",
     copy: "Copiar",
     addPeopleByEmail: "Adicionar pessoas por e-mail",
+    invite: "Convidar",
     notifyPeople: "Notificar pessoas",
     peopleWithAccess: "Pessoas com acesso",
     ownerRole: "Proprietário",

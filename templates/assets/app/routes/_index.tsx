@@ -59,6 +59,13 @@ export default function CreatePage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const threadUrlSync = threadId
+    ? {
+        routeThreadId: threadId,
+        getPath: chatThreadPath,
+        navigate,
+      }
+    : undefined;
   const imageModelMenu = useImageModelMenu();
 
   useEffect(() => {
@@ -82,11 +89,7 @@ export default function CreatePage() {
         className="assets-create-chat-panel"
         defaultMode="chat"
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync={{
-          routeThreadId: threadId ?? null,
-          getPath: chatThreadPath,
-          navigate,
-        }}
+        threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
         threadFooterSlot={({ threadId }) => (
           <GenerationResults threadId={threadId} />
