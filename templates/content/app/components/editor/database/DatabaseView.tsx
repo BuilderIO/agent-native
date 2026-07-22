@@ -5552,6 +5552,9 @@ function DatabaseTableView({
                 }
                 sorts={sorts}
                 filters={filters}
+                onSortsChange={onSortsChange}
+                onFiltersChange={onFiltersChange}
+                onPropertyHiddenChange={onPropertyHiddenChange}
                 onPointerDown={(event) =>
                   startPropertyPointerDrag(property, event)
                 }
@@ -15780,6 +15783,9 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
+  onSortsChange,
+  onFiltersChange,
+  onPropertyHiddenChange,
   onPointerDown,
   onResize,
 }: {
@@ -15791,6 +15797,9 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
@@ -15833,6 +15842,11 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sorts={sorts}
+          filters={filters}
+          onSortsChange={onSortsChange}
+          onFiltersChange={onFiltersChange}
+          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
