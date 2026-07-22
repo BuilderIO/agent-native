@@ -21,7 +21,9 @@ export type SyncResult = {
   path: string;
 };
 
-export function syncByteSyncedFiles(templates: string[] = listTemplates()): SyncResult[] {
+export function syncByteSyncedFiles(
+  templates: string[] = listTemplates(),
+): SyncResult[] {
   const written: SyncResult[] = [];
   for (const surface of BYTE_SYNCED_FILES) {
     const canonical = readFileSync(surface.canonicalPath, "utf-8");

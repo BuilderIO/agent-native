@@ -102,7 +102,11 @@ export function checkPackageScripts(templates: string[]): Violation[] {
     const pkg = JSON.parse(raw) as { scripts?: Record<string, string> };
     const scripts = pkg.scripts ?? {};
     for (const key of Object.keys(REQUIRED_PACKAGE_SCRIPTS)) {
-      const message = packageScriptViolationMessage(template, key, scripts[key]);
+      const message = packageScriptViolationMessage(
+        template,
+        key,
+        scripts[key],
+      );
       if (message) {
         violations.push({
           rule: `pkg-script:${key}`,
@@ -334,7 +338,10 @@ export function checkDependencyBands(templates: string[]): Violation[] {
 
   for (const [template, deps] of depsByTemplate) {
     for (const [name, range] of Object.entries(deps)) {
-      if (name.startsWith("@agent-native/") && range !== AGENT_NATIVE_WORKSPACE_RANGE) {
+      if (
+        name.startsWith("@agent-native/") &&
+        range !== AGENT_NATIVE_WORKSPACE_RANGE
+      ) {
         violations.push({
           rule: "dep-workspace-range",
           template,

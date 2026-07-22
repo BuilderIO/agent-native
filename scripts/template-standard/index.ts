@@ -15,11 +15,7 @@
  */
 import { join } from "node:path";
 
-import {
-  type BaselineEntry,
-  loadBaseline,
-  reconcile,
-} from "./baseline.ts";
+import { type BaselineEntry, loadBaseline, reconcile } from "./baseline.ts";
 import { runAllChecks } from "./checks.ts";
 import {
   CORE_ROUTES_FINDING,
@@ -30,7 +26,11 @@ import {
 } from "./manifest.ts";
 import { syncByteSyncedFiles } from "./sync.ts";
 
-const BASELINE_PATH = join(REPO_ROOT, "scripts", "template-standard-baseline.json");
+const BASELINE_PATH = join(
+  REPO_ROOT,
+  "scripts",
+  "template-standard-baseline.json",
+);
 
 const write = !process.argv.includes("--check");
 
@@ -61,7 +61,9 @@ function runCheck(): void {
       `\n[template-standard] ${baselinedFailures.length} known gap(s), accepted in the baseline (Phase 2/3 should shrink these):`,
     );
     for (const violation of baselinedFailures) {
-      console.log(`  - ${violation.rule} :: ${violation.template} — ${violation.message}`);
+      console.log(
+        `  - ${violation.rule} :: ${violation.template} — ${violation.message}`,
+      );
     }
   }
 
@@ -69,7 +71,8 @@ function runCheck(): void {
     console.log(
       `\n[template-standard] ${staleBaselineEntries.length} baseline entrie(s) no longer reproduce — safe to delete from ${BASELINE_PATH}:`,
     );
-    for (const entry of staleBaselineEntries) console.log(formatBaselineEntry(entry));
+    for (const entry of staleBaselineEntries)
+      console.log(formatBaselineEntry(entry));
   }
 
   if (warnings.length > 0) {
@@ -77,7 +80,9 @@ function runCheck(): void {
       `\n[template-standard] ${warnings.length} version-drift warning(s) (WARN-level, does not fail the guard):`,
     );
     for (const violation of warnings) {
-      console.log(`  - ${violation.rule} :: ${violation.template} — ${violation.message}`);
+      console.log(
+        `  - ${violation.rule} :: ${violation.template} — ${violation.message}`,
+      );
     }
   }
 
@@ -86,7 +91,9 @@ function runCheck(): void {
       `\n[template-standard] ${newFailures.length} NEW violation(s) not covered by the baseline:`,
     );
     for (const violation of newFailures) {
-      console.error(`  - ${violation.rule} :: ${violation.template} — ${violation.message}`);
+      console.error(
+        `  - ${violation.rule} :: ${violation.template} — ${violation.message}`,
+      );
     }
     console.error(
       `\nIf this is genuinely new drift, fix the template. If it's an accepted, ` +
@@ -104,7 +111,9 @@ function runCheck(): void {
 function runWrite(): void {
   const written = syncByteSyncedFiles();
   if (written.length === 0) {
-    console.log("[template-standard] nothing to write; all byte-synced files already exist.");
+    console.log(
+      "[template-standard] nothing to write; all byte-synced files already exist.",
+    );
     return;
   }
   console.log(`[template-standard] wrote ${written.length} file(s):`);

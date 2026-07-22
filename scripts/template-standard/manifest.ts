@@ -91,7 +91,11 @@ export const CANONICAL_LEARNINGS_DEFAULTS = join(
   "assets",
   "learnings.defaults.md",
 );
-export const CANONICAL_GITIGNORE_SOURCE = join(MODULE_DIR, "assets", "_gitignore");
+export const CANONICAL_GITIGNORE_SOURCE = join(
+  MODULE_DIR,
+  "assets",
+  "_gitignore",
+);
 
 export const BYTE_SYNCED_FILES = [
   {

@@ -44,7 +44,11 @@ describe("packageScriptViolationMessage", () => {
   });
 
   it("rejects a test script that never calls vitest", () => {
-    const message = packageScriptViolationMessage("tasks", "test", "jest --run");
+    const message = packageScriptViolationMessage(
+      "tasks",
+      "test",
+      "jest --run",
+    );
     assert.match(message ?? "", /does not resolve through the expected/);
   });
 });
@@ -65,13 +69,19 @@ describe("extractTsconfigExtends", () => {
   });
 
   it("returns undefined when there is no extends field", () => {
-    assert.equal(extractTsconfigExtends(`{ "compilerOptions": {} }`), undefined);
+    assert.equal(
+      extractTsconfigExtends(`{ "compilerOptions": {} }`),
+      undefined,
+    );
   });
 });
 
 describe("hasUnrenderedPlaceholder", () => {
   it("flags a real scaffold placeholder", () => {
-    assert.equal(hasUnrenderedPlaceholder("# {{APP_NAME}} — Agent Guide"), true);
+    assert.equal(
+      hasUnrenderedPlaceholder("# {{APP_NAME}} — Agent Guide"),
+      true,
+    );
   });
 
   it("does not flag JSX inline-style double braces", () => {
