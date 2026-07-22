@@ -5,6 +5,7 @@ import {
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
+import { Tabs } from "@agent-native/toolkit/design-system";
 import {
   useCallback,
   useEffect,
@@ -250,21 +251,6 @@ export function SettingsTabsPage({
   const fallbackTab = tabs.some((tab) => tab.id === defaultTab)
     ? defaultTab
     : (tabs[0]?.id ?? "general");
-  const tabGroups = useMemo(() => {
-    const groups: Array<{ id: string; tabs: SettingsTabItem[] }> = [];
-
-    for (const tab of tabs) {
-      const groupId = tab.group ?? "app";
-      const previousGroup = groups.at(-1);
-      if (previousGroup?.id === groupId) {
-        previousGroup.tabs.push(tab);
-      } else {
-        groups.push({ id: groupId, tabs: [tab] });
-      }
-    }
-
-    return groups;
-  }, [tabs]);
   const isControlled = value !== undefined;
   const [internalTab, setInternalTab] = useState(() =>
     activeTabFromHash(tabs, fallbackTab),
@@ -518,62 +504,25 @@ export function SettingsTabsPage({
             )}
           </div>
         ) : (
-          <nav
+          <Tabs
+            items={tabs.map((tab) => ({
+              value: tab.id,
+              label: tab.label,
+              icon: tab.icon ? <tab.icon className="size-4 shrink-0" /> : null,
+              // The panel stays outside this navigation rail so settings
+              // keeps its existing scroll container and deep-link behavior.
+              content: null,
+            }))}
+            value={activeTab}
+            onChange={(tabId) => {
+              const nextTab = String(tabId);
+              changeTab(nextTab);
+              if (!isControlled) updateHashForTab(nextTab);
+            }}
+            orientation="vertical"
             aria-label={ariaLabel}
-            role="tablist"
             className="flex gap-1 overflow-x-auto sm:flex-col sm:overflow-x-visible"
-          >
-            {tabGroups.map((group, groupIndex) => (
-              <div
-                key={group.id}
-                data-settings-tab-group={group.id}
-                className={cn(
-                  "contents sm:block",
-                  groupIndex > 0 &&
-                    "sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2",
-                )}
-              >
-                <div className="contents sm:flex sm:flex-col sm:gap-1">
-                  {group.tabs.map((tab) => {
-                    const Icon = tab.icon;
-                    const selected = tab.id === selectedTab?.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={selected}
-                        aria-controls={`settings-tabpanel-${tab.id}`}
-                        id={`settings-tab-${tab.id}`}
-                        onClick={() => {
-                          changeTab(tab.id);
-                          if (!isControlled) updateHashForTab(tab.id);
-                        }}
-                        className={cn(
-                          "flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start text-sm font-medium transition-colors sm:w-full",
-                          selected
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                        )}
-                      >
-                        {Icon ? (
-                          <Icon
-                            className={cn(
-                              "size-4 shrink-0",
-                              selected
-                                ? "text-foreground"
-                                : "text-muted-foreground",
-                            )}
-                          />
-                        ) : null}
-                        <span className="truncate">{tab.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
+          />
         )}
       </div>
       <div

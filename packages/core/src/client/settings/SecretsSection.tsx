@@ -4,14 +4,11 @@
  * progressively discloses its controls.
  */
 
-import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
+  Picker,
+  TextField,
+} from "@agent-native/toolkit/design-system";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconChevronRight,
@@ -461,21 +458,21 @@ function SecretCard({
                 </div>
               )}
               <div className="flex gap-1.5">
-                <input
-                  ref={inputRef}
+                <TextField
+                  inputRef={inputRef}
                   type="password"
                   aria-label={secret.label}
                   value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSave();
+                  onChange={setValue}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") handleSave();
                   }}
                   placeholder={
                     secret.status === "set"
                       ? "Enter new value to rotate"
                       : "Paste key"
                   }
-                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+                  className="flex-1 text-[11px]"
                 />
                 <Button
                   type="button"
@@ -749,50 +746,46 @@ function AdHocKeysSection({
     <div className="space-y-2">
       {showForm && (
         <div className="rounded-md border border-border px-2.5 py-2 bg-accent/30 space-y-1.5">
-          <input
+          <TextField
             value={formName}
-            onChange={(e) =>
-              setFormName(
-                e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""),
-              )
+            onChange={(value) =>
+              setFormName(value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))
             }
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            className="w-full text-[11px]"
             aria-label="Key name"
             placeholder="KEY_NAME"
           />
-          <input
+          <TextField
             type="password"
             aria-label="Secret value"
             value={formValue}
-            onChange={(e) => setFormValue(e.target.value)}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            onChange={setFormValue}
+            className="w-full text-[11px]"
             placeholder="Secret value"
           />
-          <input
+          <TextField
             value={formDescription}
             aria-label="Description"
-            onChange={(e) => setFormDescription(e.target.value)}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            onChange={setFormDescription}
+            className="w-full text-[11px]"
             placeholder="Description (optional)"
           />
           <div className="flex items-center gap-2">
-            <Select
+            <Picker
+              mode="select"
+              options={[
+                { value: "user", label: "Personal" },
+                { value: "workspace", label: "Workspace" },
+              ]}
               value={formScope}
-              onValueChange={(value) =>
-                setFormScope(value as "user" | "workspace")
-              }
-            >
-              <SelectTrigger
-                aria-label="Scope"
-                className="h-auto w-auto rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="user">Personal</SelectItem>
-                <SelectItem value="workspace">Workspace</SelectItem>
-              </SelectContent>
-            </Select>
+              onChange={(value) => {
+                if (value === "user" || value === "workspace") {
+                  setFormScope(value);
+                }
+              }}
+              aria-label="Scope"
+              className="w-auto text-[11px]"
+            />
             <div className="ms-auto flex items-center gap-1.5">
               <Button
                 type="button"

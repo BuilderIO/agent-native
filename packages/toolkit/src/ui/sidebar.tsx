@@ -3,11 +3,11 @@ import { IconLayoutSidebar } from "@tabler/icons-react";
 import { VariantProps, cva } from "class-variance-authority";
 import * as React from "react";
 
-import { useIsMobile } from "../hooks/use-mobile.js";
 import {
   Skeleton as DesignSystemSkeleton,
   Tooltip as DesignSystemTooltip,
 } from "../design-system/components.js";
+import { useIsMobile } from "../hooks/use-mobile.js";
 import { cn } from "../utils.js";
 import { Button } from "./button.js";
 import { Input } from "./input.js";
