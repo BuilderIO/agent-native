@@ -629,6 +629,7 @@ describe("shareable resource access helpers", () => {
           principalType: "user",
           principalId: viewerEmail,
           role: "admin",
+          notify: false,
         }),
       ).resolves.toMatchObject({ updated: true });
     });
@@ -698,6 +699,7 @@ describe("shareable resource access helpers", () => {
           principalType: "user",
           principalId: viewerEmail,
           role: "admin",
+          notify: false,
         }),
       ).resolves.toMatchObject({ updated: true });
     });

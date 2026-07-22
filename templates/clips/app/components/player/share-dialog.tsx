@@ -19,6 +19,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { toast } from "sonner";
 
 import {
   CopyField,
@@ -253,6 +254,15 @@ function ShareRecordingContent({
             resourceUrl={absoluteAppUrl(`/r/${recordingId}`)}
             sharesQuery={sharesQuery}
             canManage={canManage}
+            onError={(err, action) =>
+              toast.error(
+                err instanceof Error
+                  ? err.message
+                  : action === "invite"
+                    ? t("clipsFinalRaw.inviteFailed")
+                    : t("clipsFinalRaw.removePersonFailed"),
+              )
+            }
           />
         </TabsContent>
 

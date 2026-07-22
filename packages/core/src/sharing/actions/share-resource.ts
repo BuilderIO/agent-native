@@ -4,18 +4,93 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getDbExec } from "../../db/client.js";
+import { getDbExec, isPostgres } from "../../db/client.js";
+import { ensureTableExists } from "../../db/ddl-guard.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import { renderEmail } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
-import { requireShareableResource } from "../registry.js";
+import {
+  requireShareableResource,
+  type ShareableResourceRegistration,
+} from "../registry.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
 } from "./extension-change.js";
+
+// A re-share of an email that already has access re-sends the "shared with
+// you" email only if the last one went out more than this long ago. Inside
+// the window we just tell the sharer it was already sent, rather than
+// spamming the recipient's inbox every time someone hits "Add".
+const RE_INVITE_THROTTLE_MS = 10 * 60 * 1000;
+
+const SHARE_NOTIFICATIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS share_notifications (
+  resource_type TEXT NOT NULL,
+  resource_id TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  notified_at TEXT NOT NULL,
+  PRIMARY KEY (resource_type, resource_id, principal_id)
+)`;
+
+let shareNotificationsTableReady: Promise<void> | null = null;
+
+/**
+ * Small standalone table (not part of any template's Drizzle schema) that
+ * tracks the last time a "shared with you" email went out for a given
+ * (resourceType, resourceId, principalId) tuple. Kept separate from the
+ * per-template shares table so re-invite throttling doesn't require every
+ * template that uses `createSharesTable()` to carry an extra column.
+ */
+async function ensureShareNotificationsTable(): Promise<void> {
+  if (!shareNotificationsTableReady) {
+    shareNotificationsTableReady = (async () => {
+      if (isPostgres()) {
+        await ensureTableExists(
+          "share_notifications",
+          SHARE_NOTIFICATIONS_CREATE_SQL,
+        );
+      } else {
+        await getDbExec().execute(SHARE_NOTIFICATIONS_CREATE_SQL);
+      }
+    })();
+  }
+  return shareNotificationsTableReady;
+}
+
+async function getLastShareNotifiedAt(
+  resourceType: string,
+  resourceId: string,
+  principalId: string,
+): Promise<string | null> {
+  await ensureShareNotificationsTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT notified_at FROM share_notifications WHERE resource_type = ? AND resource_id = ? AND principal_id = ?`,
+    args: [resourceType, resourceId, principalId],
+  });
+  const row = rows[0] as { notified_at?: string } | undefined;
+  return row?.notified_at ?? null;
+}
+
+async function recordShareNotification(
+  resourceType: string,
+  resourceId: string,
+  principalId: string,
+): Promise<void> {
+  await ensureShareNotificationsTable();
+  const client = getDbExec();
+  const notifiedAt = new Date().toISOString();
+  await client.execute({
+    sql: `DELETE FROM share_notifications WHERE resource_type = ? AND resource_id = ? AND principal_id = ?`,
+    args: [resourceType, resourceId, principalId],
+  });
+  await client.execute({
+    sql: `INSERT INTO share_notifications (resource_type, resource_id, principal_id, notified_at) VALUES (?, ?, ?, ?)`,
+    args: [resourceType, resourceId, principalId, notifiedAt],
+  });
+}
 
 export function isSyntheticQaEmail(email: string): boolean {
   const trimmed = email.trim().toLowerCase();
@@ -167,6 +242,100 @@ async function isOrgMemberOrInvited(
   return invited.rows.length > 0;
 }
 
+/**
+ * Sends the "shared with you" notification email and records the send in
+ * `share_notifications` on success or failure alike (a bad email shouldn't
+ * undo the share grant itself, and either way the throttle clock resets).
+ */
+async function sendShareNotificationEmail(params: {
+  db: any;
+  reg: ShareableResourceRegistration;
+  resourceType: string;
+  resourceId: string;
+  resourceUrlOverride: string | undefined;
+  actor: string;
+  principalId: string;
+}): Promise<void> {
+  const {
+    db,
+    reg,
+    resourceType,
+    resourceId,
+    resourceUrlOverride,
+    actor,
+    principalId,
+  } = params;
+  try {
+    const titleCol = reg.titleColumn ?? "title";
+    const [resource] = await db
+      .select()
+      .from(reg.resourceTable)
+      .where(eq(reg.resourceTable.id, resourceId));
+    const resourceTitle: string =
+      (resource?.[titleCol] as string | undefined) ?? resourceType;
+    const appUrl = getAppProductionUrl();
+    const resourcePath =
+      resource && reg.getResourcePath
+        ? reg.getResourcePath(resource)
+        : undefined;
+    const notificationUrl = resolveShareNotificationUrl(
+      resourceUrlOverride,
+      resourcePath,
+      appUrl,
+    );
+    const appName =
+      process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+    const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+    const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
+    const logoUrl = reg.logoPath
+      ? new URL(appPath(reg.logoPath), appUrl).toString()
+      : undefined;
+    const secondaryCta = resource
+      ? await reg.getSecondaryCta?.(resource, {
+          recipientEmail: principalId,
+        })
+      : undefined;
+    const messageId = shareNotificationMessageId(
+      resourceType,
+      resourceId,
+      principalId,
+    );
+    const { html, text } = renderEmail({
+      preheader: subject,
+      logoUrl,
+      imageUrl,
+      heading: `${actor} shared "${resourceTitle}" with you`,
+      paragraphs: [],
+      cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
+      secondaryCta,
+      linkCallout: secondaryCta
+        ? {
+            note: "Copy and paste this link for your own AI agent to summarize:",
+            url: notificationUrl,
+          }
+        : undefined,
+      tagline: secondaryCta?.tagline,
+      footer: `Just reply to this email if you want to get back to ${actor} directly.`,
+    });
+    await sendEmail({
+      to: principalId,
+      subject,
+      html,
+      text,
+      from: reg.fromAddress,
+      replyTo: actor,
+      messageId,
+    });
+  } catch (err) {
+    console.error(
+      "[share-resource] failed to send share notification:",
+      err,
+    );
+  } finally {
+    await recordShareNotification(resourceType, resourceId, principalId);
+  }
+}
+
 export default defineAction({
   description:
     "Grant a user or org access to a shareable resource. Owner or admin role required.",
@@ -265,7 +434,31 @@ export default defineAction({
         ),
       );
 
+    const notifyRequested =
+      args.notify !== false &&
+      args.principalType === "user" &&
+      !isSyntheticQaEmail(principalId);
+
     if (existing) {
+      if (notifyRequested) {
+        const lastNotifiedAt = await getLastShareNotifiedAt(
+          args.resourceType,
+          args.resourceId,
+          principalId,
+        );
+        if (lastNotifiedAt) {
+          const elapsedMs = Date.now() - new Date(lastNotifiedAt).getTime();
+          if (elapsedMs < RE_INVITE_THROTTLE_MS) {
+            const minutesAgo = Math.max(1, Math.round(elapsedMs / 60_000));
+            throw new Error(
+              `${principalId} already got an invite for this ${reg.displayName.toLowerCase()} ${
+                minutesAgo === 1 ? "a minute" : `${minutesAgo} minutes`
+              } ago. Give it a little longer before resending.`,
+            );
+          }
+        }
+      }
+
       await db
         .update(reg.sharesTable)
         .set({ role: args.role })
@@ -276,6 +469,19 @@ export default defineAction({
         args.resourceId,
         beforeExtensionTargets,
       );
+
+      if (notifyRequested && (await isEmailConfigured())) {
+        await sendShareNotificationEmail({
+          db,
+          reg,
+          resourceType: args.resourceType,
+          resourceId: args.resourceId,
+          resourceUrlOverride: args.resourceUrl,
+          actor,
+          principalId,
+        });
+      }
+
       return { id: existing.id, updated: true };
     }
 
@@ -296,79 +502,16 @@ export default defineAction({
       beforeExtensionTargets,
     );
 
-    if (
-      args.notify !== false &&
-      args.principalType === "user" &&
-      (await isEmailConfigured()) &&
-      !isSyntheticQaEmail(principalId)
-    ) {
-      try {
-        const titleCol = reg.titleColumn ?? "title";
-        const [resource] = await db
-          .select()
-          .from(reg.resourceTable)
-          .where(eq(reg.resourceTable.id, args.resourceId));
-        const resourceTitle: string =
-          (resource?.[titleCol] as string | undefined) ?? args.resourceType;
-        const appUrl = getAppProductionUrl();
-        const resourcePath =
-          resource && reg.getResourcePath
-            ? reg.getResourcePath(resource)
-            : undefined;
-        const notificationUrl = resolveShareNotificationUrl(
-          args.resourceUrl,
-          resourcePath,
-          appUrl,
-        );
-        const appName =
-          process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
-        const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
-        const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
-        const logoUrl = reg.logoPath
-          ? new URL(appPath(reg.logoPath), appUrl).toString()
-          : undefined;
-        const secondaryCta = resource
-          ? await reg.getSecondaryCta?.(resource, {
-              recipientEmail: principalId,
-            })
-          : undefined;
-        const messageId = shareNotificationMessageId(
-          args.resourceType,
-          args.resourceId,
-          principalId,
-        );
-        const { html, text } = renderEmail({
-          preheader: subject,
-          logoUrl,
-          imageUrl,
-          heading: `${actor} shared "${resourceTitle}" with you`,
-          paragraphs: [],
-          cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
-          secondaryCta,
-          linkCallout: secondaryCta
-            ? {
-                note: "Copy and paste this link for your own AI agent to summarize:",
-                url: notificationUrl,
-              }
-            : undefined,
-          tagline: secondaryCta?.tagline,
-          footer: `Just reply to this email if you want to get back to ${actor} directly.`,
-        });
-        await sendEmail({
-          to: principalId,
-          subject,
-          html,
-          text,
-          from: reg.fromAddress,
-          replyTo: actor,
-          messageId,
-        });
-      } catch (err) {
-        console.error(
-          "[share-resource] failed to send share notification:",
-          err,
-        );
-      }
+    if (notifyRequested && (await isEmailConfigured())) {
+      await sendShareNotificationEmail({
+        db,
+        reg,
+        resourceType: args.resourceType,
+        resourceId: args.resourceId,
+        resourceUrlOverride: args.resourceUrl,
+        actor,
+        principalId,
+      });
     }
 
     return { id, updated: false };
