@@ -118,4 +118,26 @@ describe("design-system conformance kit", () => {
     expect(tabsResult?.passed).toBe(false);
     expect(tabsResult?.message).toContain("same row");
   });
+
+  it("rejects dialogs that render footer controls outside the dialog", async () => {
+    const detachedFooterAdapter: DesignSystemComponents = {
+      ...cssInJsFixtureAdapter,
+      Dialog: ({ footer, ...props }) => (
+        <>
+          <cssInJsFixtureAdapter.Dialog {...props} />
+          {footer}
+        </>
+      ),
+    };
+    const report = await runDesignSystemConformance({
+      adapterName: "detached-footer fixture",
+      components: detachedFooterAdapter,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+    const dialogResult = report.results.find(
+      (result) => result.id === "behavior.dialog",
+    );
+    expect(dialogResult?.passed).toBe(false);
+    expect(dialogResult?.message).toContain("footer");
+  });
 });
