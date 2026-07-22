@@ -362,6 +362,62 @@ describe("extensions/store", () => {
     ]);
   });
 
+  it("does not recover an archived extension as a recent duplicate", async () => {
+    const andSpy = vi.fn((...args: unknown[]) => ({ args }));
+    const isNullSpy = vi.fn((column: { name?: string }) => ({
+      kind: column.name,
+    }));
+    const where = vi.fn(() => ({ limit: vi.fn(async () => []) }));
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where })),
+      })),
+    };
+    const client = {
+      execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
+    };
+
+    vi.doMock("../db/client.js", () => ({
+      getDbExec: () => client,
+      getDialect: () => "sqlite",
+      intType: () => "INTEGER",
+      isConnectionError: () => false,
+      isLocalDatabase: () => true,
+      isPostgres: () => false,
+      retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
+    }));
+    vi.doMock("../db/create-get-db.js", () => ({
+      createGetDb: () => () => db,
+    }));
+    vi.doMock("../sharing/registry.js", () => ({
+      registerShareableResource: vi.fn(),
+    }));
+    vi.doMock("drizzle-orm", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("drizzle-orm")>();
+      return { ...actual, and: andSpy, isNull: isNullSpy };
+    });
+
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { findRecentDuplicateExtension } = await import("./store.js");
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        findRecentDuplicateExtension({
+          name: "Foobar",
+          content: "<div>Foobar</div>",
+        }),
+      ),
+    ).resolves.toBeNull();
+
+    expect(
+      andSpy.mock.calls[0]?.some(
+        (arg) => (arg as { kind?: string }).kind === "archived_at",
+      ),
+    ).toBe(true);
+    expect(where).toHaveBeenCalledOnce();
+  });
+
   it("globally hides and unhides an extension on the tools row", async () => {
     const statements: { sql: string; args: unknown[] }[] = [];
     const db = {

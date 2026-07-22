@@ -1138,6 +1138,7 @@ export async function findRecentDuplicateExtension(data: {
         eq(extensions.description, description),
         icon === null ? isNull(extensions.icon) : eq(extensions.icon, icon),
         gte(extensions.createdAt, fiveMinutesAgo),
+        isNull(extensions.archivedAt),
         isNull(extensions.hiddenAt),
       ),
     )

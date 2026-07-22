@@ -1539,7 +1539,13 @@ export const editorChromeBridgeScript: string = `"use strict";
     function applyElementOverlayChrome(overlay, el) {
       var color = chromeColorForElement(el);
       var contrast = chromeContrastColorForElement(el);
-      overlay.style.borderColor = color;
+      var softChrome = overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+      overlay.style.borderColor = softChrome ? "color-mix(in srgb," + color + " 64%,transparent)" : color;
+      if (softChrome) {
+        overlay.style.background = "color-mix(in srgb," + color + " 5%,transparent)";
+      } else if (overlay === highlightOverlay || overlay.getAttribute("data-agent-native-edit-overlay") === "multi-selection") {
+        overlay.style.background = "transparent";
+      }
       overlay.querySelectorAll(
         "[data-agent-native-edit-handle],[data-agent-native-edit-overlay='multi-selection-handle']"
       ).forEach(function(node) {
@@ -1547,6 +1553,18 @@ export const editorChromeBridgeScript: string = `"use strict";
         node.style.borderColor = color;
         node.style.background = contrast;
       });
+    }
+    function setHighlightOverlayStyle(style) {
+      highlightOverlayStyle = style;
+      if (style === "soft") {
+        highlightOverlay.setAttribute("data-agent-native-soft-chrome", "true");
+      } else {
+        highlightOverlay.removeAttribute("data-agent-native-soft-chrome");
+      }
+      if (hoveredEl && hoveredEl !== selectedEl) {
+        applyElementOverlayChrome(highlightOverlay, hoveredEl);
+      }
+      applyEditorChromeScale();
     }
     function applySelectionChrome(el) {
       applyElementOverlayChrome(selectionOverlay, el);
@@ -1578,6 +1596,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var selectedEl = null;
     var hoveredEl = null;
+    var highlightOverlayStyle = "default";
     var activeNodeHtmlPreview = null;
     var lastHoverInfoPostedEl = null;
     function clearHoverGate() {
@@ -1713,6 +1732,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     function makePassiveSelectionOverlay(style) {
       var overlay = document.createElement("div");
       overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
+      if (style === "soft") {
+        overlay.setAttribute("data-agent-native-soft-chrome", "true");
+      }
       overlay.style.cssText = style === "soft" ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;" : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
       if (style !== "soft") appendPassiveSelectionHandles(overlay);
       document.body.appendChild(overlay);
@@ -1722,7 +1744,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
-      overlay.style.borderWidth = 1.5 * line + "px";
+      var softChrome = overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+      overlay.style.borderWidth = (softChrome ? 1 : 1.5) * line + "px";
       overlay.querySelectorAll(
         "[data-agent-native-edit-overlay='multi-selection-handle']"
       ).forEach(function(handle) {
@@ -2658,7 +2681,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var sx = chromeScaleX();
       var sy = chromeScaleY();
       var line = chromeLineScale();
-      highlightOverlay.style.borderWidth = 1 * line + "px";
+      highlightOverlay.style.borderWidth = (highlightOverlayStyle === "soft" ? 1 : 1.5) * line + "px";
       parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
       selectionOverlay.style.borderWidth = 1.5 * line + "px";
       marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
@@ -7802,6 +7825,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           passiveTargets,
           e.data.passiveSelectionStyle === "soft" ? "soft" : "default"
         );
+        setHighlightOverlayStyle(
+          e.data.passiveSelectionStyle === "soft" ? "soft" : "default"
+        );
         return;
       }
       if (e.data.type === "select-element") {
@@ -7844,6 +7870,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (e.data.type === "hover-element") {
+        if (e.data.hoverStyle === "soft" || e.data.hoverStyle === "default") {
+          setHighlightOverlayStyle(e.data.hoverStyle);
+        }
         var hoverCandidates = [];
         if (Array.isArray(e.data.selectorCandidates)) {
           e.data.selectorCandidates.forEach(function(selector) {

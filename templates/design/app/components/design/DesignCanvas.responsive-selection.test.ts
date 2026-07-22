@@ -28,6 +28,7 @@ describe("responsive mirrored selection chrome", () => {
     expect(canvasSource).toContain(
       'passiveSelectionStyle,\n      },\n      "*",',
     );
+    expect(canvasSource).toContain("hoverStyle: passiveSelectionStyle");
   });
 
   it("keeps mirrored responsive overlays handle-free and visually softer", () => {
@@ -40,6 +41,13 @@ describe("responsive mirrored selection chrome", () => {
     );
     expect(bridgeSource).toContain(
       'e.data.passiveSelectionStyle === "soft" ? "soft" : "default"',
+    );
+    expect(bridgeSource).toContain(
+      'highlightOverlayStyle === "soft" ? 1 : 1.5',
+    );
+    expect(bridgeSource).toContain('data-agent-native-soft-chrome", "true"');
+    expect(bridgeSource).toContain(
+      'e.data.hoverStyle === "soft" || e.data.hoverStyle === "default"',
     );
   });
 });

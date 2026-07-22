@@ -2982,8 +2982,14 @@ export function DesignCanvas({
             type: "hover-element",
             selector: hoveredSelector,
             selectorCandidates: hoveredSelectorCandidates,
+            hoverStyle: passiveSelectionStyle,
           }
-        : { type: "hover-element", selector: "", selectorCandidates: [] },
+        : {
+            type: "hover-element",
+            selector: "",
+            selectorCandidates: [],
+            hoverStyle: passiveSelectionStyle,
+          },
       "*",
     );
     // Re-send motion tracks so the preview bridge is ready after a reload.

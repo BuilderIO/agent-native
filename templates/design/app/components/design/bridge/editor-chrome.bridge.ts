@@ -2169,7 +2169,21 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   ): void {
     var color = chromeColorForElement(el);
     var contrast = chromeContrastColorForElement(el);
-    overlay.style.borderColor = color;
+    var softChrome =
+      overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+    overlay.style.borderColor = softChrome
+      ? "color-mix(in srgb," + color + " 64%,transparent)"
+      : color;
+    if (softChrome) {
+      overlay.style.background =
+        "color-mix(in srgb," + color + " 5%,transparent)";
+    } else if (
+      overlay === highlightOverlay ||
+      overlay.getAttribute("data-agent-native-edit-overlay") ===
+        "multi-selection"
+    ) {
+      overlay.style.background = "transparent";
+    }
     overlay
       .querySelectorAll(
         "[data-agent-native-edit-handle],[data-agent-native-edit-overlay='multi-selection-handle']",
@@ -2179,6 +2193,19 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         node.style.borderColor = color;
         node.style.background = contrast;
       });
+  }
+
+  function setHighlightOverlayStyle(style: "default" | "soft"): void {
+    highlightOverlayStyle = style;
+    if (style === "soft") {
+      highlightOverlay.setAttribute("data-agent-native-soft-chrome", "true");
+    } else {
+      highlightOverlay.removeAttribute("data-agent-native-soft-chrome");
+    }
+    if (hoveredEl && hoveredEl !== selectedEl) {
+      applyElementOverlayChrome(highlightOverlay, hoveredEl);
+    }
+    applyEditorChromeScale();
   }
 
   function applySelectionChrome(el: Element | null): void {
@@ -2221,6 +2248,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
 
   var selectedEl: Element | null = null;
   var hoveredEl: Element | null = null;
+  var highlightOverlayStyle: "default" | "soft" = "default";
   type NodeHtmlPreviewSession = {
     proposalId: string;
     originalElement: Element;
@@ -2519,6 +2547,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   function makePassiveSelectionOverlay(style: "default" | "soft"): HTMLElement {
     var overlay = document.createElement("div");
     overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
+    if (style === "soft") {
+      overlay.setAttribute("data-agent-native-soft-chrome", "true");
+    }
     overlay.style.cssText =
       style === "soft"
         ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;"
@@ -2532,7 +2563,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
-    overlay.style.borderWidth = 1.5 * line + "px";
+    var softChrome =
+      overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+    overlay.style.borderWidth = (softChrome ? 1 : 1.5) * line + "px";
     overlay
       .querySelectorAll(
         "[data-agent-native-edit-overlay='multi-selection-handle']",
@@ -3934,11 +3967,10 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
-    // Figma parity: the hover outline is visibly thinner than the selection
-    // outline — hover is a light "you could select this" hint, selection is
-    // the stronger confirmed-state chrome. Matches the overview canvas's
-    // hover (1 * chromeScale) vs selection (1.5 * chromeScale) ratio.
-    highlightOverlay.style.borderWidth = 1 * line + "px";
+    // Keep hover and the corresponding selection outline visually identical.
+    // Soft responsive peers intentionally use the lighter outline treatment.
+    highlightOverlay.style.borderWidth =
+      (highlightOverlayStyle === "soft" ? 1 : 1.5) * line + "px";
     parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
     selectionOverlay.style.borderWidth = 1.5 * line + "px";
     marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
@@ -11503,6 +11535,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         passiveTargets,
         e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
       );
+      setHighlightOverlayStyle(
+        e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
+      );
       return;
     }
     if (e.data.type === "select-element") {
@@ -11577,6 +11612,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       return;
     }
     if (e.data.type === "hover-element") {
+      if (e.data.hoverStyle === "soft" || e.data.hoverStyle === "default") {
+        setHighlightOverlayStyle(e.data.hoverStyle);
+      }
       var hoverCandidates: string[] = [];
       if (Array.isArray(e.data.selectorCandidates)) {
         e.data.selectorCandidates.forEach(function (selector) {
