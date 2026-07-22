@@ -57,6 +57,10 @@ export function ownableColumns() {
  * - `role`            — `'viewer' | 'editor' | 'admin'`
  * - `createdBy`       — email of the user who created the share
  * - `createdAt`       — ISO timestamp
+ * - `notifiedAt`      — ISO timestamp of the last "shared with you" email
+ *                       sent for this share row, if any. Used to throttle
+ *                       re-invite emails when a resource is re-shared with
+ *                       an email that already has access.
  *
  * Uniqueness across `(resource_id, principal_type, principal_id)` is enforced
  * at the action layer via upsert-style logic. A composite DB-level unique
@@ -76,6 +80,7 @@ export function createSharesTable(tableName: string) {
       .default("viewer"),
     createdBy: text("created_by").notNull(),
     createdAt: text("created_at").notNull().default(now()),
+    notifiedAt: text("notified_at"),
   });
 }
 
