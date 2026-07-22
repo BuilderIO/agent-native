@@ -6,7 +6,6 @@ import {
   Status,
   TextArea,
   TextField,
-  Tabs,
 } from "@agent-native/toolkit/design-system";
 import {
   IconCheck,
@@ -18,7 +17,6 @@ import {
   IconTrash,
   IconUsersGroup,
   IconWorld,
-  IconX,
 } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
@@ -29,7 +27,6 @@ import {
   type ShareDialogController,
   type ShareDialogPerson,
   type ShareDialogTab,
-  type ShareOption,
   type ShareRole,
   type ShareVisibility,
 } from "./useShareDialogController.js";
@@ -364,9 +361,26 @@ function PersonRow({
 }) {
   return (
     <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-      <Avatar person={person} />
+      <DesignSystemAvatar
+        name={person.label}
+        fallback={
+          person.principalType === "org" ? (
+            <IconUsersGroup size={14} strokeWidth={1.75} />
+          ) : (
+            person.avatarText
+          )
+        }
+        size="compact"
+        className="inline-flex h-7 w-7 shrink-0 text-[11px] font-semibold"
+      />
       <span className="flex-1 min-w-0 truncate">{person.label}</span>
-      <span className="text-xs text-muted-foreground">{person.roleLabel}</span>
+      <Status
+        tone="neutral"
+        size="compact"
+        className="border-0 bg-transparent px-0 text-xs text-muted-foreground"
+      >
+        {person.roleLabel}
+      </Status>
       {canManage && person.share ? (
         <ActionButton
           type="button"
@@ -460,59 +474,20 @@ function CopyField({
   );
 }
 
-const selectContentClass =
-  "!z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md data-[state=open]:!animate-none data-[state=closed]:!animate-none";
-const selectItemClass =
-  "relative flex w-full cursor-pointer select-none !items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>span:first-child]:!top-2 [&>span:first-child_svg]:!size-[14px]";
-
-function SelectItems({ items }: { items: Array<ShareOption<string>> }) {
-  return (
-    <>
-      {items.map((item) => (
-        <SelectItem
-          key={item.value}
-          value={item.value}
-          className={selectItemClass}
-        >
-          <span className="flex flex-col">
-            <span>{item.label}</span>
-            <span className="text-xs text-muted-foreground">
-              {item.description}
-            </span>
-          </span>
-        </SelectItem>
-      ))}
-    </>
-  );
-}
-
 function RoleSelect({ controller }: { controller: ShareDialogController }) {
-  const current =
-    controller.invite.roleOptions.find(
-      (option) => option.value === controller.invite.role,
-    ) ?? controller.invite.roleOptions[0];
   return (
-    <Select
+    <Picker
+      mode="select"
+      options={controller.invite.roleOptions}
       value={controller.invite.role}
-      onValueChange={(value) => controller.invite.setRole(value as ShareRole)}
-    >
-      <SelectTrigger
-        aria-label={controller.labels.role}
-        className={cn(
-          BUTTON_BASE,
-          "!h-9 !w-auto !px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground [&_svg]:!size-[14px] [&_svg]:!opacity-100",
-        )}
-      >
-        <SelectValue>{current?.label}</SelectValue>
-      </SelectTrigger>
-      <SelectContent
-        className={selectContentClass}
-        position="popper"
-        sideOffset={4}
-      >
-        <SelectItems items={controller.invite.roleOptions} />
-      </SelectContent>
-    </Select>
+      onChange={(value) => {
+        if (value === "viewer" || value === "editor" || value === "admin") {
+          controller.invite.setRole(value);
+        }
+      }}
+      aria-label={controller.labels.role}
+      className="w-auto"
+    />
   );
 }
 
@@ -522,44 +497,18 @@ function VisibilitySelect({
   controller: ShareDialogController;
 }) {
   return (
-    <Select
+    <Picker
+      mode="select"
+      options={controller.visibility.options}
       value={controller.visibility.value}
-      onValueChange={(value) =>
-        controller.visibility.set(value as ShareVisibility)
-      }
+      onChange={(value) => {
+        if (value === "private" || value === "org" || value === "public") {
+          controller.visibility.set(value);
+        }
+      }}
       disabled={controller.visibility.disabled}
-    >
-      <SelectTrigger
-        aria-label={controller.labels.generalAccess}
-        className={cn(
-          BUTTON_BASE,
-          "!h-7 !w-auto !px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground [&_svg]:!size-[14px] [&_svg]:!opacity-100",
-        )}
-      >
-        <SelectValue>{controller.visibility.label}</SelectValue>
-      </SelectTrigger>
-      <SelectContent
-        className={selectContentClass}
-        position="popper"
-        sideOffset={4}
-      >
-        <SelectItems items={controller.visibility.options} />
-      </SelectContent>
-    </Select>
-  );
-}
-
-function Avatar({ person }: { person: ShareDialogPerson }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
-    >
-      {person.principalType === "org" ? (
-        <IconUsersGroup size={14} strokeWidth={1.75} />
-      ) : (
-        person.avatarText
-      )}
-    </span>
+      aria-label={controller.labels.generalAccess}
+      className="-ms-1 w-auto"
+    />
   );
 }
