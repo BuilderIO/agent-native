@@ -2046,6 +2046,7 @@ export function createCoreRoutesPlugin(
                 targetOrigin: previewOrigin,
                 basePath: getAppBasePath(),
               });
+              console.log(`shomix - relay - ${relay}`);
             } catch (err) {
               const msg =
                 err instanceof Error
@@ -2335,6 +2336,8 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/builder/relay`,
         defineEventHandler(async (event: H3Event) => {
+          console.log(`shomix - /builder/relay - called`);
+         
           if (getMethod(event) !== "POST") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
@@ -2380,6 +2383,7 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/builder/callback`,
         defineEventHandler(async (event: H3Event) => {
+          console.log(`shomix - /builder/callback - called`);
           if (getMethod(event) !== "GET") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
