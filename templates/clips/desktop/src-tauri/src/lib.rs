@@ -203,6 +203,7 @@ pub fn run() {
             // notifications
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
+            notifications::dismiss_meeting_notification,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
