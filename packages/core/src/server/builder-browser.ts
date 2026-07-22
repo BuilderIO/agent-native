@@ -280,8 +280,8 @@ export function verifyBuilderPreviewRelayStateForCallback(
 ): BuilderPreviewRelayState | null {
   console.log(`shomix - verifyBuilderPreviewRelayState - ${state}`);
   const payload = verifyBuilderPreviewRelayState(state, options);
-  console.log(`shomix - payload.targetOrigin - ${payload.targetOrigin}`);
-  console.log(`shomix - isTrustedBuilderRelayTargetOrigin(payload.targetOrigin) - ${isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)}`);
+  console.log(`shomix - payload.targetOrigin - ${payload?.targetOrigin}`);
+  console.log(`shomix - isTrustedBuilderRelayTargetOrigin(payload.targetOrigin) - ${isTrustedBuilderRelayTargetOrigin(payload?.targetOrigin)}`);
   return payload && isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)
     ? payload
     : null;
