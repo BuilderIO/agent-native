@@ -627,7 +627,7 @@ export default defineAction({
         await persistRetryableBrainExportFailure(
           result.recordingId,
           result.reason,
-          0,
+          args.retryAttempt ?? 1,
         );
         return result;
       }

@@ -363,6 +363,17 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("handleResponsiveEditScopeChange");
   });
 
+  it("keeps the responsive scope control inline beside the breakpoints", () => {
+    expect(source).toContain(
+      'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto"',
+    );
+    expect(source).toContain(
+      'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
+    );
+    expect(source).toContain("IconArrowsDown");
+    expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
+  });
+
   it("confirms that deleting a base screen includes all responsive variants", () => {
     expect(source).toContain("designEditor.screenDeletion.descriptionOne");
     expect(source).toContain("designEditor.screenDeletion.descriptionMany");

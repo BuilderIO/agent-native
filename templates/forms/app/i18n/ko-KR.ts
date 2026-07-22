@@ -255,6 +255,8 @@ const messages = {
     duplicated: "양식이 중복되었습니다.",
     duplicateFailed: "양식을 복제하지 못했습니다.",
     movedToArchive: "양식이 아카이브로 이동됨",
+    movingToArchive: "양식을 아카이브로 이동하는 중…",
+    archiveFailed: "양식을 아카이브로 이동하지 못했습니다.",
     restored: "양식이 복원되었습니다.",
     permanentlyDeleted: "양식이 영구적으로 삭제되었습니다.",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

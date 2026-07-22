@@ -29,7 +29,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPlus,
   IconShare,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -244,7 +244,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     {
       to: "/agent",
       label: t("navigation.agent"),
-      icon: IconBrain,
+      icon: IconHierarchy2,
       match: (p) => p.startsWith("/agent"),
     },
     {

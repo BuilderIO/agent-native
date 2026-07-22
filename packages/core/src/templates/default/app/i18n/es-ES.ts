@@ -355,24 +355,24 @@ const messages = {
     hideEveryone: "esconderse de todos",
     localFileDescription:
       "This extension is backed by {{entryPath}}. Edit or remove it from the workspace.",
-    deleteQuestion: "Delete {{name}}?",
+    deleteQuestion: "¿Archivar {{name}}?",
     removeQuestion: "Remove {{name}}?",
     hideForYouDescription:
       "Esto lo oculta de su lista de Extensiones sin eliminarlo para nadie más.",
     removeEverywhereDescription:
-      "Esto lo elimina en todos los lugares donde se comparte.",
+      "Esto lo archiva en todos los lugares donde se comparte.",
     cancel: "Cancelar",
     remove: "Eliminar",
     removing: "Eliminando...",
-    delete: "Eliminar",
-    deleting: "Eliminando...",
+    delete: "Archivar",
+    deleting: "Archivando...",
     openFullView: "Abrir vista completa",
     removeFromWidgetArea: "Eliminar de esta área de widgets",
-    deleteExtensionEllipsis: "Eliminar extensión...",
+    deleteExtensionEllipsis: "Archivar extensión...",
     removeFromMyListEllipsis: "Quitar de mi lista...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
     deleteEverywhereConfirmation:
-      "Esto elimina la extensión en todas partes, para todas las personas con las que se comparte.",
+      "Esto archiva la extensión en todas partes, para todas las personas con las que se comparte.",
     addWidget: "Agregar widget",
     loading: "Cargando...",
     noWidgetsAvailable:

@@ -344,24 +344,24 @@ const messages = {
     hideEveryone: "みんなから隠れて",
     localFileDescription:
       "This extension is backed by {{entryPath}}. Edit or remove it from the workspace.",
-    deleteQuestion: "Delete {{name}}?",
+    deleteQuestion: "{{name}}をアーカイブしますか？",
     removeQuestion: "Remove {{name}}?",
     hideForYouDescription:
       "これにより、他のユーザーが削除することなく、拡張機能リストから非表示になります。",
     removeEverywhereDescription:
-      "これにより、共有されているすべての場所で削除されます。",
+      "これにより、共有されているすべての場所でアーカイブされます。",
     cancel: "キャンセル",
     remove: "削除",
     removing: "削除中...",
-    delete: "削除",
-    deleting: "削除中...",
+    delete: "アーカイブ",
+    deleting: "アーカイブ中...",
     openFullView: "フルビューを開く",
     removeFromWidgetArea: "このウィジェット領域から削除する",
-    deleteExtensionEllipsis: "拡張機能を削除...",
+    deleteExtensionEllipsis: "拡張機能をアーカイブ...",
     removeFromMyListEllipsis: "リストから削除...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
     deleteEverywhereConfirmation:
-      "これにより、共有されているすべてのユーザーの拡張機能がどこからでも削除されます。",
+      "これにより、共有されているすべてのユーザーの拡張機能がどこからでもアーカイブされます。",
     addWidget: "ウィジェットを追加する",
     loading: "読み込み中...",
     noWidgetsAvailable:

@@ -10,7 +10,7 @@ import {
   IconFlame,
   IconLoader2,
   IconChartBar,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -39,7 +39,7 @@ import { Header } from "./Header";
 const navItems = [
   { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
   { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
-  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

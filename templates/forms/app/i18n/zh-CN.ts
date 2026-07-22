@@ -241,6 +241,8 @@ const messages = {
     duplicated: "表格重复",
     duplicateFailed: "复制表格失败",
     movedToArchive: "表格移至存档",
+    movingToArchive: "正在将表单移至存档…",
+    archiveFailed: "无法将表单移至存档",
     restored: "形态恢复",
     permanentlyDeleted: "表格永久删除",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

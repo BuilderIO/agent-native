@@ -13,7 +13,7 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessageCircle,
@@ -39,7 +39,7 @@ const navItems = [
     view: "chat",
   },
   {
-    icon: IconBrain,
+    icon: IconHierarchy2,
     labelKey: "settings.agentTitle",
     href: "/agent",
     view: "agent",

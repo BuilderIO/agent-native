@@ -265,6 +265,8 @@ const messages = {
     duplicated: "النموذج مكرر",
     duplicateFailed: "فشل في تكرار النموذج",
     movedToArchive: "تم نقل النموذج إلى الأرشيف",
+    movingToArchive: "جارٍ نقل النموذج إلى الأرشيف…",
+    archiveFailed: "تعذر نقل النموذج إلى الأرشيف",
     restored: "تمت استعادة النموذج",
     permanentlyDeleted: "تم حذف النموذج نهائيًا",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

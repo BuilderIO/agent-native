@@ -59,6 +59,12 @@ quick controls and deep links such as:
 - `/settings/usage`
 - `/settings/apps/:appId`
 
+The shared Account section is the canonical profile surface at
+`/settings#account`. It owns the editable display name and existing avatar
+control through the authenticated `get-user-profile` and `update-user-profile`
+actions. Shared workspace chrome such as `OrgSwitcher` should link to this
+surface rather than creating an app-local profile page.
+
 When adding a new API key, OAuth grant, provider connection, model selector, app
 preference, notification preference, or usage/billing surface, register it as a
 settings tab or app settings panel first. Only add sidebar UI when it is needed

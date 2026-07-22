@@ -378,7 +378,7 @@ describe("ShareButton", () => {
     expect(trigger?.textContent).not.toContain("Share");
   });
 
-  it("renders the label trigger with the current visibility state", async () => {
+  it("renders the label trigger as text only regardless of visibility", async () => {
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: "org-1",
@@ -400,12 +400,12 @@ describe("ShareButton", () => {
     });
 
     const trigger = container.querySelector(
-      'button[aria-label="Share (Organization)"]',
+      'button[aria-label="Share"]',
     ) as HTMLButtonElement | null;
 
     expect(trigger).toBeTruthy();
     expect(trigger?.textContent).toBe("Share");
-    expect(trigger?.querySelector("svg")).toBeTruthy();
+    expect(trigger?.querySelector("svg")).toBeFalsy();
     expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
   });
 

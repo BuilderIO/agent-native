@@ -31,6 +31,7 @@ import {
   IconSettings,
   IconStack2,
   IconUser,
+  IconUserCircle,
   IconUserPlus,
   IconUsers,
   IconUsersGroup,
@@ -40,6 +41,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { agentNativePath } from "../api-path.js";
+import { useT } from "../i18n.js";
+import { useSession } from "../use-session.js";
 import {
   useOrg,
   useSwitchOrg,
@@ -68,6 +71,8 @@ export interface OrgSwitcherProps {
    * the in-sidebar settings panel.
    */
   settingsPath?: string | null;
+  /** Path to navigate to when the user clicks "Profile". Defaults to the shared Account settings section. */
+  profilePath?: string | null;
 }
 
 function personalLabelFromEmail(email: string | null | undefined): string {
@@ -100,6 +105,7 @@ const SWITCHER_BUTTON_CLASS =
   "flex w-full items-center gap-2 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
+const DEFAULT_PROFILE_PATH = "/settings#account";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,
@@ -307,8 +313,11 @@ export function OrgSwitcher({
   hideWhenSingle,
   reserveSpace,
   settingsPath = DEFAULT_ORGANIZATION_SETTINGS_PATH,
+  profilePath = DEFAULT_PROFILE_PATH,
 }: OrgSwitcherProps) {
   const { data: org, isLoading } = useOrg();
+  const { session } = useSession();
+  const t = useT();
   const switchOrg = useSwitchOrg();
   const createOrg = useCreateOrg();
   const inviteMember = useInviteMember();
@@ -377,7 +386,7 @@ export function OrgSwitcher({
   const canInvite =
     !!org.orgId && (org.role === "owner" || org.role === "admin");
 
-  const personalLabel = personalLabelFromEmail(org.email);
+  const personalLabel = session?.name || personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
   const buttonLabel = org.orgName ?? "Personal";
   const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
@@ -546,6 +555,21 @@ export function OrgSwitcher({
                 dispatchAllAppsHref={appLinks.dispatchAllAppsHref}
                 onNavigate={() => setOpen(false)}
               />
+              {profilePath && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    navigate(profilePath);
+                  }}
+                  className={`${ITEM_CLASS} cursor-pointer`}
+                >
+                  <IconUserCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-start">
+                    {t("settings.profileMenuItem")}
+                  </span>
+                </button>
+              )}
               {inOrg && (
                 <button
                   type="button"

@@ -258,6 +258,8 @@ const messages = {
     duplicated: "फॉर्म डुप्लिकेट किया गया",
     duplicateFailed: "प्रपत्र की नकल बनाने में विफल",
     movedToArchive: "फॉर्म को पुरालेख में ले जाया गया",
+    movingToArchive: "फॉर्म को पुरालेख में ले जाया जा रहा है…",
+    archiveFailed: "फॉर्म को पुरालेख में ले जाने में विफल",
     restored: "फॉर्म बहाल हो गया",
     permanentlyDeleted: "फ़ॉर्म स्थायी रूप से हटा दिया गया",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

@@ -12,6 +12,7 @@ const extensionRow = {
   createdAt: "2026-05-06T00:00:00.000Z",
   updatedAt: "2026-05-06T00:00:00.000Z",
   hiddenAt: null,
+  archivedAt: null,
   hiddenBy: null,
   ownerEmail: "thomas@example.com",
   orgId: "org-1",

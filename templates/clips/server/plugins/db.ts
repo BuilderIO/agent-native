@@ -1280,7 +1280,9 @@ function rowNumber(value: unknown): number {
  * rows forever. We only delete sessions whose recording row is gone, or whose
  * recording reached a terminal status more than an hour ago. Abandoned browser
  * uploads can leave the recording stuck in `uploading`, so those are swept only
- * after a much longer grace window.
+ * after a much longer grace window. Resumable session activity is the heartbeat
+ * for in-progress uploads because streaming chunks do not update the recording
+ * row on every provider relay.
  */
 async function sweepOrphanedResumableSessions(): Promise<void> {
   const exec = getDbExec();
@@ -1331,6 +1333,8 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
     if (!key.startsWith(prefix)) continue;
     const recordingId = key.slice(prefix.length);
     if (!recordingId) continue;
+    const sessionUpdatedAt =
+      typeof row.updated_at === "string" ? row.updated_at : "";
 
     let shouldSweep = false;
     try {
@@ -1353,7 +1357,7 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
       } else if (
         (recording.status === "uploading" ||
           recording.status === "processing") &&
-        (recording.updated_at ?? "") < staleInProgressIso
+        (sessionUpdatedAt || recording.updated_at || "") < staleInProgressIso
       ) {
         try {
           await exec.execute({

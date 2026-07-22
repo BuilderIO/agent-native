@@ -46,11 +46,10 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label
-   *  with a leading visibility icon. "label-icon" is kept for callsites that
-   *  want to explicitly opt into icon+label parity; "icon" is icon-only. */
+  /** Optional trigger style. Defaults to a text-only "Share" label.
+   *  "label-icon" opts into an icon plus label; "icon" is icon-only. */
   trigger?: "label" | "icon" | "label-icon";
-  /** @deprecated No longer affects rendering — triggers show visibility state. */
+  /** @deprecated No longer affects rendering — kept for callsite compatibility. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
@@ -371,8 +370,10 @@ export function ShareButton(props: ShareButtonProps) {
     ? visibilityMeta(triggerVisibility, props.visibilityCopy)
     : null;
   const TriggerIcon = triggerMeta?.Icon ?? IconShare3;
-  const triggerLabel = triggerMeta ? `Share (${triggerMeta.label})` : "Share";
   const iconOnly = props.trigger === "icon";
+  const showTriggerIcon = iconOnly || props.trigger === "label-icon";
+  const triggerLabel =
+    iconOnly && triggerMeta ? `Share (${triggerMeta.label})` : "Share";
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -386,7 +387,7 @@ export function ShareButton(props: ShareButtonProps) {
           aria-label={triggerLabel}
           title={triggerLabel}
         >
-          <TriggerIcon size={16} strokeWidth={1.75} />
+          {showTriggerIcon && <TriggerIcon size={16} strokeWidth={1.75} />}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>

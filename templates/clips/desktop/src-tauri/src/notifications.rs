@@ -194,6 +194,50 @@ pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>
     Ok(pending.take())
 }
 
+fn clear_pending_notification(pending: &mut Option<Value>, meeting_id: &str) -> bool {
+    let matches = pending
+        .as_ref()
+        .and_then(|payload| payload.get("meetingId"))
+        .and_then(Value::as_str)
+        == Some(meeting_id);
+    if matches {
+        *pending = None;
+    }
+    matches
+}
+
+#[tauri::command]
+pub fn dismiss_meeting_notification(
+    app: AppHandle,
+    meeting_id: String,
+    notification_type: String,
+    platform: Option<String>,
+    scheduled_start: Option<String>,
+    scheduled_end: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<MeetingNotificationState>();
+    let mut pending = state
+        .0
+        .lock()
+        .map_err(|_| "meeting notification state lock poisoned".to_string())?;
+    clear_pending_notification(&mut pending, &meeting_id);
+    drop(pending);
+
+    if let Some(platform) = platform.as_deref() {
+        crate::adhoc_meetings_watcher::refresh_dismissal_suppression(&app, platform)?;
+    }
+
+    dlog!(
+        "[clips-tray] meeting notification dismissed type={} id={} platform={:?} start={:?} end={:?}",
+        notification_type,
+        meeting_id,
+        platform,
+        scheduled_start,
+        scheduled_end
+    );
+    Ok(())
+}
+
 fn format_time_range_subtitle(
     scheduled_start: Option<&str>,
     scheduled_end: Option<&str>,
@@ -284,4 +328,22 @@ pub async fn notify_meeting_starting(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clears_only_the_matching_pending_notification() {
+        let mut pending = Some(serde_json::json!({
+            "meetingId": "meeting-1",
+            "type": "adhoc"
+        }));
+
+        assert!(!clear_pending_notification(&mut pending, "meeting-2"));
+        assert!(pending.is_some());
+        assert!(clear_pending_notification(&mut pending, "meeting-1"));
+        assert!(pending.is_none());
+    }
 }

@@ -1926,16 +1926,6 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       if (pos.indexOf("e") !== -1) handle.style.right = "-34px";
       selectionOverlay.appendChild(handle);
     });
-    var button = document.createElement("span");
-    button.setAttribute("data-agent-native-rotate-handle", "top-center");
-    button.style.cssText =
-      "position:absolute;left:50%;transform:translateX(-50%);top:-22px;" +
-      "width:16px;height:16px;pointer-events:auto;" +
-      "display:flex;align-items:center;justify-content:center;" +
-      "border-radius:999px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.3);" +
-      "cursor:grab;user-select:none;font-size:10px;line-height:1;color:#333;";
-    button.textContent = "↻";
-    selectionOverlay.appendChild(button);
   })();
   var spacingOverlay = document.createElement("div");
   spacingOverlay.setAttribute("data-agent-native-spacing-overlay", "");
@@ -1943,6 +1933,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     "position:absolute;inset:0;display:none;pointer-events:none;";
   selectionOverlay.appendChild(spacingOverlay);
   document.body.appendChild(selectionOverlay);
+  if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
   // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
   // GradientEditOverlay) ──────────────────────────────────────────────────
@@ -2179,7 +2170,21 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   ): void {
     var color = chromeColorForElement(el);
     var contrast = chromeContrastColorForElement(el);
-    overlay.style.borderColor = color;
+    var softChrome =
+      overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+    overlay.style.borderColor = softChrome
+      ? "color-mix(in srgb," + color + " 64%,transparent)"
+      : color;
+    if (softChrome) {
+      overlay.style.background =
+        "color-mix(in srgb," + color + " 5%,transparent)";
+    } else if (
+      overlay === highlightOverlay ||
+      overlay.getAttribute("data-agent-native-edit-overlay") ===
+        "multi-selection"
+    ) {
+      overlay.style.background = "transparent";
+    }
     overlay
       .querySelectorAll(
         "[data-agent-native-edit-handle],[data-agent-native-edit-overlay='multi-selection-handle']",
@@ -2189,6 +2194,19 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         node.style.borderColor = color;
         node.style.background = contrast;
       });
+  }
+
+  function setHighlightOverlayStyle(style: "default" | "soft"): void {
+    highlightOverlayStyle = style;
+    if (style === "soft") {
+      highlightOverlay.setAttribute("data-agent-native-soft-chrome", "true");
+    } else {
+      highlightOverlay.removeAttribute("data-agent-native-soft-chrome");
+    }
+    if (hoveredEl && hoveredEl !== selectedEl) {
+      applyElementOverlayChrome(highlightOverlay, hoveredEl);
+    }
+    applyEditorChromeScale();
   }
 
   function applySelectionChrome(el: Element | null): void {
@@ -2231,6 +2249,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
 
   var selectedEl: Element | null = null;
   var hoveredEl: Element | null = null;
+  var highlightOverlayStyle: "default" | "soft" = "default";
   type NodeHtmlPreviewSession = {
     proposalId: string;
     originalElement: Element;
@@ -2526,12 +2545,17 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     scalePassiveSelectionOverlay(overlay);
   }
 
-  function makePassiveSelectionOverlay(): HTMLElement {
+  function makePassiveSelectionOverlay(style: "default" | "soft"): HTMLElement {
     var overlay = document.createElement("div");
     overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
+    if (style === "soft") {
+      overlay.setAttribute("data-agent-native-soft-chrome", "true");
+    }
     overlay.style.cssText =
-      "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-    appendPassiveSelectionHandles(overlay);
+      style === "soft"
+        ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;"
+        : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
+    if (style !== "soft") appendPassiveSelectionHandles(overlay);
     document.body.appendChild(overlay);
     return overlay;
   }
@@ -2540,7 +2564,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
-    overlay.style.borderWidth = 1.5 * line + "px";
+    var softChrome =
+      overlay.getAttribute("data-agent-native-soft-chrome") === "true";
+    overlay.style.borderWidth = (softChrome ? 1 : 1.5) * line + "px";
     overlay
       .querySelectorAll(
         "[data-agent-native-edit-overlay='multi-selection-handle']",
@@ -2557,7 +2583,10 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       });
   }
 
-  function setPassiveSelectionElements(elements: Element[]): void {
+  function setPassiveSelectionElements(
+    elements: Element[],
+    style: "default" | "soft" = "default",
+  ): void {
     passiveSelectionEls = elements.filter(function (el, index, all) {
       return (
         el &&
@@ -2568,7 +2597,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     });
     removePassiveSelectionOverlays();
     passiveSelectionEls.forEach(function (el) {
-      var overlay = makePassiveSelectionOverlay();
+      var overlay = makePassiveSelectionOverlay(style);
       passiveSelectionOverlays.push(overlay);
       positionOverlay(overlay, el);
     });
@@ -3939,11 +3968,10 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     var sx = chromeScaleX();
     var sy = chromeScaleY();
     var line = chromeLineScale();
-    // Figma parity: the hover outline is visibly thinner than the selection
-    // outline — hover is a light "you could select this" hint, selection is
-    // the stronger confirmed-state chrome. Matches the overview canvas's
-    // hover (1 * chromeScale) vs selection (1.5 * chromeScale) ratio.
-    highlightOverlay.style.borderWidth = 1 * line + "px";
+    // Keep hover and the corresponding selection outline visually identical.
+    // Soft responsive peers intentionally use the lighter outline treatment.
+    highlightOverlay.style.borderWidth =
+      (highlightOverlayStyle === "soft" ? 1 : 1.5) * line + "px";
     parentAutoLayoutOverlay.style.borderWidth = 1 * line + "px";
     selectionOverlay.style.borderWidth = 1.5 * line + "px";
     marqueeSelectionOverlay.style.borderWidth = 1 * line + "px";
@@ -6046,6 +6074,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   function startSpacingDrag(key, e) {
+    if (readOnly) return;
     if (spacingDrag) {
       stopNativeInteraction(e);
       return;
@@ -8374,6 +8403,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     gestureElParam?: Element,
     pointerStartParam?: { clientX: number; clientY: number },
   ) {
+    if (readOnly) return;
     var gestureEl = gestureElParam || selectedEl;
     if (!gestureEl) return;
     if (isLayerInteractionBlocked(gestureEl)) return;
@@ -9546,6 +9576,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   function startResize(handle, e) {
+    if (readOnly) return;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
@@ -9834,6 +9865,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   function startRotate(e) {
+    if (readOnly) return;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
@@ -9980,7 +10012,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         shieldOverlay.setPointerCapture(e.pointerId);
       } catch (_err) {}
     }
-    if (!e.altKey) {
+    if (!readOnly && !e.altKey) {
       postCrossScreenDrag("start", dragTarget, e);
     }
     var startX = e.clientX;
@@ -10006,6 +10038,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       postElementSelect(selectedEl, ev);
     }
     function onMove(ev) {
+      if (readOnly) return;
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
       clearPendingShieldDrag();
       didStartDrag = true;
@@ -10036,7 +10069,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     function onUp(ev) {
       clearPendingShieldDrag();
       if (didStartDrag) return;
-      if (!e.altKey) {
+      if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
       if (ev) stopNativeInteraction(ev);
@@ -10058,6 +10091,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   selectionOverlay.addEventListener(
     "mousedown",
     function (e) {
+      if (readOnly) return;
       var spacingKey =
         e.target &&
         e.target.getAttribute &&
@@ -11164,9 +11198,13 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         if (activeTextEditEl) {
           activeTextEditEl.blur();
         }
-        clearRuntimeSelection();
-        shieldOverlay.style.pointerEvents = "none";
+        clearPendingShieldDrag();
+        cancelActiveBridgeDrag();
+        setSelectionOverlayResizeChromeVisible(false);
+        // Keep the shield active so the viewer can select and inspect layers.
+        shieldOverlay.style.pointerEvents = "auto";
       } else {
+        setSelectionOverlayResizeChromeVisible(true);
         shieldOverlay.style.pointerEvents = "auto";
       }
       return;
@@ -11504,7 +11542,13 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
           } catch (_err) {}
         }
       });
-      setPassiveSelectionElements(passiveTargets);
+      setPassiveSelectionElements(
+        passiveTargets,
+        e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
+      );
+      setHighlightOverlayStyle(
+        e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
+      );
       return;
     }
     if (e.data.type === "select-element") {
@@ -11579,6 +11623,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       return;
     }
     if (e.data.type === "hover-element") {
+      if (e.data.hoverStyle === "soft" || e.data.hoverStyle === "default") {
+        setHighlightOverlayStyle(e.data.hoverStyle);
+      }
       var hoverCandidates: string[] = [];
       if (Array.isArray(e.data.selectorCandidates)) {
         e.data.selectorCandidates.forEach(function (selector) {

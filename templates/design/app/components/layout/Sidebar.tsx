@@ -8,7 +8,7 @@ import {
   IconPencil,
   IconTemplate,
   IconPalette,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -32,7 +32,7 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
-  { icon: IconBrain, labelKey: "navigation.agent", href: "/agent" },
+  { icon: IconHierarchy2, labelKey: "navigation.agent", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

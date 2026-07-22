@@ -259,6 +259,8 @@ const messages = {
     duplicated: "フォームが複製されました",
     duplicateFailed: "フォームの複製に失敗しました",
     movedToArchive: "フォームはアーカイブに移動されました",
+    movingToArchive: "フォームをアーカイブに移動中…",
+    archiveFailed: "フォームをアーカイブに移動できませんでした",
     restored: "フォームが復元されました",
     permanentlyDeleted: "フォームは完全に削除されました",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

@@ -56,6 +56,38 @@ struct AdhocMeetingsWatcherInner {
     session_notified: HashMap<String, bool>,
 }
 
+impl AdhocMeetingsWatcherInner {
+    fn refresh_suppression(&mut self, platform: &str, now_ts: i64) {
+        self.session_notified.insert(platform.to_string(), true);
+        self.cooldown_until
+            .insert(platform.to_string(), now_ts + COOLDOWN_SECS);
+        self.dwell_platform = None;
+        self.dwell_since = None;
+    }
+
+    fn is_suppressed(&self, platform: &str, now_ts: i64) -> bool {
+        self.cooldown_until.get(platform).copied().unwrap_or(0) > now_ts
+            || self
+                .session_notified
+                .get(platform)
+                .copied()
+                .unwrap_or(false)
+    }
+}
+
+pub fn refresh_dismissal_suppression(app: &AppHandle, platform: &str) -> Result<(), String> {
+    let platform = platform.trim().to_lowercase();
+    if platform.is_empty() {
+        return Ok(());
+    }
+    let state = app
+        .try_state::<AdhocMeetingsWatcherState>()
+        .ok_or_else(|| "no AdhocMeetingsWatcherState".to_string())?;
+    let mut g = state.inner.lock().map_err(|e| e.to_string())?;
+    g.refresh_suppression(&platform, chrono::Utc::now().timestamp());
+    Ok(())
+}
+
 /// Spawn the long-running adhoc watcher. Idempotent — gated by OnceLock.
 pub fn spawn_watcher(app: AppHandle) {
     use std::sync::OnceLock;
@@ -170,10 +202,7 @@ async fn tick_macos(
         // Prune expired cooldowns.
         g.cooldown_until.retain(|_, until| *until > now_ts);
 
-        if g.cooldown_until.get(platform).copied().unwrap_or(0) > now_ts {
-            return Ok(());
-        }
-        if g.session_notified.get(platform).copied().unwrap_or(false) {
+        if g.is_suppressed(platform, now_ts) {
             return Ok(());
         }
 
@@ -261,6 +290,40 @@ async fn tick_macos(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dismissal_refreshes_the_existing_cooldown_and_clears_dwell() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner {
+            dwell_platform: Some("zoom".to_string()),
+            dwell_since: Some(Instant::now()),
+            ..Default::default()
+        };
+
+        state.refresh_suppression("zoom", now_ts);
+        state.session_notified.remove("zoom");
+
+        assert!(state.is_suppressed("zoom", now_ts + COOLDOWN_SECS - 1));
+        assert!(!state.is_suppressed("zoom", now_ts + COOLDOWN_SECS));
+        assert_eq!(state.dwell_platform, None);
+        assert_eq!(state.dwell_since, None);
+    }
+
+    #[test]
+    fn dismissal_suppression_remains_platform_scoped() {
+        let now_ts = 1_000;
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.refresh_suppression("zoom", now_ts);
+
+        assert!(state.is_suppressed("zoom", now_ts));
+        assert!(!state.is_suppressed("teams", now_ts));
+    }
 }
 
 fn reset_dwell(app: &AppHandle) {

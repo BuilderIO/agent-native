@@ -1,6 +1,6 @@
 import type { Icon } from "@tabler/icons-react";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -1011,7 +1011,7 @@ export const navItems: Array<{
     view: "agent",
     label: "Manage agent",
     href: "/agent",
-    icon: IconBrain,
+    icon: IconHierarchy2,
   },
 ];
 

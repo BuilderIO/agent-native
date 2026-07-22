@@ -33,7 +33,7 @@ import {
   IconDownload,
   IconRefresh,
   IconLoader2,
-  IconDots,
+  IconDotsVertical,
   IconLock,
   IconArchive,
 } from "@tabler/icons-react";
@@ -724,12 +724,12 @@ export function FormBuilderPage() {
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="icon"
                       className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
-                      <IconDots className="h-4 w-4" />
+                      <IconDotsVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>

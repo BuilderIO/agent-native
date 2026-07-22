@@ -1,5 +1,5 @@
 import type { DispatchExtensionConfig } from "@agent-native/dispatch/components";
-import { IconBrain } from "@tabler/icons-react";
+import { IconHierarchy2 } from "@tabler/icons-react";
 
 /**
  * Local Dispatch extensions for this generated workspace.
@@ -31,7 +31,7 @@ export const dispatchExtensions = {
       id: "agent",
       to: "/agent",
       label: "Agent",
-      icon: IconBrain,
+      icon: IconHierarchy2,
       section: "operations",
     },
   ],

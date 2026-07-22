@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDbExec, isPostgres } from "../../db/client.js";
 import { createGetDb } from "../../db/create-get-db.js";
@@ -203,7 +203,12 @@ export async function listExtensionsForSlot(slotId: string): Promise<
       icon: extensions.icon,
     })
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares));
+    .where(
+      and(
+        accessFilter(extensions, extensionShares),
+        isNull(extensions.archivedAt),
+      ),
+    );
   const localRows = (await listLocalExtensions())
     .filter((extension) => extension.source.slots.includes(slotId))
     .map((extension) => ({
@@ -397,7 +402,12 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
       updatedAt: extensions.updatedAt,
     })
     .from(extensions)
-    .where(accessFilter(extensions, extensionShares));
+    .where(
+      and(
+        accessFilter(extensions, extensionShares),
+        isNull(extensions.archivedAt),
+      ),
+    );
   const byId = new Map(accessible.map((t: any) => [t.id, t]));
 
   const sqlInstalls = (installs as ExtensionSlotInstallRow[])
@@ -419,7 +429,7 @@ export async function listSlotInstallsForUser(slotId: string): Promise<
   return [...localInstalls, ...sqlInstalls];
 }
 
-/** Delete every slot/install row referencing a extension. Called from deleteExtension. */
+/** Delete every slot/install row referencing an extension for maintenance. */
 export async function cascadeDeleteExtensionSlots(
   extensionId: string,
 ): Promise<void> {

@@ -155,11 +155,14 @@ export function FormsListPage() {
     }
   }
 
-  function handleDelete(id: string) {
+  function handleArchive(id: string) {
+    const toastId = toast.loading(t("forms.movingToArchive"));
     deleteForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success(t("forms.movedToArchive")),
+        onSuccess: () =>
+          toast.success(t("forms.movedToArchive"), { id: toastId }),
+        onError: () => toast.error(t("forms.archiveFailed"), { id: toastId }),
       },
     );
   }
@@ -215,6 +218,9 @@ export function FormsListPage() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
+    const toastId = purge
+      ? undefined
+      : toast.loading(t("forms.movingToArchive"));
     setBulkDeletePending(true);
     try {
       await Promise.all(
@@ -239,10 +245,15 @@ export function FormsListPage() {
                 count: ids.length,
                 formattedCount: formatNumber(ids.length),
               }),
+        toastId ? { id: toastId } : undefined,
       );
       setSelectedIds(new Set());
       setSelectionMode(false);
       setBulkPurgeOpen(false);
+    } catch {
+      if (toastId) {
+        toast.error(t("forms.archiveFailed"), { id: toastId });
+      }
     } finally {
       setBulkDeletePending(false);
     }
@@ -407,7 +418,13 @@ export function FormsListPage() {
             }
             disabled={selectedCount === 0 || bulkDeletePending}
           >
-            <IconTrash className="h-3.5 w-3.5" />
+            {bulkDeletePending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isArchive ? (
+              <IconTrash className="h-3.5 w-3.5" />
+            ) : (
+              <IconArchive className="h-3.5 w-3.5" />
+            )}
             {isArchive ? t("forms.deleteForever") : t("forms.moveToArchive")}
           </Button>
           <Button
@@ -673,11 +690,11 @@ export function FormsListPage() {
                                   className="text-destructive"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDelete(form.id);
+                                    handleArchive(form.id);
                                   }}
                                 >
-                                  <IconTrash className="h-4 w-4 me-2" />
-                                  {t("common.delete")}
+                                  <IconArchive className="h-4 w-4 me-2" />
+                                  {t("forms.moveToArchive")}
                                 </DropdownMenuItem>
                               </>
                             );

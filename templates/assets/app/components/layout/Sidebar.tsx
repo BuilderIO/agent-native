@@ -16,7 +16,7 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconClipboardList,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -40,7 +40,7 @@ import { cn } from "@/lib/utils";
 const baseNavItems = [
   { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
-  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
