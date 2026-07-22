@@ -27,6 +27,11 @@ Light and dark ConfigProvider themes use the same exported `theme` passed to
 the Core Vite plugin. Tokens are generated once at build time, never per
 request.
 
+To exercise dark mode, open the command menu with `Cmd/Ctrl+K` and choose the
+Appearance action. The main Chat canvas is intentionally tokens-only because
+the assistant-ui renderer is a v1 non-goal; use settings, sharing, the history
+rail, and agent-panel chrome to compare Ant Design rendering.
+
 The example maps Ant Design's generated palette and system typography into the
 build-time theme, so app chrome and semantic adapters share the same token
 source.

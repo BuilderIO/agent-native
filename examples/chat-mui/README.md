@@ -30,6 +30,11 @@ Material UI's light and dark themes are selected from `next-themes`, while the
 same `theme` export is passed to the Core Vite plugin for build-time CSS tokens.
 No runtime or request-specific theme CSS is generated.
 
+To exercise dark mode, open the command menu with `Cmd/Ctrl+K` and choose the
+Appearance action. The main Chat canvas is intentionally tokens-only because
+the assistant-ui renderer is a v1 non-goal; use settings, sharing, the history
+rail, and agent-panel chrome to compare MUI rendering.
+
 The example maps Material UI's generated palette and typography into the
 build-time theme. The body exposes Material UI's default Roboto stack through
 `--font-family`; deployments that want the exact Roboto face should load it

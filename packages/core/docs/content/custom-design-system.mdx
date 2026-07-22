@@ -213,6 +213,13 @@ bridged where the semantic contract fits. If a product needs arbitrary nested
 menu content, use a product slot or propose a contract extension instead of
 silently mixing the default menu into a custom adapter.
 
+The framework-owned sign-in shell is outside both the semantic bridge and the
+build-time token tier in v1; the authenticated settings, sharing, history rail,
+and agent-panel surfaces are the design-system proving surfaces. The main Chat
+canvas remains tokens-only because the assistant-ui renderer is a documented
+v1 non-goal. In the runnable examples, dark mode is exercised from the
+`Cmd/Ctrl+K` Appearance command rather than a second settings section.
+
 ## Overlays, portals, and focus
 
 Behavior components may use your design system’s overlay and focus
