@@ -122,6 +122,85 @@ function elementWithText(document: Document, selector: string, text: string) {
   );
 }
 
+function assertInlineLayout(
+  container: Element,
+  iconSelector: string,
+  labelSelector: string,
+  message: string,
+) {
+  const icon = container.querySelector<HTMLElement>(iconSelector);
+  const label = container.querySelector<HTMLElement>(labelSelector);
+  invariant(icon && label, message);
+
+  const iconRect = icon.getBoundingClientRect();
+  const labelRect = label.getBoundingClientRect();
+  const hasGeometry =
+    iconRect.width > 0 ||
+    iconRect.height > 0 ||
+    labelRect.width > 0 ||
+    labelRect.height > 0;
+  if (hasGeometry) {
+    invariant(
+      Math.abs(iconRect.top - labelRect.top) <=
+        Math.max(2, Math.min(iconRect.height, labelRect.height)),
+      message,
+    );
+    return;
+  }
+
+  // happy-dom does not calculate layout. Still reject adapters that explicitly
+  // stack the tab contents, while browser-backed runs use the geometry check.
+  const commonAncestor = (() => {
+    let candidate: Element | null = icon;
+    while (candidate && !candidate.contains(label)) {
+      candidate = candidate.parentElement;
+    }
+    return candidate;
+  })();
+  const styles = [
+    container,
+    commonAncestor,
+    icon.parentElement,
+    label.parentElement,
+  ]
+    .filter((element): element is Element => Boolean(element))
+    .map((element) =>
+      element.ownerDocument.defaultView?.getComputedStyle(element),
+    );
+  invariant(
+    !styles.some(
+      (style) => style?.display === "flex" && style.flexDirection === "column",
+    ),
+    message,
+  );
+}
+
+function assertContainedFooter(dialog: Element, footerSelector: string) {
+  const footer = dialog.querySelector<HTMLElement>(footerSelector);
+  invariant(
+    footer,
+    "Dialog footer controls must be rendered inside the dialog surface.",
+  );
+
+  const dialogRect = (dialog as HTMLElement).getBoundingClientRect();
+  const footerRect = footer.getBoundingClientRect();
+  const hasGeometry =
+    dialogRect.width > 0 ||
+    dialogRect.height > 0 ||
+    footerRect.width > 0 ||
+    footerRect.height > 0;
+  if (!hasGeometry) return;
+
+  const epsilon = 2;
+  invariant(
+    footerRect.top >= dialogRect.top - epsilon &&
+      footerRect.bottom <= dialogRect.bottom + epsilon &&
+      footerRect.left >= dialogRect.left - epsilon &&
+      footerRect.right <= dialogRect.right + epsilon,
+    "Dialog footer controls must remain within the dialog surface bounds.",
+  );
+}
+
 const checks: readonly ConformanceCheck[] = [
   {
     id: "contract.components",
@@ -393,6 +472,30 @@ const checks: readonly ConformanceCheck[] = [
         "Dialog must not invent actions when footer is omitted.",
       );
       unmount(probe);
+
+      const footerProbe = mount(
+        <components.Dialog
+          open
+          onOpenChange={() => {}}
+          title="Footer probe"
+          portalContainer={portal}
+          footer={
+            <button data-conformance-dialog-footer-action="true" type="button">
+              Save
+            </button>
+          }
+        >
+          Footer content
+        </components.Dialog>,
+      );
+      await settle();
+      const footerDialog = portal.querySelector('[role="dialog"]');
+      invariant(footerDialog, "Dialog footer probe did not render a dialog.");
+      assertContainedFooter(
+        footerDialog,
+        '[data-conformance-dialog-footer-action="true"]',
+      );
+      unmount(footerProbe);
       portal.remove();
     },
   },
@@ -466,7 +569,16 @@ const checks: readonly ConformanceCheck[] = [
           orientation="vertical"
           onChange={(next) => (value = next)}
           items={[
-            { value: "first", label: "First", content: "One" },
+            {
+              value: "first",
+              label: <span data-conformance-tab-label="true">First</span>,
+              icon: (
+                <span data-conformance-tab-icon="true" aria-hidden="true">
+                  ●
+                </span>
+              ),
+              content: "One",
+            },
             { value: "second", label: "Second", content: "Two" },
           ]}
         />,
@@ -476,6 +588,14 @@ const checks: readonly ConformanceCheck[] = [
       invariant(
         tabList.getAttribute("aria-orientation") === "vertical",
         "Tabs must honor vertical orientation in their tablist semantics.",
+      );
+      const first = elementWithText(document, '[role="tab"]', "First");
+      invariant(first, "Tabs must expose the icon-bearing tab.");
+      assertInlineLayout(
+        first,
+        '[data-conformance-tab-icon="true"]',
+        '[data-conformance-tab-label="true"]',
+        "Tabs must lay out an icon and its label on the same row.",
       );
       const second = elementWithText(document, '[role="tab"]', "Second");
       invariant(second, "Tabs must expose tab semantics.");
