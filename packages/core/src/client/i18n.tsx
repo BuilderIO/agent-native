@@ -1,6 +1,6 @@
 import { Picker } from "@agent-native/toolkit/design-system";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
+import { IconCheck, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
 import React, {
   createContext,
@@ -747,37 +747,23 @@ export function LanguagePicker({
                 : "border border-border bg-background text-foreground hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
               variant === "icon"
                 ? "flex h-8 w-8 items-center justify-center"
-                : variant === "select"
-                  ? "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm"
-                  : null,
+                : null,
             )}
           >
             <span className="flex min-w-0 items-center gap-2">
               <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
-              {variant === "select" ? (
-                <span className="truncate">{selectedLabel}</span>
-              ) : (
-                <span className="sr-only">{triggerLabel}</span>
-              )}
+              <span className="sr-only">{triggerLabel}</span>
             </span>
-            {variant === "select" ? (
-              <IconChevronDown
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            ) : null}
           </button>
         </PopoverPrimitive.Trigger>
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content
-            align={variant === "select" ? "start" : "end"}
+            align="end"
             sideOffset={6}
             role="menu"
             className={cn(
               "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
-              variant === "icon" || variant === "ghost-icon"
-                ? "min-w-56"
-                : "w-[min(20rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)]",
+              "min-w-56",
             )}
           >
             {options.map((option) => {
