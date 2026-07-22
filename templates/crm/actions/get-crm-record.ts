@@ -32,7 +32,10 @@ export default defineAction({
     }
     const adapter =
       context.provider === "native"
-        ? await createNativeCrmAdapter({ connectionId: context.connectionId })
+        ? await createNativeCrmAdapter({
+            connectionId: context.connectionId,
+            accessTier: "viewer",
+          })
         : isConnectedCrmProvider(context.provider) &&
             context.workspaceConnectionId
           ? await createConnectedCrmAdapter({

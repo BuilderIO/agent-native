@@ -1054,6 +1054,96 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("refreshes Salesforce OAuth using Consumer Key/Secret when CLIENT_ID/SECRET are unset", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "SALESFORCE_CONSUMER_KEY"
+        ? "salesforce-consumer-key"
+        : key === "SALESFORCE_CONSUMER_SECRET"
+          ? "salesforce-consumer-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: {
+          access_token: "expired-salesforce-access",
+          refresh_token: "salesforce-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+          salesforceLoginUrl: "https://test.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "salesforce-access-new",
+            refresh_token: "salesforce-refresh-rotated",
+            expires_in: 7200,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ records: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "salesforce",
+      path: "/services/data/v60.0/query",
+      connectionId: "salesforce-connection",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://test.salesforce.com/services/oauth2/token",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "client_id=salesforce-consumer-key",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "client_secret=salesforce-consumer-secret",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://acme.my.salesforce.com/services/data/v60.0/query",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer salesforce-access-new",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "salesforce",
+      "00Dexample::scoped-owner",
+      expect.objectContaining({
+        access_token: "salesforce-access-new",
+        refresh_token: "salesforce-refresh-rotated",
+      }),
+      "ada@example.com",
+    );
+  });
+
   it("resolves a connection-bound OAuth token for trusted UI bridges", async () => {
     listOAuthAccountsByOwner.mockResolvedValue([
       {

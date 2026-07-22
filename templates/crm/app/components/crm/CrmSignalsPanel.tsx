@@ -9,7 +9,7 @@ import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconExternalLink,
-  IconSparkles,
+  IconWaveSine,
   IconX,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -124,7 +124,7 @@ export function CrmSignalsPanel({
           disabled={!evidence.length || run.isPending}
           onClick={analyze}
         >
-          <IconSparkles className="size-3.5" />
+          <IconWaveSine className="size-3.5" />
           {run.isPending ? "Preparing…" : "Analyze evidence"}
         </Button>
       </div>

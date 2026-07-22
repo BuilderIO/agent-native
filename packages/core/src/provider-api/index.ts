@@ -4964,6 +4964,15 @@ async function resolveOAuthClientCredentialCandidates(
   ].filter((value): value is { clientId: string; clientSecret: string } =>
     Boolean(value),
   );
+  if (provider === "SALESFORCE") {
+    const [consumerKey, consumerSecret] = await Promise.all([
+      resolveSecret("SALESFORCE_CONSUMER_KEY"),
+      resolveSecret("SALESFORCE_CONSUMER_SECRET"),
+    ]);
+    if (consumerKey && consumerSecret) {
+      candidates.push({ clientId: consumerKey, clientSecret: consumerSecret });
+    }
+  }
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
     if (seen.has(candidate.clientId)) return false;

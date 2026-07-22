@@ -1,5 +1,5 @@
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, eq, gt, inArray, like, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, like, or } from "drizzle-orm";
 
 import type {
   CrmAccessScope,
@@ -336,8 +336,9 @@ function summaryColumns(fields: Record<string, CrmValue>, fallback: string) {
 
 async function loadNativeConnection(
   connectionId: string,
+  accessTier: "viewer" | "editor" = "viewer",
 ): Promise<NativeConnection> {
-  await assertAccess("crm-connection", connectionId, "editor");
+  await assertAccess("crm-connection", connectionId, accessTier);
   const db = getDb();
   const [connection] = await db
     .select({
@@ -358,7 +359,7 @@ async function loadNativeConnection(
           schema.crmConnections,
           schema.crmConnectionShares,
           undefined,
-          "editor",
+          accessTier,
         ),
       ),
     )
@@ -495,7 +496,7 @@ async function ensureNativeObject(input: {
 }
 
 export async function initializeNativeCrmDomain(connectionId: string) {
-  const connection = await loadNativeConnection(connectionId);
+  const connection = await loadNativeConnection(connectionId, "editor");
   await Promise.all(
     STANDARD_OBJECTS.map((objectType) =>
       ensureNativeObject({ connection, objectType, fields: [] }),
@@ -1249,73 +1250,43 @@ export class NativeCrmAdapter implements CrmAdapter {
     const merged = { ...current, ...fields };
     const revision = nextNativeRevision(record.remoteRevision);
     const now = new Date().toISOString();
-    await db.transaction(async (tx) => {
-      await tx
-        .update(schema.crmRecords)
-        .set({
-          ...summaryColumns(merged, record.remoteId),
-          remoteRevision: revision,
-          remoteUpdatedAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.crmRecords.id, record.id),
-            accessFilter(
-              schema.crmRecords,
-              schema.crmRecordShares,
-              undefined,
-              "editor",
-            ),
-          ),
-        );
-      for (const [fieldName, value] of Object.entries(fields)) {
-        const [existing] = await tx
-          .select({ id: schema.crmRecordFields.id })
-          .from(schema.crmRecordFields)
+    const revisionGuard =
+      record.remoteRevision === null
+        ? isNull(schema.crmRecords.remoteRevision)
+        : eq(schema.crmRecords.remoteRevision, record.remoteRevision);
+    try {
+      await db.transaction(async (tx) => {
+        const guarded = await tx
+          .update(schema.crmRecords)
+          .set({
+            ...summaryColumns(merged, record.remoteId),
+            remoteRevision: revision,
+            remoteUpdatedAt: now,
+            updatedAt: now,
+          })
           .where(
             and(
-              eq(schema.crmRecordFields.recordId, record.id),
-              eq(schema.crmRecordFields.fieldName, fieldName),
+              eq(schema.crmRecords.id, record.id),
+              revisionGuard,
               accessFilter(
-                schema.crmRecordFields,
-                schema.crmRecordFieldShares,
+                schema.crmRecords,
+                schema.crmRecordShares,
                 undefined,
                 "editor",
               ),
             ),
           )
-          .limit(1);
-        const values = {
-          valueType: valueType(value),
-          storagePolicy: "local-authoritative" as const,
-          ...fieldColumns(value),
-          provenanceJson: json(
-            [
-              {
-                provider: "native",
-                connectionId: this.connection.connectionId,
-                objectType: record.objectType,
-                remoteId: record.remoteId,
-                fieldName,
-                remoteRevision: revision,
-                observedAt: now,
-              },
-            ],
-            4_000,
-          ),
-          accessScopeKey: this.getAccessScope().key,
-          accessScopeJson: json(this.getAccessScope(), 4_000),
-          remoteRevision: revision,
-          updatedAt: now,
-        };
-        if (existing) {
-          await tx
-            .update(schema.crmRecordFields)
-            .set(values)
+          .returning({ id: schema.crmRecords.id });
+        if (guarded.length !== 1)
+          throw new Error("NATIVE_CRM_REVISION_CONFLICT");
+        for (const [fieldName, value] of Object.entries(fields)) {
+          const [existing] = await tx
+            .select({ id: schema.crmRecordFields.id })
+            .from(schema.crmRecordFields)
             .where(
               and(
-                eq(schema.crmRecordFields.id, existing.id),
+                eq(schema.crmRecordFields.recordId, record.id),
+                eq(schema.crmRecordFields.fieldName, fieldName),
                 accessFilter(
                   schema.crmRecordFields,
                   schema.crmRecordFieldShares,
@@ -1323,44 +1294,94 @@ export class NativeCrmAdapter implements CrmAdapter {
                   "editor",
                 ),
               ),
-            );
-        } else {
-          await tx.insert(schema.crmRecordFields).values({
-            id: crypto.randomUUID(),
-            recordId: record.id,
-            fieldName,
-            ...values,
-            ownerEmail: record.ownerEmail,
-            orgId: record.orgId,
-            visibility: record.visibility,
-            createdAt: now,
-          });
+            )
+            .limit(1);
+          const values = {
+            valueType: valueType(value),
+            storagePolicy: "local-authoritative" as const,
+            ...fieldColumns(value),
+            provenanceJson: json(
+              [
+                {
+                  provider: "native",
+                  connectionId: this.connection.connectionId,
+                  objectType: record.objectType,
+                  remoteId: record.remoteId,
+                  fieldName,
+                  remoteRevision: revision,
+                  observedAt: now,
+                },
+              ],
+              4_000,
+            ),
+            accessScopeKey: this.getAccessScope().key,
+            accessScopeJson: json(this.getAccessScope(), 4_000),
+            remoteRevision: revision,
+            updatedAt: now,
+          };
+          if (existing) {
+            await tx
+              .update(schema.crmRecordFields)
+              .set(values)
+              .where(
+                and(
+                  eq(schema.crmRecordFields.id, existing.id),
+                  accessFilter(
+                    schema.crmRecordFields,
+                    schema.crmRecordFieldShares,
+                    undefined,
+                    "editor",
+                  ),
+                ),
+              );
+          } else {
+            await tx.insert(schema.crmRecordFields).values({
+              id: crypto.randomUUID(),
+              recordId: record.id,
+              fieldName,
+              ...values,
+              ownerEmail: record.ownerEmail,
+              orgId: record.orgId,
+              visibility: record.visibility,
+              createdAt: now,
+            });
+          }
         }
-      }
-      await tx.insert(schema.crmMutations).values({
-        id: crypto.randomUUID(),
-        recordId: record.id,
-        connectionId: this.connection.connectionId,
-        operation: "update",
-        initiatedBy: this.#initiatedBy,
-        target: "local",
-        policyDecision: "execute",
-        risk: "routine",
-        status: "applied",
-        patchJson,
-        beforeJson: json({ remoteRevision: record.remoteRevision }),
-        afterJson: json({ remoteRevision: revision }),
-        idempotencyKey: mutation.idempotencyKey,
-        expectedRemoteRevision: mutation.expectedRemoteRevision ?? null,
-        providerRemoteRevision: revision,
-        appliedAt: now,
-        ownerEmail: record.ownerEmail,
-        orgId: record.orgId,
-        visibility: record.visibility,
-        createdAt: now,
-        updatedAt: now,
+        await tx.insert(schema.crmMutations).values({
+          id: crypto.randomUUID(),
+          recordId: record.id,
+          connectionId: this.connection.connectionId,
+          operation: "update",
+          initiatedBy: this.#initiatedBy,
+          target: "local",
+          policyDecision: "execute",
+          risk: "routine",
+          status: "applied",
+          patchJson,
+          beforeJson: json({ remoteRevision: record.remoteRevision }),
+          afterJson: json({ remoteRevision: revision }),
+          idempotencyKey: mutation.idempotencyKey,
+          expectedRemoteRevision: mutation.expectedRemoteRevision ?? null,
+          providerRemoteRevision: revision,
+          appliedAt: now,
+          ownerEmail: record.ownerEmail,
+          orgId: record.orgId,
+          visibility: record.visibility,
+          createdAt: now,
+          updatedAt: now,
+        });
       });
-    });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "NATIVE_CRM_REVISION_CONFLICT"
+      )
+        return {
+          status: "conflict",
+          message: "Native CRM record revision changed.",
+        };
+      throw error;
+    }
     const updated = await this.getRecord({
       record: mutation.record,
       fields: Object.keys(merged),
@@ -1410,55 +1431,48 @@ export class NativeCrmAdapter implements CrmAdapter {
       };
     const revision = nextNativeRevision(record.remoteRevision);
     const now = new Date().toISOString();
-    await db.transaction(async (tx) => {
-      await tx
-        .update(schema.crmRecords)
-        .set({
-          tombstone: true,
-          remoteRevision: revision,
-          remoteUpdatedAt: now,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(schema.crmRecords.id, record.id),
-            accessFilter(
-              schema.crmRecords,
-              schema.crmRecordShares,
-              undefined,
-              "editor",
-            ),
-          ),
-        );
-      const relationships = await tx
-        .select({ id: schema.crmRelationships.id })
-        .from(schema.crmRelationships)
-        .where(
-          and(
-            eq(
-              schema.crmRelationships.connectionId,
-              this.connection.connectionId,
-            ),
-            or(
-              eq(schema.crmRelationships.fromRecordId, record.id),
-              eq(schema.crmRelationships.toRecordId, record.id),
-            ),
-            accessFilter(
-              schema.crmRelationships,
-              schema.crmRelationshipShares,
-              undefined,
-              "editor",
-            ),
-          ),
-        );
-      for (const relationship of relationships) {
-        await assertAccess("crm-relationship", relationship.id, "editor");
-        await tx
-          .update(schema.crmRelationships)
-          .set({ tombstone: true, updatedAt: now })
+    const revisionGuard =
+      record.remoteRevision === null
+        ? isNull(schema.crmRecords.remoteRevision)
+        : eq(schema.crmRecords.remoteRevision, record.remoteRevision);
+    try {
+      await db.transaction(async (tx) => {
+        const guarded = await tx
+          .update(schema.crmRecords)
+          .set({
+            tombstone: true,
+            remoteRevision: revision,
+            remoteUpdatedAt: now,
+            updatedAt: now,
+          })
           .where(
             and(
-              eq(schema.crmRelationships.id, relationship.id),
+              eq(schema.crmRecords.id, record.id),
+              revisionGuard,
+              accessFilter(
+                schema.crmRecords,
+                schema.crmRecordShares,
+                undefined,
+                "editor",
+              ),
+            ),
+          )
+          .returning({ id: schema.crmRecords.id });
+        if (guarded.length !== 1)
+          throw new Error("NATIVE_CRM_REVISION_CONFLICT");
+        const relationships = await tx
+          .select({ id: schema.crmRelationships.id })
+          .from(schema.crmRelationships)
+          .where(
+            and(
+              eq(
+                schema.crmRelationships.connectionId,
+                this.connection.connectionId,
+              ),
+              or(
+                eq(schema.crmRelationships.fromRecordId, record.id),
+                eq(schema.crmRelationships.toRecordId, record.id),
+              ),
               accessFilter(
                 schema.crmRelationships,
                 schema.crmRelationshipShares,
@@ -1467,31 +1481,58 @@ export class NativeCrmAdapter implements CrmAdapter {
               ),
             ),
           );
-      }
-      await tx.insert(schema.crmMutations).values({
-        id: crypto.randomUUID(),
-        recordId: record.id,
-        connectionId: this.connection.connectionId,
-        operation: "delete",
-        initiatedBy: this.#initiatedBy,
-        target: "local",
-        policyDecision: "execute",
-        risk: "routine",
-        status: "applied",
-        patchJson,
-        beforeJson: json({ remoteRevision: record.remoteRevision }),
-        afterJson: json({ remoteRevision: revision, tombstone: true }),
-        idempotencyKey: mutation.idempotencyKey,
-        expectedRemoteRevision: mutation.expectedRemoteRevision ?? null,
-        providerRemoteRevision: revision,
-        appliedAt: now,
-        ownerEmail: record.ownerEmail,
-        orgId: record.orgId,
-        visibility: record.visibility,
-        createdAt: now,
-        updatedAt: now,
+        for (const relationship of relationships) {
+          await assertAccess("crm-relationship", relationship.id, "editor");
+          await tx
+            .update(schema.crmRelationships)
+            .set({ tombstone: true, updatedAt: now })
+            .where(
+              and(
+                eq(schema.crmRelationships.id, relationship.id),
+                accessFilter(
+                  schema.crmRelationships,
+                  schema.crmRelationshipShares,
+                  undefined,
+                  "editor",
+                ),
+              ),
+            );
+        }
+        await tx.insert(schema.crmMutations).values({
+          id: crypto.randomUUID(),
+          recordId: record.id,
+          connectionId: this.connection.connectionId,
+          operation: "delete",
+          initiatedBy: this.#initiatedBy,
+          target: "local",
+          policyDecision: "execute",
+          risk: "routine",
+          status: "applied",
+          patchJson,
+          beforeJson: json({ remoteRevision: record.remoteRevision }),
+          afterJson: json({ remoteRevision: revision, tombstone: true }),
+          idempotencyKey: mutation.idempotencyKey,
+          expectedRemoteRevision: mutation.expectedRemoteRevision ?? null,
+          providerRemoteRevision: revision,
+          appliedAt: now,
+          ownerEmail: record.ownerEmail,
+          orgId: record.orgId,
+          visibility: record.visibility,
+          createdAt: now,
+          updatedAt: now,
+        });
       });
-    });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "NATIVE_CRM_REVISION_CONFLICT"
+      )
+        return {
+          status: "conflict",
+          message: "Native CRM record revision changed.",
+        };
+      throw error;
+    }
     const deleted = await this.getRecord({
       record: mutation.record,
       fields: [],
@@ -1629,9 +1670,16 @@ export class NativeCrmAdapter implements CrmAdapter {
 export async function createNativeCrmAdapter(options: {
   connectionId: string;
   initiatedBy?: "human" | "agent" | "automation";
+  accessTier?: "viewer" | "editor";
 }): Promise<NativeCrmAdapter> {
-  const connection = await loadNativeConnection(options.connectionId);
-  await initializeNativeCrmDomain(options.connectionId);
+  const accessTier = options.accessTier ?? "editor";
+  const connection = await loadNativeConnection(
+    options.connectionId,
+    accessTier,
+  );
+  if (accessTier === "editor") {
+    await initializeNativeCrmDomain(options.connectionId);
+  }
   return new NativeCrmAdapter(connection, options.initiatedBy);
 }
 

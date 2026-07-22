@@ -246,6 +246,7 @@ describe("CRM read actions", () => {
     ).resolves.toEqual({ id: "record-native" });
     expect(nativeAdapters.createAdapter).toHaveBeenCalledWith({
       connectionId: "crm-connection",
+      accessTier: "viewer",
     });
     expect(adapters.createAdapter).not.toHaveBeenCalled();
   });
