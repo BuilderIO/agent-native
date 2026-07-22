@@ -27,17 +27,38 @@ fn numpad_enter_shortcut() -> Shortcut {
 }
 
 fn countdown_return_shortcuts() -> Vec<Shortcut> {
-    let mut shortcuts = vec![enter_shortcut()];
     // Windows maps both keys to VK_RETURN, so registering both always fails.
+    #[cfg(target_os = "windows")]
+    {
+        vec![enter_shortcut()]
+    }
     #[cfg(not(target_os = "windows"))]
-    shortcuts.push(numpad_enter_shortcut());
-    shortcuts
+    {
+        vec![enter_shortcut(), numpad_enter_shortcut()]
+    }
 }
 
 fn countdown_shortcuts() -> Vec<Shortcut> {
     let mut shortcuts = vec![escape_shortcut()];
     shortcuts.extend(countdown_return_shortcuts());
     shortcuts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn countdown_return_shortcuts_match_platform_registration() {
+        let shortcuts = countdown_return_shortcuts();
+        assert!(shortcuts.contains(&enter_shortcut()));
+
+        #[cfg(target_os = "windows")]
+        assert!(!shortcuts.contains(&numpad_enter_shortcut()));
+
+        #[cfg(not(target_os = "windows"))]
+        assert!(shortcuts.contains(&numpad_enter_shortcut()));
+    }
 }
 
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
