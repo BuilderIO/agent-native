@@ -586,6 +586,7 @@ const Picker: DesignSystemComponents["Picker"] = ({
   disabled,
   invalid,
   pickerRef,
+  portalContainer,
   ...props
 }) => (
   <label
@@ -598,7 +599,9 @@ const Picker: DesignSystemComponents["Picker"] = ({
         ref={pickerRef as any}
         showSearch={mode === "combobox"}
         virtual={false}
-        getPopupContainer={() => document.body}
+        getPopupContainer={() =>
+          (portalContainer as HTMLElement) ?? document.body
+        }
         mode={undefined}
         options={options.map((option) => ({
           value: option.value,

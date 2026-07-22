@@ -650,6 +650,7 @@ const Picker: DesignSystemComponents["Picker"] = ({
   disabled,
   invalid,
   pickerRef,
+  portalContainer,
   ...props
 }) => (
   <FormControl
@@ -674,6 +675,7 @@ const Picker: DesignSystemComponents["Picker"] = ({
             ?.value ?? null,
         )
       }
+      MenuProps={{ container: overlayContainer(portalContainer) }}
       renderValue={(selected) =>
         selected
           ? options.find((option) => String(option.value) === String(selected))
