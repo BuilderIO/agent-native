@@ -12,6 +12,21 @@ describe("realtime voice audio levels", () => {
     expect(normalizeRealtimeVoiceRms(new Uint8Array(32).fill(255))).toBe(1);
   });
 
+  it("makes ordinary speech visibly responsive above the noise floor", () => {
+    const quietSpeech = Uint8Array.from({ length: 32 }, (_, index) =>
+      index % 2 === 0 ? 124 : 132,
+    );
+    const typicalSpeech = Uint8Array.from({ length: 32 }, (_, index) =>
+      index % 2 === 0 ? 120 : 136,
+    );
+
+    expect(normalizeRealtimeVoiceRms(quietSpeech)).toBeGreaterThan(0.3);
+    expect(normalizeRealtimeVoiceRms(typicalSpeech)).toBeGreaterThan(0.5);
+    expect(normalizeRealtimeVoiceRms(typicalSpeech)).toBeGreaterThan(
+      normalizeRealtimeVoiceRms(quietSpeech),
+    );
+  });
+
   it("attacks faster than it decays", () => {
     expect(smoothRealtimeVoiceLevel(0, 1)).toBe(0.55);
     expect(smoothRealtimeVoiceLevel(1, 0)).toBe(0.8);

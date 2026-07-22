@@ -6,12 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasUnresolvedTool,
-  computeLatestRunningToolCallId,
+  computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
   isCollapsibleAssistantWorkPart,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
+  shouldShowMissingFinalResponse,
   ThinkingIndicator,
   isHiddenUserMessage,
 } from "./message-components.js";
@@ -106,6 +107,35 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(true);
+  });
+});
+
+describe("shouldShowMissingFinalResponse", () => {
+  it("backs up terminal tool-only messages with visible text", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays hidden while a tool is unresolved or final text exists", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowMissingFinalResponse({
+        statusIsTerminal: true,
+        hasAssistantText: true,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -242,10 +272,10 @@ describe("isHiddenUserMessage", () => {
   });
 });
 
-describe("computeLatestRunningToolCallId", () => {
+describe("computeActiveTailToolCallId", () => {
   it("never shimmers an older message's dangling unresolved tool", () => {
     expect(
-      computeLatestRunningToolCallId(
+      computeActiveTailToolCallId(
         [
           {
             type: "tool-call",
@@ -262,7 +292,7 @@ describe("computeLatestRunningToolCallId", () => {
 
   it("picks the last unresolved tool among parallel calls", () => {
     expect(
-      computeLatestRunningToolCallId(
+      computeActiveTailToolCallId(
         [
           {
             type: "tool-call",
@@ -284,9 +314,9 @@ describe("computeLatestRunningToolCallId", () => {
     ).toBe("tc_2");
   });
 
-  it("picks an older running tool over a newer resolved one", () => {
+  it("keeps the newest resolved tool active while the chat still runs", () => {
     expect(
-      computeLatestRunningToolCallId(
+      computeActiveTailToolCallId(
         [
           {
             type: "tool-call",
@@ -306,12 +336,12 @@ describe("computeLatestRunningToolCallId", () => {
         ],
         { chatRunning: true, isLast: true },
       ),
-    ).toBe("tc_1");
+    ).toBe("tc_2");
   });
 
   it("returns null when the chat is idle and no part reports activity", () => {
     expect(
-      computeLatestRunningToolCallId(
+      computeActiveTailToolCallId(
         [
           {
             type: "tool-call",

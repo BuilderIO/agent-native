@@ -137,11 +137,11 @@ describe("MCP integration catalog", () => {
     });
     expect(getMcpIntegrationApiFallback(figma, "analytics")).toBeNull();
     expect(getMcpIntegrationApiFallback(figma, null)).toBeNull();
-    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(25);
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(26);
     expect(
       new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
         .size,
-    ).toBe(25);
+    ).toBe(26);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
         /^data:image\/(?:svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
@@ -180,6 +180,15 @@ describe("MCP integration catalog", () => {
       connectionMode: "manual",
       availability: "client-restricted",
     });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "granola"),
+    ).toMatchObject({
+      url: "https://mcp.granola.ai/mcp",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+      docsUrl: "https://docs.granola.ai/help-center/sharing/integrations/mcp",
+    });
   });
 
   it("matches resource links to their MCP preset", () => {
@@ -198,6 +207,24 @@ describe("MCP integration catalog", () => {
     expect(
       findMcpIntegrationForText("Connect Linear to read my issues")?.id,
     ).toBe("linear");
+    expect(findMcpIntegrationForText("Do the Granola thing")?.id).toBe(
+      "granola",
+    );
+    expect(findMcpIntegrationForText("Do the Jira thing")?.id).toBe(
+      "atlassian",
+    );
+    expect(
+      findMcpIntegrationForText("Summarize my Granola meeting recordings")?.id,
+    ).toBe("granola");
+    expect(findMcpIntegrationForText("Pull my meeting recordings")?.id).toBe(
+      "granola",
+    );
+    expect(findMcpIntegrationForText("I love Granola")).toBeNull();
+    expect(
+      findMcpIntegrationForText(
+        "Open this meeting: https://app.granola.ai/meeting/123",
+      )?.id,
+    ).toBe("granola");
     expect(isMcpConnectionFailureText("I can't read that Notion link")).toBe(
       true,
     );

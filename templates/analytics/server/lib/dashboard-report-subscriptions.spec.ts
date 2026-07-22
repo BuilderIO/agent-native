@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
+const dashboardStoreMocks = vi.hoisted(() => ({
+  getDashboard: vi.fn(),
+}));
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -11,9 +14,15 @@ vi.mock("../db/index.js", async () => {
   };
 });
 
+vi.mock("./dashboards-store", () => ({
+  getDashboard: dashboardStoreMocks.getDashboard,
+}));
+
+import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "./canonical-first-party-dashboard-repair";
 import {
   claimDashboardReportSubscription,
   dashboardReportRetryAt,
+  getReportDashboard,
   lastDailyRunAt,
   markDashboardReportResult,
   MAX_DASHBOARD_REPORT_RECIPIENTS,
@@ -23,6 +32,7 @@ import {
   truncateDashboardReportError,
 } from "./dashboard-report-subscriptions";
 import type { DashboardReportSubscription } from "./dashboard-report-subscriptions";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 function createClaimDbMock(rows: unknown[]) {
   const returning = vi.fn(async () => rows);
@@ -39,6 +49,41 @@ function createClaimDbMock(rows: unknown[]) {
 }
 
 describe("dashboard report subscriptions", () => {
+  it("repairs the exact canonical custom panel in a report snapshot", async () => {
+    dashboardStoreMocks.getDashboard.mockResolvedValue({
+      id: FIRST_PARTY_DASHBOARD_ID,
+      kind: "sql",
+      title: "First-party Template Traffic",
+      config: {
+        panels: [
+          {
+            id: "new-vs-recurring-users",
+            sql: LEGACY_NEW_VS_RECURRING_USERS_SQL,
+            config: {
+              description:
+                "Daily signed-in visitors split by first-ever session (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs excluded. A user is New only on their all-time first active day.",
+            },
+          },
+        ],
+      },
+    });
+
+    const dashboard = await getReportDashboard(FIRST_PARTY_DASHBOARD_ID, {
+      email: "steve@builder.io",
+      orgId: "builder",
+    });
+
+    const panel = (
+      dashboard?.config.panels as Array<{
+        sql: string;
+        config: { description: string };
+      }>
+    )[0];
+    expect(panel?.sql).toContain("WITH first_seen AS");
+    expect(panel?.sql).toContain("), activity AS");
+    expect(panel?.config.description).toContain("previous 365 days");
+  });
+
   describe("normalizeDashboardReportRecipients", () => {
     it("rejects an empty recipient list after normalization", () => {
       expect(() => normalizeDashboardReportRecipients([" ", ""])).toThrow(

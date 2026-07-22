@@ -1040,13 +1040,13 @@ jobs:
           SHOT_STATUS=$(LIGHT_SHOT_JSON="$LIGHT_SHOT_JSON" DARK_SHOT_JSON="$DARK_SHOT_JSON" node <<'NODE'
           const parse = (raw) => { try { return JSON.parse(raw || "{}"); } catch { return { ok: false, reason: "invalid shot JSON" }; } };
           const shots = [["light", parse(process.env.LIGHT_SHOT_JSON)], ["dark", parse(process.env.DARK_SHOT_JSON)]];
-          const hasImage = shots.some(([, shot]) => typeof shot.imageUrl === "string" && shot.imageUrl.trim());
+          const hasAllImages = shots.every(([, shot]) => typeof shot.imageUrl === "string" && shot.imageUrl.trim());
           const reasons = shots.flatMap(([label, shot]) => {
             if (typeof shot.reason === "string" && shot.reason.trim()) return [`${label}: ${shot.reason.trim()}`];
             if (!(typeof shot.imageUrl === "string" && shot.imageUrl.trim())) return [`${label}: no imageUrl returned`];
             return [];
           });
-          process.stdout.write(JSON.stringify({ ok: hasImage, reason: hasImage ? "" : reasons.join("; ").slice(0, 1000) }));
+          process.stdout.write(JSON.stringify({ ok: hasAllImages, reason: hasAllImages ? "" : reasons.join("; ").slice(0, 1000) }));
           NODE
           )
           SHOT_OK=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$SHOT_STATUS")

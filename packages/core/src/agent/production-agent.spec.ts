@@ -7174,6 +7174,157 @@ describe("runAgentLoop", () => {
     expect(textEvents[0].text).toBe("Recovered answer.");
   });
 
+  it("recovers when the model stops without assistant content after a tool", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "fresh Granola notes");
+    const seenMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(opts.messages);
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "sync-granola",
+                name: "sync-source",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCalls === 2) {
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield { type: "text-delta", text: "The latest notes are synced." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The latest notes are synced." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actions = {
+      "sync-source": {
+        ...actionEntry({ readOnly: false }),
+        run,
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(seenMessages[2]).not.toContainEqual({
+      role: "assistant",
+      content: [],
+    });
+    expect(events).toContainEqual({
+      type: "text",
+      text: "The latest notes are synced.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("surfaces a fallback when terminal stops omit assistant content", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringMatching(/empty response/i),
+      }),
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("continues when a model stream disappears without a terminal stop", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {},
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toEqual([{ type: "auto_continue", reason: "stream_ended" }]);
+  });
+
   it("recovers repeated Luna reasoning-only turns before an app guard classifies the continuation", async () => {
     const seenReasoningEfforts: Array<EngineStreamOptions["reasoningEffort"]> =
       [];

@@ -5,12 +5,6 @@ description: "Claude: personalización a nivel de código por usuario (skills, m
 
 # Recursos del Agente
 
-<Callout tone="info">
-
-**¿Qué documento de espacio de trabajo?** Esta página cubre **Recursos del Agente**: la capa de personalización del agente. Para conocer la forma de implementación (un monorepo, muchas aplicaciones), consulte [Multi-App Workspaces](/docs/multi-app-workspace); para conocer la gobernanza (quién revisa, aprueba y es propietario de qué), consulte [Workspace Governance](/docs/workspace-management).
-
-</Callout>
-
 Cada aplicación nativa del agente viene con **recursos del agente**: la capa de personalización que hace suyo al agente. Contiene instrucciones de equipo (`AGENTS.md`), aprendizajes compartidos (`LEARNINGS.md`), memoria estructurada personal (`memory/MEMORY.md`), skills que el agente utiliza según demanda, subagentes personalizados, trabajos programados y servidores MCP conectados: todo lo que esperarías de una configuración de código Claude/Codex.
 
 El giro: **son filas SQL, no archivos del sistema de archivos.** Cada usuario obtiene su propio conjunto de recursos del agente almacenado en la base de datos. No hay una caja de desarrollo que activar, ni un contenedor por usuario, ni archivos que montar. Un SaaS multiinquilino puede brindar a cada usuario un agente totalmente personalizable de forma esencialmente gratuita, porque todo son filas (memoria personal, servidores MCP personales, skills personal, subagentes personales) y el código base compartido los aloja todos a la vez.
@@ -234,7 +228,7 @@ Por ejemplo:
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Pestaña Recursos {#workspace-panel}
+## Pestaña Recursos {#resources-tab}
 
 El panel del agente incluye una pestaña **Recursos** junto a Chat y CLI. Muestra un árbol organizado en carpetas de todos los recursos, un editor en línea para cualquier archivo de texto (Markdown, JSON, YAML, texto sin formato) y los flujos de creación escritos del menú `+` (Archivos, Skills, Agentes, Tareas programadas). Los usuarios pueden explorar los valores predeterminados del espacio de trabajo heredado y crear, editar o eliminar recursos personales o de la organización.
 

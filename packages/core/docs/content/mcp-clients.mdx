@@ -275,7 +275,7 @@ export default {
 };
 ```
 
-Preset ids are `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+Preset ids are `context7`, `sentry`, `notion`, `granola`, `semgrep`, `linear`,
 `atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
 `vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`,
 `webflow`, `paypal`, `box`, `netlify`, and `zapier`.
@@ -286,6 +286,12 @@ pre-registered OAuth application. The latter stay visible for discovery and
 link to their official setup instructions, but do not show a misleading
 one-click connect button. Provider restrictions change over time, so verify
 the vendor setup note before enabling one in a production catalog.
+
+When a chat request clearly names an unconnected catalog provider, the
+composer and relevant completed responses can show an inline **Connect**
+suggestion. OAuth and direct connections preserve that request in the current
+tab and resume it after setup completes; long or abandoned requests expire
+automatically.
 
 ### Atlassian / Jira
 

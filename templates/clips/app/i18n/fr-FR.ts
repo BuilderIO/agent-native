@@ -496,6 +496,7 @@ const messages = {
     makePublicAndCopy: "Rendre public et copier",
     copy: "Copie",
     addPeopleByEmail: "Ajouter des personnes par email",
+    invite: "Inviter",
     notifyPeople: "Avertir les gens",
     peopleWithAccess: "Personnes ayant accès",
     ownerRole: "Propriétaire",

@@ -92,7 +92,11 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !chatRoute,
   });
-  useAgentChatHomeHandoffLinks({ storageKey: "plans", chatPath: "/" });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "plans",
+    chatPath: "/",
+    requireActiveHandoff: false,
+  });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed

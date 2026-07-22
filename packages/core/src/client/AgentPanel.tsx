@@ -66,7 +66,7 @@ import {
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
-import { FeedbackButton } from "./FeedbackButton.js";
+import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
@@ -773,6 +773,7 @@ function AgentPanelInner({
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
+  const feedbackEnabled = resolveFeedbackUrl() !== null;
   const navigate = useNavigate();
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1218,23 +1219,25 @@ function AgentPanelInner({
               />
             );
           })()}
-        <FeedbackButton
-          variant="icon"
-          side="bottom"
-          align="end"
-          chatSessionId={activeChatSessionId}
-          chatStorageKey={storageKey}
-          open={feedbackOpen}
-          onOpenChange={setFeedbackOpen}
-          trigger={
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
-            />
-          }
-        />
+        {feedbackEnabled ? (
+          <FeedbackButton
+            variant="icon"
+            side="bottom"
+            align="end"
+            chatSessionId={activeChatSessionId}
+            chatStorageKey={storageKey}
+            open={feedbackOpen}
+            onOpenChange={setFeedbackOpen}
+            trigger={
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
+              />
+            }
+          />
+        ) : null}
         {mode === "chat" && (
           <IconTooltip content={t("agentPanel.newChat")}>
             <button
@@ -1355,17 +1358,19 @@ function AgentPanelInner({
                 {t("agentPanel.settings")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onSelect={() => {
-                // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
-                // teardown, otherwise it can immediately dismiss the Popover we're
-                // opening in the same tick (Radix nested-overlay race).
-                setTimeout(() => setFeedbackOpen(true), 0);
-              }}
-            >
-              <IconMessageDots size={14} className="shrink-0" />
-              {t("agentPanel.feedback")}
-            </DropdownMenuItem>
+            {feedbackEnabled ? (
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
+                  // teardown, otherwise it can immediately dismiss the Popover we're
+                  // opening in the same tick (Radix nested-overlay race).
+                  setTimeout(() => setFeedbackOpen(true), 0);
+                }}
+              >
+                <IconMessageDots size={14} className="shrink-0" />
+                {t("agentPanel.feedback")}
+              </DropdownMenuItem>
+            ) : null}
             {onToggleFullscreen && (
               <DropdownMenuItem onSelect={onToggleFullscreen}>
                 {isFullscreen ? (
@@ -1464,6 +1469,7 @@ function AgentPanelInner({
       closeOtherCliTabs,
       closeTabHint,
       feedbackOpen,
+      feedbackEnabled,
       getChatThreadShareUrl,
       headerMenuOpen,
       isFullscreen,
@@ -1541,23 +1547,41 @@ function AgentPanelInner({
     [getChatThreadShareUrl, t],
   );
 
-  // Ref callback: scroll the active tab into view in the overflow container.
-  // Uses getBoundingClientRect for reliable positioning regardless of offsetParent.
-  const activeTabRefCb = useCallback((el: HTMLDivElement | null) => {
-    if (!el) return;
+  const activeTabResizeObserverRef = useRef<ResizeObserver | null>(null);
+  const scrollActiveTabIntoView = useCallback((el: HTMLDivElement) => {
     const container = el.parentElement;
     if (!container) return;
-    // Use rAF so layout is settled after React commit
     requestAnimationFrame(() => {
-      const containerRect = container.getBoundingClientRect();
-      const tabRect = el.getBoundingClientRect();
-      if (tabRect.left < containerRect.left) {
-        container.scrollLeft += tabRect.left - containerRect.left;
-      } else if (tabRect.right > containerRect.right) {
-        container.scrollLeft += tabRect.right - containerRect.right;
-      }
+      const delta = getActiveTabScrollDelta(
+        container.getBoundingClientRect(),
+        el.getBoundingClientRect(),
+      );
+      if (delta !== 0) container.scrollLeft += delta;
     });
   }, []);
+
+  // The sidebar stays mounted while closed and animates its width on open, so
+  // the active tab ref alone can run before the overflow container is usable.
+  const activeTabRefCb = useCallback(
+    (el: HTMLDivElement | null) => {
+      activeTabResizeObserverRef.current?.disconnect();
+      activeTabResizeObserverRef.current = null;
+      if (!el) return;
+      const container = el.parentElement;
+      if (!container) return;
+
+      const observer =
+        typeof ResizeObserver === "undefined"
+          ? null
+          : new ResizeObserver(() => scrollActiveTabIntoView(el));
+      observer?.observe(container);
+      activeTabResizeObserverRef.current = observer;
+      scrollActiveTabIntoView(el);
+    },
+    [scrollActiveTabIntoView],
+  );
+
+  useEffect(() => () => activeTabResizeObserverRef.current?.disconnect(), []);
 
   const renderChatHeader = useCallback(
     ({
@@ -2107,6 +2131,20 @@ const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
 /** Shared max width of the centered fullscreen chat column and composer. */
 const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
+
+export function getActiveTabScrollDelta(
+  containerRect: Pick<DOMRect, "left" | "right">,
+  tabRect: Pick<DOMRect, "left" | "right">,
+  margin = 24,
+): number {
+  if (tabRect.left < containerRect.left + margin) {
+    return tabRect.left - containerRect.left - margin;
+  }
+  if (tabRect.right > containerRect.right - margin) {
+    return tabRect.right - containerRect.right + margin;
+  }
+  return 0;
+}
 
 function ResizeHandle({
   position,

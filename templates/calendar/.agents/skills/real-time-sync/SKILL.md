@@ -72,7 +72,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
   });
   ```
 
-  `useDbSync` and every `subscribeSyncEvents` subscriber share one `EventSource` and one fallback poll loop per tab — this is how collaborative documents receive doc updates and cursor/awareness events.
+  `useDbSync` and every `subscribeSyncEvents` subscriber share one `EventSource` and one fallback poll loop per tab — this is how collaborative documents receive doc updates and cursor/awareness events. Hidden tabs keep that shared transport alive by default: SSE stays connected and active fallback polling relaxes to a 10-second floor (idle polling remains once per minute). Pass `pauseWhenHidden: true` only for a consumer that explicitly must stop all hidden-tab sync.
 
 ## Which sources to depend on
 

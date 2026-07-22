@@ -5630,6 +5630,94 @@ describe("createAgentChatAdapter", () => {
     expect(last.content.at(-1).text).toContain("Working and done");
   });
 
+  it("adds final text when a terminal followed run contains only completed tool work", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    let requestTurnId = "";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        requestTurnId = JSON.parse(init.body as string).turnId;
+        return backgroundSseResponse(
+          [
+            {
+              type: "tool_start",
+              id: "sync-1",
+              tool: "sync-source",
+              input: {},
+            },
+            {
+              type: "tool_done",
+              id: "sync-1",
+              tool: "sync-source",
+              result: '{"synced":4}',
+              completedSideEffect: true,
+            },
+            { type: "auto_continue", reason: "run_timeout" },
+          ],
+          "run-bg-tool-only",
+        );
+      }
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-bg-tool-only",
+          threadId: "thread-bg-tool-only",
+          turnId: requestTurnId,
+          status: "completed",
+          dispatchMode: "background-processing",
+          heartbeatAt: Date.now(),
+          lastProgressAt: Date.now(),
+        });
+      }
+      if (url.includes("/runs/run-bg-tool-only/events")) {
+        return jsonResponse({ error: "Run not found" }, 404);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-bg-tool-only",
+      threadId: "thread-bg-tool-only",
+    });
+    const promise = drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "sync the source" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    const results = await promise;
+
+    const last = results.at(-1) as any;
+    expect(last.status).toEqual({ type: "complete", reason: "stop" });
+    expect(last.metadata?.custom?.runWarning?.errorCode).toBe(
+      "final_response_missing_after_tool",
+    );
+    expect(last.content.at(-1).text).toContain(
+      "stopped before sending a final message",
+    );
+  });
+
   it("keeps following instead of completing mid-turn when /runs/active re-observes the same chunk-boundary run", async () => {
     // Regression test for the brain.agent-native.com incident: a warm
     // sync-function instance can keep serving the OLD chunk's terminal row

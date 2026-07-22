@@ -9,6 +9,9 @@ import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
 import ThemeToggle from "./ThemeToggle";
 
+const DOCS_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
 );
@@ -246,6 +249,7 @@ export default function Header() {
 
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
               placeholder={feedbackPlaceholder}
               trigger={
@@ -339,6 +343,7 @@ export default function Header() {
               </span>
             </a>
             <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
               placeholder={feedbackPlaceholder}
               trigger={

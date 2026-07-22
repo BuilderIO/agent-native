@@ -14,9 +14,9 @@ import {
   ComposerPrimitive,
   useMessagePartReasoning,
   useMessagePartRuntime,
+  useAuiState,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
-import { useAuiState } from "@assistant-ui/store";
 import {
   IconX,
   IconCheck,
@@ -71,6 +71,7 @@ import {
 } from "./markdown-renderer.js";
 import {
   ToolCallFallback,
+  ToolActivityPresentation,
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
@@ -862,7 +863,7 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
 // Only the last assistant message may shimmer as "the currently running
 // tool" — an older message's dangling unresolved tool-call must never
 // shimmer once a later run is active.
-export function computeLatestRunningToolCallId(
+export function computeActiveTailToolCallId(
   content: ContentPart[] | undefined,
   { chatRunning, isLast }: { chatRunning: boolean; isLast: boolean },
 ): string | null {
@@ -870,9 +871,7 @@ export function computeLatestRunningToolCallId(
   return (
     content?.reduce(
       (latestToolCallId, part) =>
-        part.type === "tool-call" &&
-        part.result === undefined &&
-        (chatRunning || part.activity === true)
+        part.type === "tool-call" && (chatRunning || part.activity === true)
           ? part.toolCallId
           : latestToolCallId,
       null as string | null,
@@ -898,6 +897,18 @@ export function shouldShowAssistantMessageFooter({
   if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
+}
+
+export function shouldShowMissingFinalResponse({
+  statusIsTerminal,
+  hasAssistantText,
+  hasUnresolvedTool,
+}: {
+  statusIsTerminal: boolean;
+  hasAssistantText: boolean;
+  hasUnresolvedTool: boolean;
+}): boolean {
+  return statusIsTerminal && !hasAssistantText && !hasUnresolvedTool;
 }
 
 export function shouldShowAssistantWorkSummary({
@@ -1061,12 +1072,18 @@ export function AssistantMessage() {
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const responseConnectionText = messageTextFromContent(msg.content);
+  const statusIsTerminal = assistantMessageStatusIsTerminal(msg);
+  const showMissingFinalResponse = shouldShowMissingFinalResponse({
+    statusIsTerminal,
+    hasAssistantText: responseConnectionText.trim().length > 0,
+    hasUnresolvedTool,
+  });
   const responseConnectionContext = latestUserMessageText(thread.messages);
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
     hasRenderableContent,
-    statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+    statusIsTerminal,
     hasUnresolvedTool,
   });
   const cpCtx = React.useContext(CheckpointContext);
@@ -1178,7 +1195,7 @@ export function AssistantMessage() {
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
-  const latestRunningToolCallId = computeLatestRunningToolCallId(msgContent, {
+  const activeTailToolCallId = computeActiveTailToolCallId(msgContent, {
     chatRunning,
     isLast,
   });
@@ -1226,21 +1243,31 @@ export function AssistantMessage() {
               case "reasoning":
                 return <ReasoningMessagePart />;
               case "tool-call":
-                return (
-                  part.toolUI ?? (
-                    <ToolCallFallback
-                      {...part}
-                      isLatestRunning={
-                        part.toolCallId === latestRunningToolCallId
-                      }
-                    />
-                  )
+                return part.toolUI ? (
+                  <ToolActivityPresentation
+                    toolName={part.toolName}
+                    isRunning={part.status?.type === "running"}
+                    isActiveTail={part.toolCallId === activeTailToolCallId}
+                  >
+                    {part.toolUI}
+                  </ToolActivityPresentation>
+                ) : (
+                  <ToolCallFallback
+                    {...part}
+                    isActiveTail={part.toolCallId === activeTailToolCallId}
+                  />
                 );
               default:
                 return null;
             }
           }}
         </MessagePrimitive.GroupedParts>
+        {showMissingFinalResponse && (
+          <p role="status" className="text-muted-foreground">
+            The agent stopped without sending a final message. Ask it to
+            continue or retry.
+          </p>
+        )}
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}

@@ -333,6 +333,33 @@ describe("update-crm-record", () => {
     ).toBe(false);
   });
 
+  it("returns an actionable client error for unsupported provider fields", async () => {
+    state.selectRows = [
+      [record],
+      [{ ...policy("mirrored"), updateable: false }],
+    ];
+
+    await expect(
+      action.run(
+        {
+          recordId: record.id,
+          target: "provider",
+          fields: { customField: "value" },
+        },
+        {
+          caller: "frontend",
+          userEmail: record.ownerEmail,
+          orgId: record.orgId,
+        },
+      ),
+    ).rejects.toMatchObject({
+      message:
+        "Only discovered, updateable CRM fields can be changed. Unsupported: customField",
+      statusCode: 422,
+    });
+    expect(state.inserted).toEqual([]);
+  });
+
   it("derives the provider revision from the mirrored record", async () => {
     state.selectRows = [[record], [policy("mirrored")], []];
 

@@ -1,0 +1,1 @@
+export const MAX_CONCURRENT_SQL_QUERIES = 4;

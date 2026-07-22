@@ -28,6 +28,7 @@ import {
   IconCopy,
   IconDotsVertical,
   IconBrandGithub,
+  IconBrandGoogle,
   IconPlugConnected,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -69,6 +70,7 @@ import { getIdToken } from "@/lib/auth";
 import {
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
+  getGoogleDriveConnection,
   isSourceReady,
   isSourceLocallyConfigured,
   credentialRowsFromStatus,
@@ -476,6 +478,50 @@ function WorkspaceOAuthView({
         </Button>
       </div>
     </div>
+  );
+}
+
+function GoogleSheetsExportCard({
+  statusData,
+}: {
+  statusData: DataSourceStatusResponse | undefined;
+}) {
+  const t = useT();
+  const connection = getGoogleDriveConnection(statusData);
+  const connected = connection?.grantState === "connected";
+
+  return (
+    <Card className="data-source-card bg-card border-border/50">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <IconBrandGoogle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium">
+                {t("dataSources.googleSheetsExport")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.googleSheetsExportDescription")}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`shrink-0 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}
+          >
+            {connected
+              ? t("dataSources.connected")
+              : t("dataSources.notConfigured")}
+          </span>
+        </div>
+        <WorkspaceOAuthView
+          provider="google_drive"
+          label={t("dataSources.googleSheets")}
+          connected={connected}
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1707,6 +1753,8 @@ export default function DataSources() {
             </span>
           ))}
       </p>
+
+      <GoogleSheetsExportCard statusData={statusData} />
 
       {/* Search bar + Add Data Source */}
       <div className="data-sources-toolbar">

@@ -195,7 +195,7 @@ Lorsque l'agent crée un brouillon d'e-mail, celui-ci apparaît dans le UI. Lors
 
 La raison pour laquelle des outils tels que Claude Code semblent si puissants n'est pas le modèle, mais la **couche de personnalisation** : instructions par projet, skills, mémoire, sous-agents, services connectés. Vous pouvez adapter l'agent à votre base de code, à vos préférences et à votre équipe.
 
-Agent-native offre à chaque utilisateur la même couche de personnalisation, sans jamais quitter l'application. Chaque application est livrée avec un **espace de travail** personnel dans lequel vous (ou n'importe quel membre de votre équipe) pouvez :
+Agent-native offre à chaque utilisateur la même couche de personnalisation, sans jamais quitter l'application. Chaque application est livrée avec des **ressources de l'agent** personnelles que vous (ou n'importe quel membre de votre équipe) pouvez utiliser pour :
 
 - Modifier les règles à l'échelle de l'équipe lues par tous les agents
 - Laissez l'agent mémoriser automatiquement les préférences lorsque vous les corrigez
@@ -204,9 +204,9 @@ Agent-native offre à chaque utilisateur la même couche de personnalisation, sa
 - Planifiez les tâches à exécuter sur un cron (par exemple, "tous les lundis matin, résumez la semaine dernière")
 - Connectez les services externes (Gmail, Stripe, Slack, API internes) via des serveurs MCP par utilisateur
 
-Le problème : tout est stocké dans la base de données, pas dans le système de fichiers. Il n'y a pas d'environnement de développement à démarrer, pas de conteneur par utilisateur. Chaque utilisateur dispose de son propre espace de travail complet (mémoire personnelle, connexions personnelles, skills personnel) essentiellement gratuitement, car il s'agit de toutes les lignes d'un tableau. C'est ce qui rend la flexibilité au niveau du code Claude viable dans un véritable produit SaaS multi-tenant.
+Le problème : tout est stocké dans la base de données, pas dans le système de fichiers. Il n'y a pas d'environnement de développement à démarrer, pas de conteneur par utilisateur. Chaque utilisateur dispose de son propre ensemble complet de ressources de l'agent (mémoire personnelle, connexions personnelles, skills personnel) essentiellement gratuitement, car il s'agit de toutes les lignes d'un tableau. C'est ce qui rend la flexibilité au niveau du code Claude viable dans un véritable produit SaaS multi-tenant.
 
-Voir [Workspace](/docs/workspace) pour le concept complet.
+Voir [Ressources de l'agent](/docs/agent-resources) pour le concept complet.
 
 ## Qu'est-ce qui le rend différent {#what-makes-it-different}
 
@@ -302,7 +302,7 @@ Une action, plusieurs surfaces : l'agent l'appelle comme un outil, le UI l'appe
 - [**Agent Surfaces**](/docs/agent-surfaces) : choisissez un chat riche, sans tête, un side-car intégré ou une application complète
 - [**Key Concepts**](/docs/key-concepts) — l'architecture : SQL, actions, synchronisation des interrogations, prise en compte du contexte, portabilité
 - [**Templates**](/docs/cloneable-saas) – modèles en tant que produits complets que vous possédez
-- [**Workspace**](/docs/workspace) — la couche de personnalisation par utilisateur (skills, mémoire, instructions, MCP) soutenue par SQL, pas des fichiers
+- [**Ressources de l'agent**](/docs/agent-resources) — la couche de personnalisation par utilisateur (skills, mémoire, instructions, MCP) soutenue par SQL, pas des fichiers
 - [**Dispatch**](/docs/dispatch) : plan de contrôle de l'espace de travail : coffre-fort de secrets, boîte de réception Slack/e-mail, délégation inter-applications
 - [**Extensions**](/docs/extensions) : mini-applications en bac à sable que l'agent crée instantanément sans modification du code
 - [**Drop-in Agent**](/docs/drop-in-agent) : montez le `<AgentPanel>` dans n'importe quelle application React

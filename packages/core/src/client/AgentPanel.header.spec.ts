@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AgentChatSurface,
+  getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelChatSurface,
@@ -41,6 +42,27 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("keeps the active tab clear of the overflow edges", () => {
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 280, right: 340 },
+      ),
+    ).toBe(64);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 70, right: 140 },
+      ),
+    ).toBe(-54);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 140, right: 260 },
+      ),
+    ).toBe(0);
+  });
+
   it("hides sidebar chat tabs until a second main tab is open", () => {
     expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
     expect(
