@@ -1468,7 +1468,7 @@ function autoReloadOnOptimizeDep(): Plugin {
           tag: "script",
           // NOTE: no `type: "module"` — this must be a synchronous script.
           children: getViteDevRecoveryScript(),
-          injectTo: "head",
+          injectTo: "head-prepend",
         },
       ];
     },
@@ -2490,7 +2490,7 @@ function createDesignSystemThemePlugin(
           tag: "style",
           attrs: { "data-agent-native-theme": "" },
           children: css,
-          injectTo: "head-prepend",
+          injectTo: "head",
         },
       ];
     },

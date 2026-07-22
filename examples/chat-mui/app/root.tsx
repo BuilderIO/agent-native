@@ -38,6 +38,7 @@ import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+import "virtual:agent-native-theme.css";
 
 configureTracking({
   getDefaultProps: (_name, properties) => ({
