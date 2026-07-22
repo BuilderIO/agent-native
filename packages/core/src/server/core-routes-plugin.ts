@@ -2046,7 +2046,7 @@ export function createCoreRoutesPlugin(
                 targetOrigin: previewOrigin,
                 basePath: getAppBasePath(),
               });
-              console.log(`shomix - relay - ${relay}`);
+              console.log(`shomix - relay - ${JSON.stringify(relay)}`);
             } catch (err) {
               const msg =
                 err instanceof Error
