@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { ToolkitProvider } from "@agent-native/toolkit";
+import type { PickerProps } from "@agent-native/toolkit/design-system";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,18 +63,19 @@ describe("LanguagePicker", () => {
     });
   }
 
-  it("renders the app picker through the semantic picker contract", async () => {
+  it("renders the app picker as a polished popover instead of a combobox menu", async () => {
     await renderPicker();
 
-    const trigger = document.querySelector<HTMLElement>('[role="combobox"]');
+    const trigger = document.querySelector("[data-language-picker-trigger]");
     expect(trigger?.tagName).toBe("BUTTON");
+    expect(trigger?.getAttribute("role")).not.toBe("combobox");
     expect(trigger?.getAttribute("aria-label")).toBe(
       "Interface language: English (en-US)",
     );
 
     await click(trigger!);
 
-    expect(document.body.querySelector('[role="listbox"]')).not.toBeNull();
+    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
     expect(document.body.textContent).toContain("System");
     expect(document.body.textContent).toContain("Français (fr-FR)");
     expect(document.body.textContent).toContain("العربية (ar-SA)");
@@ -81,11 +84,13 @@ describe("LanguagePicker", () => {
   it("keeps the locale options in product order", async () => {
     await renderPicker();
 
-    await click(document.querySelector('[role="combobox"]')!);
+    await click(document.querySelector("[data-language-picker-trigger]")!);
 
     const optionLabels = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).map((option) => option.textContent?.trim());
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).map((button) => button.textContent?.trim());
 
     expect(optionLabels).toEqual([
       "System",
@@ -106,19 +111,23 @@ describe("LanguagePicker", () => {
   it("updates the shared locale preference from a popover row", async () => {
     await renderPicker();
 
-    await click(document.querySelector('[role="combobox"]')!);
+    await click(document.querySelector("[data-language-picker-trigger]")!);
     const frenchOption = Array.from(
-      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
-    ).find((option) => option.textContent?.includes("Français"));
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.includes("Français"));
     expect(frenchOption).toBeTruthy();
 
     await click(frenchOption!);
 
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
     expect(document.documentElement.lang).toBe("fr-FR");
-    expect(document.body.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.body.querySelector('[role="menu"]')).toBeNull();
     expect(
-      document.querySelector('[role="combobox"]')?.getAttribute("aria-label"),
+      document
+        .querySelector("[data-language-picker-trigger]")
+        ?.getAttribute("aria-label"),
     ).toBe("Interface language: Français (fr-FR)");
   });
 
@@ -142,7 +151,36 @@ describe("LanguagePicker", () => {
     });
 
     expect(
-      document.querySelector('[role="combobox"]')?.getAttribute("aria-label"),
+      document
+        .querySelector("[data-language-picker-trigger]")
+        ?.getAttribute("aria-label"),
     ).toBe("Interface language: English (en-US)");
+  });
+
+  it("routes the select variant through a registered picker adapter", async () => {
+    const CustomPicker = (props: PickerProps) => (
+      <div data-custom-language-picker>{String(props.value)}</div>
+    );
+
+    await act(async () => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{ components: { Picker: CustomPicker } }}
+        >
+          <AgentNativeI18nProvider
+            initialLocale="en-US"
+            initialPreference="en-US"
+            persistPreference={false}
+          >
+            <LanguagePicker label="Interface language" />
+          </AgentNativeI18nProvider>
+        </ToolkitProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(
+      document.querySelector("[data-custom-language-picker]"),
+    ).not.toBeNull();
   });
 });
