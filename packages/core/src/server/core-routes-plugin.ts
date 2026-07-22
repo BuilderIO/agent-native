@@ -2408,7 +2408,7 @@ export function createCoreRoutesPlugin(
                 verifyBuilderPreviewRelayStateForCallback(relayStateRaw);
                 console.log(`shomix - relayPayload - ${relayPayload}`);
             } catch (err) {
-              console.log(`shomix - error while verifiing payload - ${err.message}`);
+              console.log(`shomix - error while verifiing payload - ${JSON.stringify(err)}`);
               // A preview relay must fail closed when its dedicated shared
               // secret is absent on the corporate callback deployment.
             }
