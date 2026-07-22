@@ -1468,7 +1468,7 @@ function autoReloadOnOptimizeDep(): Plugin {
           tag: "script",
           // NOTE: no `type: "module"` — this must be a synchronous script.
           children: getViteDevRecoveryScript(),
-          injectTo: "head-prepend",
+          injectTo: "head",
         },
       ];
     },

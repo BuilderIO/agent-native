@@ -26,6 +26,14 @@ Light and dark ConfigProvider themes use the same exported `theme` passed to
 the Core Vite plugin. Tokens are generated once at build time, never per
 request.
 
+The example maps Ant Design's generated palette and system typography into the
+build-time theme, so app chrome and semantic adapters share the same token
+source.
+
+The framework-owned sign-in page is outside the design-system bridge. Use the
+authenticated settings, sharing, chat-history, and agent-panel surfaces when
+comparing the Ant Design adapter with another adapter.
+
 The remaining Radix-owned controls receive the build-time semantic tokens and
 are listed above so the boundary stays visible. Verify with:
 

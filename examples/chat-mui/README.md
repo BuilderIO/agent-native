@@ -29,6 +29,15 @@ Material UI's light and dark themes are selected from `next-themes`, while the
 same `theme` export is passed to the Core Vite plugin for build-time CSS tokens.
 No runtime or request-specific theme CSS is generated.
 
+The example maps Material UI's generated palette and typography into the
+build-time theme. The body exposes Material UI's default Roboto stack through
+`--font-family`; deployments that want the exact Roboto face should load it
+through their normal font pipeline.
+
+The framework-owned sign-in page is outside the design-system bridge. Use the
+authenticated settings, sharing, chat-history, and agent-panel surfaces when
+comparing the Material UI adapter with another adapter.
+
 The remaining Radix-owned controls receive the build-time semantic tokens and
 are listed above so the boundary stays visible.
 

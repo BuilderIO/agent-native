@@ -57,7 +57,7 @@ describe("design system theme plugin", () => {
       expect.objectContaining({
         tag: "style",
         children: css,
-        injectTo: "head-prepend",
+        injectTo: "head",
       }),
     ]);
   });

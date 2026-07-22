@@ -72,7 +72,7 @@
 @layer base {
   body {
     @apply bg-background text-foreground;
-    font-family: "Inter Variable", "Inter", sans-serif;
+    font-family: var(--font-family, "Inter Variable", "Inter", sans-serif);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
