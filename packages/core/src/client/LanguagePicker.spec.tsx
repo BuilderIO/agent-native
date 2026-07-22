@@ -61,19 +61,18 @@ describe("LanguagePicker", () => {
     });
   }
 
-  it("renders the app picker as a polished popover instead of a combobox menu", async () => {
+  it("renders the app picker through the semantic picker contract", async () => {
     await renderPicker();
 
-    const trigger = document.querySelector("[data-language-picker-trigger]");
+    const trigger = document.querySelector<HTMLElement>('[role="combobox"]');
     expect(trigger?.tagName).toBe("BUTTON");
-    expect(trigger?.getAttribute("role")).not.toBe("combobox");
     expect(trigger?.getAttribute("aria-label")).toBe(
       "Interface language: English (en-US)",
     );
 
     await click(trigger!);
 
-    expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
+    expect(document.body.querySelector('[role="listbox"]')).not.toBeNull();
     expect(document.body.textContent).toContain("System");
     expect(document.body.textContent).toContain("Français (fr-FR)");
     expect(document.body.textContent).toContain("العربية (ar-SA)");
@@ -82,13 +81,11 @@ describe("LanguagePicker", () => {
   it("keeps the locale options in product order", async () => {
     await renderPicker();
 
-    await click(document.querySelector("[data-language-picker-trigger]")!);
+    await click(document.querySelector('[role="combobox"]')!);
 
     const optionLabels = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>(
-        '[role="menuitemradio"]',
-      ),
-    ).map((button) => button.textContent?.trim());
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).map((option) => option.textContent?.trim());
 
     expect(optionLabels).toEqual([
       "System",
@@ -109,23 +106,19 @@ describe("LanguagePicker", () => {
   it("updates the shared locale preference from a popover row", async () => {
     await renderPicker();
 
-    await click(document.querySelector("[data-language-picker-trigger]")!);
+    await click(document.querySelector('[role="combobox"]')!);
     const frenchOption = Array.from(
-      document.body.querySelectorAll<HTMLButtonElement>(
-        '[role="menuitemradio"]',
-      ),
-    ).find((button) => button.textContent?.includes("Français"));
+      document.body.querySelectorAll<HTMLElement>('[role="option"]'),
+    ).find((option) => option.textContent?.includes("Français"));
     expect(frenchOption).toBeTruthy();
 
     await click(frenchOption!);
 
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("fr-FR");
     expect(document.documentElement.lang).toBe("fr-FR");
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
+    expect(document.body.querySelector('[role="listbox"]')).toBeNull();
     expect(
-      document
-        .querySelector("[data-language-picker-trigger]")
-        ?.getAttribute("aria-label"),
+      document.querySelector('[role="combobox"]')?.getAttribute("aria-label"),
     ).toBe("Interface language: Français (fr-FR)");
   });
 
@@ -149,9 +142,7 @@ describe("LanguagePicker", () => {
     });
 
     expect(
-      document
-        .querySelector("[data-language-picker-trigger]")
-        ?.getAttribute("aria-label"),
+      document.querySelector('[role="combobox"]')?.getAttribute("aria-label"),
     ).toBe("Interface language: English (en-US)");
   });
 });

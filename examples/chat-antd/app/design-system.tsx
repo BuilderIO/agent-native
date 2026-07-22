@@ -695,10 +695,12 @@ const Tabs: DesignSystemComponents["Tabs"] = ({
   items,
   value,
   onChange,
+  orientation,
   ...props
 }) => (
   <AntTabs
     {...contentProps(props)}
+    tabPosition={orientation === "vertical" ? "left" : "top"}
     activeKey={String(value)}
     onChange={(next) => {
       const selected = items.find((item) => String(item.value) === next);

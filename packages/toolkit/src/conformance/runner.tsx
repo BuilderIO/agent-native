@@ -463,12 +463,19 @@ const checks: readonly ConformanceCheck[] = [
       const probe = mount(
         <components.Tabs
           value={value}
+          orientation="vertical"
           onChange={(next) => (value = next)}
           items={[
             { value: "first", label: "First", content: "One" },
             { value: "second", label: "Second", content: "Two" },
           ]}
         />,
+      );
+      const tabList = probe.container.querySelector('[role="tablist"]');
+      invariant(tabList, "Tabs must expose a tablist.");
+      invariant(
+        tabList.getAttribute("aria-orientation") === "vertical",
+        "Tabs must honor vertical orientation in their tablist semantics.",
       );
       const second = elementWithText(document, '[role="tab"]', "Second");
       invariant(second, "Tabs must expose tab semantics.");
@@ -480,7 +487,7 @@ const checks: readonly ConformanceCheck[] = [
   {
     id: "overlay.portal-and-z-index-stacking",
     category: "overlay-interoperability",
-    components: ["Dialog", "Popover", "Menu", "Tooltip", "Picker"],
+    components: ["Dialog"],
     run: async ({ components, document, mount, settle, unmount }) => {
       const radixHost = document.createElement("div");
       radixHost.dataset.hostedOverlay = "radix";
@@ -603,8 +610,17 @@ export async function runDesignSystemConformance({
   }
 
   const mounted = new Set<MountedProbe>();
+  const exercisedComponents = new Set<keyof DesignSystemComponents>();
+  const trackedComponents = new Proxy(components, {
+    get(target, property, receiver) {
+      if (typeof property === "string" && property in target) {
+        exercisedComponents.add(property as keyof DesignSystemComponents);
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
   const context: CheckContext = {
-    components,
+    components: trackedComponents,
     document,
     mount(element) {
       const container = document.createElement("div");
@@ -630,7 +646,15 @@ export async function runDesignSystemConformance({
 
   for (const check of checks) {
     try {
+      exercisedComponents.clear();
       await check.run(context);
+      const missingComponents = check.components.filter(
+        (component) => !exercisedComponents.has(component),
+      );
+      invariant(
+        missingComponents.length === 0,
+        `Conformance check ${check.id} declared ${missingComponents.join(", ")} but did not exercise them.`,
+      );
       results.push({
         id: check.id,
         category: check.category,
