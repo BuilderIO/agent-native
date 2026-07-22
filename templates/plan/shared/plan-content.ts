@@ -3309,6 +3309,28 @@ function setVisualRenderMode(
   content: PlanContent,
   renderMode: PlanVisualCanvasMode,
 ) {
+  const hasLegacyBlock = (blocks: PlanBlock[]): boolean =>
+    blocks.some((block) => {
+      if (block.type === "legacy-wireframe") return true;
+      if (block.type === "tabs") {
+        return block.data.tabs.some((tab) => hasLegacyBlock(tab.blocks));
+      }
+      if (block.type === "columns") {
+        return block.data.columns.some((column) =>
+          hasLegacyBlock(column.blocks),
+        );
+      }
+      return false;
+    });
+  const hasLegacyFrame = content.canvas?.frames.some(
+    (frame) => frame.legacyWireframe,
+  );
+  if (hasLegacyBlock(content.blocks) || hasLegacyFrame) {
+    throw new Error(
+      "Cannot set visual render mode while the plan contains legacy-wireframe content. Replace legacy-wireframe blocks and canvas legacyWireframe fields with current wireframes in the same update, then set the render mode.",
+    );
+  }
+
   let changed = false;
 
   const updateBlock = (block: PlanBlock): PlanBlock => {
