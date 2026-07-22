@@ -13,7 +13,7 @@ export default function DesignSystemProofRoute() {
     <ShareDialog
       open={open}
       onClose={() => setOpen(false)}
-      resourceType="chat"
+      resourceType="chat_thread"
       resourceId="design-system-proof"
       resourceTitle={APP_TITLE}
       shareUrl="/design-system-proof"

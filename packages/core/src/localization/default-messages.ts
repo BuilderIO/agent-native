@@ -32,6 +32,10 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    mcpConnectionsTitle: "MCP connections",
+    mcpConnectionsDescription:
+      "Connect remote MCP servers so the agent can use their tools.",
+    openMcpConnections: "Manage MCP connections",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",

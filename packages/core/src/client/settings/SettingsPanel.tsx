@@ -40,6 +40,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { Link } from "react-router";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import type { UserProfile } from "../../user-profile/shared.js";
@@ -3082,6 +3083,36 @@ export function SettingsPanel(props: SettingsPanelProps) {
   return <SettingsPanelContent {...props} />;
 }
 
+function McpConnectionsCard() {
+  const t = useT();
+
+  return (
+    <section className="rounded-lg border border-border bg-muted/20 p-3">
+      <div className="flex items-start gap-2.5">
+        <IconPlugConnected
+          size={16}
+          className="mt-0.5 shrink-0 text-muted-foreground"
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("settings.mcpConnectionsTitle")}
+          </h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("settings.mcpConnectionsDescription")}
+          </p>
+          <Link
+            to="/agent#connections"
+            className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            {t("settings.openMcpConnections")}
+            <IconExternalLink size={13} />
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ConnectionsSettingsContent({
   settingsPanelProps,
 }: {
@@ -3090,6 +3121,7 @@ export function ConnectionsSettingsContent({
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4">
       <BuilderConnectCard trackingSource="settings_connections" />
+      <McpConnectionsCard />
       <SettingsPanelContent
         {...settingsPanelProps}
         surface="page"
