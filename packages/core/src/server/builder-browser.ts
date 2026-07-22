@@ -158,9 +158,9 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
     .map((origin) => origin.trim())
     .filter(Boolean)
     .some((origin) => origin === value && !origin.includes("*"));
-  console.log(`shomix - builderRelayTargetDomainSuffixes - ${builderRelayTargetDomainSuffixes()});
-  console.log(`shomix - exactOriginMatch - ${exactOriginMatch});
-  console.log(`shomix - hostname - ${hostname});
+  console.log(`shomix - builderRelayTargetDomainSuffixes - ${builderRelayTargetDomainSuffixes()}`);
+  console.log(`shomix - exactOriginMatch - ${exactOriginMatch}`);
+  console.log(`shomix - hostname - ${hostname}`);
   return (
     exactOriginMatch ||
     builderRelayTargetDomainSuffixes().some((suffix) =>

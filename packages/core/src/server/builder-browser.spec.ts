@@ -10,8 +10,13 @@ import {
   BUILDER_AGENT_NATIVE_TEMPLATE_PARAM,
   BUILDER_CALLBACK_PATH,
   BUILDER_CONNECT_PARAM,
+  BUILDER_RELAY_FLOW_HEADER,
+  BUILDER_RELAY_SECRET_ENV,
+  BUILDER_RELAY_SIGNATURE_HEADER,
+  BUILDER_RELAY_TIMESTAMP_HEADER,
   BUILDER_SIGNUP_SOURCE_PARAM,
   BUILDER_STATE_PARAM,
+  createBuilderRelayRequest,
   getBuilderBranchProjectId,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
@@ -23,10 +28,13 @@ import {
   runBuilderAgent,
   signBuilderConnectToken,
   signBuilderCallbackState,
+  signBuilderPreviewRelayState,
   verifyBuilderConnectToken,
   verifyBuilderCallbackState,
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderRelayRequest,
+  type BuilderRelayCredentials,
 } from "./builder-browser.js";
 
 function createBuilderBrowserEvent(headers: Record<string, string>): H3Event {
@@ -507,6 +515,76 @@ describe("Builder callback CSRF state", () => {
       expect(getBuilderBrowserStatusForEvent(event).connectUrl).toBe(
         "https://940ebc5a83164aa6a37dde445e494f3a-fluid-crack-ctnhvsyb.builderio.xyz/dispatch/_agent-native/builder/connect",
       );
+    });
+
+    it("derives the relay requestOrigin from x-forwarded-host so verification passes behind the preview proxy", () => {
+      process.env.NODE_ENV = "production";
+      process.env[BUILDER_RELAY_SECRET_ENV] =
+        "builder-relay-secret-example-at-least-32-characters";
+
+      const previewOrigin =
+        "https://274d28fec94b48f2b2d68f2274d390eb-lean-mouth-wbpkxb1p.builderio.xyz";
+
+      // The relay POST lands on the internal loopback host, but the preview
+      // proxy forwards the public host that minted the signed state.
+      const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:8094",
+        "x-forwarded-host":
+          "274d28fec94b48f2b2d68f2274d390eb-lean-mouth-wbpkxb1p.builderio.xyz",
+        "x-forwarded-proto": "https",
+      });
+
+      expect(getBuilderBrowserOriginForEvent(event)).toBe(previewOrigin);
+
+      const now = Date.UTC(2026, 6, 14, 18, 0, 0);
+      const relay = signBuilderPreviewRelayState({
+        ownerEmail: "owner@example.com",
+        targetOrigin: previewOrigin,
+        basePath: "/clips",
+        now,
+      });
+      const credentials: BuilderRelayCredentials = {
+        privateKey: "private-key-example",
+        publicKey: "public-key-example",
+        userId: "user-example",
+        orgName: "Example Organization",
+        orgKind: "space",
+        subscription: null,
+        subscriptionLevel: null,
+        subscriptionName: null,
+        isEnterprise: null,
+        isFreeAccount: null,
+      };
+      const request = createBuilderRelayRequest(relay.state, credentials, {
+        now,
+      });
+      const relayHeaders = {
+        timestamp: request.headers[BUILDER_RELAY_TIMESTAMP_HEADER],
+        flowId: request.headers[BUILDER_RELAY_FLOW_HEADER],
+        signature: request.headers[BUILDER_RELAY_SIGNATURE_HEADER],
+      };
+
+      // The fix: requestOrigin is the forwarded host and matches targetOrigin.
+      expect(
+        verifyBuilderRelayRequest({
+          body: request.body,
+          ...relayHeaders,
+          requestOrigin: getBuilderBrowserOriginForEvent(event),
+          requestBasePath: "/clips",
+          now,
+        }),
+      ).not.toBeNull();
+
+      // The old behavior used the internal loopback origin and failed.
+      expect(
+        verifyBuilderRelayRequest({
+          body: request.body,
+          ...relayHeaders,
+          requestOrigin: "http://127.0.0.1:8094",
+          requestBasePath: "/clips",
+          now,
+        }),
+      ).toBeNull();
     });
 
     it("returns users to the preview opener after a gateway callback", () => {
