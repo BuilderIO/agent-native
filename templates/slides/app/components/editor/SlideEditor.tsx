@@ -152,6 +152,146 @@ function isSmartGroup(el: HTMLElement): boolean {
   return true;
 }
 
+/** Single glyphs commonly used as bullet markers in styled (non-<ul>) lists. */
+const BULLET_GLYPHS = new Set([
+  "\u2022", // •
+  "\u25CF", // ●
+  "\u25E6", // ◦
+  "\u25AA", // ▪
+  "\u2023", // ‣
+  "\u00B7", // ·
+  "\u2043", // ⁃
+  "-",
+  "\u2013", // –
+  "\u2014", // —
+  "*",
+]);
+
+/** True if an element is just a bullet marker glyph (e.g. a leading ● span). */
+function isBulletMarker(el: Element): boolean {
+  const text = (el.textContent ?? "").trim();
+  return text.length > 0 && [...text].every((c) => BULLET_GLYPHS.has(c));
+}
+
+/**
+ * A "bullet row" is a styled list item built from a marker glyph plus text
+ * (e.g. `<div><span>●</span><span>Point</span></div>`) rather than a real
+ * <li>. Its first element child is a marker glyph and it carries other text.
+ */
+function isBulletRow(el: HTMLElement): boolean {
+  if (el.tagName !== "DIV" && el.tagName !== "LI" && el.tagName !== "P") {
+    return false;
+  }
+  const kids = Array.from(el.children);
+  if (kids.length < 2) return false;
+  if (!isBulletMarker(kids[0])) return false;
+  const rest = kids
+    .slice(1)
+    .map((k) => k.textContent ?? "")
+    .join("")
+    .trim();
+  return rest.length > 0;
+}
+
+/** A container whose element children are all styled bullet rows. */
+function isBulletList(el: HTMLElement): boolean {
+  const kids = Array.from(el.children);
+  if (kids.length === 0) return false;
+  return kids.every((k) => isBulletRow(k as HTMLElement));
+}
+
+/**
+ * Walk up from a text leaf to the nearest enclosing list container — either a
+ * native <ul>/<ol> or a styled bullet-row container — so Enter can add a new
+ * item to the whole list instead of being trapped inside one item.
+ */
+function findEnclosingList(el: HTMLElement, root: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node && root.contains(node)) {
+    const parent = node.parentElement;
+    if (!parent) break;
+    if (
+      node.tagName === "LI" &&
+      (parent.tagName === "UL" || parent.tagName === "OL")
+    ) {
+      return parent;
+    }
+    if (isBulletRow(node) && isBulletList(parent)) return parent;
+    node = parent;
+  }
+  return null;
+}
+
+/** Set the text of a list row, preserving a leading bullet marker span. */
+function setRowText(row: HTMLElement, text: string): void {
+  const spans = Array.from(row.children).filter(
+    (c) => c.tagName === "SPAN",
+  ) as HTMLElement[];
+  const textSpans = spans.filter((s) => !isBulletMarker(s));
+  if (textSpans.length > 0) {
+    textSpans[0].textContent = text;
+    for (let i = 1; i < textSpans.length; i++) textSpans[i].textContent = "";
+  } else {
+    row.textContent = text;
+  }
+}
+
+/** Place the caret at the start of a list row's editable text. */
+function focusRowStart(row: HTMLElement): void {
+  const spans = Array.from(row.children).filter(
+    (c) => c.tagName === "SPAN",
+  ) as HTMLElement[];
+  const target: Node = spans.find((s) => !isBulletMarker(s)) ?? row;
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  range.selectNodeContents(target);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+/**
+ * Insert a new list item after the caret's current row. Text after the caret
+ * moves into the new row; the marker glyph is preserved. Returns false when
+ * the caret isn't inside a direct row of the list so the caller can fall back.
+ */
+function insertBulletAfterCaret(list: HTMLElement): boolean {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return false;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) range.deleteContents();
+
+  let row: HTMLElement | null = null;
+  let node: Node | null = range.endContainer;
+  while (node && node !== list) {
+    if (node.parentNode === list) {
+      row = node as HTMLElement;
+      break;
+    }
+    node = node.parentNode;
+  }
+  if (!row) return false;
+
+  let tail = "";
+  const caretNode = range.endContainer;
+  if (caretNode.nodeType === Node.TEXT_NODE) {
+    const full = caretNode.textContent ?? "";
+    tail = full.slice(range.endOffset);
+    caretNode.textContent = full.slice(0, range.endOffset);
+  }
+
+  const newRow = row.cloneNode(true) as HTMLElement;
+  for (const node of [newRow, ...Array.from(newRow.querySelectorAll("*"))]) {
+    node.removeAttribute("data-builder-id");
+    node.removeAttribute("data-fusion-element-id");
+  }
+  setRowText(newRow, tail);
+  row.after(newRow);
+  focusRowStart(newRow);
+  return true;
+}
+
 /**
  * Find the "smart block" to edit for a given click target. A smart block is
  * either:
@@ -173,17 +313,11 @@ function findSmartBlock(
   let el: HTMLElement | null = target;
   while (el && root.contains(el)) {
     if (isTextLeaf(el)) {
-      // A bullet/numbered list item must be edited together with its
-      // siblings so Enter can create a new <li> natively — editing a
-      // single <li> in isolation traps Enter inside that one item.
-      const parent = el.parentElement;
-      if (
-        el.tagName === "LI" &&
-        parent &&
-        (parent.tagName === "UL" || parent.tagName === "OL")
-      ) {
-        return parent;
-      }
+      // A list item (native <li> or a styled bullet row) must be edited
+      // together with its siblings so Enter can add a new item — editing a
+      // single item in isolation traps Enter inside that one row.
+      const list = findEnclosingList(el, root);
+      if (list) return list;
       return el;
     }
     // The click landed on a container (e.g. a flex wrapper around stat
@@ -1230,10 +1364,13 @@ export default function SlideEditor({
     // mid-edit and incorrectly commit the user out of the block. The user's
     // intent (rich-block edit vs single-line commit) doesn't change while
     // they're editing the same node, so latch it.
-    const isMultiLineLeaf =
-      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
+    const editingBulletList =
+      isBulletList(editingEl) ||
       ((editingEl.tagName === "UL" || editingEl.tagName === "OL") &&
         isSmartGroup(editingEl));
+    const isMultiLineLeaf =
+      (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
+      editingBulletList;
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof Node && !editingEl.contains(e.target)) return;
       if (e.key === "Escape") {
@@ -1245,11 +1382,20 @@ export default function SlideEditor({
       if (e.key === "Enter") {
         // Smart Enter:
         //  - Shift+Enter always inserts a <br>.
+        //  - Inside a styled bullet list, Enter clones the current row so a
+        //    new bullet (marker + empty text) appears — contentEditable's
+        //    native split can't recreate the marker glyph.
         //  - A single <p> or <div> leaf is multi-line capable — Enter
         //    creates a new line via contentEditable's default behavior.
         //  - Headings, inline leaves, and smart groups commit on Enter
         //    so the slide layout can never be broken by a stray new node.
         if (e.shiftKey) return;
+
+        if (editingBulletList && insertBulletAfterCaret(editingEl)) {
+          e.preventDefault();
+          captureInlineEditDraft(slide.id);
+          return;
+        }
 
         if (!isMultiLineLeaf) {
           e.preventDefault();
@@ -1259,7 +1405,7 @@ export default function SlideEditor({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [exitInlineEdit, editingEl]);
+  }, [exitInlineEdit, editingEl, captureInlineEditDraft, slide.id]);
 
   // Click-outside: exit inline edit mode
   useEffect(() => {
