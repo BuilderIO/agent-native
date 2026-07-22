@@ -78,16 +78,16 @@ describe("useChatHistoryRailController", () => {
     expect(controller.disclosureLabel).toBe("Show fewer chats");
   });
 
-  it("clamps finite limits and hides a disclosure that cannot reveal items", () => {
+  it("clamps finite limits while preserving legacy disclosure behavior", () => {
     render({ previewCount: -2.5, expandedCount: 1.9 });
 
     expect(controller.collapsedLimit).toBe(1);
     expect(controller.expandedLimit).toBe(1);
     expect(controller.visibleItems).toHaveLength(1);
-    expect(controller.canExpand).toBe(false);
+    expect(controller.canExpand).toBe(true);
 
     act(() => controller.toggleExpanded());
-    expect(controller.expanded).toBe(false);
+    expect(controller.expanded).toBe(true);
   });
 
   it("uses defaults for non-finite limits and never puts expanded below preview", () => {

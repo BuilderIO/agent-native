@@ -7,6 +7,8 @@ export {
 } from "./ChatHistoryList.js";
 export {
   ChatHistoryRail,
+  DefaultChatHistoryRailView,
+  type DefaultChatHistoryRailViewProps,
   type ChatHistoryRailLabels,
   type ChatHistoryRailProps,
   type ChatHistoryRailRenderContext,

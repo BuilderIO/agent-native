@@ -45,8 +45,7 @@ export function useChatHistoryRailController<Item>({
     collapsedLimit,
     normalizeLimit(expandedCount, 15),
   );
-  const canExpand =
-    expandedLimit > collapsedLimit && items.length > collapsedLimit;
+  const canExpand = items.length > collapsedLimit;
   const expanded = canExpand && expandedState;
   const visibleItems = useMemo(
     () => items.slice(0, expanded ? expandedLimit : collapsedLimit),

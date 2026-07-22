@@ -147,9 +147,6 @@ describe("ChatHistoryRail", () => {
           data-acme-action
           type="button"
           onClick={(event) => onPress?.(event)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") onPress?.(event);
-          }}
         >
           {children}
         </button>
@@ -190,11 +187,7 @@ describe("ChatHistoryRail", () => {
     expect(container.querySelector("output")?.textContent).toBe("5");
     expect(actions[1]?.textContent).toBe("Show more chats");
 
-    act(() => {
-      actions[1]?.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
+    act(() => actions[1]?.click());
     expect(container.querySelector("output")?.textContent).toBe("15");
     expect(actions[1]?.textContent).toBe("Show fewer chats");
 
@@ -225,5 +218,26 @@ describe("ChatHistoryRail", () => {
     expect(newChat?.type).toBe("button");
     expect(document.activeElement).toBe(newChat);
     expect(onNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the default rail when a product renderer fails", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={makeItems(6)}
+          onSelect={() => {}}
+          onNewChat={() => {}}
+          railLabels={railLabels}
+          renderRail={() => {
+            throw new Error("broken company rail");
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".an-chat-history-rail__new-chat"),
+    ).not.toBeNull();
   });
 });

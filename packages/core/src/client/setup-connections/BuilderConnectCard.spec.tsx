@@ -17,20 +17,27 @@ vi.mock("./useBuilderConnectCardController.js", () => ({
   useBuilderConnectCardController: mocks.useBuilderConnectCardController,
 }));
 
-vi.mock("@agent-native/toolkit/design-system", () => ({
-  useDesignSystem: () =>
-    mocks.actionButton
-      ? { components: { ActionButton: mocks.actionButton } }
-      : undefined,
-  ActionButton: ({ children, onPress, ...props }: any) => {
-    mocks.semanticActionProps = props;
-    return (
-      <button data-semantic-action="true" onClick={() => onPress()}>
-        {children}
-      </button>
-    );
-  },
-}));
+vi.mock("@agent-native/toolkit/design-system", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@agent-native/toolkit/design-system")
+    >();
+  return {
+    ...actual,
+    useDesignSystem: () =>
+      mocks.actionButton
+        ? { components: { ActionButton: mocks.actionButton } }
+        : undefined,
+    ActionButton: ({ children, onPress, ...props }: any) => {
+      mocks.semanticActionProps = props;
+      return (
+        <button data-semantic-action="true" onClick={() => onPress()}>
+          {children}
+        </button>
+      );
+    },
+  };
+});
 
 describe("BuilderConnectCard", () => {
   let container: HTMLDivElement;
@@ -86,15 +93,19 @@ describe("BuilderConnectCard", () => {
   });
 
   it("passes the same view model to a product-concept renderer", () => {
-    const render = vi.fn((model: BuilderConnectCardViewModel) => (
-      <article data-custom-card="true">{model.status.label}</article>
-    ));
+    const render = vi.fn(
+      ({ viewModel }: { viewModel: BuilderConnectCardViewModel }) => (
+        <article data-custom-card="true">{viewModel.status.label}</article>
+      ),
+    );
 
-    act(() => root.render(<BuilderConnectCard render={render} />));
+    act(() =>
+      root.render(<BuilderConnectCard className="host-card" render={render} />),
+    );
 
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledOnce();
     expect(render).toHaveBeenCalledOnce();
-    expect(render).toHaveBeenCalledWith(viewModel);
+    expect(render).toHaveBeenCalledWith({ viewModel, className: "host-card" });
     expect(container.querySelector("[data-custom-card]")?.textContent).toBe(
       "Ready to connect",
     );
@@ -122,5 +133,22 @@ describe("BuilderConnectCard", () => {
       disabled: true,
     });
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the default view when a product renderer fails", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    act(() =>
+      root.render(
+        <BuilderConnectCard
+          render={() => {
+            throw new Error("broken company card");
+          }}
+        />,
+      ),
+    );
+
+    expect(container.textContent).toContain("Builder connect");
+    expect(container.textContent).toContain("Ready to connect");
   });
 });

@@ -231,6 +231,7 @@ export {
   type BuilderConnectCardAction,
   type BuilderConnectCardControllerOptions,
   type BuilderConnectCardProps,
+  type BuilderConnectCardRenderContext,
   type BuilderConnectCardStatus,
   type BuilderConnectCardViewModel,
   type DefaultBuilderConnectCardViewProps,

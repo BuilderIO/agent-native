@@ -1,5 +1,6 @@
 import {
   ActionButton,
+  DesignSystemErrorBoundary,
   useDesignSystem,
 } from "@agent-native/toolkit/design-system";
 import { IconCheck, IconLoader2, IconPlugConnected } from "@tabler/icons-react";
@@ -14,7 +15,12 @@ import {
 
 export interface BuilderConnectCardProps extends BuilderConnectCardControllerOptions {
   className?: string;
-  render?: (viewModel: BuilderConnectCardViewModel) => ReactNode;
+  render?: (context: BuilderConnectCardRenderContext) => ReactNode;
+}
+
+export interface BuilderConnectCardRenderContext {
+  viewModel: BuilderConnectCardViewModel;
+  className?: string;
 }
 
 export interface DefaultBuilderConnectCardViewProps {
@@ -118,12 +124,33 @@ export function BuilderConnectCard({
     onConnected,
   });
 
-  return render ? (
-    render(viewModel)
-  ) : (
+  const fallback = (
     <DefaultBuilderConnectCardView
       viewModel={viewModel}
       className={className}
     />
   );
+  return render ? (
+    <DesignSystemErrorBoundary
+      component="BuilderConnectCard"
+      fallback={fallback}
+    >
+      <BuilderConnectCardCustomView
+        render={render}
+        viewModel={viewModel}
+        className={className}
+      />
+    </DesignSystemErrorBoundary>
+  ) : (
+    fallback
+  );
+}
+
+function BuilderConnectCardCustomView({
+  render,
+  viewModel,
+  className,
+}: Required<Pick<BuilderConnectCardProps, "render">> &
+  BuilderConnectCardRenderContext) {
+  return render({ viewModel, className });
 }

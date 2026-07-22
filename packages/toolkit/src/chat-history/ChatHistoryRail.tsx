@@ -1,6 +1,7 @@
 import { IconDots, IconPlus } from "@tabler/icons-react";
 import type { ReactNode } from "react";
 
+import { DesignSystemErrorBoundary } from "../design-system/error-boundary.js";
 import {
   ChatHistoryList,
   type ChatHistoryItem,
@@ -42,7 +43,9 @@ export interface ChatHistoryRailRenderContext {
   >;
 }
 
-function DefaultChatHistoryRailView({
+export type DefaultChatHistoryRailViewProps = ChatHistoryRailRenderContext;
+
+export function DefaultChatHistoryRailView({
   controller,
   listProps,
 }: ChatHistoryRailRenderContext) {
@@ -120,10 +123,23 @@ export function ChatHistoryRail({
     controller,
     listProps: { ...listProps, className, emptyLabel },
   };
+  const fallback = <DefaultChatHistoryRailView {...context} />;
 
   return renderRail ? (
-    renderRail(context)
+    <DesignSystemErrorBoundary component="ChatHistoryRail" fallback={fallback}>
+      <ChatHistoryRailCustomView renderRail={renderRail} context={context} />
+    </DesignSystemErrorBoundary>
   ) : (
-    <DefaultChatHistoryRailView {...context} />
+    fallback
   );
+}
+
+function ChatHistoryRailCustomView({
+  renderRail,
+  context,
+}: {
+  renderRail: NonNullable<ChatHistoryRailProps["renderRail"]>;
+  context: ChatHistoryRailRenderContext;
+}) {
+  return renderRail(context);
 }

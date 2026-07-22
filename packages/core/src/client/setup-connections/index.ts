@@ -3,6 +3,7 @@ export {
   DefaultBuilderConnectCardView,
   type DefaultBuilderConnectCardViewProps,
   type BuilderConnectCardProps,
+  type BuilderConnectCardRenderContext,
 } from "./BuilderConnectCard.js";
 export {
   useBuilderConnectCardController,
