@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.115.3
+
+### Patch Changes
+
+- a841109: Teach visual-plan agents to create and promote full-fidelity design surfaces without losing scoped CSS or duplicating an existing plan.
+
 ## 0.115.2
 
 ### Patch Changes
