@@ -1152,6 +1152,7 @@ export function PropertyManagementPopover({
     ),
   );
   const propertyNameInputRef = useRef<HTMLInputElement>(null);
+  const menuContentRef = useRef<HTMLDivElement>(null);
   const typeIsLocked = isComputedPropertyType(property.definition.type);
   const typeNeedsOptions =
     property.definition.type === "select" ||
@@ -1176,12 +1177,18 @@ export function PropertyManagementPopover({
     if (!open) return;
 
     const frame = requestAnimationFrame(() => {
-      propertyNameInputRef.current?.focus();
-      propertyNameInputRef.current?.select();
+      if (view === "edit") {
+        propertyNameInputRef.current?.focus();
+        propertyNameInputRef.current?.select();
+      } else {
+        menuContentRef.current
+          ?.querySelector<HTMLElement>('[role="menuitem"]')
+          ?.focus();
+      }
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, view]);
 
   async function configureProperty(next: {
     name?: string;
@@ -1358,6 +1365,7 @@ export function PropertyManagementPopover({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          ref={menuContentRef}
           align="start"
           collisionPadding={12}
           className="relative z-[300] w-72 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto"
