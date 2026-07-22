@@ -2,19 +2,6 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconExternalLink, IconShieldCheck } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -25,6 +12,19 @@ import {
   PageHeader,
   SetupEmptyState,
 } from "@/components/crm/Surface";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface ProposalPreview {
   id: string;

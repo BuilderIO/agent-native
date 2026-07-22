@@ -1,11 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@agent-native/toolkit/ui/collapsible";
-import { ScrollArea } from "@agent-native/toolkit/ui/scroll-area";
 import type {
   ContentDatabaseItem,
   ContentDatabaseOpenPagesIn,
@@ -37,6 +30,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +43,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
   TooltipContent,

@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -103,6 +103,20 @@
       "import": "./dist/composer/*.js",
       "default": "./dist/composer/*.js"
     },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "browser": "./dist/conformance/index.js",
+      "development": "./dist/conformance/index.js",
+      "import": "./dist/conformance/index.js",
+      "default": "./dist/conformance/index.js"
+    },
+    "./conformance/*": {
+      "types": "./dist/conformance/*.d.ts",
+      "browser": "./dist/conformance/*.js",
+      "development": "./dist/conformance/*.js",
+      "import": "./dist/conformance/*.js",
+      "default": "./dist/conformance/*.js"
+    },
     "./context-ui": {
       "types": "./dist/context-ui/index.d.ts",
       "browser": "./dist/context-ui/index.js",
@@ -116,6 +130,20 @@
       "development": "./dist/design-tweaks/index.js",
       "import": "./dist/design-tweaks/index.js",
       "default": "./dist/design-tweaks/index.js"
+    },
+    "./design-system": {
+      "types": "./dist/design-system/index.d.ts",
+      "browser": "./dist/design-system/index.js",
+      "development": "./dist/design-system/index.js",
+      "import": "./dist/design-system/index.js",
+      "default": "./dist/design-system/index.js"
+    },
+    "./design-system/*": {
+      "types": "./dist/design-system/*.d.ts",
+      "browser": "./dist/design-system/*.js",
+      "development": "./dist/design-system/*.js",
+      "import": "./dist/design-system/*.js",
+      "default": "./dist/design-system/*.js"
     },
     "./editor": {
       "types": "./dist/editor/index.d.ts",
@@ -267,6 +295,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",
+    "culori": "^4.0.2",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
     "highlight.js": "catalog:",
@@ -285,6 +314,7 @@
     "yjs": "catalog:"
   },
   "devDependencies": {
+    "@types/culori": "^4.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "typescript-7": "catalog:",

@@ -443,7 +443,11 @@ export async function run(
       // Terminal states resolve the poll; "input-required" means the remote is
       // blocked waiting on us, not making progress. Only actively-working
       // states count as liveness worth surfacing.
-      const ACTIVELY_WORKING_STATES = new Set(["working", "submitted"]);
+      const ACTIVELY_WORKING_STATES = new Set([
+        "working",
+        "submitted",
+        "processing",
+      ]);
       const callStartedAt = Date.now();
       let lastProgressEmitAt = callStartedAt;
       const onRemotePollUpdate = (task: Task) => {

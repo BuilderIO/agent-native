@@ -194,8 +194,11 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain('aria-pressed={utilityPanel === "comments"}');
+    expect(source).toContain("onSelect={() => void handleCopyPageLink()}");
+    expect(source).toContain('utilityPanel === "info" ? null : "info"');
+    expect(source).toContain('utilityPanel === "comments" ? null : "comments"');
+    expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
+    expect(source).not.toContain('aria-pressed={utilityPanel === "comments"}');
     expect(source).toContain("setDeleteDialogOpen(true)");
     expect(source).toContain("text-destructive focus:text-destructive");
     expect(source).toContain("<IconTrash");
