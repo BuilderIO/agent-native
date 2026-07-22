@@ -295,7 +295,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",
-    "culori": "4.0.2",
+    "culori": "^4.0.2",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
     "highlight.js": "catalog:",
@@ -314,7 +314,7 @@
     "yjs": "catalog:"
   },
   "devDependencies": {
-    "@types/culori": "4.0.1",
+    "@types/culori": "^4.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "typescript-7": "catalog:",

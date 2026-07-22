@@ -94,6 +94,29 @@ describe("design-system contract", () => {
     expect(warning).toHaveBeenCalledOnce();
   });
 
+  it("warns when nested providers combine the effective ActionButton APIs", () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const LegacyButton = () => <button data-adapter="legacy" />;
+    const CustomActionButton = () => <button data-adapter="semantic" />;
+
+    act(() => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{
+            components: { ActionButton: CustomActionButton },
+          }}
+        >
+          <ToolkitProvider components={{ Button: LegacyButton }}>
+            <Button>Save</Button>
+          </ToolkitProvider>
+        </ToolkitProvider>,
+      );
+    });
+
+    expect(container.querySelector("[data-adapter=semantic]")).not.toBeNull();
+    expect(warning).toHaveBeenCalledOnce();
+  });
+
   it("forwards semantic intent independently from the legacy visual variant", () => {
     const received = vi.fn();
     const CustomActionButton = (props: ComponentProps<typeof ActionButton>) => {

@@ -110,7 +110,7 @@ export function ToolkitProvider({
   );
 
   useEffect(() => {
-    if (!designSystem?.components?.ActionButton || !components?.Button) return;
+    if (!mergedDefinition?.components?.ActionButton || !value.Button) return;
     const isDevelopment =
       (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV ??
       true;
@@ -118,7 +118,7 @@ export function ToolkitProvider({
     console.warn(
       "[agent-native] ToolkitProvider received both designSystem.components.ActionButton and legacy components.Button. ActionButton takes precedence.",
     );
-  }, [components?.Button, designSystem?.components?.ActionButton]);
+  }, [mergedDefinition?.components?.ActionButton, value.Button]);
 
   return (
     <DesignSystemContext.Provider value={designSystemValue}>

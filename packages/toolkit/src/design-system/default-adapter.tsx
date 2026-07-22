@@ -24,6 +24,7 @@ import {
 } from "../ui/dialog.js";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -119,6 +120,7 @@ const DefaultIconButton: DesignSystemComponents["IconButton"] = ({
   type = "button",
   onPress,
   elementRef,
+  className,
   ...props
 }) => (
   <ButtonBase
@@ -127,6 +129,11 @@ const DefaultIconButton: DesignSystemComponents["IconButton"] = ({
     type={type}
     variant={buttonVariant(intent, emphasis)}
     size="icon"
+    className={cn(
+      size === "compact" && "h-8 w-8",
+      size === "large" && "h-12 w-12",
+      className,
+    )}
     disabled={disabled || pending}
     onClick={(event) => onPress?.(event)}
     aria-label={label}
@@ -245,11 +252,17 @@ const DefaultTextArea: DesignSystemComponents["TextArea"] = ({
 const DefaultSpinner: DesignSystemComponents["Spinner"] = ({
   label,
   size,
+  className,
   ...props
 }) => (
   <DefaultSpinnerPrimitive
     {...props}
     aria-label={label}
+    className={cn(
+      size === "compact" && "size-3",
+      size === "large" && "size-5",
+      className,
+    )}
     data-size={size}
     role={label ? "status" : undefined}
   />
@@ -259,12 +272,19 @@ const DefaultSkeleton: DesignSystemComponents["Skeleton"] = ({
   width,
   height,
   shape = "rectangle",
+  className,
   style,
   ...props
 }) => (
   <DefaultSkeletonPrimitive
     {...props}
     aria-hidden="true"
+    className={cn(
+      shape === "line" && "rounded-sm",
+      shape === "rectangle" && "rounded-md",
+      shape === "circle" && "rounded-full",
+      className,
+    )}
     style={{ width, height, ...style }}
     data-shape={shape}
   />
@@ -275,10 +295,16 @@ const DefaultStatus: DesignSystemComponents["Status"] = ({
   tone = "neutral",
   icon,
   size,
+  className,
   ...props
 }) => (
   <Badge
     {...props}
+    className={cn(
+      size === "compact" && "text-xs",
+      size === "large" && "px-3 py-1 text-sm",
+      className,
+    )}
     variant={tone === "danger" ? "destructive" : "secondary"}
     data-tone={tone}
     data-size={size}
@@ -333,13 +359,37 @@ const DefaultAvatar: DesignSystemComponents["Avatar"] = ({
   size,
   status,
   imageRef,
+  className,
   ...props
 }) => (
-  <Avatar {...props} data-size={size} data-status={status}>
+  <Avatar
+    {...props}
+    className={cn(
+      size === "compact" && "h-8 w-8",
+      size === "default" && "h-10 w-10",
+      size === "large" && "h-12 w-12",
+      className,
+    )}
+    data-size={size}
+    data-status={status}
+  >
     {src ? <AvatarImage ref={imageRef} src={src} alt={name} /> : null}
     <AvatarFallback>
       {fallback ?? name.slice(0, 2).toUpperCase()}
     </AvatarFallback>
+    {status ? (
+      <span
+        aria-label={status}
+        className={cn(
+          "absolute bottom-0 end-0 h-2.5 w-2.5 rounded-full border-2 border-background",
+          status === "online" && "bg-green-500",
+          status === "offline" && "bg-muted-foreground",
+          status === "busy" && "bg-destructive",
+          status === "away" && "bg-yellow-500",
+        )}
+        role="img"
+      />
+    ) : null}
   </Avatar>
 );
 
@@ -385,9 +435,11 @@ const DefaultTooltip: DesignSystemComponents["Tooltip"] = ({
 function DefaultMenuItems({
   items,
   onAction,
+  closeOnAction,
 }: {
   items: readonly MenuItem[];
   onAction: (id: string | number) => void;
+  closeOnAction: boolean;
 }) {
   return items.map((item) =>
     item.children?.length ? (
@@ -397,14 +449,38 @@ function DefaultMenuItems({
           {item.label}
         </DropdownMenuSubTrigger>
         <DropdownMenuSubContent>
-          <DefaultMenuItems items={item.children} onAction={onAction} />
+          <DefaultMenuItems
+            items={item.children}
+            onAction={onAction}
+            closeOnAction={closeOnAction}
+          />
         </DropdownMenuSubContent>
       </DropdownMenuSub>
+    ) : item.selected !== undefined ? (
+      <DropdownMenuCheckboxItem
+        key={item.id}
+        checked={item.selected}
+        disabled={item.disabled}
+        onSelect={(event) => {
+          if (!closeOnAction) event.preventDefault();
+          onAction(item.id);
+        }}
+        className={item.intent === "danger" ? "text-destructive" : undefined}
+      >
+        {item.icon}
+        <span className="min-w-0 flex-1">{item.label}</span>
+        {item.shortcut ? (
+          <DropdownMenuShortcut>{item.shortcut}</DropdownMenuShortcut>
+        ) : null}
+      </DropdownMenuCheckboxItem>
     ) : (
       <DropdownMenuItem
         key={item.id}
         disabled={item.disabled}
-        onSelect={() => onAction(item.id)}
+        onSelect={(event) => {
+          if (!closeOnAction) event.preventDefault();
+          onAction(item.id);
+        }}
         className={item.intent === "danger" ? "text-destructive" : undefined}
       >
         {item.icon}
@@ -431,6 +507,7 @@ const DefaultMenu: DesignSystemComponents["Menu"] = ({
   collisionPadding,
   className,
   style,
+  closeOnAction = true,
 }) => (
   <DropdownMenu
     open={open}
@@ -453,11 +530,19 @@ const DefaultMenu: DesignSystemComponents["Menu"] = ({
             {section.label ? (
               <DropdownMenuLabel>{section.label}</DropdownMenuLabel>
             ) : null}
-            <DefaultMenuItems items={section.items} onAction={onAction} />
+            <DefaultMenuItems
+              items={section.items}
+              onAction={onAction}
+              closeOnAction={closeOnAction}
+            />
           </div>
         ))
       ) : items ? (
-        <DefaultMenuItems items={items} onAction={onAction} />
+        <DefaultMenuItems
+          items={items}
+          onAction={onAction}
+          closeOnAction={closeOnAction}
+        />
       ) : null}
     </DropdownMenuContent>
   </DropdownMenu>
@@ -527,8 +612,15 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
       container={portalContainer}
       hideClose={!dismissible}
       closeLabel={closeLabel}
-      className={className}
       style={style}
+      className={cn(
+        size === "small" && "max-w-sm",
+        size === "medium" && "max-w-lg",
+        size === "large" && "max-w-2xl",
+        size === "fullscreen" &&
+          "inset-0 h-[100dvh] max-h-none w-full max-w-none translate-x-0 translate-y-0 rounded-none",
+        className,
+      )}
       data-size={size}
       onOpenAutoFocus={(event) => {
         if (!initialFocusRef?.current) return;
@@ -541,6 +633,9 @@ const DefaultDialog: DesignSystemComponents["Dialog"] = ({
         restoreFocusRef.current.focus();
       }}
       onEscapeKeyDown={(event) => {
+        if (!dismissible) event.preventDefault();
+      }}
+      onInteractOutside={(event) => {
         if (!dismissible) event.preventDefault();
       }}
     >
@@ -709,6 +804,7 @@ const DefaultCheckbox: DesignSystemComponents["Checkbox"] = ({
   description,
   indeterminate,
   inputRef,
+  invalid,
   ...props
 }) => (
   <label className="flex items-start gap-2">
@@ -716,6 +812,7 @@ const DefaultCheckbox: DesignSystemComponents["Checkbox"] = ({
       {...props}
       ref={inputRef}
       checked={indeterminate ? "indeterminate" : checked}
+      aria-invalid={invalid || undefined}
       onCheckedChange={(next) => onChange(next === true)}
     />
     {label || description ? (

@@ -4,7 +4,7 @@ import * as React from "react";
 
 import {
   LegacyButtonRenderContext,
-  useDesignSystem,
+  useDesignSystemComponent,
 } from "../design-system/context.js";
 import { DesignSystemErrorBoundary } from "../design-system/error-boundary.js";
 import type {
@@ -83,8 +83,7 @@ const ButtonOverrideRenderContext = React.createContext(false);
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ variant, size, asChild = false, intent, emphasis, ...props }, ref) => {
-    const DesignSystemActionButton =
-      useDesignSystem()?.components?.ActionButton;
+    const DesignSystemActionButton = useDesignSystemComponent("ActionButton");
     const Override = useToolkitComponent("Button");
     const isRenderingOverride = React.useContext(ButtonOverrideRenderContext);
     const isRenderingLegacyButton = React.useContext(LegacyButtonRenderContext);

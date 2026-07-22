@@ -1,3 +1,5 @@
+import { clampChroma, converter, parse } from "culori";
+
 export const DESIGN_SYSTEM_COLOR_TOKENS = [
   "background",
   "foreground",
@@ -66,7 +68,7 @@ function round(value: number): string {
 
 export function normalizeDesignSystemColor(value: string): string {
   const parsed = parse(value);
-  const color = parsed ? toHsl(parsed) : undefined;
+  const color = parsed ? toHsl(clampChroma(parsed, "oklch")) : undefined;
   if (!color) {
     throw new Error(`Unsupported design system color: ${value}`);
   }
@@ -141,4 +143,3 @@ export function defineTheme<const Theme extends DesignSystemTheme>(
 ): Theme {
   return theme;
 }
-import { converter, parse } from "culori";

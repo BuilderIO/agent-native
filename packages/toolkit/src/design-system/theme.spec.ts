@@ -10,7 +10,7 @@ describe("design system themes", () => {
   it.each([
     ["#ff0000", "0 100% 50%"],
     ["rgb(0 128 255)", "209.882 100% 50%"],
-    ["oklch(62% 0.2 250)", "203.055 143.596% 39.866%"],
+    ["oklch(62% 0.2 250)", "204.933 99.979% 45.91%"],
     ["rebeccapurple", "270 50% 40%"],
     ["rgb(255 0 0 / 50%)", "0 100% 50% / 0.5"],
   ])("normalizes %s to an HSL triplet", (input, output) => {
@@ -42,6 +42,14 @@ describe("design system themes", () => {
     expect(css).toContain("--primary:");
     expect(css.match(/--radius: 0.75rem/g)).toHaveLength(2);
   });
+
+  it.each(["oklch(62% 0.2 250)", "oklch(70% 0.4 30)", "oklch(60% 0.3 120)"])(
+    "maps vivid %s into the sRGB gamut before HSL conversion",
+    (input) => {
+      const [, saturation] = normalizeDesignSystemColor(input).split(" ");
+      expect(Number.parseFloat(saturation)).toBeLessThanOrEqual(100);
+    },
+  );
 
   it("identifies the invalid semantic token", () => {
     expect(() =>
