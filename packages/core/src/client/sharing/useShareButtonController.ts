@@ -248,6 +248,8 @@ export function useShareButtonController(
     visibilityOverride ?? data?.visibility ?? ("private" as const);
   const triggerVisibility =
     visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
+  // Keep draft and optimistic state in the controller so closing and reopening
+  // the popover cannot drop an in-flight mutation or an unsent invite.
   const [role, setRole] = useState<ShareButtonRole>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
