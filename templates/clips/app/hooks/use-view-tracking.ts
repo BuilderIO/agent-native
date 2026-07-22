@@ -48,10 +48,12 @@ export interface UseViewTrackingOpts {
  * seek/pause/resume events and a final flush on unmount.
  *
  * Runs on every render (no dependency array) but only re-attaches listeners
- * when `videoRef.current` actually changes identity — e.g. an edit-mode
- * toggle unmounts/remounts the player. Reading the latest opts through a ref
- * keeps long-lived listener closures (which may outlive several renders)
- * from ever using stale values like `durationMs`.
+ * when the video element, recordingId, or trackOpenWithoutVideo actually
+ * change — e.g. an edit-mode toggle unmounts/remounts the player, or a
+ * route reuses the same player instance for a different recording. Reading
+ * the latest opts through a ref keeps long-lived listener closures (which
+ * may outlive several renders) from ever using stale values like
+ * `durationMs`.
  */
 export function useViewTracking(opts: UseViewTrackingOpts) {
   const optsRef = useRef(opts);
@@ -65,6 +67,8 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
   const maxPctRef = useRef(0);
   const viewSessionRef = useRef<string | null>(null);
   const attachedVideoRef = useRef<HTMLVideoElement | null>(null);
+  const attachedRecordingIdRef = useRef<string | null>(null);
+  const attachedTrackOpenRef = useRef(false);
   const hasAttachedRef = useRef(false);
   const cleanupRef = useRef<() => void>(() => {});
 
@@ -77,15 +81,33 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       cleanupRef.current = () => {};
       hasAttachedRef.current = true;
       attachedVideoRef.current = null;
+      attachedRecordingIdRef.current = recordingId;
+      attachedTrackOpenRef.current = !!trackOpenWithoutVideo;
       return;
     }
 
     const video = videoRef.current;
-    if (hasAttachedRef.current && video === attachedVideoRef.current) return;
+    const unchanged =
+      hasAttachedRef.current &&
+      video === attachedVideoRef.current &&
+      recordingId === attachedRecordingIdRef.current &&
+      !!trackOpenWithoutVideo === attachedTrackOpenRef.current;
+    if (unchanged) return;
 
     cleanupRef.current();
     hasAttachedRef.current = true;
     attachedVideoRef.current = video;
+    attachedRecordingIdRef.current = recordingId;
+    attachedTrackOpenRef.current = !!trackOpenWithoutVideo;
+
+    // A different video element, recording, or embed mode starts a fresh
+    // tracking session — last session's counters must not carry over.
+    watchMsRef.current = 0;
+    lastTickRef.current = null;
+    startedRef.current = false;
+    lastSentProgressRef.current = 0;
+    maxPctRef.current = 0;
+    viewSessionRef.current = null;
 
     if (!video) {
       if (
