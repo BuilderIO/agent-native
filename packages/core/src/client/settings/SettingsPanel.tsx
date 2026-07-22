@@ -69,7 +69,6 @@ import {
   AGENT_SETTINGS_SECTIONS,
   ALL_SETTINGS_SECTIONS,
   CONNECTION_SETTINGS_SECTIONS,
-  SETTINGS_SECTION_IDS,
   WORKSPACE_SETTINGS_SECTIONS,
   getAgentSettingsSearchTabs,
   type SettingsSectionId,
@@ -91,6 +90,10 @@ import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "./useBuilderStatus.js";
+import {
+  settingsSectionDomId,
+  useSettingsPanelController,
+} from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
 
 const Button = React.forwardRef<
@@ -2356,51 +2359,6 @@ export interface SettingsPanelProps {
   sectionRequestKey?: number;
 }
 
-function normalizeSettingsSection(
-  value?: string | null,
-): SettingsSectionId | null {
-  const normalized = value?.replace(/^#/, "").toLowerCase() ?? "";
-  if (!normalized) return null;
-  if (normalized.startsWith("secrets")) return "secrets";
-  if (
-    normalized === "workspace" ||
-    normalized === "workspace-settings" ||
-    normalized === "organization" ||
-    normalized === "org"
-  ) {
-    return "secrets";
-  }
-  if (normalized === "agent-engine") return "llm";
-  if (
-    normalized === "agent-model-defaults" ||
-    normalized === "app-model-defaults" ||
-    normalized === "models"
-  ) {
-    return "app-models";
-  }
-  if (normalized === "agent-limits" || normalized === "loop-settings") {
-    return "limits";
-  }
-  return SETTINGS_SECTION_IDS.has(normalized as SettingsSectionId)
-    ? (normalized as SettingsSectionId)
-    : null;
-}
-
-function settingsSectionDomId(section: SettingsSectionId): string {
-  return `agent-settings-section-${section}`;
-}
-
-function initialOpenSection(): SettingsSectionId {
-  if (typeof window === "undefined") return "llm";
-  return normalizeSettingsSection(window.location.hash) ?? "llm";
-}
-
-function firstVisibleSection(
-  sections: readonly SettingsSectionId[],
-): SettingsSectionId {
-  return sections[0] ?? "llm";
-}
-
 // Agent capability modes. The internal values ("production"/"development") are
 // kept for back-compat with the AGENT_MODE wiring; only the visible labels
 // changed to "App mode" / "Code mode" so this control reads as the agent
@@ -2752,27 +2710,6 @@ function SettingsPanelContent({
     trackingSource: "settings_panel_builder_card",
   });
 
-  // When opened via a `#secrets:<KEY>` hash, focus that specific secret input
-  // inside the "API Keys & Connections" section.
-  const [focusSecretKey, setFocusSecretKey] = useState<string | undefined>(
-    undefined,
-  );
-  const visibleSections = useMemo(() => new Set(sections), [sections]);
-  const shouldShowSection = useCallback(
-    (section: SettingsSectionId) => visibleSections.has(section),
-    [visibleSections],
-  );
-
-  // Accordion: only one section open at a time (null = all closed)
-  const [openSection, setOpenSection] = useState<string | null>(() => {
-    const initial = initialOpenSection();
-    return visibleSections.has(initial)
-      ? initial
-      : firstVisibleSection(sections);
-  });
-  const toggle = (id: string) =>
-    setOpenSection((prev) => (prev === id ? null : id));
-
   const scrollSectionIntoView = useCallback((section: SettingsSectionId) => {
     window.requestAnimationFrame(() => {
       document.getElementById(settingsSectionDomId(section))?.scrollIntoView({
@@ -2781,47 +2718,23 @@ function SettingsPanelContent({
       });
     });
   }, []);
-
-  const openSettingsSection = useCallback(
-    (section: SettingsSectionId, scroll = false) => {
-      setOpenSection(section);
-      if (scroll) scrollSectionIntoView(section);
-    },
-    [scrollSectionIntoView],
-  );
-
-  useEffect(() => {
-    const section = normalizeSettingsSection(initialSection);
-    if (!section || !shouldShowSection(section)) return;
-    if (section !== "secrets") setFocusSecretKey(undefined);
-    openSettingsSection(section, true);
-  }, [
+  const {
+    focusSecretKey,
+    isSectionVisible: shouldShowSection,
+    openSection,
+    toggleSection: toggle,
+    openSettingsSection: openControllerSection,
+  } = useSettingsPanelController({
+    sections,
     initialSection,
     sectionRequestKey,
-    openSettingsSection,
-    shouldShowSection,
-  ]);
-
-  // Support `#secrets:<KEY>` hash fragments from the onboarding CTA — opens
-  // the section and focuses the matching input.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handleHash = () => {
-      const hash = window.location.hash?.replace(/^#/, "") ?? "";
-      const section = normalizeSettingsSection(hash);
-      if (!section || !shouldShowSection(section)) return;
-      if (hash.startsWith("secrets:") || hash === "secrets") {
-        const key = hash.slice("secrets:".length);
-        setFocusSecretKey(key || undefined);
-      } else {
-        setFocusSecretKey(undefined);
-      }
-      openSettingsSection(section, true);
-    };
-    handleHash();
-    window.addEventListener("hashchange", handleHash);
-    return () => window.removeEventListener("hashchange", handleHash);
-  }, [openSettingsSection, shouldShowSection]);
+    onScrollToSection: scrollSectionIntoView,
+  });
+  const openSettingsSection = useCallback(
+    (section: SettingsSectionId, scroll = false) =>
+      openControllerSection(section, { scroll }),
+    [openControllerSection],
+  );
 
   const isPage = surface === "page";
 
