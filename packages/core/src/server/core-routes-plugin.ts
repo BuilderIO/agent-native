@@ -964,7 +964,6 @@ export async function consumeBuilderRelayRequest(
   } catch {
     return { ok: false, status: 503, error: "Builder relay is not configured" };
   }
-
   if (!verified) {
     return { ok: false, status: 401, error: "Invalid Builder relay request" };
   }
@@ -2454,7 +2453,6 @@ export function createCoreRoutesPlugin(
                 relayStateRaw,
                 credentials,
               );
-
               const response = await ssrfSafeFetch(
                 relayRequest.url,
                 {
