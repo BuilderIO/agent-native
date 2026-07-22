@@ -2345,7 +2345,7 @@ export function createCoreRoutesPlugin(
             return { error: "Method not allowed" };
           }
           const rawBody = await readBuilderRelayRequestBody(event);
-          console.log(`shomix - relay rawBody - ${JSON.stringify(rawBody)});
+          console.log(`shomix - relay rawBody - ${JSON.stringify(rawBody)}`);
           const result = await consumeBuilderRelayRequest(
             {
               rawBody,
