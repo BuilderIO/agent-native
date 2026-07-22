@@ -228,22 +228,14 @@ export function verifyBuilderPreviewRelayState(
 ): BuilderPreviewRelayState | null {
   if (!state) return null;
   const parts = state.split(".");
-  console.log(`shomix - checking sus`);
-
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  console.log(`shomix - parts[0] - ${parts[0]}`);
-  console.log(`shomix - parts[1] - ${parts[1]}`);
   if (!safeEqualText(builderRelayMac(parts[0]), parts[1])) return null;
   let value: unknown;
-
-  console.log(`shomix - checked the secret that part looks good`);
   try {
     value = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
   } catch {
     return null;
   }
-  console.log(`shomix - was able to parse the json`);
-
   if (!value || typeof value !== "object") return null;
   const payload = value as Partial<BuilderPreviewRelayState>;
   const now = options.now ?? Date.now();
@@ -278,10 +270,7 @@ export function verifyBuilderPreviewRelayStateForCallback(
   state: string | null | undefined,
   options: { now?: number } = {},
 ): BuilderPreviewRelayState | null {
-  console.log(`shomix - verifyBuilderPreviewRelayState - ${state}`);
   const payload = verifyBuilderPreviewRelayState(state, options);
-  console.log(`shomix - payload.targetOrigin - ${payload?.targetOrigin}`);
-  console.log(`shomix - isTrustedBuilderRelayTargetOrigin(payload.targetOrigin) - ${payload && isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)}`);
   return payload && isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)
     ? payload
     : null;
@@ -349,27 +338,16 @@ export function verifyBuilderRelayRequest(input: {
 } | null {
   const timestamp = Number(input.timestamp);
   const now = input.now ?? Date.now();
-  console.log(
-    `shomix - verifyBuilderRelayRequest - timestamp=${input.timestamp} flowId=${input.flowId} hasSignature=${!!input.signature} requestOrigin=${input.requestOrigin} requestBasePath=${input.requestBasePath}`,
-  );
   if (!Number.isFinite(timestamp)) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: timestamp not finite (${input.timestamp})`,
-    );
     return null;
   }
   if (Math.abs(now - timestamp) > BUILDER_RELAY_REQUEST_SKEW_MS) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: skew too large now=${now} timestamp=${timestamp} diff=${Math.abs(now - timestamp)} max=${BUILDER_RELAY_REQUEST_SKEW_MS}`,
-    );
     return null;
   }
   if (!input.flowId) {
-    console.log(`shomix - verifyBuilderRelayRequest - NULL: missing flowId`);
     return null;
   }
   if (!input.signature) {
-    console.log(`shomix - verifyBuilderRelayRequest - NULL: missing signature`);
     return null;
   }
   if (
@@ -378,41 +356,25 @@ export function verifyBuilderRelayRequest(input: {
       input.signature,
     )
   ) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: signature mismatch expected=${builderRelayRequestSignature(timestamp, input.flowId, input.body)} got=${input.signature}`,
-    );
     return null;
   }
   let body: BuilderRelayRequestBody;
   try {
     body = JSON.parse(input.body) as BuilderRelayRequestBody;
   } catch {
-    console.log(`shomix - verifyBuilderRelayRequest - NULL: body JSON parse failed`);
     return null;
   }
   const payload = verifyBuilderPreviewRelayState(body.relayState, { now });
   if (!payload) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: verifyBuilderPreviewRelayState returned null`,
-    );
     return null;
   }
   if (payload.flowId !== input.flowId) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: flowId mismatch payload=${payload.flowId} input=${input.flowId}`,
-    );
     return null;
   }
   if (payload.targetOrigin !== input.requestOrigin) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: targetOrigin mismatch payload=${payload.targetOrigin} requestOrigin=${input.requestOrigin}`,
-    );
     return null;
   }
   if (payload.basePath !== input.requestBasePath) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: basePath mismatch payload=${payload.basePath} requestBasePath=${input.requestBasePath}`,
-    );
     return null;
   }
   if (
@@ -422,12 +384,8 @@ export function verifyBuilderRelayRequest(input: {
     !body.credentials.privateKey ||
     !body.credentials.publicKey
   ) {
-    console.log(
-      `shomix - verifyBuilderRelayRequest - NULL: bad credentials hasCredentials=${!!body.credentials} hasPrivateKey=${!!body.credentials?.privateKey} hasPublicKey=${!!body.credentials?.publicKey}`,
-    );
     return null;
   }
-  console.log(`shomix - verifyBuilderRelayRequest - OK: verified`);
   const nullableString = (value: unknown): string | null =>
     typeof value === "string" ? value : null;
   const nullableBoolean = (value: unknown): boolean | null =>

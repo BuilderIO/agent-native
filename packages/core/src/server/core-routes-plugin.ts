@@ -965,7 +965,6 @@ export async function consumeBuilderRelayRequest(
     return { ok: false, status: 503, error: "Builder relay is not configured" };
   }
 
-  console.log(`shomix - verifyBuilderRelayRequest - ${verified}`);
   if (!verified) {
     return { ok: false, status: 401, error: "Invalid Builder relay request" };
   }
@@ -2036,8 +2035,6 @@ export function createCoreRoutesPlugin(
           const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(
             event,
           ).replace(/\/+$/, "");
-          console.log(`shomix - previewOrigin - ${previewOrigin}`);
-          console.log(`shomix - callbackOrigin - ${callbackOrigin}`);
           let relay:
             | { state: string; payload: BuilderPreviewRelayState }
             | undefined;
@@ -2048,7 +2045,6 @@ export function createCoreRoutesPlugin(
                 targetOrigin: previewOrigin,
                 basePath: getAppBasePath(),
               });
-              console.log(`shomix - relay - ${JSON.stringify(relay)}`);
             } catch (err) {
               const msg =
                 err instanceof Error
@@ -2338,14 +2334,11 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/builder/relay`,
         defineEventHandler(async (event: H3Event) => {
-          console.log(`shomix - /builder/relay - called`);
-         
           if (getMethod(event) !== "POST") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
           const rawBody = await readBuilderRelayRequestBody(event);
-          console.log(`shomix - relay rawBody - ${JSON.stringify(rawBody)}`);
           const result = await consumeBuilderRelayRequest(
             {
               rawBody,
@@ -2386,7 +2379,6 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/builder/callback`,
         defineEventHandler(async (event: H3Event) => {
-          console.log(`shomix - /builder/callback - called`);
           if (getMethod(event) !== "GET") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
@@ -2403,15 +2395,11 @@ export function createCoreRoutesPlugin(
             BUILDER_RELAY_STATE_PARAM,
           );
           if (relayStateRaw) {
-          console.log(`shomix - relayStateRaw - ${relayStateRaw}`);
-
             let relayPayload: BuilderPreviewRelayState | null = null;
             try {
               relayPayload =
                 verifyBuilderPreviewRelayStateForCallback(relayStateRaw);
-                console.log(`shomix - relayPayload - ${relayPayload}`);
-            } catch (err) {
-              console.log(`shomix - error while verifiing payload - ${JSON.stringify(err)}`);
+            } catch {
               // A preview relay must fail closed when its dedicated shared
               // secret is absent on the corporate callback deployment.
             }
@@ -2467,9 +2455,6 @@ export function createCoreRoutesPlugin(
                 credentials,
               );
 
-              console.log(`shomix - relay request - ${JSON.stringify(relayRequest)}`);
-              console.log(`shomix - relay url - ${JSON.stringify(relayRequest.url)}`);
-
               const response = await ssrfSafeFetch(
                 relayRequest.url,
                 {
@@ -2479,7 +2464,6 @@ export function createCoreRoutesPlugin(
                 },
                 { maxRedirects: 0, httpsOnly: true },
               );
-              console.log(`shomix - relay response - ${JSON.stringify(response)}`);
               if (!response.ok) {
                 throw new Error(
                   `Preview relay rejected the callback (${response.status}).`,
