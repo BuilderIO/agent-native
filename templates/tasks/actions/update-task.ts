@@ -25,16 +25,18 @@ const fieldValuesSchema: z.ZodType<FieldValuePatch[]> = z.preprocess(
   z.array(fieldValuePatchSchema),
 );
 
+export const updateTaskSchema = z.object({
+  taskId: z.string().describe("Task id"),
+  title: z.string().min(1).optional().describe("New task title"),
+  done: z.boolean().optional().describe("Completion state"),
+  fieldValues: fieldValuesSchema
+    .optional()
+    .describe("Custom field values to set or clear for this task"),
+});
+
 export default defineAction({
   description: "Update a task title, completion state, and/or custom fields.",
-  schema: z.object({
-    taskId: z.string().describe("Task id"),
-    title: z.string().min(1).optional().describe("New task title"),
-    done: z.boolean().optional().describe("Completion state"),
-    fieldValues: fieldValuesSchema
-      .optional()
-      .describe("Custom field values to set or clear for this task"),
-  }),
+  schema: updateTaskSchema,
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
     if (

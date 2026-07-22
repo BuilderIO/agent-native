@@ -12,7 +12,9 @@ vi.mock("../server/inbox/store.js", () => ({
   },
 }));
 
-import markInboxItemReadyAction from "./mark-inbox-item-ready.js";
+import markInboxItemReadyAction, {
+  markInboxItemReadySchema,
+} from "./mark-inbox-item-ready.js";
 
 describe("mark-inbox-item-ready", () => {
   beforeEach(() => {
@@ -21,9 +23,7 @@ describe("mark-inbox-item-ready", () => {
 
   describe("schema", () => {
     it("requires an inbox item id", () => {
-      expect(
-        markInboxItemReadyAction.schema.parse({ inboxItemId: "in-1" }),
-      ).toEqual({
+      expect(markInboxItemReadySchema.parse({ inboxItemId: "in-1" })).toEqual({
         inboxItemId: "in-1",
       });
     });
