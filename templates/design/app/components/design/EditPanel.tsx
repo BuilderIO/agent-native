@@ -28,7 +28,6 @@ import {
   type InteractionState,
 } from "@shared/interaction-states";
 import {
-  IconAdjustmentsHorizontal,
   IconAlignCenter,
   IconAlignJustified,
   IconAlignLeft,
@@ -44,7 +43,6 @@ import {
   IconBorderCorners,
   IconBorderRadius,
   IconBorderStyle,
-  IconBrush,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -74,7 +72,6 @@ import {
   IconLink,
   IconLinkOff,
   IconMinus,
-  IconMessageCircle,
   IconPerspective,
   IconPhoto,
   IconPlus,
@@ -1102,13 +1099,11 @@ function InspectorTabsHeader({
   onActiveTabChange,
   trailing,
   commentsCount = 0,
-  compact = false,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
   commentsCount?: number;
-  compact?: boolean;
 }) {
   const t = useT();
 
@@ -1123,16 +1118,9 @@ function InspectorTabsHeader({
           <TabsTrigger
             value="design"
             aria-label={t("navigation.brand")}
-            className={cn(
-              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-7 px-0" : "px-1.5",
-            )}
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            {compact ? (
-              <IconBrush className="size-3.5" />
-            ) : (
-              t("navigation.brand")
-            )}
+            {t("navigation.brand")}
           </TabsTrigger>
           <TabsTrigger
             value="comments"
@@ -1141,23 +1129,14 @@ function InspectorTabsHeader({
                 ? t("review.commentsTab", { count: commentsCount })
                 : t("review.comments")
             }
-            className={cn(
-              "group h-6 min-w-0 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-auto gap-0.5 px-1" : "gap-1 px-1.5",
-            )}
+            className="group h-6 min-w-0 rounded-md gap-1 px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            {compact ? (
-              <IconMessageCircle className="size-3.5" />
-            ) : (
-              <span className="truncate">{t("review.comments")}</span>
-            )}
+            <span className="truncate">{t("review.comments")}</span>
             {commentsCount > 0 ? (
               <span
                 className={cn(
                   "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
-                  compact
-                    ? "h-3.5 min-w-3.5 px-0.5 text-[8px]"
-                    : "h-4 min-w-4 px-1 text-[9px]",
+                  "h-4 min-w-4 px-1 text-[9px]",
                 )}
               >
                 {commentsCount > 99 ? "99+" : commentsCount}
@@ -1167,16 +1146,9 @@ function InspectorTabsHeader({
           <TabsTrigger
             value="tweaks"
             aria-label={t("designEditor.tweaks")}
-            className={cn(
-              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-7 px-0" : "px-1.5",
-            )}
+            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            {compact ? (
-              <IconAdjustmentsHorizontal className="size-3.5" />
-            ) : (
-              t("designEditor.tweaks")
-            )}
+            {t("designEditor.tweaks")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -1791,7 +1763,6 @@ export const EditPanel = memo(function EditPanel({
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
           commentsCount={reviewCommentsCount}
-          compact={width < 280}
         />
 
         {showFramePresets ? (
