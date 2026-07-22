@@ -13,7 +13,12 @@ import { Button } from "./button.js";
 import { Input } from "./input.js";
 import { Separator } from "./separator.js";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet.js";
-import { Skeleton } from "./skeleton.js";
+
+type SidebarTooltip = {
+  children?: React.ReactNode;
+  hidden?: boolean;
+  [key: string]: unknown;
+};
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -549,7 +554,7 @@ const SidebarMenuButton = React.forwardRef<
   React.ComponentProps<"button"> & {
     asChild?: boolean;
     isActive?: boolean;
-    tooltip?: string | { children?: React.ReactNode; hidden?: boolean };
+    tooltip?: string | SidebarTooltip;
   } & VariantProps<typeof sidebarMenuButtonVariants>
 >(
   (

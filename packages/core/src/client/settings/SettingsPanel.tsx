@@ -756,19 +756,20 @@ export function AppDefaultModelField({
   return (
     <div className="space-y-1.5">
       <p className={fieldLabelClass(isPage)}>Model</p>
-      <input
-        type="text"
-        list={`app-model-suggestions-${engine}`}
+      <TextField
         value={value}
+        onChange={onValueChange}
         disabled={disabled}
-        onChange={(event) => onValueChange(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") onEnter?.();
         }}
         placeholder={defaultModel ?? "model-id"}
-        spellCheck={false}
         autoComplete="off"
-        className={cn(textInputClass(isPage), "disabled:opacity-60")}
+        aria-label="Model"
+        className={cn(
+          "w-full disabled:opacity-60",
+          isPage ? "text-sm" : "text-[12px]",
+        )}
         style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
       />
       {modelOptions.length > 0 && (
@@ -1228,14 +1229,14 @@ function LLMSectionInner({
                         </p>
                         {baseUrlConfigured && (
                           <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                            <input
-                              type="checkbox"
+                            <Checkbox
                               checked={clearBaseUrl}
-                              onChange={(e) => {
-                                setClearBaseUrl(e.target.checked);
-                                if (e.target.checked) setBaseUrl("");
+                              onChange={(checked) => {
+                                setClearBaseUrl(checked);
+                                if (checked) setBaseUrl("");
                               }}
-                              className="h-3 w-3 accent-current"
+                              aria-label="Clear saved endpoint override"
+                              className="shrink-0"
                             />
                             Clear saved endpoint override
                           </label>

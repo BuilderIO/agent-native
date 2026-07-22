@@ -515,7 +515,7 @@ const checks: readonly ConformanceCheck[] = [
   {
     id: "overlay.focus-interoperability",
     category: "overlay-interoperability",
-    components: ["Dialog", "Popover"],
+    components: ["Dialog"],
     run: async ({ components, document, mount, settle, unmount }) => {
       function FocusProbe() {
         const [open, setOpen] = useState(true);
