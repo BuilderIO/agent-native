@@ -60,7 +60,7 @@ That's it. The body is a prompt the agent runs at each scheduled firing. The age
 | `lastStatus` | `"success"` \| `"error"` \| … | _(managed)_  | Latest outcome.                                                                                        |
 | `lastError`  | string                        | _(managed)_  | Error message if the last run failed.                                                                  |
 | `nextRun`    | ISO timestamp                 | _(managed)_  | Computed from `schedule`; used by the scheduler to decide when to fire next.                           |
-| `mcpTools`   | array of MCP tool names      | _(none)_     | Optional explicit allowlist such as `mcp__server__tool`; credentials stay in the connected MCP grant. |
+| `mcpTools`   | array of MCP tool names       | _(none)_     | Optional explicit allowlist such as `mcp__server__tool`; credentials stay in the connected MCP grant.  |
 
 The `last*` and `nextRun` fields are written by the scheduler. You can read them to see the history, but don't edit them by hand — the next run will overwrite.
 
@@ -74,7 +74,8 @@ bind only the tools that job needs with `mcpTools`:
 ---
 schedule: "0 * * * *"
 enabled: true
-mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
 ---
 
 Find new recordings since the last successful run. Extract only actionable
@@ -218,12 +219,12 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 A single `manage-jobs` tool is registered in every template. The `action` parameter selects the operation:
 
-| Action   | Parameters                                                                 | Purpose                                                      |
-| -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`, `mcpTools` | Create a new recurring job                         |
-| `list`   | `scope` (`personal`, `shared`, or all)                                     | List all jobs with status (schedule, enabled, last/next run) |
-| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model`, `mcpTools` | Edit an existing job                       |
-| `delete` | `name` (required)                                                          | Delete a job — always confirm with the user first            |
+| Action   | Parameters                                                                             | Purpose                                                      |
+| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`, `mcpTools`   | Create a new recurring job                                   |
+| `list`   | `scope` (`personal`, `shared`, or all)                                                 | List all jobs with status (schedule, enabled, last/next run) |
+| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model`, `mcpTools` | Edit an existing job                                         |
+| `delete` | `name` (required)                                                                      | Delete a job — always confirm with the user first            |
 
 `model` is optional on both `create` and `update` — pass a model id to override the channel/app/engine default for that one routine.
 

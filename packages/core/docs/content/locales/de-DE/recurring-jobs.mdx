@@ -209,12 +209,12 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
 
 In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter `action` wählt die Operation aus:
 
-| Aktion   | Parameter                                                             | Zweck                                                                          |
-| -------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`, `mcpTools` | Erstellen Sie einen neuen wiederkehrenden Auftrag                       |
-| `list`   | `scope` (`personal`, `shared` oder alle)                              | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
-| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Bestehenden Job bearbeiten                                            |
-| `delete` | `name` (erforderlich)                                                 | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
+| Aktion   | Parameter                                                                         | Zweck                                                                          |
+| -------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (erforderlich); `scope`, `runAs`, `mcpTools`   | Erstellen Sie einen neuen wiederkehrenden Auftrag                              |
+| `list`   | `scope` (`personal`, `shared` oder alle)                                          | Alle Jobs mit Status auflisten (geplant, aktiviert, letzte/nächste Ausführung) |
+| `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Bestehenden Job bearbeiten                                                     |
+| `delete` | `name` (erforderlich)                                                             | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
 
 **Persönlicher vs. gemeinsamer Bereich.** Jeder Job befindet sich entweder im persönlichen Bereich (läuft als und ist nur für den Ersteller sichtbar) oder im freigegebenen/organisatorischen Bereich (wird im Namen des Erstellers ausgeführt, ist aber für Organisationsmitglieder sichtbar). Die Parameter `scope` und `runAs` steuern dies zum Zeitpunkt der Erstellung. Organisationsadministratoren können alle freigegebenen Jobs aktualisieren oder löschen. Nicht-Administrator-Mitglieder können nur ihre eigenen verwalten.
 
