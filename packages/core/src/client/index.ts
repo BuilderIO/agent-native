@@ -300,7 +300,16 @@ export {
 export {
   ShareButton,
   ShareDialog,
+  useShareButtonController,
   type ShareButtonProps,
+  type ShareButtonController,
+  type ShareButtonControllerOptions,
+  type ShareButtonOrgMember,
+  type ShareButtonOrgMemberSearch,
+  type ShareButtonRole,
+  type ShareButtonShare,
+  type ShareButtonSharesResponse,
+  type ShareButtonVisibility,
   type ShareDialogProps,
 } from "./sharing/index.js";
 export {
