@@ -1020,10 +1020,18 @@ setBasePathEnv();
 
 let cachedHandler;
 
-export default async function handler(...args) {
-  setBasePathEnv();
-  cachedHandler ??= (await import("./main.mjs")).default;
-  return cachedHandler(...normalizeBasePathArgs(args));
+export default {
+  async fetch(...args) {
+    setBasePathEnv();
+    cachedHandler ??= (await import("./main.mjs")).default;
+    // Nitro's Vercel web-runtime entry default-exports { fetch } (an object),
+    // whereas the Node runtime (and the Netlify entry) default-exports a function.
+    // Export the { fetch } web-handler shape so Vercel invokes this function
+    // web-style (with a Web Request) instead of Node-style (req, res).
+    const app = cachedHandler;
+    const handler = typeof app === "function" ? app : app.fetch.bind(app);
+    return handler(...normalizeBasePathArgs(args));
+  },
 }
 `;
   fs.writeFileSync(entryPath, entry);
