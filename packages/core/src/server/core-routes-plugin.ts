@@ -158,6 +158,7 @@ import {
   markDefaultPluginProvided,
   trackPluginInit,
 } from "./framework-request-handler.js";
+import { createGatewayAccessCheckHandler } from "./gateway-access-check.js";
 import { getAppBasePath, getOrigin } from "./google-oauth.js";
 import { createGoogleRealtimeSessionHandler } from "./google-realtime-session.js";
 import {
@@ -1420,6 +1421,8 @@ export function createCoreRoutesPlugin(
         `${P}/realtime-token`,
         createRealtimeTokenHandler(),
       );
+      // Sharee visibility check for the hosted gateway
+      getH3App(nitroApp).use(`${P}/can-see`, createGatewayAccessCheckHandler());
 
       // SSE
       if (!options.disableSSE) {

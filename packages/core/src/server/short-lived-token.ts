@@ -324,3 +324,117 @@ export function verifyRealtimeSubscribeToken(
     exp: claims.exp,
   };
 }
+
+// ── Gateway access-check tokens ──────────────────────────────────────────────
+//
+// The hosted gateway has no access to an app's shareable-resource registry, so
+// it cannot resolve sharee visibility itself. It signs one of these with the
+// app's per-project key and calls the app's `/_agent-native/can-see`, which runs
+// `resolveAccess` and answers. The full access query is bound into the token so
+// the app authenticates the params, not merely the caller.
+
+/** Payload `typ` discriminator for gateway access-check tokens. */
+export const GATEWAY_ACCESS_TOKEN_TYPE = "rt-access-check";
+/** Short TTL: minted per check, used immediately server-to-server. */
+const DEFAULT_GATEWAY_ACCESS_TTL_SECONDS = 60;
+
+/** Inputs for {@link signGatewayAccessToken}. */
+export interface GatewayAccessClaims {
+  projectId: string;
+  resourceType: string;
+  resourceId: string;
+  /** App end-user whose visibility of the resource is being checked. */
+  userEmail: string;
+  orgId?: string;
+  ttlSeconds?: number;
+}
+
+interface DecodedGatewayAccessClaims {
+  typ: string;
+  projectId: string;
+  resourceType: string;
+  resourceId: string;
+  userEmail: string;
+  orgId?: string;
+  exp: number;
+}
+
+/** Result of {@link verifyGatewayAccessToken}; on success carries the bound query. */
+export type GatewayAccessVerifyResult =
+  | {
+      ok: true;
+      projectId: string;
+      resourceType: string;
+      resourceId: string;
+      userEmail: string;
+      orgId?: string;
+    }
+  | { ok: false; reason: string };
+
+/** Mint a gateway access-check token, signed with the app's per-project `key`. */
+export function signGatewayAccessToken(
+  claims: GatewayAccessClaims,
+  key: string,
+): string {
+  if (!key) throw new Error("signGatewayAccessToken requires a key");
+  const ttl = claims.ttlSeconds ?? DEFAULT_GATEWAY_ACCESS_TTL_SECONDS;
+  const payload: DecodedGatewayAccessClaims = {
+    typ: GATEWAY_ACCESS_TOKEN_TYPE,
+    projectId: claims.projectId,
+    resourceType: claims.resourceType,
+    resourceId: claims.resourceId,
+    userEmail: claims.userEmail,
+    exp: Math.floor(Date.now() / 1000) + ttl,
+  };
+  if (claims.orgId) payload.orgId = claims.orgId;
+  const payloadStr = base64UrlEncode(JSON.stringify(payload));
+  return `${payloadStr}.${hmacB64(payloadStr, key)}`;
+}
+
+/** Verify a gateway access-check token against the app's per-project `key`. */
+export function verifyGatewayAccessToken(
+  token: string,
+  key: string,
+): GatewayAccessVerifyResult {
+  if (!key) return { ok: false, reason: "no_key" };
+  if (typeof token !== "string" || !token.includes(".")) {
+    return { ok: false, reason: "malformed" };
+  }
+  const [payloadStr, sig] = token.split(".", 2);
+  if (!payloadStr || !sig) return { ok: false, reason: "malformed" };
+
+  if (!timingSafeEqualB64(sig, hmacB64(payloadStr, key))) {
+    return { ok: false, reason: "bad_signature" };
+  }
+
+  let claims: DecodedGatewayAccessClaims;
+  try {
+    claims = JSON.parse(base64UrlDecode(payloadStr).toString("utf8"));
+  } catch {
+    return { ok: false, reason: "bad_payload" };
+  }
+
+  if (claims.typ !== GATEWAY_ACCESS_TOKEN_TYPE) {
+    return { ok: false, reason: "wrong_type" };
+  }
+  if (typeof claims.exp !== "number")
+    return { ok: false, reason: "bad_payload" };
+  if (claims.exp * 1000 < Date.now()) return { ok: false, reason: "expired" };
+  if (
+    !claims.projectId ||
+    !claims.resourceType ||
+    !claims.resourceId ||
+    !claims.userEmail
+  ) {
+    return { ok: false, reason: "bad_payload" };
+  }
+
+  return {
+    ok: true,
+    projectId: claims.projectId,
+    resourceType: claims.resourceType,
+    resourceId: claims.resourceId,
+    userEmail: claims.userEmail,
+    orgId: claims.orgId,
+  };
+}

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
+  signGatewayAccessToken,
   signRealtimeSubscribeToken,
   signShortLivedToken,
+  verifyGatewayAccessToken,
   verifyRealtimeSubscribeToken,
   verifyShortLivedToken,
 } from "./short-lived-token.js";
@@ -182,5 +184,82 @@ describe("realtime subscribe token", () => {
         KEY_A,
       ),
     ).not.toThrow();
+  });
+});
+
+describe("gateway access-check token", () => {
+  const KEY_A = "project-a-hmac-secret";
+  const KEY_B = "project-b-hmac-secret";
+  const claims = {
+    projectId: "proj_a",
+    resourceType: "document",
+    resourceId: "doc-1",
+    userEmail: "sharee@example.com",
+    orgId: "org-1",
+  };
+
+  afterEach(() => vi.useRealTimers());
+
+  it("round-trips the bound access query", () => {
+    const token = signGatewayAccessToken(claims, KEY_A);
+    expect(verifyGatewayAccessToken(token, KEY_A)).toEqual({
+      ok: true,
+      projectId: "proj_a",
+      resourceType: "document",
+      resourceId: "doc-1",
+      userEmail: "sharee@example.com",
+      orgId: "org-1",
+    });
+  });
+
+  it("rejects a token signed with a different key", () => {
+    const token = signGatewayAccessToken(claims, KEY_A);
+    expect(verifyGatewayAccessToken(token, KEY_B)).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+
+  it("rejects a tampered resourceId (query is signed, not just the caller)", () => {
+    const token = signGatewayAccessToken(claims, KEY_A);
+    const [payload, sig] = token.split(".", 2);
+    const decoded = JSON.parse(
+      Buffer.from(
+        payload.replace(/-/g, "+").replace(/_/g, "/"),
+        "base64",
+      ).toString("utf8"),
+    );
+    decoded.resourceId = "doc-victim";
+    const forgedPayload = Buffer.from(JSON.stringify(decoded))
+      .toString("base64")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/g, "");
+    expect(verifyGatewayAccessToken(`${forgedPayload}.${sig}`, KEY_A)).toEqual({
+      ok: false,
+      reason: "bad_signature",
+    });
+  });
+
+  it("is not interchangeable with a realtime subscribe token", () => {
+    const subscribe = signRealtimeSubscribeToken(
+      { projectId: "proj_a", owner: "u@example.com" },
+      KEY_A,
+    );
+    expect(verifyGatewayAccessToken(subscribe, KEY_A)).toEqual({
+      ok: false,
+      reason: "wrong_type",
+    });
+  });
+
+  it("rejects an expired token", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000_000_000);
+    const token = signGatewayAccessToken({ ...claims, ttlSeconds: 30 }, KEY_A);
+    vi.setSystemTime(1_000_000_000_000 + 31_000);
+    expect(verifyGatewayAccessToken(token, KEY_A)).toEqual({
+      ok: false,
+      reason: "expired",
+    });
   });
 });

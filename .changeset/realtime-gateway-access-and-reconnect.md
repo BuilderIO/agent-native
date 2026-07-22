@@ -1,0 +1,9 @@
+---
+"@agent-native/core": minor
+---
+
+Realtime sync: two hosted-gateway follow-ups. Both are opt-in and leave apps without hosted-realtime config unchanged.
+
+- Hosted SSE reconnect now sends the client's cursor (`&since=`) on the gateway stream URL, so the gateway's connect-time catch-up replays events written during the reconnect gap immediately instead of deferring them to the next poll. First connect (cursor 0) is unaffected.
+- New gateway access-check tokens (`signGatewayAccessToken`/`verifyGatewayAccessToken`, exported from `./server/short-lived-token`): per-project HMAC key, a `typ` discriminator (not interchangeable with subscribe or media tokens), and the full access query (`resourceType`/`resourceId`/`userEmail`/`orgId`) bound into the signature so the app authenticates the params, not just the caller.
+- New endpoint `GET /_agent-native/can-see` mounted by core-routes. The hosted Realtime Gateway has no copy of an app's shareable-resource registry, so it calls this to resolve sharee visibility: the endpoint verifies a gateway access-check token against the app's per-project secret, runs the app's registry-based `resolveAccess`, and returns `{ allowed }`. Fails closed (`allowed: false`) on an unknown resource type or lookup error; 404 when the app has no realtime secret; `Cache-Control: private, no-store`.

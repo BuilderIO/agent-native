@@ -330,9 +330,11 @@ class SyncTransport {
 
   private get activeSseUrl(): string | false {
     if (this.mode === "hosted" && this.gateway) {
-      return this.token
-        ? `${this.gateway.sseUrl}?token=${encodeURIComponent(this.token)}`
-        : this.gateway.sseUrl;
+      if (!this.token) return this.gateway.sseUrl;
+      const base = `${this.gateway.sseUrl}?token=${encodeURIComponent(this.token)}`;
+      // Cursor lets the gateway replay the reconnect gap on connect instead of
+      // deferring it to the next poll; 0 on first connect means nothing to replay.
+      return this.versionRef > 0 ? `${base}&since=${this.versionRef}` : base;
     }
     return this.sseUrl;
   }
