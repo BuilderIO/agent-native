@@ -1926,16 +1926,6 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       if (pos.indexOf("e") !== -1) handle.style.right = "-34px";
       selectionOverlay.appendChild(handle);
     });
-    var button = document.createElement("span");
-    button.setAttribute("data-agent-native-rotate-handle", "top-center");
-    button.style.cssText =
-      "position:absolute;left:50%;transform:translateX(-50%);top:-22px;" +
-      "width:16px;height:16px;pointer-events:auto;" +
-      "display:flex;align-items:center;justify-content:center;" +
-      "border-radius:999px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.3);" +
-      "cursor:grab;user-select:none;font-size:10px;line-height:1;color:#333;";
-    button.textContent = "↻";
-    selectionOverlay.appendChild(button);
   })();
   var spacingOverlay = document.createElement("div");
   spacingOverlay.setAttribute("data-agent-native-spacing-overlay", "");
@@ -2526,12 +2516,14 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     scalePassiveSelectionOverlay(overlay);
   }
 
-  function makePassiveSelectionOverlay(): HTMLElement {
+  function makePassiveSelectionOverlay(style: "default" | "soft"): HTMLElement {
     var overlay = document.createElement("div");
     overlay.setAttribute("data-agent-native-edit-overlay", "multi-selection");
     overlay.style.cssText =
-      "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
-    appendPassiveSelectionHandles(overlay);
+      style === "soft"
+        ? "position:fixed;pointer-events:none;z-index:99996;border:1px solid color-mix(in srgb,var(--design-editor-accent-color) 64%,transparent);background:color-mix(in srgb,var(--design-editor-accent-color) 5%,transparent);display:none;box-sizing:border-box;"
+        : "position:fixed;pointer-events:none;z-index:99996;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;";
+    if (style !== "soft") appendPassiveSelectionHandles(overlay);
     document.body.appendChild(overlay);
     return overlay;
   }
@@ -2557,7 +2549,10 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       });
   }
 
-  function setPassiveSelectionElements(elements: Element[]): void {
+  function setPassiveSelectionElements(
+    elements: Element[],
+    style: "default" | "soft" = "default",
+  ): void {
     passiveSelectionEls = elements.filter(function (el, index, all) {
       return (
         el &&
@@ -2568,7 +2563,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     });
     removePassiveSelectionOverlays();
     passiveSelectionEls.forEach(function (el) {
-      var overlay = makePassiveSelectionOverlay();
+      var overlay = makePassiveSelectionOverlay(style);
       passiveSelectionOverlays.push(overlay);
       positionOverlay(overlay, el);
     });
@@ -11504,7 +11499,10 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
           } catch (_err) {}
         }
       });
-      setPassiveSelectionElements(passiveTargets);
+      setPassiveSelectionElements(
+        passiveTargets,
+        e.data.passiveSelectionStyle === "soft" ? "soft" : "default",
+      );
       return;
     }
     if (e.data.type === "select-element") {

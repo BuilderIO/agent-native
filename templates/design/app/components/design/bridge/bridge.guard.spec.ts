@@ -4542,7 +4542,7 @@ it(
           '[data-agent-native-rotate-handle="top-center"]',
         )!;
         return {
-          buttonSize: parseFloat(button.style.width),
+          hasVisibleRotateButton: Boolean(button),
           left: parseFloat(overlay.style.left),
           top: parseFloat(overlay.style.top),
           width: parseFloat(overlay.style.width),
@@ -4550,7 +4550,7 @@ it(
         };
       });
       expect(rotationChrome).toEqual({
-        buttonSize: 16,
+        hasVisibleRotateButton: false,
         left: 200,
         top: 200,
         width: 100,

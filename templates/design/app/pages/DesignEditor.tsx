@@ -243,6 +243,10 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { dndHostLog } from "@/components/design/dnd-debug";
+import {
+  mergeRotationValue,
+  parseRotationValue,
+} from "@/components/design/edit-panel/transform-helpers";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
   EditPanel,
@@ -309,7 +313,6 @@ import {
   type ReviewCommentsPanelProps,
 } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
-import { ReviewStatusControl } from "@/components/design/ReviewStatusControl";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
   CanvasLayerHitCandidate,
@@ -3713,7 +3716,6 @@ function DesignEditor() {
     persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
   const reviewAgentQueueCount =
     persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
-  const reviewStatus = reviewResult.data?.reviewStatus?.status ?? "draft";
   const sendReviewThreadToAgent = useSendReviewThreadToAgent();
   const [reviewSendingThreadId, setReviewSendingThreadId] = useState<
     string | null
@@ -19153,6 +19155,15 @@ function DesignEditor() {
     selectedElement,
   ]);
 
+  const handleRotateSelectionClockwise = useCallback(() => {
+    if (!canEditDesign || !selectedElement) return;
+    const transform = selectedElement.computedStyles.transform;
+    handleStyleChange(
+      "transform",
+      mergeRotationValue(transform, parseRotationValue(transform) + 90),
+    );
+  }, [canEditDesign, handleStyleChange, selectedElement]);
+
   // Figma's Shift+X — swap fill and stroke. Matches Figma even when one side
   // is empty: an element with a fill and no stroke ends up with a stroke and
   // no fill (not a no-op). Both properties are committed together via
@@ -27264,6 +27275,11 @@ function DesignEditor() {
           selectedSelectorGroups={
             selectedLayerSelectorGroupsByScreen[screen.id] ?? []
           }
+          passiveSelectionStyle={
+            screen.breakpointWidths?.length && !screenIsActive
+              ? "soft"
+              : "default"
+          }
           hoveredSelector={
             hoveredElementScreenId === screen.id ? hoveredCanvasSelector : null
           }
@@ -27934,7 +27950,7 @@ function DesignEditor() {
         }
       >
         <SelectTrigger
-          className="h-7 w-[190px] shrink-0 !text-[11px]"
+          className="h-7 w-[190px] max-w-full shrink-0 !text-[11px]"
           aria-label={t("designEditor.breakpointBar.scope.label")}
         >
           <SelectValue />
@@ -28668,7 +28684,7 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 items-center gap-1.5">
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
         {deviceFrameControl}
         {responsiveEditScopeControl}
       </div>
@@ -28747,13 +28763,6 @@ function DesignEditor() {
               >
                 <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
                   {projectTitleControl}
-                  {id ? (
-                    <ReviewStatusControl
-                      designId={id}
-                      status={reviewStatus}
-                      editable={designAccessRole === "owner"}
-                    />
-                  ) : null}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -29117,6 +29126,7 @@ function DesignEditor() {
               (selectedElement ||
                 (viewMode === "overview" && selectedScreenIds.length === 1)),
             )}
+            canRotateClockwise={canEditDesign && Boolean(selectedElement)}
             canGroup={canGroup}
             canUngroup={canUngroup}
             canPasteToReplace={
@@ -29232,6 +29242,7 @@ function DesignEditor() {
             onCopyAsCode={handleCopySelection}
             onCopyAsPng={() => void handleCopyAsPng()}
             onCopyAsSvg={() => void handleCopyAsFigmaSvg()}
+            onRotateClockwise={handleRotateSelectionClockwise}
             onPasteToReplace={canEditDesign ? handlePasteToReplace : undefined}
             onFrameSelection={canEditDesign ? handleFrameSelection : undefined}
             onCreateComponent={

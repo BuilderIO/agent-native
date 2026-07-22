@@ -26,6 +26,19 @@ const PAGE_CHAT_TEMPLATES = [
   "crm",
 ] as const;
 
+const REQUIRE_ACTIVE_HANDOFF: Record<
+  (typeof PAGE_CHAT_TEMPLATES)[number],
+  boolean
+> = {
+  chat: false,
+  assets: false,
+  analytics: false,
+  brain: false,
+  forms: true,
+  plan: false,
+  crm: false,
+};
+
 function readTemplateFile(template: string, relativePath: string): string {
   return fs.readFileSync(
     path.join(ROOT, "templates", template, relativePath),
@@ -47,7 +60,9 @@ describe("page-chat handoff defaults", () => {
       expect(layout).toContain("useAgentChatHomeHandoff");
       expect(layout).toContain("useAgentChatHomeHandoffLinks");
       expect(layout).toContain("chatViewTransition");
-      expect(layout).toContain("requireActiveHandoff: false");
+      expect(layout).toContain(
+        `requireActiveHandoff: ${REQUIRE_ACTIVE_HANDOFF[template]}`,
+      );
     },
   );
 

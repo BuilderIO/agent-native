@@ -2,6 +2,8 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCalendarEvent,
+  IconChevronDown,
+  IconChevronRight,
   IconCircleCheck,
   IconCopy,
   IconDownload,
@@ -345,6 +347,8 @@ const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
+const REWIND_DOCS_URL =
+  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
@@ -936,6 +940,7 @@ export function App() {
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
+  const [rewindHomeOpen, setRewindHomeOpen] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -969,6 +974,9 @@ export function App() {
     config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
     clipRecordingActive: isRecording || recordingFlowActive,
   });
+  const homeRewindOn =
+    featureConfig?.screenMemory?.enabled === true &&
+    featureConfig.screenMemory.paused !== true;
   const refreshHomeScreenMemoryStatus = useCallback(() => {
     const version = ++homeScreenMemoryRefreshVersionRef.current;
     invoke<ScreenMemoryStatus>("screen_memory_status")
@@ -2548,6 +2556,12 @@ export function App() {
     const href = `${serverUrl.replace(/\/+$/, "")}${path}`;
     openExternal(href).catch((err) => {
       console.error("[clips-tray] open failed:", err);
+    });
+  }
+
+  function openRewindDocs() {
+    openExternal(REWIND_DOCS_URL).catch((err) => {
+      console.error("[clips-tray] open Rewind docs failed:", err);
     });
   }
 

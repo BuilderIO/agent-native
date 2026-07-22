@@ -487,6 +487,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 });
   const [frameGeometry, setFrameGeometry] = useState<FrameGeometryById>({});
   const frameGeometryRef = useRef(frameGeometry);
+  const liveFrameDragPositionsRef = useRef(
+    new Map<string, { left: number; top: number }>(),
+  );
+  const liveFrameDragSelectionPositionRef = useRef<{
+    left: number;
+    top: number;
+  } | null>(null);
   const onGeometryChangeRef = useRef(onGeometryChange);
   const onGeometryCommitRef = useRef(onGeometryCommit);
   const screensRef = useRef(screens);
@@ -1161,6 +1168,29 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   useEffect(() => {
     frameGeometryRef.current = frameGeometry;
   }, [frameGeometry]);
+
+  // Frame drags update the shell and selection box imperatively between React
+  // commits. Reapply the live box position after any feedback-driven commit
+  // so alignment guides or transform badges cannot paint stale geometry over
+  // the moving outline.
+  useLayoutEffect(() => {
+    for (const [id, position] of liveFrameDragPositionsRef.current) {
+      const frame = surfaceRef.current?.querySelector<HTMLElement>(
+        `[data-frame-id="${CSS.escape(id)}"]`,
+      );
+      if (!frame) continue;
+      frame.style.left = `${position.left}px`;
+      frame.style.top = `${position.top}px`;
+    }
+    const position = liveFrameDragSelectionPositionRef.current;
+    if (!position) return;
+    const selectionBox = surfaceRef.current?.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    if (!selectionBox) return;
+    selectionBox.style.left = `${position.left}px`;
+    selectionBox.style.top = `${position.top}px`;
+  });
 
   const onSelectionChangeRef = useRef(onSelectionChange);
   useEffect(() => {
@@ -2939,6 +2969,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       feedbackTimerRef.current = null;
     }
     dragState.current = null;
+    liveFrameDragPositionsRef.current.clear();
+    liveFrameDragSelectionPositionRef.current = null;
     setIsDragging(false);
     setIsPanning(false);
     setMarquee(null);
@@ -4931,15 +4963,23 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const frameLabelHeight =
         FRAME_LABEL_HEIGHT * chromeScaleFromZoom(zoomRef.current);
       const draggedFrameEls = new Map<string, HTMLElement>();
+      const draggedFrameOriginPositions = new Map<
+        string,
+        { left: number; top: number }
+      >();
       targetIds.forEach((targetId) => {
         const el = surfaceRef.current?.querySelector<HTMLElement>(
           `[data-frame-id="${CSS.escape(targetId)}"]`,
         );
-        if (el) draggedFrameEls.set(targetId, el);
+        if (!el) return;
+        draggedFrameEls.set(targetId, el);
       });
-      const selectionBoxEl = surfaceRef.current?.querySelector<HTMLElement>(
-        "[data-frame-selection-box]",
-      );
+      // Selecting an unselected screen mounts the SelectionBox after this
+      // callback returns. Resolve it on the first live move instead of
+      // caching null at drag start, then keep the lookup out of later ticks.
+      let selectionBoxEl: HTMLElement | null = null;
+      let selectionBoxOriginPosition: { left: number; top: number } | null =
+        null;
 
       const handleMouseMove = (ev: MouseEvent) => {
         const state = dragState.current;
@@ -5023,42 +5063,60 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             const geometry = settledGeometryById[targetId];
             const el = draggedFrameEls.get(targetId);
             if (!geometry || !el) return;
-            const { left, top } = frameStyleLeftTop(geometry, frameLabelHeight);
-            el.style.left = `${left}px`;
-            el.style.top = `${top}px`;
+            let originPosition = draggedFrameOriginPositions.get(targetId);
+            if (!originPosition) {
+              const fallback = frameStyleLeftTop(
+                state.originFrames[targetId],
+                frameLabelHeight,
+              );
+              const renderedLeft = Number.parseFloat(el.style.left);
+              const renderedTop = Number.parseFloat(el.style.top);
+              originPosition = {
+                left: Number.isFinite(renderedLeft)
+                  ? renderedLeft
+                  : fallback.left,
+                top: Number.isFinite(renderedTop) ? renderedTop : fallback.top,
+              };
+              draggedFrameOriginPositions.set(targetId, originPosition);
+            }
+            if (!originPosition) return;
+            const moveX = dx + snap.dx;
+            const moveY = dy + snap.dy;
+            const nextPosition = {
+              left: originPosition.left + moveX,
+              top: originPosition.top + moveY,
+            };
+            liveFrameDragPositionsRef.current.set(targetId, nextPosition);
+            el.style.left = `${nextPosition.left}px`;
+            el.style.top = `${nextPosition.top}px`;
           });
           // Keep the selection outline + resize/rotate handles glued to the
           // dragged frame — SelectionBox's own `geometry` prop only updates
           // on the next real React render, which this tick intentionally
           // skips (see above), so without this it would visually detach and
           // trail behind during the drag.
+          if (!selectionBoxEl) {
+            selectionBoxEl =
+              surfaceRef.current?.querySelector<HTMLElement>(
+                "[data-frame-selection-box]",
+              ) ?? null;
+          }
           if (selectionBoxEl) {
-            const targetGeometries = state.targetIds.map(
-              (targetId) => settledGeometryById[targetId],
-            );
-            const bounds =
-              targetGeometries.length === 1
-                ? targetGeometries[0]
-                : (() => {
-                    const groupBounds = getFrameGroupBounds(
-                      targetGeometries.map((geometry) => ({
-                        id: "",
-                        geometry,
-                      })),
-                    );
-                    return groupBounds
-                      ? {
-                          x: groupBounds.left,
-                          y: groupBounds.top,
-                          width: groupBounds.width,
-                          height: groupBounds.height,
-                        }
-                      : null;
-                  })();
-            if (bounds) {
-              const { left, top } = frameStyleLeftTop(bounds);
-              selectionBoxEl.style.left = `${left}px`;
-              selectionBoxEl.style.top = `${top}px`;
+            if (!selectionBoxOriginPosition) {
+              const left = Number.parseFloat(selectionBoxEl.style.left);
+              const top = Number.parseFloat(selectionBoxEl.style.top);
+              if (Number.isFinite(left) && Number.isFinite(top)) {
+                selectionBoxOriginPosition = { left, top };
+              }
+            }
+            if (selectionBoxOriginPosition) {
+              const nextPosition = {
+                left: selectionBoxOriginPosition.left + dx + snap.dx,
+                top: selectionBoxOriginPosition.top + dy + snap.dy,
+              };
+              liveFrameDragSelectionPositionRef.current = nextPosition;
+              selectionBoxEl.style.left = `${nextPosition.left}px`;
+              selectionBoxEl.style.top = `${nextPosition.top}px`;
             }
           }
         }
@@ -9583,6 +9641,7 @@ function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
 
 /** Gap between adjacent breakpoint frames in canvas pixels. */
 const BREAKPOINT_FRAME_GAP = 24;
+const BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH = 128;
 
 /**
  * Pure geometry helper for one breakpoint sub-frame (BP-DEEP item 3a): the
@@ -9733,6 +9792,8 @@ function BreakpointPreviewRow({
         });
         const currentOffsetX = offsetX;
         offsetX += frameWidth + BREAKPOINT_FRAME_GAP;
+        const showBreakpointWidth =
+          frameWidth >= BREAKPOINT_LABEL_WITH_WIDTH_MIN_FRAME_WIDTH;
         // BP-DEEP item 5 — clicking a frame in the group always SELECTS it
         // (never toggles it off): the Framer click-to-target model returns to
         // Base by clicking the base frame / empty canvas / Escape, not by
@@ -9839,9 +9900,14 @@ function BreakpointPreviewRow({
                 >
                   {breakpointLabel(widthPx)}
                 </span>
-                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
-                  {widthPx}px
-                </span>
+                {showBreakpointWidth ? (
+                  <span
+                    data-breakpoint-width
+                    className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50"
+                  >
+                    {widthPx}px
+                  </span>
+                ) : null}
               </div>
               {/* Item 8b — "…" menu (Change width / Remove), reusing the
                   exact affordance BreakpointDeviceControl already offers per

@@ -363,6 +363,15 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("handleResponsiveEditScopeChange");
   });
 
+  it("wraps the responsive scope control inside narrow inspector widths", () => {
+    expect(source).toContain(
+      'className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5"',
+    );
+    expect(source).toContain(
+      'className="h-7 w-[190px] max-w-full shrink-0 !text-[11px]"',
+    );
+  });
+
   it("confirms that deleting a base screen includes all responsive variants", () => {
     expect(source).toContain("designEditor.screenDeletion.descriptionOne");
     expect(source).toContain("designEditor.screenDeletion.descriptionMany");

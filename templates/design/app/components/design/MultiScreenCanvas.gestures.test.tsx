@@ -120,7 +120,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return draft!;
   }
 
-  async function renderSelectedFrame(width = 320) {
+  async function renderSelectedFrame(width = 320, selected = true) {
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -134,7 +134,7 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
           zoom={100}
           activeTool="move"
           activeId="screen-a"
-          selectedScreenIds={["screen-a"]}
+          selectedScreenIds={selected ? ["screen-a"] : []}
           geometryById={{
             "screen-a": { x: 0, y: 0, width, height: 640 },
           }}
@@ -150,6 +150,45 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(label).not.toBeNull();
     return { frame: frame!, label: label! };
   }
+
+  it("keeps the selection box moving when the drag also selects the frame", async () => {
+    const { frame, label } = await renderSelectedFrame(320, false);
+    expect(container.querySelector("[data-frame-selection-box]")).toBeNull();
+
+    await act(async () => {
+      dispatchMouse(label, "mousedown", 320, 100);
+    });
+
+    const selectionBox = container.querySelector<HTMLElement>(
+      "[data-frame-selection-box]",
+    );
+    expect(selectionBox).not.toBeNull();
+    const before = {
+      frameLeft: Number.parseFloat(frame.style.left),
+      frameTop: Number.parseFloat(frame.style.top),
+      boxLeft: Number.parseFloat(selectionBox!.style.left),
+      boxTop: Number.parseFloat(selectionBox!.style.top),
+    };
+
+    await act(async () => {
+      dispatchMouse(window, "mousemove", 355, 125);
+      await nextAnimationFrame();
+    });
+
+    const frameDelta = {
+      x: Number.parseFloat(frame.style.left) - before.frameLeft,
+      y: Number.parseFloat(frame.style.top) - before.frameTop,
+    };
+    const boxDelta = {
+      x: Number.parseFloat(selectionBox!.style.left) - before.boxLeft,
+      y: Number.parseFloat(selectionBox!.style.top) - before.boxTop,
+    };
+    expect(frameDelta).toEqual(boxDelta);
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 355, 125);
+    });
+  });
 
   it("keeps pending review discoverable in constant-size frame chrome", async () => {
     const onReviewPendingScreen = vi.fn();
@@ -203,6 +242,44 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     expect(fullView!.getAttribute("aria-label")).toBe(
       "designEditor.modes.interact",
     );
+  });
+
+  it("hides narrow breakpoint width suffixes without truncating the device label", async () => {
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-a",
+              filename: "screen-a.html",
+              content: "<!doctype html><html><body></body></html>",
+              breakpointWidths: [390, 768],
+            },
+          ]}
+          zoom={100}
+          activeTool="move"
+          metadataById={{ "screen-a": { width: 1280, height: 640 } }}
+          geometryById={{
+            "screen-a": { x: 0, y: 0, width: 320, height: 160 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const breakpointFrames = container.querySelectorAll<HTMLElement>(
+      "[data-breakpoint-frame]",
+    );
+    expect(breakpointFrames).toHaveLength(2);
+    expect(
+      breakpointFrames[0]?.querySelector("[data-breakpoint-width]"),
+    ).toBeNull();
+    expect(
+      breakpointFrames[1]?.querySelector("[data-breakpoint-width]"),
+    ).not.toBeNull();
+    expect(
+      breakpointFrames[0]?.querySelector("[data-frame-title]")?.textContent,
+    ).toBe("Mobile");
   });
 
   it("does not visually nudge a draft for pointer jitter below the drag threshold", async () => {
