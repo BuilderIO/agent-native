@@ -38,7 +38,7 @@ describe("design system themes", () => {
     });
 
     expect(css).toContain(":root:root {");
-    expect(css).toContain(".dark.dark {");
+    expect(css).toContain(":root.dark {");
     expect(css).toContain("--primary:");
     expect(css.match(/--radius: 0.75rem/g)).toHaveLength(2);
   });

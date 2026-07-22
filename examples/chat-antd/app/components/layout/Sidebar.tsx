@@ -12,6 +12,7 @@ import {
   ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
+import { Tooltip } from "@agent-native/toolkit/design-system";
 import {
   IconHierarchy2,
   IconLayoutSidebarLeftCollapse,
@@ -23,11 +24,6 @@ import { useEffect, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { APP_TITLE } from "@/lib/app-config";
 import { cn } from "@/lib/utils";
 
@@ -290,8 +286,14 @@ export function Sidebar({
           : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <Tooltip
+      placement="right"
+      content={
+        collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")
+      }
+      trigger={
         <button
           type="button"
           onClick={() => onCollapsedChange?.(!collapsed)}
@@ -307,13 +309,8 @@ export function Sidebar({
         >
           <ToggleIcon className="size-4" />
         </button>
-      </TooltipTrigger>
-      <TooltipContent side="right">
-        {collapsed
-          ? t("navigation.expandSidebar")
-          : t("navigation.collapseSidebar")}
-      </TooltipContent>
-    </Tooltip>
+      }
+    />
   ) : null;
 
   return (
@@ -400,12 +397,11 @@ export function Sidebar({
             return (
               <div key={item.href}>
                 {collapsed ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>{link}</TooltipTrigger>
-                    <TooltipContent side="right">
-                      {t(item.labelKey)}
-                    </TooltipContent>
-                  </Tooltip>
+                  <Tooltip
+                    placement="right"
+                    trigger={link}
+                    content={t(item.labelKey)}
+                  />
                 ) : (
                   link
                 )}

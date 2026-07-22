@@ -55,7 +55,7 @@ const antdDarkTokens = antdTheme.getDesignToken({
 });
 
 const antdPalette = (tokens: typeof antdLightTokens) => ({
-  background: tokens.colorBgBase,
+  background: tokens.colorBgContainer,
   foreground: tokens.colorText,
   card: tokens.colorBgContainer,
   "card-foreground": tokens.colorText,
