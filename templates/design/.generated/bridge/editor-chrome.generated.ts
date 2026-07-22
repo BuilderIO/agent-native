@@ -1376,6 +1376,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     spacingOverlay.style.cssText = "position:absolute;inset:0;display:none;pointer-events:none;";
     selectionOverlay.appendChild(spacingOverlay);
     document.body.appendChild(selectionOverlay);
+    if (readOnly) setSelectionOverlayResizeChromeVisible(false);
     var gradientOverlay = document.createElement("div");
     gradientOverlay.setAttribute("data-agent-native-edit-overlay", "gradient");
     gradientOverlay.style.cssText = "position:fixed;z-index:99998;pointer-events:none;display:none;box-sizing:border-box;";
@@ -4191,6 +4192,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function startSpacingDrag(key, e) {
+      if (readOnly) return;
       if (spacingDrag) {
         stopNativeInteraction(e);
         return;
@@ -5593,6 +5595,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       snapGuideH.style.display = "none";
     }
     function startMove(e, gestureElParam, pointerStartParam) {
+      if (readOnly) return;
       var gestureEl = gestureElParam || selectedEl;
       if (!gestureEl) return;
       if (isLayerInteractionBlocked(gestureEl)) return;
@@ -6431,6 +6434,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       setActiveDragCancel(cancelMoveDrag);
     }
     function startResize(handle, e) {
+      if (readOnly) return;
       if (!selectedEl) return;
       if (isLayerInteractionBlocked(selectedEl)) return;
       e.preventDefault();
@@ -6631,6 +6635,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       setActiveDragCancel(cancelResizeDrag);
     }
     function startRotate(e) {
+      if (readOnly) return;
       if (!selectedEl) return;
       if (isLayerInteractionBlocked(selectedEl)) return;
       e.preventDefault();
@@ -6743,7 +6748,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         } catch (_err) {
         }
       }
-      if (!e.altKey) {
+      if (!readOnly && !e.altKey) {
         postCrossScreenDrag("start", dragTarget, e);
       }
       var startX = e.clientX;
@@ -6764,6 +6769,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         postElementSelect(selectedEl, ev);
       }
       function onMove(ev) {
+        if (readOnly) return;
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
         clearPendingShieldDrag();
         didStartDrag = true;
@@ -6783,7 +6789,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       function onUp(ev) {
         clearPendingShieldDrag();
         if (didStartDrag) return;
-        if (!e.altKey) {
+        if (!readOnly && !e.altKey) {
           postCrossScreenDrag("cancel");
         }
         if (ev) stopNativeInteraction(ev);
@@ -6804,6 +6810,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     selectionOverlay.addEventListener(
       "mousedown",
       function(e) {
+        if (readOnly) return;
         var spacingKey = e.target && e.target.getAttribute && e.target.getAttribute("data-spacing-key");
         if (spacingKey) {
           startSpacingDrag(spacingKey, e);
@@ -7581,9 +7588,12 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (activeTextEditEl) {
             activeTextEditEl.blur();
           }
-          clearRuntimeSelection();
-          shieldOverlay.style.pointerEvents = "none";
+          clearPendingShieldDrag();
+          cancelActiveBridgeDrag();
+          setSelectionOverlayResizeChromeVisible(false);
+          shieldOverlay.style.pointerEvents = "auto";
         } else {
+          setSelectionOverlayResizeChromeVisible(true);
           shieldOverlay.style.pointerEvents = "auto";
         }
         return;

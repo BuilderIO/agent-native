@@ -74,6 +74,19 @@ function hydratedEditorChromeBridgeScript(
     );
 }
 
+function hydratedReadOnlyEditorChromeBridgeScript(): string {
+  return editorChromeBridgeScript
+    .replace("__READ_ONLY__", "true")
+    .replace("__TEXT_EDITING_ENABLED__", "false")
+    .replace("__EDITOR_CHROME_SCALE_X__", "1")
+    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("read-only"))
+    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
+}
+
 // Same hydration but with the Figma-parity live-reflow drag enabled, for the
 // Phase 1 lift/follow behavioral tests below. The default helper leaves
 // __LIVE_REFLOW_ENABLED__ unreplaced, which the bridge's `typeof` guard reads
@@ -1760,7 +1773,7 @@ it(
 );
 
 it(
-  "editor chrome bridge renders the hover outline thinner than the selection outline",
+  "editor chrome bridge renders hover and selection outlines with the same weight",
   { timeout: 30_000 },
   async () => {
     const browser = await chromium.launch({ headless: true });
@@ -1826,7 +1839,70 @@ it(
         };
       });
 
-      expect(widths.highlight).toBeLessThan(widths.selection);
+      expect(widths.highlight).toBe(widths.selection);
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge keeps viewer selection inspectable without transform handles",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #target { position: absolute; left: 120px; top: 140px; width: 160px; height: 80px; background: #e9eef8; }
+    </style>
+  </head>
+  <body>
+    <div id="target" data-agent-native-node-id="target">Target</div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedReadOnlyEditorChromeBridgeScript(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(180, 180);
+      await page.waitForFunction(() => {
+        const selection = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return selection?.style.display === "block";
+      });
+
+      const chrome = await page.evaluate(() => ({
+        handles: Array.from(
+          document.querySelectorAll<HTMLElement>(
+            "[data-agent-native-edge-handle], [data-agent-native-edit-handle], [data-agent-native-rotate-handle]",
+          ),
+        ).map((node) => node.style.display),
+        left: document.getElementById("target")!.getBoundingClientRect().left,
+      }));
+      expect(chrome.handles.every((display) => display === "none")).toBe(true);
+
+      await page.mouse.move(180, 180);
+      await page.mouse.down();
+      await page.mouse.move(260, 240);
+      await page.mouse.up();
+      const leftAfterDrag = await page
+        .locator("#target")
+        .evaluate((element) => element.getBoundingClientRect().left);
+      expect(leftAfterDrag).toBe(chrome.left);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

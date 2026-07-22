@@ -1933,6 +1933,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     "position:absolute;inset:0;display:none;pointer-events:none;";
   selectionOverlay.appendChild(spacingOverlay);
   document.body.appendChild(selectionOverlay);
+  if (readOnly) setSelectionOverlayResizeChromeVisible(false);
 
   // ── Gradient edit overlay (in-iframe parity for MultiScreenCanvas's
   // GradientEditOverlay) ──────────────────────────────────────────────────
@@ -6073,6 +6074,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   function startSpacingDrag(key, e) {
+    if (readOnly) return;
     if (spacingDrag) {
       stopNativeInteraction(e);
       return;
@@ -8401,6 +8403,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     gestureElParam?: Element,
     pointerStartParam?: { clientX: number; clientY: number },
   ) {
+    if (readOnly) return;
     var gestureEl = gestureElParam || selectedEl;
     if (!gestureEl) return;
     if (isLayerInteractionBlocked(gestureEl)) return;
@@ -9573,6 +9576,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   function startResize(handle, e) {
+    if (readOnly) return;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
@@ -9861,6 +9865,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   }
 
   function startRotate(e) {
+    if (readOnly) return;
     if (!selectedEl) return;
     if (isLayerInteractionBlocked(selectedEl)) return;
     e.preventDefault();
@@ -10007,7 +10012,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         shieldOverlay.setPointerCapture(e.pointerId);
       } catch (_err) {}
     }
-    if (!e.altKey) {
+    if (!readOnly && !e.altKey) {
       postCrossScreenDrag("start", dragTarget, e);
     }
     var startX = e.clientX;
@@ -10033,6 +10038,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       postElementSelect(selectedEl, ev);
     }
     function onMove(ev) {
+      if (readOnly) return;
       if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 3) return;
       clearPendingShieldDrag();
       didStartDrag = true;
@@ -10063,7 +10069,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
     function onUp(ev) {
       clearPendingShieldDrag();
       if (didStartDrag) return;
-      if (!e.altKey) {
+      if (!readOnly && !e.altKey) {
         postCrossScreenDrag("cancel");
       }
       if (ev) stopNativeInteraction(ev);
@@ -10085,6 +10091,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
   selectionOverlay.addEventListener(
     "mousedown",
     function (e) {
+      if (readOnly) return;
       var spacingKey =
         e.target &&
         e.target.getAttribute &&
@@ -11191,9 +11198,13 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         if (activeTextEditEl) {
           activeTextEditEl.blur();
         }
-        clearRuntimeSelection();
-        shieldOverlay.style.pointerEvents = "none";
+        clearPendingShieldDrag();
+        cancelActiveBridgeDrag();
+        setSelectionOverlayResizeChromeVisible(false);
+        // Keep the shield active so the viewer can select and inspect layers.
+        shieldOverlay.style.pointerEvents = "auto";
       } else {
+        setSelectionOverlayResizeChromeVisible(true);
         shieldOverlay.style.pointerEvents = "auto";
       }
       return;

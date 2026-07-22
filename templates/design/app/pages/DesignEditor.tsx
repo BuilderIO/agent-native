@@ -137,6 +137,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import {
   IconArrowLeft,
   IconArrowUpRight,
+  IconArrowsDown,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -6403,11 +6404,13 @@ function DesignEditor() {
       const inspectorTab =
         command.inspectorTab === "design" ||
         command.inspectorTab === "comments" ||
-        command.inspectorTab === "tweaks"
+        command.inspectorTab === "tweaks" ||
+        command.inspectorTab === "code"
           ? command.inspectorTab
           : command.inspector === "design" ||
               command.inspector === "comments" ||
-              command.inspector === "tweaks"
+              command.inspector === "tweaks" ||
+              command.inspector === "code"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
@@ -27949,12 +27952,27 @@ function DesignEditor() {
           handleResponsiveEditScopeChange(value as ResponsiveEditScope)
         }
       >
-        <SelectTrigger
-          className="h-7 w-[190px] max-w-full shrink-0 !text-[11px]"
-          aria-label={t("designEditor.breakpointBar.scope.label")}
-        >
-          <SelectValue />
-        </SelectTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SelectTrigger
+              className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"
+              aria-label={t("designEditor.breakpointBar.scope.label")}
+              title={
+                responsiveEditScope === "only"
+                  ? t("designEditor.breakpointBar.scope.only")
+                  : t("designEditor.breakpointBar.scope.cascadeSmaller")
+              }
+            >
+              <IconArrowsDown className="size-3.5" aria-hidden="true" />
+              <SelectValue className="sr-only" />
+            </SelectTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {responsiveEditScope === "only"
+              ? t("designEditor.breakpointBar.scope.only")
+              : t("designEditor.breakpointBar.scope.cascadeSmaller")}
+          </TooltipContent>
+        </Tooltip>
         <SelectContent>
           <SelectItem value="cascade-smaller">
             {t("designEditor.breakpointBar.scope.cascadeSmaller")}
@@ -28684,7 +28702,7 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto">
         {deviceFrameControl}
         {responsiveEditScopeControl}
       </div>
@@ -29405,6 +29423,7 @@ function DesignEditor() {
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
+                        readOnly={!canEditDesign}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
                           !hoveredElementIsScreenRoot &&
@@ -29952,6 +29971,7 @@ function DesignEditor() {
               <div className="min-h-0 flex-1">
                 <EditPanel
                   selectedElement={selectedElement}
+                  readOnly={!canEditDesign}
                   selectedElements={selectedInspectorElements}
                   selectedScreenGeometry={selectedScreenGeometry}
                   pageStyles={pageStyles}
@@ -30043,6 +30063,7 @@ function DesignEditor() {
             <div className="h-full min-h-0 pt-8">
               <EditPanel
                 selectedElement={selectedElement}
+                readOnly={!canEditDesign}
                 selectedElements={selectedInspectorElements}
                 selectedScreenGeometry={selectedScreenGeometry}
                 pageStyles={pageStyles}
