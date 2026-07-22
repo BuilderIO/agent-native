@@ -1119,12 +1119,7 @@ function LLMSectionInner({
             label="Connect Builder.io"
           />
           {!builderConnected && (
-            <ManualSetupCard
-              hint={manualSetupHint}
-              docsUrl={PROVIDER_DOCS[selectedEngine]}
-              sourceBadge={sourceBadge}
-              docsLabel="Get an API key"
-            >
+            <ManualSetupCard hint={manualSetupHint} sourceBadge={sourceBadge}>
               <div className="space-y-2 mb-1">
                 <SettingsSelect
                   label="Provider"
@@ -1330,6 +1325,18 @@ function LLMSectionInner({
                       "Test"
                     )}
                   </Button>
+                  <a
+                    href={PROVIDER_DOCS[selectedEngine]}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={cn(
+                      pillButtonClass(isPage, "outline"),
+                      "no-underline",
+                    )}
+                  >
+                    Get an API key
+                    <IconExternalLink size={isPage ? 14 : 10} />
+                  </a>
                   {engineChanged && (
                     <Button
                       intent="primary"
