@@ -347,6 +347,14 @@ export function verifyBuilderRelayRequest(input: {
   payload: BuilderPreviewRelayState;
   body: BuilderRelayRequestBody;
 } | null {
+  console.log(`shomix - verifyBuilderRelayRequest:`);
+  console.log(`shomix - body - ${body}`);
+  console.log(`shomix - timestamp - ${timestamp}`);
+  console.log(`shomix - flowId - ${flowId}`);
+  console.log(`shomix - signature - ${signature}`);
+  console.log(`shomix - requestOrigin - ${requestOrigin}`);
+  console.log(`shomix - requestBasePath - ${requestBasePath}`);
+  console.log(`shomix - now - ${now}`);
   const timestamp = Number(input.timestamp);
   const now = input.now ?? Date.now();
   if (
@@ -359,12 +367,14 @@ export function verifyBuilderRelayRequest(input: {
       input.signature,
     )
   ) {
+    console.log(`shomix - first check has failed`);
     return null;
   }
   let body: BuilderRelayRequestBody;
   try {
     body = JSON.parse(input.body) as BuilderRelayRequestBody;
   } catch {
+    console.log(`shomix - failed to parse body - ${input.body}`);
     return null;
   }
   const payload = verifyBuilderPreviewRelayState(body.relayState, { now });
@@ -379,6 +389,7 @@ export function verifyBuilderRelayRequest(input: {
     !body.credentials.privateKey ||
     !body.credentials.publicKey
   ) {
+    console.log(`shomix - bad payload`);
     return null;
   }
   const nullableString = (value: unknown): string | null =>
