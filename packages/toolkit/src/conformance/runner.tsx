@@ -372,6 +372,7 @@ const checks: readonly ConformanceCheck[] = [
           open
           onOpenChange={() => {}}
           title="Edit project"
+          dismissible={false}
           portalContainer={portal}
         >
           <input aria-label="Project title" />
@@ -385,6 +386,11 @@ const checks: readonly ConformanceCheck[] = [
       invariant(
         portal.textContent?.includes("Edit project"),
         "Dialog must expose its title and honor portalContainer.",
+      );
+      invariant(
+        portal.querySelector('[role="dialog"]')?.querySelectorAll("button")
+          .length === 0,
+        "Dialog must not invent actions when footer is omitted.",
       );
       unmount(probe);
       portal.remove();

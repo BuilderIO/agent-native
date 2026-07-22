@@ -547,7 +547,7 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
       {...contentProps(props)}
       open={open}
       title={title}
-      footer={footer}
+      footer={footer ?? null}
       closable={dismissible}
       mask={{ closable: dismissible }}
       keyboard={dismissible}
