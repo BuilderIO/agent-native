@@ -2400,6 +2400,8 @@ export function createCoreRoutesPlugin(
             BUILDER_RELAY_STATE_PARAM,
           );
           if (relayStateRaw) {
+          console.log(`shomix - /builder/callback - called`);
+
             let relayPayload: BuilderPreviewRelayState | null = null;
             try {
               relayPayload =
