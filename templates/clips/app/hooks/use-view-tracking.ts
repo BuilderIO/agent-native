@@ -155,7 +155,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         | "reaction",
       extra?: Record<string, unknown>,
     ) {
-      const { recordingId, videoRef, durationMs } = optsRef.current;
+      const { videoRef, durationMs } = optsRef.current;
       const v = videoRef.current;
       if (!v) return;
       const completedPct =
@@ -243,7 +243,17 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
   });
 
   useEffect(() => {
-    return () => cleanupRef.current();
+    return () => {
+      cleanupRef.current();
+      cleanupRef.current = () => {};
+      // Reset attachment identity so a StrictMode dev remount (or any real
+      // remount that reuses the same video/recording) re-attaches instead
+      // of seeing "unchanged" and silently skipping setup.
+      hasAttachedRef.current = false;
+      attachedVideoRef.current = null;
+      attachedRecordingIdRef.current = null;
+      attachedTrackOpenRef.current = false;
+    };
   }, []);
 
   return {
