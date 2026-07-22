@@ -71,10 +71,16 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
   const attachedTrackOpenRef = useRef(false);
   const hasAttachedRef = useRef(false);
   const cleanupRef = useRef<() => void>(() => {});
+  const durationMsRef = useRef(opts.durationMs);
 
   useEffect(() => {
-    const { recordingId, videoRef, disabled, trackOpenWithoutVideo } =
-      optsRef.current;
+    const {
+      recordingId,
+      videoRef,
+      disabled,
+      trackOpenWithoutVideo,
+      durationMs,
+    } = optsRef.current;
 
     if (disabled) {
       cleanupRef.current();
@@ -92,9 +98,19 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       video === attachedVideoRef.current &&
       recordingId === attachedRecordingIdRef.current &&
       !!trackOpenWithoutVideo === attachedTrackOpenRef.current;
-    if (unchanged) return;
+    if (unchanged) {
+      // Still the same session — keep the duration in sync so an
+      // async-loaded duration is reflected without a full reattach. Do
+      // this before any potential teardown below so a genuine session
+      // change never mutates the ref before the old session's final flush.
+      durationMsRef.current = durationMs;
+      return;
+    }
 
+    // Tear down the previous session's listeners while durationMsRef still
+    // holds its duration, so its final flush computes completion correctly.
     cleanupRef.current();
+    durationMsRef.current = durationMs;
     hasAttachedRef.current = true;
     attachedVideoRef.current = video;
     attachedRecordingIdRef.current = recordingId;
@@ -155,9 +171,10 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         | "reaction",
       extra?: Record<string, unknown>,
     ) {
-      const { videoRef, durationMs } = optsRef.current;
+      const { videoRef } = optsRef.current;
       const v = videoRef.current;
       if (!v) return;
+      const durationMs = durationMsRef.current;
       const completedPct =
         durationMs > 0 ? (watchMsRef.current / durationMs) * 100 : 0;
       maxPctRef.current = Math.max(
@@ -248,11 +265,14 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
       cleanupRef.current = () => {};
       // Reset attachment identity so a StrictMode dev remount (or any real
       // remount that reuses the same video/recording) re-attaches instead
-      // of seeing "unchanged" and silently skipping setup.
+      // of seeing "unchanged" and silently skipping setup. Also reset the
+      // iframe-open dedup guard so a later reopen of the same no-video
+      // (e.g. Loom-backed) recording fires its view-start again.
       hasAttachedRef.current = false;
       attachedVideoRef.current = null;
       attachedRecordingIdRef.current = null;
       attachedTrackOpenRef.current = false;
+      openTrackedRecordingRef.current = null;
     };
   }, []);
 
