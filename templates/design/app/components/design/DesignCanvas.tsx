@@ -2135,6 +2135,7 @@ export function DesignCanvas({
     // static-fallback board thumbnails that call appendHitTestResponder.
     // Without this, a drop onto a live/active screen has no responder and
     // always falls through to the 50ms request timeout.
+    const imageDiagBridge = "";
     const bridgeToInject =
       MOTION_PREVIEW_BRIDGE_SCRIPT +
       SHADER_FILL_PREVIEW_BRIDGE_SCRIPT +
@@ -2143,7 +2144,8 @@ export function DesignCanvas({
       NAV_BRIDGE_SCRIPT +
       LIGHTWEIGHT_HIT_TEST_BRIDGE_SCRIPT +
       embeddedGestureBridgeForCurrentState +
-      editorChromeBridge;
+      editorChromeBridge +
+      imageDiagBridge;
     const frameContent = getEmbeddedFrameDocumentContent({
       content: iframeRenderContent,
       embeddedFrameBackground,

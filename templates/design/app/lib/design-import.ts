@@ -32,8 +32,14 @@ export interface ImportResult {
   figmaApiKeyMissing?: boolean;
   /** Set by import-figma-clipboard when strategy is "localKiwi": number of IMAGE fills that couldn't be resolved without a Figma token. */
   unresolvedImages?: number;
+  /** Set by .fig file upload: number of IMAGE fills not in the embedded blobs (need Figma API to resolve). */
+  unresolvedImageRefCount?: number;
   /** Set by import-figma-clipboard when it fell back: why the REST match didn't happen. */
   matchStatus?: "matched" | "ambiguous" | "none" | "error";
+  rateLimitRetryAfter?: number;
+  rateLimitPlanTier?: string;
+  rateLimitType?: string;
+  rateLimitUpgradeUrl?: string;
   fidelityReport?: FigmaFidelityReport;
   guidance?: string;
 }
@@ -42,6 +48,16 @@ export interface ImportResultNotification {
   variant: "success" | "warning";
   title: string;
   description?: string;
+}
+
+export function isFigmaRateLimitImportError(
+  result: ImportResult | undefined,
+): boolean {
+  return (
+    (typeof result?.rateLimitRetryAfter === "number" &&
+      result.rateLimitRetryAfter > 0) ||
+    result?.rateLimitType === "low"
+  );
 }
 
 export const VISUAL_EDIT_CONNECT_COMMAND =

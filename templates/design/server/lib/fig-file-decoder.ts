@@ -21,16 +21,16 @@ const MAX_KIWI_CHUNKS = 4_096;
 const MAX_ZIP_ENTRIES = 2_048;
 const MAX_ZIP_NAME_BYTES = 512;
 const MAX_COMPRESSION_RATIO = 1_000;
-const MAX_DECODED_OBJECTS = 250_000;
 const MAX_DECODE_DEPTH = 256;
-const MAX_COLLECTION_LENGTH = 250_000;
-const MAX_COLLECTION_ITEMS = 1_000_000;
+const MAX_COLLECTION_LENGTH = 10_000_000;
+const MAX_COLLECTION_ITEMS = 50_000_000;
 const MAX_DECODE_READS = 64 * 1024 * 1024;
 const MAX_SANITIZED_BINARY_BYTES = 32 * 1024 * 1024;
 const MAX_DECODED_STRING_BYTES = 4 * 1024 * 1024;
 const MAX_TOTAL_STRING_BYTES = 32 * 1024 * 1024;
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 const FIG_KIWI_MAGIC = Buffer.from("fig-kiwi", "utf8");
+const FIGJAM_KIWI_MAGIC = Buffer.from("fig-jam.", "utf8");
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const JPEG_MAGIC = Buffer.from([0xff, 0xd8, 0xff]);
@@ -53,6 +53,7 @@ export interface DecodedFig {
   format: "kiwi" | "zip";
   version?: number;
   document: unknown;
+  decodeError?: string;
   images: DecodedFigImage[];
   thumbnail: Buffer | null;
 }
@@ -192,7 +193,10 @@ export function decodeKiwiContainer(file: Buffer): DecodedFigKiwi {
   if (file.length > MAX_FIG_FILE_BYTES) {
     throw new Error(".fig file is too large (max 50 MB).");
   }
-  if (!file.subarray(0, 8).equals(FIG_KIWI_MAGIC)) {
+  if (
+    !file.subarray(0, 8).equals(FIG_KIWI_MAGIC) &&
+    !file.subarray(0, 8).equals(FIGJAM_KIWI_MAGIC)
+  ) {
     throw new Error("Not a fig-kiwi file (missing magic header)");
   }
   if (file.length < 12) {
@@ -408,7 +412,6 @@ function isZip(file: Buffer): boolean {
 // would throw "Invalid string length" for large documents (V8 caps strings at
 // ~512MB).
 interface ObjectBudget {
-  objects: number;
   items: number;
   binaryBytes: number;
   stringBytes: number;
@@ -443,10 +446,8 @@ function sanitizeForJson(
   }
   if (typeof value === "bigint") return value.toString();
   if (Array.isArray(value)) {
-    budget.objects += 1;
     budget.items += value.length;
     if (
-      budget.objects > MAX_DECODED_OBJECTS ||
       value.length > MAX_COLLECTION_LENGTH ||
       budget.items > MAX_COLLECTION_ITEMS
     ) {
@@ -463,10 +464,6 @@ function sanitizeForJson(
     }
   }
   if (value !== null && typeof value === "object") {
-    budget.objects += 1;
-    if (budget.objects > MAX_DECODED_OBJECTS) {
-      throw new Error("Decoded .fig document contains too many objects.");
-    }
     if (budget.active.has(value)) {
       throw new Error("Decoded .fig document contains a cycle.");
     }
@@ -475,7 +472,7 @@ function sanitizeForJson(
     const entries = Object.entries(value);
     budget.items += entries.length;
     if (budget.items > MAX_COLLECTION_ITEMS) {
-      throw new Error("Decoded .fig document has too many object fields.");
+      throw new Error("Decoded .fig document has too many fields.");
     }
     try {
       for (const [k, v] of entries) {
@@ -493,7 +490,6 @@ function sanitizeForJson(
 export function assertSafeDecodedFigDocument(value: unknown): void {
   const stack: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   const seen = new WeakSet<object>();
-  let objects = 0;
   let items = 0;
   let binaryBytes = 0;
   let stringBytes = 0;
@@ -525,10 +521,6 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
       throw new Error("Decoded .fig document contains repeated object cycles.");
     }
     seen.add(current.value);
-    objects += 1;
-    if (objects > MAX_DECODED_OBJECTS) {
-      throw new Error("Decoded .fig document contains too many objects.");
-    }
     const children = Array.isArray(current.value)
       ? current.value
       : Object.values(current.value);
@@ -549,7 +541,6 @@ export function assertSafeDecodedFigDocument(value: unknown): void {
 
 class BudgetByteBuffer extends ByteBuffer {
   private collectionItems = 0;
-  private decodedObjects = 0;
   private decodeDepth = 0;
   private readCount = 0;
 
@@ -574,11 +565,7 @@ class BudgetByteBuffer extends ByteBuffer {
   }
 
   enterDecodedObject(): void {
-    this.decodedObjects += 1;
     this.decodeDepth += 1;
-    if (this.decodedObjects > MAX_DECODED_OBJECTS) {
-      throw new Error(".fig document contains too many decoded objects.");
-    }
     if (this.decodeDepth > MAX_DECODE_DEPTH) {
       throw new Error(".fig document is nested too deeply.");
     }
@@ -624,23 +611,26 @@ function compileBudgetedSchema(schema: Schema): CompiledDecoder {
 }
 
 // Returns null on any decode failure so callers can still surface the raw
-// document buffer.
+// document buffer. Also returns an optional decodeError string so callers can
+// surface the reason rather than falling back to a generic message.
 function decodeKiwiDocument(
   schemaBuf: Buffer,
   documentBuf: Buffer,
-): unknown | null {
+): { document: unknown | null; decodeError?: string } {
   let schema: Schema;
   try {
     assertSafeBinarySchemaShape(schemaBuf);
     schema = decodeBinarySchema(schemaBuf);
-  } catch {
-    return null;
+  } catch (e) {
+    return {
+      document: null,
+      decodeError: `Schema parsing failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
   // kiwi-schema compiles the schema with `new Function`, so never pass names
   // from an untrusted binary schema to it without strict identifier and size
   // validation. Real Figma schemas use ordinary identifiers and a `Message`
   // root; anything else is an unsupported/probably hostile variant.
-  if (schema.definitions.length > 1_024) return null;
   const definitionNames = new Set(schema.definitions.map((d) => d.name));
   const safeIdentifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
   const primitiveTypes = new Set([
@@ -653,40 +643,71 @@ function decodeKiwiDocument(
     "int64",
     "uint64",
   ]);
-  let fieldCount = 0;
   for (const definition of schema.definitions) {
-    if (!safeIdentifier.test(definition.name)) return null;
-    if (!Array.isArray(definition.fields) || definition.fields.length > 1_024) {
-      return null;
+    if (!safeIdentifier.test(definition.name)) {
+      return {
+        document: null,
+        decodeError: `Unsafe schema identifier: "${definition.name}"`,
+      };
     }
-    fieldCount += definition.fields.length;
-    if (fieldCount > 20_000) return null;
+    if (!Array.isArray(definition.fields)) {
+      return {
+        document: null,
+        decodeError: `Definition "${definition.name}" has no fields array`,
+      };
+    }
     for (const field of definition.fields) {
-      if (!safeIdentifier.test(field.name)) return null;
+      if (!safeIdentifier.test(field.name)) {
+        return {
+          document: null,
+          decodeError: `Unsafe field identifier: "${definition.name}.${field.name}"`,
+        };
+      }
       if (
         field.type !== null &&
         !primitiveTypes.has(field.type) &&
         !definitionNames.has(field.type)
       ) {
-        return null;
+        return {
+          document: null,
+          decodeError: `Unknown field type "${field.type}" in "${definition.name}.${field.name}"`,
+        };
       }
     }
   }
-  const rootMessage = schema.definitions.find(
-    (definition) =>
-      definition.name === "Message" && definition.kind === "MESSAGE",
-  );
-  if (!rootMessage) return null;
+  // Current Figma .fig files use "Message" as root; fall back to the first
+  // MESSAGE definition when the name differs (schema evolution resilience).
+  const rootMessage =
+    schema.definitions.find(
+      (d) => d.name === "Message" && d.kind === "MESSAGE",
+    ) ?? schema.definitions.find((d) => d.kind === "MESSAGE");
+  if (!rootMessage) {
+    return {
+      document: null,
+      decodeError: `No MESSAGE definition found in schema (${schema.definitions.length} definitions: ${schema.definitions
+        .map((d) => d.name)
+        .slice(0, 10)
+        .join(", ")})`,
+    };
+  }
 
   let compiled: CompiledDecoder;
   try {
     compiled = compileBudgetedSchema(schema);
-  } catch {
-    return null;
+  } catch (e) {
+    return {
+      document: null,
+      decodeError: `Schema compilation failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
   const decodeKey = `decode${rootMessage.name}`;
   const decoder = compiled[decodeKey];
-  if (typeof decoder !== "function") return null;
+  if (typeof decoder !== "function") {
+    return {
+      document: null,
+      decodeError: `Compiled decoder missing function "${decodeKey}"`,
+    };
+  }
 
   try {
     const view = new Uint8Array(
@@ -696,15 +717,19 @@ function decodeKiwiDocument(
     );
     const bb = new BudgetByteBuffer(view);
     const document = decoder.call(compiled, bb);
-    return sanitizeForJson(document, {
-      objects: 0,
-      items: 0,
-      binaryBytes: 0,
-      stringBytes: 0,
-      active: new WeakSet(),
-    });
-  } catch {
-    return null;
+    return {
+      document: sanitizeForJson(document, {
+        items: 0,
+        binaryBytes: 0,
+        stringBytes: 0,
+        active: new WeakSet(),
+      }),
+    };
+  } catch (e) {
+    return {
+      document: null,
+      decodeError: `Document decoding failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 }
 
@@ -745,23 +770,12 @@ function assertSafeBinarySchemaShape(schemaBuf: Buffer): void {
     ),
   );
   const definitionCount = bb.readVarUint();
-  if (definitionCount > 1_024) {
-    throw new Error(".fig schema has too many definitions.");
-  }
-  let totalFields = 0;
   for (let index = 0; index < definitionCount; index += 1) {
     bb.readString();
     const kind = bb.readByte();
     if (kind > 2)
       throw new Error(".fig schema has an invalid definition kind.");
     const fields = bb.readVarUint();
-    if (fields > 1_024) {
-      throw new Error(".fig schema definition has too many fields.");
-    }
-    totalFields += fields;
-    if (totalFields > 20_000) {
-      throw new Error(".fig schema has too many fields.");
-    }
     for (let fieldIndex = 0; fieldIndex < fields; fieldIndex += 1) {
       bb.readString();
       bb.readVarInt();
@@ -789,7 +803,8 @@ export function decodeFig(file: Buffer): DecodedFig {
     const inner = decodeKiwiContainer(canvasEntry.data);
     version = inner.version;
     extraBlobs = inner.blobs;
-    document = decodeKiwiDocument(inner.schema, inner.document);
+    const kiwiResult = decodeKiwiDocument(inner.schema, inner.document);
+    document = kiwiResult.document;
 
     const images: DecodedFigImage[] = [];
     const seen = new Set<string>();
@@ -812,19 +827,23 @@ export function decodeFig(file: Buffer): DecodedFig {
       format: "zip",
       version,
       document,
+      ...(kiwiResult.decodeError
+        ? { decodeError: kiwiResult.decodeError }
+        : {}),
       images,
       thumbnail: thumbnailEntry?.data ?? null,
     };
   }
 
   const decoded = decodeKiwiContainer(file);
-  const document = decodeKiwiDocument(decoded.schema, decoded.document);
+  const kiwiResult = decodeKiwiDocument(decoded.schema, decoded.document);
   const images = collectImagesFromBlobs(decoded.blobs);
   const thumbnail = findThumbnail(decoded.document, decoded.blobs);
   return {
     format: "kiwi",
     version: decoded.version,
-    document,
+    document: kiwiResult.document,
+    ...(kiwiResult.decodeError ? { decodeError: kiwiResult.decodeError } : {}),
     images,
     thumbnail,
   };

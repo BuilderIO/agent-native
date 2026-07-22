@@ -422,6 +422,46 @@ type FigmaProviderEnvelope = {
   };
 };
 
+export type FigmaRateLimitError = Error & {
+  statusCode: 429;
+  retryAfterSeconds?: number;
+  figmaPlanTier?: string;
+  figmaRateLimitType?: "low" | "high";
+  figmaUpgradeUrl?: string;
+};
+
+const FIGMA_PLAN_TIERS = new Set([
+  "enterprise",
+  "org",
+  "pro",
+  "starter",
+  "student",
+]);
+
+export function isFigmaRateLimitError(
+  err: unknown,
+): err is FigmaRateLimitError {
+  return (
+    err instanceof Error && (err as { statusCode?: unknown }).statusCode === 429
+  );
+}
+
+function figmaUpgradeUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol === "https:" &&
+      (url.hostname === "figma.com" || url.hostname.endsWith(".figma.com"))
+    ) {
+      return value;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 export function providerJson(envelope: unknown, label: string): unknown {
   const response = (envelope as FigmaProviderEnvelope | null)?.response;
   if (!response) throw new Error(`Figma ${label} response was empty.`);
@@ -441,10 +481,29 @@ export function providerJson(envelope: unknown, label: string): unknown {
       response.statusText ||
       `HTTP ${response.status ?? "error"}`;
     const err = new Error(`Figma ${label} request failed: ${detail}`);
-    const retryAfterHeader = response.headers?.["retry-after"];
-    if (response.status === 429 && retryAfterHeader) {
-      (err as Error & { retryAfterSeconds: number }).retryAfterSeconds =
-        parseInt(retryAfterHeader, 10);
+    if (response.status === 429) {
+      const rateLimitError = err as FigmaRateLimitError;
+      rateLimitError.statusCode = 429;
+
+      const retryAfterHeader = response.headers?.["retry-after"];
+      if (retryAfterHeader) {
+        rateLimitError.retryAfterSeconds = parseInt(retryAfterHeader, 10);
+      }
+
+      const planTier = response.headers?.["x-figma-plan-tier"];
+      if (planTier && FIGMA_PLAN_TIERS.has(planTier)) {
+        rateLimitError.figmaPlanTier = planTier;
+      }
+
+      const rateLimitType = response.headers?.["x-figma-rate-limit-type"];
+      if (rateLimitType === "low" || rateLimitType === "high") {
+        rateLimitError.figmaRateLimitType = rateLimitType;
+      }
+
+      const upgradeUrl = figmaUpgradeUrl(
+        response.headers?.["x-figma-upgrade-link"],
+      );
+      if (upgradeUrl) rateLimitError.figmaUpgradeUrl = upgradeUrl;
     }
     throw err;
   }

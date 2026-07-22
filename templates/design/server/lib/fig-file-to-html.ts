@@ -11,6 +11,13 @@
 
 import * as path from "node:path";
 
+import {
+  cssBlendMode,
+  gradientAngleDegreesFromHandles,
+  gradientGeometryFromTransform,
+  remapLinearStopPosition,
+} from "./figma-node-to-html.js";
+
 export interface Guid {
   sessionID: number;
   localID: number;
@@ -140,7 +147,17 @@ export interface FigNode {
   lineHeight?: { value: number; units?: string };
   textAlignHorizontal?: string;
   textAlignVertical?: string;
-  textData?: { characters?: string };
+  textData?: {
+    characters?: string;
+    // Per-character style index (one entry per UTF-16 code unit); the index
+    // keys into `styleOverrideTable`. Absent/0 means the node's base style.
+    characterStyleIDs?: number[];
+    styleOverrideTable?: Array<{
+      styleID?: number;
+      fillPaints?: Paint[];
+      fontSize?: number;
+    }>;
+  };
   textAutoResize?: string;
   symbolData?: {
     symbolID?: Guid;
@@ -609,6 +626,60 @@ function num(n: number | null | undefined): number | null {
   return Math.round(n * 100) / 100;
 }
 
+interface TextRun {
+  text: string;
+  /** CSS color when a per-character override differs from the base fill. */
+  color?: string;
+}
+
+/**
+ * Split TEXT into color runs from `characterStyleIDs` + `styleOverrideTable`
+ * (how one node holds two colors). Overridden runs carry an explicit color;
+ * base-fill runs inherit the element's `color`. One plain run when unstyled.
+ */
+function textStyleRuns(node: FigNode): TextRun[] {
+  const chars = node.textData?.characters ?? "";
+  const ids = node.textData?.characterStyleIDs;
+  const table = node.textData?.styleOverrideTable;
+  if (!chars) return [];
+  if (!ids || ids.length === 0 || !table || table.length === 0) {
+    return [{ text: chars }];
+  }
+  const colorByStyle = new Map<number, string | undefined>();
+  for (const entry of table) {
+    if (entry?.styleID == null) continue;
+    // Topmost visible solid in the override's fill list.
+    let solid: Paint | undefined;
+    for (const p of entry.fillPaints ?? []) {
+      if (p.visible !== false && p.type === "SOLID") solid = p;
+    }
+    colorByStyle.set(
+      entry.styleID,
+      solid
+        ? (colorToCss(solid.color, solid.opacity ?? 1) ?? undefined)
+        : undefined,
+    );
+  }
+  const runs: TextRun[] = [];
+  let curText = "";
+  let curColor: string | undefined;
+  let started = false;
+  for (let i = 0; i < chars.length; i++) {
+    const color = colorByStyle.get(ids[i] ?? 0);
+    if (!started) {
+      curColor = color;
+      started = true;
+    } else if (color !== curColor) {
+      runs.push({ text: curText, color: curColor });
+      curText = "";
+      curColor = color;
+    }
+    curText += chars[i];
+  }
+  if (curText) runs.push({ text: curText, color: curColor });
+  return runs;
+}
+
 function tagFor(type: string | undefined): string {
   // Everything renders as a real DOM tag rather than a synthetic component.
   // TEXT becomes <span> so it inlines nicely; everything else is <div>.
@@ -683,7 +754,7 @@ function imageUrl(hashHex: string, ctx: Ctx): string {
   const resolved = ctx.imageMap.get(hashHex);
   if (!resolved && ctx.missingImageUrl) return ctx.missingImageUrl;
   const filename = resolved ?? hashHex;
-  if (/^(?:https?:|blob:|about:)/i.test(filename)) return filename;
+  if (/^(?:https?:|blob:|about:|data:|file:)/i.test(filename)) return filename;
   const base = ctx.imageRefBase ?? "images";
   return `${base}/${filename}`;
 }
@@ -737,24 +808,72 @@ function effectiveStrokePaints(node: FigNode, ctx: Ctx): Paint[] | undefined {
   return node.strokePaints;
 }
 
-function paintToBackground(p: Paint, _node: FigNode, ctx: Ctx): string | null {
+function paintToBackground(p: Paint, node: FigNode, ctx: Ctx): string | null {
   if (p.visible === false) return null;
-  if (p.type === "SOLID") return colorToCss(p.color, p.opacity ?? 1);
+  if (p.type === "SOLID") {
+    const color = colorToCss(p.color, p.opacity ?? 1);
+    return color ? `linear-gradient(${color}, ${color})` : null;
+  }
   if (p.type?.startsWith("GRADIENT") && Array.isArray(p.stops)) {
+    const box = node.size ? { width: node.size.x, height: node.size.y } : null;
+    const kind = p.type.slice("GRADIENT_".length) as
+      | "LINEAR"
+      | "RADIAL"
+      | "ANGULAR"
+      | "DIAMOND";
+    const geometry =
+      p.transform && box
+        ? gradientGeometryFromTransform(kind, p.transform, box)
+        : null;
+    const stopPosition =
+      geometry && kind === "LINEAR" && box
+        ? remapLinearStopPosition(
+            geometry.handles,
+            box,
+            gradientAngleDegreesFromHandles(geometry.handles, box),
+          )
+        : (position: number) => position;
     const stops = p.stops
       .map(
         (s) =>
-          `${colorToCss(s.color, p.opacity ?? 1)} ${num(s.position * 100)}%`,
+          `${colorToCss(s.color, p.opacity ?? 1)} ${num(stopPosition(s.position) * 100)}%`,
       )
       .join(", ");
-    if (p.type === "GRADIENT_LINEAR") return `linear-gradient(${stops})`;
-    if (p.type === "GRADIENT_RADIAL") return `radial-gradient(${stops})`;
-    if (p.type === "GRADIENT_ANGULAR") return `conic-gradient(${stops})`;
-    if (p.type === "GRADIENT_DIAMOND") return `radial-gradient(${stops})`;
+    if (p.type === "GRADIENT_LINEAR") {
+      if (geometry && box) {
+        const angle = gradientAngleDegreesFromHandles(geometry.handles, box);
+        return `linear-gradient(${num(angle)}deg, ${stops})`;
+      }
+      return `linear-gradient(${stops})`;
+    }
+    if (p.type === "GRADIENT_RADIAL") {
+      if (geometry) {
+        return `radial-gradient(ellipse ${num(geometry.rx)}px ${num(geometry.ry)}px at ${num(geometry.center.x)}px ${num(geometry.center.y)}px, ${stops})`;
+      }
+      return `radial-gradient(${stops})`;
+    }
+    if (p.type === "GRADIENT_ANGULAR") {
+      if (geometry) {
+        return `conic-gradient(from ${num(geometry.fromDeg)}deg at ${num(geometry.center.x)}px ${num(geometry.center.y)}px, ${stops})`;
+      }
+      return `conic-gradient(${stops})`;
+    }
+    if (p.type === "GRADIENT_DIAMOND") {
+      ctx.approximatedNodes.push({
+        nodeId: guidKey(node.guid),
+        nodeName: node.name,
+        nodeType: node.type,
+        notes: ["GRADIENT_DIAMOND approximated as radial-gradient"],
+      });
+      return `radial-gradient(${stops})`;
+    }
   }
   if (p.type === "IMAGE") {
     const hex = hashToHex(p.image?.hash);
-    if (hex) return `url("${imageUrl(hex, ctx)}")`;
+    if (hex) {
+      const u = imageUrl(hex, ctx);
+      return `url('${u.replace(/'/g, "%27")}')`;
+    }
   }
   return null;
 }
@@ -768,6 +887,7 @@ function backgroundShorthand(
   backgroundSize?: string;
   backgroundPosition?: string;
   backgroundRepeat?: string;
+  backgroundBlendMode?: string;
 } {
   const fills = (effectiveFillPaints(node, ctx) ?? []).filter(
     (f) => f.visible !== false,
@@ -779,31 +899,55 @@ function backgroundShorthand(
     backgroundSize?: string;
     backgroundPosition?: string;
     backgroundRepeat?: string;
+    backgroundBlendMode?: string;
   } = {};
+  // Optimization: when there is exactly one fill and it's a plain SOLID at the
+  // bottom, emit it as `background-color` (cheaper CSS, same visual) and skip
+  // adding it to the bgImages layer list so we don't double-render it.
+  const isSingleSolidOnly = fills.length === 1 && fills[0]?.type === "SOLID";
+  if (isSingleSolidOnly) {
+    const color = colorToCss(fills[0]!.color, fills[0]!.opacity ?? 1);
+    if (color) result.backgroundColor = color;
+    return result;
+  }
   const bgImages: string[] = [];
+  const bgSizes: string[] = [];
+  const bgPositions: string[] = [];
+  const bgRepeats: string[] = [];
+  const bgBlends: string[] = [];
   for (const f of fills) {
-    if (f.type === "SOLID" && !result.backgroundColor) {
-      const c = colorToCss(f.color, f.opacity ?? 1);
-      if (c) result.backgroundColor = c;
+    const image = paintToBackground(f, node, ctx);
+    if (!image) continue;
+    bgImages.push(image);
+    bgBlends.push(blendModeCss(f.blendMode) ?? "normal");
+    if (f.type !== "IMAGE") {
+      bgSizes.push("auto");
+      bgPositions.push("0% 0%");
+      bgRepeats.push("repeat");
       continue;
     }
-    const v = paintToBackground(f, node, ctx);
-    if (v) bgImages.push(v);
-    if (f.type === "IMAGE") {
-      if (f.imageScaleMode === "FILL") result.backgroundSize = "cover";
-      else if (f.imageScaleMode === "FIT") result.backgroundSize = "contain";
-      else if (f.imageScaleMode === "TILE") {
-        result.backgroundSize = "auto";
-        result.backgroundRepeat = "repeat";
-      } else if (f.imageScaleMode === "STRETCH")
-        result.backgroundSize = "100% 100%";
-      // Figma centers image fills by default (CSS defaults to top-left, which
-      // crops the wrong edges for FILL/FIT). TILE keeps the default origin so
-      // the tile pattern starts at top-left.
-      if (f.imageScaleMode !== "TILE") result.backgroundPosition = "center";
+    const mode = f.imageScaleMode ?? "FILL";
+    if (mode === "FILL") bgSizes.push("cover");
+    else if (mode === "FIT") bgSizes.push("contain");
+    else if (mode === "STRETCH") bgSizes.push("100% 100%");
+    else bgSizes.push("auto");
+    bgPositions.push(mode === "TILE" ? "0% 0%" : "center");
+    bgRepeats.push(mode === "TILE" ? "repeat" : "no-repeat");
+  }
+  bgImages.reverse();
+  bgSizes.reverse();
+  bgPositions.reverse();
+  bgRepeats.reverse();
+  bgBlends.reverse();
+  if (bgImages.length > 0) {
+    result.backgroundImage = bgImages.join(", ");
+    result.backgroundSize = bgSizes.join(", ");
+    result.backgroundPosition = bgPositions.join(", ");
+    result.backgroundRepeat = bgRepeats.join(", ");
+    if (bgBlends.some((blend) => blend !== "normal")) {
+      result.backgroundBlendMode = bgBlends.join(", ");
     }
   }
-  if (bgImages.length > 0) result.backgroundImage = bgImages.join(", ");
   return result;
 }
 
@@ -813,7 +957,8 @@ function borderShorthand(node: FigNode, ctx: Ctx): Record<string, string> {
   );
   if (strokes.length === 0) return {};
   const first = strokes[0]!;
-  const color = colorToCss(first.color, first.opacity ?? 1) ?? "rgb(0, 0, 0)";
+  const color = colorToCss(first.color, first.opacity ?? 1);
+  if (!color) return {};
 
   const hasPerSide =
     node.strokeTopWeight !== undefined ||
@@ -940,9 +1085,9 @@ function effectStyles(
         `inset ${num(e.offset?.x ?? 0)}px ${num(e.offset?.y ?? 0)}px ${num(e.radius ?? 0)}px ${num(e.spread ?? 0)}px ${c}`,
       );
     } else if (e.type === "FOREGROUND_BLUR" || e.type === "LAYER_BLUR") {
-      filters.push(`blur(${num(e.radius ?? 0)}px)`);
+      filters.push(`blur(${num((e.radius ?? 0) / 2)}px)`);
     } else if (e.type === "BACKGROUND_BLUR") {
-      backdropBlur = `blur(${num(e.radius ?? 0)}px)`;
+      backdropBlur = `blur(${num((e.radius ?? 0) / 2)}px)`;
     }
   }
   const out: Record<string, string> = {};
@@ -958,8 +1103,22 @@ function transformStyle(node: FigNode): {
 } {
   const t = node.transform;
   if (!t) return {};
-  // Decompose: rotation = atan2(m10, m00), scale assumed 1.
+  const determinant = t.m00 * t.m11 - t.m01 * t.m10;
+  const hasNonTrivialScale = Math.abs(Math.abs(determinant) - 1) > 0.01;
   const angle = Math.atan2(t.m10, t.m00);
+  const isPureRotation =
+    Math.abs(t.m00 - Math.cos(angle)) < 0.01 &&
+    Math.abs(t.m01 + Math.sin(angle)) < 0.01 &&
+    Math.abs(t.m10 - Math.sin(angle)) < 0.01 &&
+    Math.abs(t.m11 - Math.cos(angle)) < 0.01;
+  const hasSkew =
+    (Math.abs(t.m01) > 0.0001 || Math.abs(t.m10) > 0.0001) && !isPureRotation;
+  if (hasNonTrivialScale || hasSkew) {
+    return {
+      transform: `matrix(${num(t.m00)}, ${num(t.m10)}, ${num(t.m01)}, ${num(t.m11)}, 0, 0)`,
+      transformOrigin: "0 0",
+    };
+  }
   const deg = (angle * 180) / Math.PI;
   if (Math.abs(deg) < 0.01) return {};
   return { transform: `rotate(${num(deg)}deg)`, transformOrigin: "top left" };
@@ -1011,9 +1170,26 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
     styleNode?.textAlignHorizontal ?? node.textAlignHorizontal;
 
   if (fontName?.family) {
-    // Quote families with spaces so the inline style stays valid.
     const fam = fontName.family;
-    out.fontFamily = /\s/.test(fam) ? `"${fam}"` : fam;
+    const quoted = /\s/.test(fam) ? `"${fam}"` : fam;
+    // Append a metric-compatible fallback stack by classifying the family.
+    // This prevents UA serif from appearing when a Google/system font is missing.
+    const famLower = fam.toLowerCase();
+    let fallback: string;
+    if (
+      /mono|courier|code|consol|menlo|fira code|source code/i.test(famLower)
+    ) {
+      fallback =
+        "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace";
+    } else if (
+      /serif|georgia|garamond|didot|baskerville|palatino|times/i.test(famLower)
+    ) {
+      fallback = "'Times New Roman', Georgia, Garamond, serif";
+    } else {
+      fallback =
+        "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+    }
+    out.fontFamily = `${quoted}, ${fallback}`;
   }
   const weight = fontWeightFromStyle(fontName?.style);
   if (weight !== null) out.fontWeight = weight;
@@ -1033,24 +1209,36 @@ function textStyles(node: FigNode, ctx?: Ctx): Record<string, string | number> {
   if (ls !== null && ls !== undefined) out.letterSpacing = ls;
   if (textAlignHorizontal)
     out.textAlign = TEXT_ALIGN[textAlignHorizontal] ?? "left";
-  // Text color comes from the first SOLID fill paint, dereferenced through
-  // any `styleIdForFill` shared style (NOT `styleIdForText`, which is
-  // typography-only — see `effectiveFillPaints`).
-  if (ctx) {
-    const solidFill = effectiveFillPaints(node, ctx)?.find(
-      (f) => f.visible !== false && f.type === "SOLID",
-    );
-    if (solidFill) {
-      const c = colorToCss(solidFill.color, solidFill.opacity ?? 1);
-      if (c) out.color = c;
+  const fills = (
+    ctx ? effectiveFillPaints(node, ctx) : node.fillPaints
+  )?.filter((fill) => fill.visible !== false);
+  if (!fills?.length) {
+    out.visibility = "hidden";
+    return out;
+  }
+  const firstFill = fills[0]!;
+  if (firstFill.type === "SOLID") {
+    const color = colorToCss(firstFill.color, firstFill.opacity ?? 1);
+    if (color) out.color = color;
+  } else if (
+    ctx &&
+    (firstFill.type?.startsWith("GRADIENT_") || firstFill.type === "IMAGE")
+  ) {
+    const background = paintToBackground(firstFill, node, ctx);
+    if (background) {
+      out.background = background;
+      out.WebkitBackgroundClip = "text";
+      out.backgroundClip = "text";
+      out.color = "transparent";
     }
   }
   return out;
 }
 
 function blendModeCss(mode: string | undefined): string | null {
-  if (!mode || mode === "NORMAL" || mode === "PASS_THROUGH") return null;
-  return mode.toLowerCase().replace(/_/g, "-");
+  if (!mode) return null;
+  const result = cssBlendMode(mode);
+  return result?.cssMode ?? null;
 }
 
 function isAutolayout(parent: FigNode | null): boolean {
@@ -1138,13 +1326,11 @@ function layoutSizing(
     }
   }
 
-  // 2) Non-autolayout frames can still hug content via `resizeToFit`.
-  if (!node.stackMode || node.stackMode === "NONE") {
-    if (node.resizeToFit) {
-      horizontal = "HUG";
-      vertical = "HUG";
-    }
-  }
+  // 2) Non-autolayout frames (e.g. Figma groups) position their children
+  //    absolutely in this renderer, and CSS `width/height: auto` cannot hug
+  //    out-of-flow children — a hugged group would collapse to 0×0 and clip
+  //    everything inside it. The baked `node.size` already equals the group's
+  //    content bounds, so keep it FIXED rather than honoring `resizeToFit`.
 
   // 3) TEXT auto-resize hugs along the indicated axis/axes.
   if (node.type === "TEXT" && node.textAutoResize) {
@@ -1215,6 +1401,22 @@ function applyAxisConstraint(
   return false;
 }
 
+function positionRelativeToParent(
+  node: FigNode,
+  parent: FigNode | null,
+  ctx: Ctx,
+): { x: number | null; y: number | null } {
+  const transform = node.transform;
+  if (!transform) return { x: null, y: null };
+  // Figma/Kiwi node transforms are already expressed relative to the parent
+  // (the node's `relativeTransform`), so the translation is the parent-local
+  // offset at every depth — including direct children of a top-level frame,
+  // whose own canvas position is dropped when the frame becomes a screen root.
+  // Subtracting the parent's canvas translation here double-counts the frame
+  // offset and flings direct children off-canvas.
+  return { x: num(transform.m02), y: num(transform.m12) };
+}
+
 function buildCss(
   node: FigNode,
   parent: FigNode | null,
@@ -1239,8 +1441,7 @@ function buildCss(
   let suppressHeight = false;
   if (isPositioned) {
     css.position = "absolute";
-    const x = node.transform ? num(node.transform.m02) : null;
-    const y = node.transform ? num(node.transform.m12) : null;
+    const { x, y } = positionRelativeToParent(node, parent, ctx);
     const nodeW = node.size ? num(node.size.x) : null;
     const nodeH = node.size ? num(node.size.y) : null;
     const parentW = parent?.size ? num(parent.size.x) : null;
@@ -1288,6 +1489,16 @@ function buildCss(
     if (h !== null && emitHeight && !suppressHeight) css.height = `${h}px`;
   }
 
+  // Line vectors (horizontal/vertical strokes) have a 0-size axis. A 0-size
+  // <svg> viewport is dropped by the browser even with `overflow: visible`, so
+  // give the degenerate axis a minimal non-zero size; the stroke, arrowheads,
+  // and caps still paint at native coords because the SVG has no viewBox here.
+  if (vectorLike) {
+    const minAxis = Math.max(1, num(node.strokeWeight) ?? 1);
+    if (css.width === "0px") css.width = `${minAxis}px`;
+    if (css.height === "0px") css.height = `${minAxis}px`;
+  }
+
   // Auto-layout min/max size constraints. Each axis is independent and may be
   // unconstrained (null). Only emit positive values — a zero constraint is a
   // no-op and a min-width keeps a hugging container (e.g. a badge) circular.
@@ -1315,15 +1526,24 @@ function buildCss(
     }
   }
 
+  // A vector with no decodable geometry must not paint its bounding box as a
+  // solid fill (that renders the shape as a block); render nothing instead.
+  const geometrylessVector =
+    !!node.type &&
+    VECTOR_LIKE_TYPES.has(node.type) &&
+    !vectorLike &&
+    !node.fillPaints?.some((p) => p.visible !== false && p.type === "IMAGE");
+
   // Background (TEXT uses fillPaints for color, not background; vector
   // nodes paint via <path fill> inside the <svg>).
-  if (node.type !== "TEXT" && !vectorLike) {
+  if (node.type !== "TEXT" && !vectorLike && !geometrylessVector) {
     Object.assign(css, backgroundShorthand(node, ctx));
   }
 
   // Border / outline (skipped for vector nodes — strokes go on <path>).
   // Merge box-shadows from border (e.g. INSIDE strokes) and effects so neither overwrites the other.
-  const borderStyle = !vectorLike ? borderShorthand(node, ctx) : {};
+  const borderStyle =
+    !vectorLike && !geometrylessVector ? borderShorthand(node, ctx) : {};
   const { boxShadow: borderBoxShadow, ...restBorderStyle } = borderStyle;
   Object.assign(css, restBorderStyle);
   // Radius
@@ -1346,13 +1566,38 @@ function buildCss(
   // Opacity / blend mode / overflow / visibility
   if (typeof node.opacity === "number" && node.opacity < 0.999)
     css.opacity = node.opacity;
-  const bm = blendModeCss(node.blendMode);
-  if (bm) css.mixBlendMode = bm;
+  if (node.blendMode) {
+    const bmResult = cssBlendMode(node.blendMode);
+    if (bmResult) {
+      css.mixBlendMode = bmResult.cssMode;
+      if (bmResult.verdict === "approximated") {
+        ctx.approximatedNodes.push({
+          nodeId: guidKey(node.guid),
+          nodeName: node.name,
+          nodeType: node.type,
+          notes: [
+            `blend mode ${node.blendMode} approximated as ${bmResult.cssMode}`,
+          ],
+        });
+      }
+    }
+  }
   if (
     (node.type === "FRAME" || node.type === "INSTANCE") &&
-    node.frameMaskDisabled !== true
+    node.frameMaskDisabled !== true &&
+    // `resizeToFit` marks a group/hug container that sizes to its children and
+    // never clips in Figma — its children legitimately overflow the baked box,
+    // so clipping here would crop content that should be visible.
+    node.resizeToFit !== true
   ) {
     css.overflow = "hidden";
+  }
+  // Vector <svg> elements default to clipping content to their viewport. Figma
+  // vector bounds are the path's *fill* box, but strokes, arrowheads, and line
+  // caps extend beyond it (and horizontal/vertical lines have a 0-size box), so
+  // clipping erases them. `overflow: visible` lets the full geometry paint.
+  if (vectorLike) {
+    css.overflow = "visible";
   }
   // (Hidden nodes are dropped entirely in emitNode; no display:none needed.)
 
@@ -1399,6 +1644,13 @@ interface Ctx {
   maxFrameOutputBytes: number;
   maxTotalOutputBytes: number;
   totalOutputBytes: number;
+  /** Collect fidelity verdicts for approximated nodes. */
+  approximatedNodes: Array<{
+    nodeId: string;
+    nodeName?: string;
+    nodeType?: string;
+    notes: string[];
+  }>;
 }
 
 /**
@@ -1455,11 +1707,121 @@ function decodePathCommands(bytes: Buffer | undefined): string {
   return out.join(" ");
 }
 
-/** SVG paint attribute (fill / stroke) for the first visible solid paint. */
+/**
+ * Decode a Figma vector-network blob into an SVG path. The clipboard ships this
+ * editable `vectorData.vectorNetworkBlob` instead of a flattened `commandsBlob`,
+ * so it's the only vector geometry a no-token paste has. Format (little-endian,
+ * reverse-engineered from real `.fig` data):
+ *   header  : u32 vertexCount, segmentCount, regionCount, _reserved
+ *   vertices: vertexCount × { f32 x, f32 y, u32 styleID }               (12 B)
+ *   segments: segmentCount × { u32 startVtx, f32 tanStart{x,y},
+ *                              u32 endVtx, f32 tanEnd{x,y}, u32 _ }  (24 B / 28 stride)
+ * Each segment is the cubic P0=vtx[start], P1=P0+tanStart, P2=vtx[end]+tanEnd,
+ * P3=vtx[end] (zero tangents → a line); segments chain end→start into subpaths.
+ */
+function decodeVectorNetwork(bytes: Buffer | undefined): string {
+  if (!bytes || bytes.length < 16) return "";
+  const vertexCount = bytes.readUInt32LE(0);
+  const segmentCount = bytes.readUInt32LE(4);
+  if (vertexCount > 200_000 || segmentCount > 200_000) return "";
+
+  const verts: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < vertexCount; i++) {
+    const o = 16 + i * 12;
+    if (o + 8 > bytes.length) break;
+    verts.push({ x: bytes.readFloatLE(o), y: bytes.readFloatLE(o + 4) });
+  }
+
+  interface Seg {
+    s: number;
+    sx: number;
+    sy: number;
+    e: number;
+    ex: number;
+    ey: number;
+  }
+  const segStart = 16 + vertexCount * 12;
+  const segs: Seg[] = [];
+  for (let i = 0; i < segmentCount; i++) {
+    const o = segStart + i * 28;
+    if (o + 24 > bytes.length) break;
+    segs.push({
+      s: bytes.readUInt32LE(o),
+      sx: bytes.readFloatLE(o + 4),
+      sy: bytes.readFloatLE(o + 8),
+      e: bytes.readUInt32LE(o + 12),
+      ex: bytes.readFloatLE(o + 16),
+      ey: bytes.readFloatLE(o + 20),
+    });
+  }
+  if (segs.length === 0) return "";
+
+  const fmt = (n: number) => {
+    if (!Number.isFinite(n)) return "0";
+    const r = Math.round(n * 1000) / 1000;
+    return Object.is(r, -0) ? "0" : String(r);
+  };
+  const out: string[] = [];
+  const used = new Array<boolean>(segs.length).fill(false);
+
+  for (let start = 0; start < segs.length; start++) {
+    if (used[start]) continue;
+    // Trace a connected chain: each segment's end vertex feeds the next
+    // segment's start vertex.
+    const chain: Seg[] = [];
+    let cur: number | null = start;
+    while (cur !== null && !used[cur]) {
+      used[cur] = true;
+      chain.push(segs[cur]!);
+      const endV = segs[cur]!.e;
+      let next: number | null = null;
+      for (let j = 0; j < segs.length; j++) {
+        if (!used[j] && segs[j]!.s === endV) {
+          next = j;
+          break;
+        }
+      }
+      cur = next;
+    }
+    const first = chain[0]!;
+    const p0 = verts[first.s];
+    if (!p0) continue;
+    out.push(`M${fmt(p0.x)} ${fmt(p0.y)}`);
+    for (const seg of chain) {
+      const a = verts[seg.s];
+      const b = verts[seg.e];
+      if (!a || !b) continue;
+      const straight =
+        seg.sx === 0 && seg.sy === 0 && seg.ex === 0 && seg.ey === 0;
+      if (straight) {
+        out.push(`L${fmt(b.x)} ${fmt(b.y)}`);
+      } else {
+        out.push(
+          `C${fmt(a.x + seg.sx)} ${fmt(a.y + seg.sy)} ${fmt(b.x + seg.ex)} ${fmt(b.y + seg.ey)} ${fmt(b.x)} ${fmt(b.y)}`,
+        );
+      }
+    }
+    if (chain.length > 0 && chain[chain.length - 1]!.e === first.s) {
+      out.push("Z");
+    }
+  }
+  return out.join(" ");
+}
+
+/**
+ * SVG paint attribute (fill / stroke) for the visible solid paint. Figma
+ * composites a node's paint list bottom-to-top, so the LAST opaque solid is the
+ * one actually seen — e.g. a stroke stacked `[cyan, pink]` renders pink. Pick
+ * the topmost visible solid rather than the first.
+ */
 function paintToSvgFill(
   paints: Paint[] | undefined,
 ): { color: string; opacity?: number } | null {
-  const p = paints?.find((x) => x.visible !== false && x.type === "SOLID");
+  let p: Paint | undefined;
+  for (const candidate of paints ?? []) {
+    if (candidate.visible !== false && candidate.type === "SOLID")
+      p = candidate;
+  }
   if (!p || !p.color) return null;
   const c = p.color;
   const r = Math.round(c.r * 255);
@@ -1485,10 +1847,13 @@ const VECTOR_LIKE_TYPES = new Set([
 
 function isVectorLike(node: FigNode): boolean {
   if (!node.type || !VECTOR_LIKE_TYPES.has(node.type)) return false;
-  if (
-    (node.fillGeometry?.length ?? 0) === 0 &&
-    (node.strokeGeometry?.length ?? 0) === 0
-  ) {
+  // Flattened geometry (saved .fig / REST) OR an editable vector network
+  // (clipboard paste) — either lets us draw the real shape as <svg>.
+  const hasFlatGeometry =
+    (node.fillGeometry?.length ?? 0) > 0 ||
+    (node.strokeGeometry?.length ?? 0) > 0;
+  const hasNetwork = typeof node.vectorData?.vectorNetworkBlob === "number";
+  if (!hasFlatGeometry && !hasNetwork) {
     return false;
   }
   // Nodes with an IMAGE fill render better as a regular <div> with
@@ -1521,11 +1886,14 @@ function emitSvgBody(
   const strokePaint = paintToSvgFill(effectiveStrokePaints(node, ctx));
   const strokeWeight = node.strokeWeight ?? 0;
 
+  let emittedFlat = false;
+
   // Fill paths
   for (const g of node.fillGeometry ?? []) {
     if (typeof g.commandsBlob !== "number") continue;
     const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
     if (!d) continue;
+    emittedFlat = true;
     const attrs = [`d="${d}"`, `fill-rule="${fillRule}"`];
     if (fillPaint) {
       attrs.push(`fill="${fillPaint.color}"`);
@@ -1542,6 +1910,7 @@ function emitSvgBody(
       if (typeof g.commandsBlob !== "number") continue;
       const d = decodePathCommands(ctx.blobs[g.commandsBlob]);
       if (!d) continue;
+      emittedFlat = true;
       const attrs = [
         `d="${d}"`,
         `fill="none"`,
@@ -1557,10 +1926,46 @@ function emitSvgBody(
       lines.push(`${indent}  <path ${attrs.join(" ")} />`);
     }
   }
-  // Best-effort viewBox so the geometry scales with the element box.
-  if (w > 0 && h > 0) {
-    // The path coordinates are already in the node's local pixel space, so
-    // viewBox = 0 0 w h works without further transforms.
+
+  // Vector-network fallback (clipboard paste ships only the editable network,
+  // not flattened geometry). Decode it to a path and paint it with the node's
+  // fill/stroke. Network coords are in `normalizedSize` space, so scale into
+  // the node's box (the SVG viewBox is 0 0 w h).
+  if (!emittedFlat && typeof node.vectorData?.vectorNetworkBlob === "number") {
+    const d = decodeVectorNetwork(ctx.blobs[node.vectorData.vectorNetworkBlob]);
+    if (d) {
+      const ns = node.vectorData.normalizedSize;
+      const sx = ns && ns.x ? (w || ns.x) / ns.x : 1;
+      const sy = ns && ns.y ? (h || ns.y) / ns.y : 1;
+      const scaled = Math.abs(sx - 1) > 1e-6 || Math.abs(sy - 1) > 1e-6;
+      const inner = scaled ? `${indent}  ` : indent;
+      if (scaled)
+        lines.push(`${indent}  <g transform="scale(${num(sx)} ${num(sy)})">`);
+      if (fillPaint) {
+        const a = [
+          `d="${d}"`,
+          `fill-rule="${fillRule}"`,
+          `fill="${fillPaint.color}"`,
+        ];
+        if (fillPaint.opacity !== undefined)
+          a.push(`fill-opacity="${fillPaint.opacity}"`);
+        lines.push(`${inner}  <path ${a.join(" ")} />`);
+      }
+      if (strokePaint && strokeWeight > 0) {
+        const a = [
+          `d="${d}"`,
+          `fill="none"`,
+          `stroke="${strokePaint.color}"`,
+          `stroke-width="${num(strokeWeight)}"`,
+          `stroke-linejoin="${(node.strokeJoin ?? "ROUND").toLowerCase()}"`,
+          `stroke-linecap="${(node.strokeCap ?? "ROUND").toLowerCase()}"`,
+        ];
+        if (strokePaint.opacity !== undefined)
+          a.push(`stroke-opacity="${strokePaint.opacity}"`);
+        lines.push(`${inner}  <path ${a.join(" ")} />`);
+      }
+      if (scaled) lines.push(`${indent}  </g>`);
+    }
   }
 }
 
@@ -1946,9 +2351,18 @@ function emitNode(
   // relative to it. Check the actually-rendered children (the inlined
   // master's, for an INSTANCE).
   const childSource = inlinedSymbol ?? node;
-  const hasAbsoluteChild = (
-    ctx.childrenOf.get(guidKey(childSource.guid)) ?? []
-  ).some((c) => c.stackPositioning === "ABSOLUTE");
+  const childrenOfSource = ctx.childrenOf.get(guidKey(childSource.guid)) ?? [];
+  const hasAbsoluteChild =
+    childrenOfSource.some((c) => c.stackPositioning === "ABSOLUTE") ||
+    // Non-autolayout frames/instances that are NOT themselves absolutely
+    // positioned need position:relative so their absolutely-positioned children
+    // (all children in non-flex mode) are offset relative to THIS element, not
+    // the nearest positioned ancestor further up the tree (e.g. <html> for
+    // top-level frames). Without this, children near the bottom of a frame
+    // escape the frame's overflow:hidden box and appear at wrong viewport coords.
+    (!isPositioned &&
+      (!layoutNode.stackMode || layoutNode.stackMode === "NONE") &&
+      childrenOfSource.length > 0);
   // A container whose drop shadow must wrap an overflowing absolute child
   // (e.g. a tooltip caret) needs `filter: drop-shadow()` rather than
   // `box-shadow`, which would only trace the body's box. Children render from
@@ -1972,7 +2386,12 @@ function emitNode(
     // the master.
     const vw = vectorSourceNode.size?.x ?? node.size?.x ?? 0;
     const vh = vectorSourceNode.size?.y ?? node.size?.y ?? 0;
-    if (vw > 0 && vh > 0) {
+    // A viewBox with a 0 (or sub-pixel, rounds-to-0) dimension is degenerate —
+    // the browser can't map coordinates and drops the whole SVG. Horizontal /
+    // vertical line vectors have exactly this shape (one dimension ~0), so emit
+    // a viewBox only when both dimensions survive rounding; otherwise the SVG
+    // paints its geometry at native 1:1 coords under `overflow: visible`.
+    if (num(vw)! > 0 && num(vh)! > 0) {
       attrs.push(`viewBox="0 0 ${num(vw)} ${num(vh)}"`);
     }
     attrs.push(`xmlns="http://www.w3.org/2000/svg"`);
@@ -2015,8 +2434,22 @@ function emitNode(
     emitOpenWithChildren(tag, attrs, indent, lines);
     // Preserve newlines in the source by splitting into <br>-separated lines
     // (HTML otherwise collapses whitespace).
-    const escaped = escapeHtmlText(chars).replace(/\n/g, "<br>");
-    lines.push(`${indent}  ${escaped}`);
+    const runs = textStyleRuns(node);
+    const toHtml = (s: string) => escapeHtmlText(s).replace(/\n/g, "<br>");
+    if (runs.length <= 1) {
+      lines.push(`${indent}  ${toHtml(chars)}`);
+    } else {
+      // Per-character color runs → one <span> per run; base-color runs inherit
+      // the element's `color`, overridden runs carry their own.
+      const html = runs
+        .map((r) =>
+          r.color
+            ? `<span style="color: ${r.color}">${toHtml(r.text)}</span>`
+            : toHtml(r.text),
+        )
+        .join("");
+      lines.push(`${indent}  ${html}`);
+    }
     lines.push(`${indent}</${tag}>`);
     return;
   }
@@ -2148,7 +2581,7 @@ function emitFrameTemplate(frame: FigNode, ctx: Ctx, pageName: string): string {
   // Default CSS content-box would inflate every explicit width/height/min-size
   // by the padding + border, so normalize to border-box.
   lines.push(
-    "  <style>*, *::before, *::after { box-sizing: border-box; }</style>",
+    "  <style>*, *::before, *::after { box-sizing: border-box; } body { margin: 0; padding: 0; }</style>",
   );
   // Custom font families used by the frame -> request them from Google
   // Fonts. (Smart-export does the same for design hand-off so the layout
@@ -2201,12 +2634,21 @@ export interface RenderedFrame {
   height?: number;
 }
 
+export interface RenderHtmlFidelityEntry {
+  nodeId: string;
+  nodeName?: string;
+  nodeType?: string;
+  notes: string[];
+}
+
 export interface RenderHtmlResult {
   pageCount: number;
   frameCount: number;
   frames: RenderedFrame[];
   /** Populated when `trackUnresolvedImageRefs` is true in RenderHtmlOptions. */
   unresolvedImageRefs?: Set<string>;
+  /** Approximated nodes collected during rendering. */
+  approximatedNodes: RenderHtmlFidelityEntry[];
 }
 
 export interface RenderHtmlOptions {
@@ -2521,6 +2963,7 @@ export function renderHtmlTemplates(
       : undefined,
     fontUsage: new Set(),
     inliningStack: new Set(),
+    approximatedNodes: [],
     renderedNodeCount: 0,
     maxRenderedNodes: options.maxRenderedNodes ?? DEFAULT_MAX_RENDERED_NODES,
     maxTreeDepth: options.maxTreeDepth ?? DEFAULT_MAX_TREE_DEPTH,
@@ -2532,7 +2975,8 @@ export function renderHtmlTemplates(
   };
 
   const documentNode = nodes.find((n) => n.type === "DOCUMENT");
-  if (!documentNode) return { pageCount: 0, frameCount: 0, frames: [] };
+  if (!documentNode)
+    return { pageCount: 0, frameCount: 0, frames: [], approximatedNodes: [] };
 
   const allPages = (childrenOf.get(guidKey(documentNode.guid)) ?? []).filter(
     (n) => n.type === "CANVAS" && !n.internalOnly,
@@ -2598,6 +3042,7 @@ export function renderHtmlTemplates(
     pageCount: pages.length,
     frameCount: frames.length,
     frames,
+    approximatedNodes: ctx.approximatedNodes,
     ...(ctx.unresolvedImageRefs !== undefined
       ? { unresolvedImageRefs: ctx.unresolvedImageRefs }
       : {}),

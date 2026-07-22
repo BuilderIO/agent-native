@@ -9078,14 +9078,66 @@ const Screen = memo(function Screen({
   // Memoize the srcdoc with the hit-test responder injected so we don't
   // rebuild the string every render (that would reload the iframe).
   // Keyed only on screen.content; the hit-test script itself is constant.
-  const srcdocWithHitTest = useMemo(
-    () =>
-      injectSessionReplayIframeBootstrap(
-        appendHitTestResponder(screen.content),
-      ),
+  const srcdocWithHitTest = useMemo(() => {
+    // [diag-C] log screen content CDN URL presence BEFORE iframe build
+    const cdnUrls = screen.content.match(
+      /https:\/\/cdn\.builder\.io\/[^\s)'"&]+/gi,
+    );
+    if (cdnUrls && cdnUrls.length > 0) {
+      console.info("[screen-iframe][C-content]", {
+        screenId: screen.id,
+        filename: screen.filename,
+        cdnUrlCount: cdnUrls.length,
+        firstUrl: cdnUrls[0],
+        hasSingleQuote: screen.content.includes("url('"),
+        hasDoubleQuote: screen.content.includes('url("'),
+        hasEncodedQuote: screen.content.includes("url(&quot;"),
+      });
+    }
+
+    // Inject a tiny diagnostic script that probes background-image loading from
+    // inside the iframe where computed styles and network events are visible.
+    const diagScript = cdnUrls?.length
+      ? `<script data-fig-image-diag>
+(function() {
+  function probe() {
+    var els = document.querySelectorAll('[style*="cdn.builder.io"]');
+    els.forEach(function(el) {
+      var cs = getComputedStyle(el);
+      var bi = cs.backgroundImage;
+      console.info('[iframe-diag] element found', {
+        tag: el.tagName,
+        computedBgImage: bi,
+        offsetW: el.offsetWidth,
+        offsetH: el.offsetHeight,
+        visibility: cs.visibility,
+        display: cs.display
+      });
+      var match = bi.match(/url\\(['"]?(https:\\/\\/cdn\\.builder\\.io\\/[^'"\\)]+)['"]?\\)/);
+      if (match) {
+        var img = new Image();
+        img.onload = function() { console.info('[iframe-diag] IMAGE LOADED', match[1].slice(0,80), img.naturalWidth + 'x' + img.naturalHeight); };
+        img.onerror = function(e) { console.warn('[iframe-diag] IMAGE FAILED', match[1].slice(0,80), e.type); };
+        img.src = match[1];
+      }
+    });
+    if (els.length === 0) {
+      console.info('[iframe-diag] no cdn elements found; all [style] elements:', document.querySelectorAll('[style]').length);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', probe);
+  else probe();
+})();
+<\/script>`
+      : "";
+
+    const base = appendHitTestResponder(screen.content);
+    const withDiag = diagScript
+      ? base.replace(/<\/body>/i, diagScript + "</body>")
+      : base;
+    return injectSessionReplayIframeBootstrap(withDiag);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [screen.content],
-  );
+  }, [screen.content]);
 
   const updateDirectHover = useCallback((next: boolean) => {
     setDirectlyHovered((current) => (current === next ? current : next));

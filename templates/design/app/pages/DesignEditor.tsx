@@ -28926,7 +28926,17 @@ function DesignEditor() {
                 )}
               >
                 {canEditDesign ? (
-                  <DesignImportPanel context={designExtensionContext} />
+                  <DesignImportPanel
+                    context={designExtensionContext}
+                    onImport={(result) => {
+                      const count = result.unresolvedImageRefCount ?? 0;
+                      if (count > 0 && result.files?.length) {
+                        setFigmaHydrationFileIds(result.files.map((f) => f.id));
+                        setFigmaHydrationImageCount(count);
+                        setFigmaHydrationOpen(true);
+                      }
+                    }}
+                  />
                 ) : (
                   <ReadOnlyEditorPanel
                     title={"Import requires editor access" /* i18n-ignore */}
@@ -30182,6 +30192,7 @@ function DesignEditor() {
       <FigmaHydrationDialog
         open={figmaHydrationOpen}
         onOpenChange={setFigmaHydrationOpen}
+        designId={id ?? ""}
         fileIds={figmaHydrationFileIds}
         imageCount={figmaHydrationImageCount}
         onHydrated={() => {

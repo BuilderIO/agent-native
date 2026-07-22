@@ -668,10 +668,25 @@ const messages = {
         "已從 Figma 填入 {{count}} 個圖片{{plural}}。",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "實驗性功能：Figma 的 .fig 格式為專有格式且可能變更。支援的圖層會轉為可編輯螢幕，部分功能可能不同。上限為 50 MB。",
+        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 50 MB。",
+      figUploadDescriptionShort:
+        "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
       figUploadUploading: "上傳中 {{progress}}%",
       figUploadProcessing: "轉換中…",
+      figmaPasteBodyUnlimited:
+        "不需要 Figma 權杖即可使用 — 幾何、版面和文字立即匯入。",
+      figmaPasteBodyImages:
+        "若無權杖，圖片填充可能遺失。上傳 .fig 檔案可包含內嵌圖片。",
+      rateLimitTitle: "Figma 已暫停此匯入",
+      rateLimitLowSeat:
+        "您的座位類型（檢視者/協作者）的 Figma API 檔案匯入配額有限 — 根據官方 Figma 文件，每月最多 6 次請求。",
+      rateLimitGeneric: "Figma 對此匯入進行了速率限制。配額將自動重設。",
+      rateLimitRetryIn: "請在 {{time}} 後重試。",
+      rateLimitAlternatives: "無配額替代方案：",
+      rateLimitUsePaste: "從 Figma 貼上 — 無限制",
+      rateLimitUseFig: "上傳 .fig — 無限制",
+      rateLimitUpgrade: "查看 Figma 方案選項 →",
       htmlTitle: "匯入 HTML",
       htmlDescription:
         "貼上或上傳獨立 HTML。Design 會將其儲存為新螢幕，不會注入到此編輯器 UI。",

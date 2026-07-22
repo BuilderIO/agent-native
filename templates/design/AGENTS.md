@@ -109,8 +109,11 @@ ladder.
   `design-systems` skill's "Import from Figma" section.
 - Uploading a raw `.fig` file in the Design editor's Import panel decodes the
   container/Kiwi document locally into editable screens — no Builder
-  connection needed — and is scoped to screens only; it never creates or
-  updates a design system. This is separate from uploading `.fig` on the
+  connection needed — and accepts an optional Figma frame URL alongside the
+  file. When the URL contains a `node-id`, only that frame or its containing
+  top-level frame is imported; a mismatch falls back to all frames. This path
+  uses no Figma REST API quota and is scoped to screens only; it never creates
+  or updates a design system. This is separate from uploading `.fig` on the
   Design System Setup page, which still indexes tokens/brand-kit data through
   Builder and does not parse `.fig` locally. See the `design-systems` skill
   for both paths.
@@ -120,10 +123,17 @@ ladder.
   public Figma contract, so a copied frame link remains the stable exact path
   if Figma changes that field. Without a token, `import-figma-clipboard` falls
   back to a local Kiwi binary decode: geometry, auto-layout, text, solid fills,
-  and strokes are editable immediately; image fills become annotated placeholders
-  that can be filled in later with `hydrate-figma-paste-images` once a Figma
-  access token is connected. This is not a full-fidelity import — report which
-  image fills are still unresolved and offer to hydrate them.
+  and strokes are editable immediately; image fills become annotated
+  placeholders (`data-figma-image-ref="<sha1>"`) that can be filled in later two
+  ways. (1) Token-free: upload the original `.fig` — the paste-result dialog's
+  "Fill images from .fig" option, or `hydrateFileIds` on the `.fig` upload route
+  (`/api/import-design-file`) — which matches each placeholder's SHA-1 hash to
+  the `.fig`'s embedded `images/` bytes, mirrors them to durable storage, and
+  needs no Figma API. (2) With a token: `hydrate-figma-paste-images` resolves the
+  same placeholders through Figma's REST image endpoint. This is not a
+  full-fidelity import — report which image fills are still unresolved and offer
+  to hydrate them. Clipboard paste is the fast no-quota path; the original `.fig`
+  is what carries the real image bytes for both upload and paste-hydration.
 - For "what's in this Figma file/frame?" or "show me a screenshot of this
   frame" without importing anything, use `get-figma-design-context` — no
   `nodeId` lists pages/top-level frames (like the official Figma MCP's

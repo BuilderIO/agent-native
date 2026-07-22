@@ -590,19 +590,49 @@ const enUS = {
         "Imported without token — geometry and text only",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
-      figmaHydrationDialogTitle: "Connect Figma to load images",
+      figmaHydrationDialogTitle: "Fill in the missing images",
       figmaHydrationDialogDescription:
-        "Enter your Figma access token to load {{count}} missing image{{plural}} into the imported screen{{screensPlural}}.",
-      figmaHydrationConnectAndLoad: "Connect and load images",
+        "{{count}} image{{plural}} couldn't come through the paste — Figma's clipboard leaves image data out. Fill from the original .fig, or fetch the exact images from the copied frame.",
+      figmaHydrationConnectAndLoad: "Connect & fetch images",
       figmaHydrationSuccess: "Images loaded successfully",
       figmaHydrationSuccessDescription:
         "{{count}} image{{plural}} filled in from Figma.",
+      figmaHydrationRecommended: "Recommended",
+      figmaHydrationFigTitle: "Have the original .fig file?",
+      figmaHydrationFigOption:
+        "Fastest — pulls every image straight from the file. No token, no rate limits.",
+      figmaHydrationChooseFig: "Fill images from .fig",
+      figmaHydrationOrToken: "Or fetch from Figma",
+      figmaHydrationTokenDescription:
+        'Fetches the exact images from the copied frame\'s Figma file. Needs "File content" and "Current user" scopes; saved securely, never shown in chat.',
+      figmaHydrationRateLimit:
+        "Figma rate-limits its API by seat — Viewer/Collab seats get only a few requests, Dev/Full seats more. If it's cooling down, use the .fig above.",
+      figmaHydrationFigSuccessDescription:
+        "{{count}} image{{plural}} filled in from the .fig file.",
+      figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
+      figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "Upload .fig",
       figUploadDescription:
-        "Experimental: Figma's .fig format is proprietary and may change. Supported layers become editable screens; some features may differ. Maximum 50 MB.",
+        "Local import using Figma's .fig format — no API quota. Embedded images are included. Format may change between Figma versions. Maximum 50 MB.",
       chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
+      figUploadDescriptionShort:
+        "Local import — no Figma API quota used. Embedded images included.",
+      figmaPasteBodyUnlimited:
+        "Works without a Figma token — geometry, layout, and text import immediately.",
+      figmaPasteBodyImages:
+        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
+      rateLimitTitle: "Figma paused this import",
+      rateLimitLowSeat:
+        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
+      rateLimitGeneric:
+        "Figma rate-limited this import. The quota resets automatically.",
+      rateLimitRetryIn: "Try again in {{time}}.",
+      rateLimitAlternatives: "No-quota alternatives:",
+      rateLimitUsePaste: "Paste from Figma — unlimited",
+      rateLimitUseFig: "Upload .fig — unlimited",
+      rateLimitUpgrade: "View Figma plan options →",
       htmlTitle: "Import HTML",
       htmlDescription:
         "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",

@@ -137,7 +137,7 @@ describe("hydrateImageRefsInHtml", () => {
 
   it("replaces url placeholder with durable URL and removes the attr when fully resolved", () => {
     const html =
-      '<div data-figma-image-ref="abc123" style="background-image: url(&quot;about:blank&quot;); width: 100px;">x</div>';
+      '<div data-figma-image-ref="abc123" style="background-image: url(\'about:blank\'); width: 100px;">x</div>';
     const urls = new Map([["abc123", "https://cdn.example.com/img.png"]]);
 
     const { html: out, resolved, missing } = hydrateImageRefsInHtml(html, urls);
@@ -145,13 +145,13 @@ describe("hydrateImageRefsInHtml", () => {
     expect(resolved).toBe(1);
     expect(missing).toEqual([]);
     expect(out).not.toContain("data-figma-image-ref");
-    expect(out).toContain("url(&quot;https://cdn.example.com/img.png&quot;)");
+    expect(out).toContain("url('https://cdn.example.com/img.png')");
     expect(out).not.toContain("about:blank");
   });
 
   it("replaces multiple url placeholders in order matching the hashes", () => {
     const html =
-      '<div data-figma-image-ref="h1 h2" style="background-image: url(&quot;about:blank&quot;), url(&quot;about:blank&quot;);">x</div>';
+      "<div data-figma-image-ref=\"h1 h2\" style=\"background-image: url('about:blank'), url('about:blank');\">x</div>";
     const urls = new Map([
       ["h1", "https://cdn.example.com/img1.png"],
       ["h2", "https://cdn.example.com/img2.png"],
@@ -160,14 +160,14 @@ describe("hydrateImageRefsInHtml", () => {
     const { html: out, resolved } = hydrateImageRefsInHtml(html, urls);
 
     expect(resolved).toBe(2);
-    expect(out).toContain("url(&quot;https://cdn.example.com/img1.png&quot;)");
-    expect(out).toContain("url(&quot;https://cdn.example.com/img2.png&quot;)");
+    expect(out).toContain("url('https://cdn.example.com/img1.png')");
+    expect(out).toContain("url('https://cdn.example.com/img2.png')");
     expect(out).not.toContain("data-figma-image-ref");
   });
 
   it("keeps placeholder and preserves attr for unresolved hashes", () => {
     const html =
-      '<div data-figma-image-ref="abc123" style="background-image: url(&quot;about:blank&quot;);">x</div>';
+      '<div data-figma-image-ref="abc123" style="background-image: url(\'about:blank\');">x</div>';
 
     const {
       html: out,
@@ -183,7 +183,7 @@ describe("hydrateImageRefsInHtml", () => {
 
   it("partially resolves: updates attr with remaining hashes for unresolved", () => {
     const html =
-      '<div data-figma-image-ref="h1 h2" style="background-image: url(&quot;about:blank&quot;), url(&quot;about:blank&quot;);">x</div>';
+      "<div data-figma-image-ref=\"h1 h2\" style=\"background-image: url('about:blank'), url('about:blank');\">x</div>";
     const urls = new Map([["h1", "https://cdn.example.com/img1.png"]]);
 
     const { html: out, resolved, missing } = hydrateImageRefsInHtml(html, urls);
@@ -191,19 +191,17 @@ describe("hydrateImageRefsInHtml", () => {
     expect(resolved).toBe(1);
     expect(missing).toEqual(["h2"]);
     expect(out).toContain('data-figma-image-ref="h2"');
-    expect(out).toContain("url(&quot;https://cdn.example.com/img1.png&quot;)");
-    expect(out).toContain("url(&quot;about:blank&quot;)");
+    expect(out).toContain("url('https://cdn.example.com/img1.png')");
+    expect(out).toContain("url('about:blank')");
   });
 
   it("encodes & in durable URLs as &amp;", () => {
     const html =
-      '<div data-figma-image-ref="abc" style="background-image: url(&quot;about:blank&quot;);">x</div>';
+      '<div data-figma-image-ref="abc" style="background-image: url(\'about:blank\');">x</div>';
     const urls = new Map([["abc", "https://cdn.example.com/img?a=1&b=2"]]);
 
     const { html: out } = hydrateImageRefsInHtml(html, urls);
-    expect(out).toContain(
-      "url(&quot;https://cdn.example.com/img?a=1&amp;b=2&quot;)",
-    );
+    expect(out).toContain("url('https://cdn.example.com/img?a=1&amp;b=2')");
   });
 });
 
@@ -219,7 +217,7 @@ const SCREEN_METADATA_ROW = {
   filename: "Screen.html",
   fileType: "html",
   content:
-    '<div data-figma-image-ref="abc123" style="background-image: url(&quot;about:blank&quot;);">x</div>',
+    '<div data-figma-image-ref="abc123" style="background-image: url(\'about:blank\');">x</div>',
   designData: JSON.stringify({
     screenMetadata: {
       "file-1": {

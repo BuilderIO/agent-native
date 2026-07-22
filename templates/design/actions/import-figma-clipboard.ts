@@ -191,7 +191,6 @@ export default defineAction({
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-      console.log("[import-figma-clipboard] REST error:", errorMessage);
       // The importer intentionally refuses to persist Figma's expiring render
       // URLs. Keep its actionable storage setup error instead of disguising it
       // as an ordinary clipboard-format fallback.
@@ -200,14 +199,6 @@ export default defineAction({
       }
       figmaApiKeyMissing = CREDENTIAL_MISSING_RE.test(errorMessage);
       const isTransient = TRANSIENT_ERROR_RE.test(errorMessage);
-      console.log(
-        "[import-figma-clipboard] figmaApiKeyMissing:",
-        figmaApiKeyMissing,
-        "isTransient:",
-        isTransient,
-        "clipboardBuffer present:",
-        !!clipboardBuffer,
-      );
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&

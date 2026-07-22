@@ -7,7 +7,7 @@
 
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  hydrateImagesFromFig,
+  validateFigUploadFile,
+} from "@/lib/design-file-upload";
+import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
@@ -29,6 +33,7 @@ import {
 interface FigmaHydrationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  designId: string;
   fileIds: string[];
   imageCount: number;
   onHydrated: () => void;
@@ -37,6 +42,7 @@ interface FigmaHydrationDialogProps {
 export function FigmaHydrationDialog({
   open,
   onOpenChange,
+  designId,
   fileIds,
   imageCount,
   onHydrated,
@@ -46,6 +52,7 @@ export function FigmaHydrationDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [docsUrl, setDocsUrl] = useState<string | null>(null);
+  const figInputRef = useRef<HTMLInputElement>(null);
 
   const screensPlural = fileIds.length === 1 ? "" : "s";
   const imagePlural = imageCount === 1 ? "" : "s";
@@ -58,6 +65,48 @@ export function FigmaHydrationDialog({
       })
       .catch(() => {});
   }, [open]);
+
+  async function handleFigSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (validateFigUploadFile(file)) {
+      setError(t("designEditor.import.figmaHydrationInvalidFig"));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await hydrateImagesFromFig({
+        designId,
+        file,
+        fileIds,
+        fallbackErrorMessage: t("designEditor.import.figmaHydrationFigError"),
+      });
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      const totalResolved = result.totalResolved ?? 0;
+      onOpenChange(false);
+      setToken("");
+      onHydrated();
+      toast.success(t("designEditor.import.figmaHydrationSuccess"), {
+        description: t(
+          "designEditor.import.figmaHydrationFigSuccessDescription",
+          { count: totalResolved, plural: totalResolved === 1 ? "" : "s" },
+        ),
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("designEditor.import.figmaHydrationFigError"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -125,7 +174,42 @@ export function FigmaHydrationDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="mt-4 space-y-2">
+          <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-medium text-foreground">
+                {t("designEditor.import.figmaHydrationFigTitle")}
+              </p>
+              <span className="rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-primary">
+                {t("designEditor.import.figmaHydrationRecommended")}
+              </span>
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+              {t("designEditor.import.figmaHydrationFigOption")}
+            </p>
+            <input
+              ref={figInputRef}
+              type="file"
+              accept=".fig"
+              className="hidden"
+              onChange={(e) => void handleFigSelected(e)}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="mt-2 w-full"
+              disabled={busy}
+              onClick={() => figInputRef.current?.click()}
+            >
+              {t("designEditor.import.figmaHydrationChooseFig")}
+            </Button>
+          </div>
+
+          <div className="mt-3 text-center text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t("designEditor.import.figmaHydrationOrToken")}
+          </div>
+
+          <div className="mt-2 space-y-2">
             <div className="flex items-center justify-between gap-2">
               <Label htmlFor="figma-hydration-token" className="text-xs">
                 {t("designEditor.import.figmaTokenLabel")}
@@ -157,9 +241,14 @@ export function FigmaHydrationDialog({
                 {error}
               </p>
             ) : (
-              <p className="text-[10px] leading-snug text-muted-foreground">
-                {t("designEditor.import.figmaTokenDescription")}
-              </p>
+              <div className="space-y-1">
+                <p className="text-[10px] leading-snug text-muted-foreground">
+                  {t("designEditor.import.figmaHydrationTokenDescription")}
+                </p>
+                <p className="text-[10px] leading-snug text-muted-foreground/70">
+                  {t("designEditor.import.figmaHydrationRateLimit")}
+                </p>
+              </div>
             )}
           </div>
 
