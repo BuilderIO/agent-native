@@ -104,6 +104,7 @@ const contentProps = (props: {
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
   "aria-controls"?: string;
+  list?: string;
 }) => ({
   className: props.className,
   style: props.style,
@@ -112,6 +113,7 @@ const contentProps = (props: {
   "aria-labelledby": props["aria-labelledby"],
   "aria-describedby": props["aria-describedby"],
   "aria-controls": props["aria-controls"],
+  list: props.list,
 });
 
 const ActionButton: DesignSystemComponents["ActionButton"] = ({
@@ -182,6 +184,7 @@ const TextField: DesignSystemComponents["TextField"] = ({
   leadingContent,
   trailingContent,
   inputRef,
+  list,
   onBlur,
   onFocus,
   onKeyDown,
@@ -194,6 +197,7 @@ const TextField: DesignSystemComponents["TextField"] = ({
     {label ? <Typography.Text strong>{label}</Typography.Text> : null}
     <Input
       ref={inputRef as any}
+      list={list}
       value={value}
       status={invalid ? "error" : undefined}
       placeholder={props.placeholder}

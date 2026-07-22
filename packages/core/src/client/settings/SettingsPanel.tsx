@@ -760,10 +760,12 @@ export function AppDefaultModelField({
         value={value}
         onChange={onValueChange}
         disabled={disabled}
+        list={`app-model-suggestions-${engine}`}
         onKeyDown={(event) => {
           if (event.key === "Enter") onEnter?.();
         }}
         placeholder={defaultModel ?? "model-id"}
+        list={`app-model-suggestions-${engine}`}
         autoComplete="off"
         aria-label="Model"
         className={cn(

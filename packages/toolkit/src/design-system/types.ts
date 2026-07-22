@@ -101,6 +101,8 @@ export interface TextFieldProps
   description?: ReactNode;
   errorMessage?: ReactNode;
   placeholder?: string;
+  /** Optional native datalist id for editable fields with suggestions. */
+  list?: string;
   name?: string;
   type?: DesignSystemTextInputType;
   inputMode?:
@@ -134,6 +136,7 @@ export interface TextAreaProps
   description?: ReactNode;
   errorMessage?: ReactNode;
   placeholder?: string;
+  list?: string;
   name?: string;
   rows?: number;
   maxLength?: number;
