@@ -60,102 +60,46 @@ const muiSize = (size?: DesignSystemSize) =>
 const muiColor = (intent?: "primary" | "neutral" | "danger") =>
   intent === "danger" ? "error" : intent === "primary" ? "primary" : "inherit";
 
+const muiLightTheme = createTheme({ palette: { mode: "light" } });
+const muiDarkTheme = createTheme({ palette: { mode: "dark" } });
+
+const muiPalette = (muiTheme: typeof muiLightTheme) => ({
+  background: muiTheme.palette.background.default,
+  foreground: muiTheme.palette.text.primary,
+  card: muiTheme.palette.background.paper,
+  "card-foreground": muiTheme.palette.text.primary,
+  popover: muiTheme.palette.background.paper,
+  "popover-foreground": muiTheme.palette.text.primary,
+  primary: muiTheme.palette.primary.main,
+  "primary-foreground": muiTheme.palette.primary.contrastText,
+  secondary: muiTheme.palette.secondary.main,
+  "secondary-foreground": muiTheme.palette.secondary.contrastText,
+  muted: muiTheme.palette.action.hover,
+  "muted-foreground": muiTheme.palette.text.secondary,
+  accent: muiTheme.palette.action.selected,
+  "accent-foreground": muiTheme.palette.text.primary,
+  border: muiTheme.palette.divider,
+  input: muiTheme.palette.divider,
+  ring: muiTheme.palette.primary.main,
+  destructive: muiTheme.palette.error.main,
+  "destructive-foreground": muiTheme.palette.error.contrastText,
+});
+
 const palette = {
-  light: {
-    background: "#f7f8fa",
-    foreground: "#1f2937",
-    card: "#ffffff",
-    "card-foreground": "#1f2937",
-    popover: "#ffffff",
-    "popover-foreground": "#1f2937",
-    primary: "#1976d2",
-    "primary-foreground": "#ffffff",
-    secondary: "#e8eef7",
-    "secondary-foreground": "#243b53",
-    muted: "#eef2f7",
-    "muted-foreground": "#62748a",
-    accent: "#e2e8f0",
-    "accent-foreground": "#1f2937",
-    border: "#d5dde8",
-    input: "#d5dde8",
-    ring: "#1976d2",
-    destructive: "#d32f2f",
-    "destructive-foreground": "#ffffff",
-  },
-  dark: {
-    background: "#121820",
-    foreground: "#e6edf5",
-    card: "#1a2430",
-    "card-foreground": "#e6edf5",
-    popover: "#1a2430",
-    "popover-foreground": "#e6edf5",
-    primary: "#90caf9",
-    "primary-foreground": "#10243a",
-    secondary: "#27364a",
-    "secondary-foreground": "#d8e7f8",
-    muted: "#202d3b",
-    "muted-foreground": "#9eb0c4",
-    accent: "#30435b",
-    "accent-foreground": "#e6edf5",
-    border: "#34475c",
-    input: "#34475c",
-    ring: "#90caf9",
-    destructive: "#ef9a9a",
-    "destructive-foreground": "#3a1010",
-  },
+  light: muiPalette(muiLightTheme),
+  dark: muiPalette(muiDarkTheme),
 } as const;
 
 export const theme = defineTheme({
   colors: palette,
-  radius: "0.5rem",
+  radius: `${muiLightTheme.shape.borderRadius}px`,
   typography: {
-    fontFamily: "Inter, system-ui, sans-serif",
+    fontFamily: muiLightTheme.typography.fontFamily,
     monoFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   },
-  elevation: {
-    low: "0 1px 3px rgb(15 23 42 / 0.12)",
-    medium: "0 8px 24px rgb(15 23 42 / 0.16)",
-    high: "0 16px 48px rgb(15 23 42 / 0.24)",
-  },
 });
 
-export const muiLightTheme = createTheme({
-  palette: {
-    mode: "light",
-    primary: { main: palette.light.primary },
-    error: { main: palette.light.destructive },
-    background: {
-      default: palette.light.background,
-      paper: palette.light.card,
-    },
-    text: {
-      primary: palette.light.foreground,
-      secondary: palette.light["muted-foreground"],
-    },
-  },
-  shape: { borderRadius: 8 },
-  typography: {
-    fontFamily: palette.light ? theme.typography?.fontFamily : undefined,
-  },
-});
-
-export const muiDarkTheme = createTheme({
-  palette: {
-    mode: "dark",
-    primary: { main: palette.dark.primary },
-    error: { main: palette.dark.destructive },
-    background: {
-      default: palette.dark.background,
-      paper: palette.dark.card,
-    },
-    text: {
-      primary: palette.dark.foreground,
-      secondary: palette.dark["muted-foreground"],
-    },
-  },
-  shape: { borderRadius: 8 },
-  typography: { fontFamily: theme.typography?.fontFamily },
-});
+export { muiLightTheme, muiDarkTheme };
 
 const contentProps = (props: {
   className?: string;
@@ -580,11 +524,20 @@ const Popover: DesignSystemComponents["Popover"] = ({
   defaultOpen,
   onOpenChange,
   dismissible = true,
+  initialFocusRef,
+  restoreFocusRef,
   ...props
 }) => {
   const anchorRef = useRef<HTMLElement | null>(null);
   const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
   const isOpen = open ?? internalOpen;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isOpen) initialFocusRef?.current?.focus();
+      else restoreFocusRef?.current?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initialFocusRef, isOpen, restoreFocusRef]);
   const setOpen = (next: boolean) => {
     if (open === undefined) setInternalOpen(next);
     onOpenChange?.(next);
@@ -650,8 +603,8 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
       {...contentProps(props)}
       open={open}
       container={overlayContainer(portalContainer)}
-      disableAutoFocus
-      disableRestoreFocus
+      disableAutoFocus={Boolean(initialFocusRef)}
+      disableRestoreFocus={Boolean(restoreFocusRef)}
       slotProps={{
         transition: {
           onEntered: () => initialFocusRef?.current?.focus(),

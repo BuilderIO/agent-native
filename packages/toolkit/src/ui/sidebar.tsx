@@ -4,18 +4,16 @@ import { VariantProps, cva } from "class-variance-authority";
 import * as React from "react";
 
 import { useIsMobile } from "../hooks/use-mobile.js";
+import {
+  Skeleton as DesignSystemSkeleton,
+  Tooltip as DesignSystemTooltip,
+} from "../design-system/components.js";
 import { cn } from "../utils.js";
 import { Button } from "./button.js";
 import { Input } from "./input.js";
 import { Separator } from "./separator.js";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "./sheet.js";
 import { Skeleton } from "./skeleton.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./tooltip.js";
 
 const SIDEBAR_COOKIE_NAME = "sidebar:state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
@@ -137,25 +135,23 @@ const SidebarProvider = React.forwardRef<
 
     return (
       <SidebarContext.Provider value={contextValue}>
-        <TooltipProvider delayDuration={0}>
-          <div
-            style={
-              {
-                "--sidebar-width": SIDEBAR_WIDTH,
-                "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-                ...style,
-              } as React.CSSProperties
-            }
-            className={cn(
-              "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
-              className,
-            )}
-            ref={ref}
-            {...props}
-          >
-            {children}
-          </div>
-        </TooltipProvider>
+        <div
+          style={
+            {
+              "--sidebar-width": SIDEBAR_WIDTH,
+              "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+              ...style,
+            } as React.CSSProperties
+          }
+          className={cn(
+            "group/sidebar-wrapper flex min-h-svh w-full has-[[data-variant=inset]]:bg-sidebar",
+            className,
+          )}
+          ref={ref}
+          {...props}
+        >
+          {children}
+        </div>
       </SidebarContext.Provider>
     );
   },
@@ -302,8 +298,8 @@ const SidebarRail = React.forwardRef<
   const { toggleSidebar } = useSidebar();
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <DesignSystemTooltip
+      trigger={
         <button
           ref={ref}
           data-sidebar="rail"
@@ -321,9 +317,10 @@ const SidebarRail = React.forwardRef<
           )}
           {...props}
         />
-      </TooltipTrigger>
-      <TooltipContent>Toggle Sidebar</TooltipContent>
-    </Tooltip>
+      }
+      content="Toggle Sidebar"
+      placement="right"
+    />
   );
 });
 SidebarRail.displayName = "SidebarRail";
@@ -552,7 +549,7 @@ const SidebarMenuButton = React.forwardRef<
   React.ComponentProps<"button"> & {
     asChild?: boolean;
     isActive?: boolean;
-    tooltip?: string | React.ComponentProps<typeof TooltipContent>;
+    tooltip?: string | { children?: React.ReactNode; hidden?: boolean };
   } & VariantProps<typeof sidebarMenuButtonVariants>
 >(
   (
@@ -585,22 +582,17 @@ const SidebarMenuButton = React.forwardRef<
       return button;
     }
 
-    if (typeof tooltip === "string") {
-      tooltip = {
-        children: tooltip,
-      };
-    }
+    const tooltipText =
+      typeof tooltip === "string" ? tooltip : tooltip.children;
+    if (!tooltipText || state !== "collapsed" || isMobile) return button;
 
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          align="center"
-          hidden={state !== "collapsed" || isMobile}
-          {...tooltip}
-        />
-      </Tooltip>
+      <DesignSystemTooltip
+        trigger={button}
+        content={tooltipText}
+        placement="right"
+        align="center"
+      />
     );
   },
 );
@@ -677,13 +669,15 @@ const SidebarMenuSkeleton = React.forwardRef<
       {...props}
     >
       {showIcon && (
-        <Skeleton
+        <DesignSystemSkeleton
           className="size-4 rounded-md"
+          shape="rectangle"
           data-sidebar="menu-skeleton-icon"
         />
       )}
-      <Skeleton
+      <DesignSystemSkeleton
         className="h-4 flex-1 max-w-[--skeleton-width]"
+        shape="line"
         data-sidebar="menu-skeleton-text"
         style={
           {

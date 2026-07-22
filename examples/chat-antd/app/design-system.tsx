@@ -49,90 +49,51 @@ const buttonType = (emphasis?: "solid" | "outline" | "ghost") =>
 const buttonDanger = (intent?: "primary" | "neutral" | "danger") =>
   intent === "danger";
 
+const antdLightTokens = antdTheme.getDesignToken();
+const antdDarkTokens = antdTheme.getDesignToken({
+  algorithm: antdTheme.darkAlgorithm,
+});
+
+const antdPalette = (tokens: typeof antdLightTokens) => ({
+  background: tokens.colorBgBase,
+  foreground: tokens.colorText,
+  card: tokens.colorBgContainer,
+  "card-foreground": tokens.colorText,
+  popover: tokens.colorBgElevated,
+  "popover-foreground": tokens.colorText,
+  primary: tokens.colorPrimary,
+  "primary-foreground": tokens.colorWhite,
+  secondary: tokens.colorFillSecondary,
+  "secondary-foreground": tokens.colorText,
+  muted: tokens.colorFillTertiary,
+  "muted-foreground": tokens.colorTextSecondary,
+  accent: tokens.colorPrimaryBg,
+  "accent-foreground": tokens.colorText,
+  border: tokens.colorBorder,
+  input: tokens.colorBorder,
+  ring: tokens.colorPrimary,
+  destructive: tokens.colorError,
+  "destructive-foreground": tokens.colorWhite,
+});
+
 const palette = {
-  light: {
-    background: "#f7f8fa",
-    foreground: "#1f2937",
-    card: "#ffffff",
-    "card-foreground": "#1f2937",
-    popover: "#ffffff",
-    "popover-foreground": "#1f2937",
-    primary: "#1677ff",
-    "primary-foreground": "#ffffff",
-    secondary: "#e8eef7",
-    "secondary-foreground": "#243b53",
-    muted: "#eef2f7",
-    "muted-foreground": "#62748a",
-    accent: "#e2e8f0",
-    "accent-foreground": "#1f2937",
-    border: "#d5dde8",
-    input: "#d5dde8",
-    ring: "#1677ff",
-    destructive: "#ff4d4f",
-    "destructive-foreground": "#ffffff",
-  },
-  dark: {
-    background: "#121820",
-    foreground: "#e6edf5",
-    card: "#1a2430",
-    "card-foreground": "#e6edf5",
-    popover: "#1a2430",
-    "popover-foreground": "#e6edf5",
-    primary: "#4096ff",
-    "primary-foreground": "#061c3c",
-    secondary: "#27364a",
-    "secondary-foreground": "#d8e7f8",
-    muted: "#202d3b",
-    "muted-foreground": "#9eb0c4",
-    accent: "#30435b",
-    "accent-foreground": "#e6edf5",
-    border: "#34475c",
-    input: "#34475c",
-    ring: "#4096ff",
-    destructive: "#ff7875",
-    "destructive-foreground": "#3a1010",
-  },
+  light: antdPalette(antdLightTokens),
+  dark: antdPalette(antdDarkTokens),
 } as const;
 
 export const theme = defineTheme({
   colors: palette,
-  radius: "0.5rem",
+  radius: `${antdLightTokens.borderRadius}px`,
   typography: {
-    fontFamily: "Inter, system-ui, sans-serif",
+    fontFamily: antdLightTokens.fontFamily,
     monoFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-  },
-  elevation: {
-    low: "0 1px 3px rgb(15 23 42 / 0.12)",
-    medium: "0 8px 24px rgb(15 23 42 / 0.16)",
-    high: "0 16px 48px rgb(15 23 42 / 0.24)",
   },
 });
 
-export const antdLightTheme = {
-  token: {
-    colorPrimary: palette.light.primary,
-    colorBgBase: palette.light.background,
-    colorBgContainer: palette.light.card,
-    colorText: palette.light.foreground,
-    colorTextSecondary: palette.light["muted-foreground"],
-    colorBorder: palette.light.border,
-    borderRadius: 8,
-    fontFamily: theme.typography?.fontFamily,
-  },
-};
-
+export const antdLightTheme = { token: antdLightTokens };
 export const antdDarkTheme = {
   algorithm: antdTheme.darkAlgorithm,
-  token: {
-    colorPrimary: palette.dark.primary,
-    colorBgBase: palette.dark.background,
-    colorBgContainer: palette.dark.card,
-    colorText: palette.dark.foreground,
-    colorTextSecondary: palette.dark["muted-foreground"],
-    colorBorder: palette.dark.border,
-    borderRadius: 8,
-    fontFamily: theme.typography?.fontFamily,
-  },
+  token: antdDarkTokens,
 };
 
 const contentProps = (props: {
@@ -522,23 +483,38 @@ const Popover: DesignSystemComponents["Popover"] = ({
   onOpenChange,
   dismissible = true,
   portalContainer,
+  initialFocusRef,
+  restoreFocusRef,
   ...props
-}) => (
-  <AntPopover
-    {...contentProps(props)}
-    content={children}
-    open={open}
-    defaultOpen={defaultOpen}
-    onOpenChange={(next) => {
-      if (next || dismissible) onOpenChange?.(next);
-    }}
-    getPopupContainer={() => (portalContainer as HTMLElement) ?? document.body}
-    trigger="click"
-    placement={props.placement}
-  >
-    {trigger}
-  </AntPopover>
-);
+}) => {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const isOpen = open ?? internalOpen;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isOpen) initialFocusRef?.current?.focus();
+      else restoreFocusRef?.current?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [initialFocusRef, isOpen, restoreFocusRef]);
+  return (
+    <AntPopover
+      {...contentProps(props)}
+      content={children}
+      open={isOpen}
+      onOpenChange={(next) => {
+        if (open === undefined) setInternalOpen(next);
+        if (next || dismissible) onOpenChange?.(next);
+      }}
+      getPopupContainer={() =>
+        (portalContainer as HTMLElement) ?? document.body
+      }
+      trigger="click"
+      placement={props.placement}
+    >
+      {trigger}
+    </AntPopover>
+  );
+};
 
 const Dialog: DesignSystemComponents["Dialog"] = ({
   open,

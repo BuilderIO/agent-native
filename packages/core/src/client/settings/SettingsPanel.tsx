@@ -1,11 +1,9 @@
-import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
+  Checkbox,
+  Picker,
+  TextField,
+} from "@agent-native/toolkit/design-system";
+import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -215,7 +213,6 @@ function SettingsSelect({
 }) {
   const isPage = useSettingsSurface() === "page";
   const controlStyle = isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE;
-  const selected = options.find((option) => option.value === value);
 
   return (
     <div className="space-y-1.5">
@@ -223,49 +220,27 @@ function SettingsSelect({
         <p className={fieldLabelClass(isPage)}>{label}</p>
         {labelAdornment}
       </div>
-      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
-        <SelectTrigger
-          className={cn(
-            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 [&>svg]:text-muted-foreground [&>svg]:opacity-100",
-            isPage ? "h-10 text-sm" : "h-9 text-[12px]",
-          )}
-          aria-label={label}
-          style={controlStyle}
-        >
-          <SelectValue>{selected?.label ?? value}</SelectValue>
-        </SelectTrigger>
-        <SelectContent
-          position="popper"
-          sideOffset={6}
-          className="z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-        >
-          {options.map((option) => (
-            <SelectItem
-              key={option.value}
-              value={option.value}
-              className={cn(
-                "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40 [&>span:first-child]:top-2.5 [&>span:first-child]:size-4 [&>span:first-child]:text-muted-foreground [&>span:first-child>svg]:size-3.5",
-                isPage ? "py-2.5 text-sm" : "py-2.5 text-[12px]",
-              )}
-              style={controlStyle}
-            >
-              <div className="flex min-w-0 flex-col">
-                <span className="text-foreground">{option.label}</span>
-                {option.description ? (
-                  <span
-                    className={cn(
-                      "mt-0.5 leading-relaxed text-muted-foreground",
-                      isPage ? "text-xs" : "text-[11px]",
-                    )}
-                  >
-                    {option.description}
-                  </span>
-                ) : null}
-              </div>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Picker
+        mode="select"
+        options={options.map((option) => ({
+          value: option.value,
+          label: option.label,
+          description: option.description,
+          textValue: option.label,
+        }))}
+        value={value}
+        onChange={(next) => {
+          if (next != null) onValueChange(String(next));
+        }}
+        disabled={disabled}
+        aria-label={label}
+        placeholder={value}
+        style={controlStyle}
+        className={cn(
+          "w-full text-start text-foreground",
+          isPage ? "text-sm" : "text-[12px]",
+        )}
+      />
     </div>
   );
 }
