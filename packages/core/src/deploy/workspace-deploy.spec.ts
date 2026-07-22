@@ -724,8 +724,8 @@ describe("workspace deploy", () => {
     const starterModule = await import(
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
     );
-    const req = { url: "/starter" };
-    await expect(starterModule.default(req, {})).resolves.toBe("/starter//");
+    const req = new Request("https://example.test/starter");
+    await expect(starterModule.default.fetch(req, {})).resolves.toBe("/starter//");
 
     const config = JSON.parse(
       fs.readFileSync(
@@ -1392,7 +1392,7 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
   );
   fs.writeFileSync(
     path.join(functionDir, "index.mjs"),
-    "export default async function handler(req) { return req?.url ?? 'ok'; }\n",
+    "export default { async fetch(request) { return new URL(request.url).pathname; } };\n",
   );
   fs.writeFileSync(
     path.join(functionDir, ".vc-config.json"),
