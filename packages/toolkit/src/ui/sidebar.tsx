@@ -324,7 +324,7 @@ const SidebarRail = React.forwardRef<
         />
       }
       content="Toggle Sidebar"
-      placement="right"
+      placement="top"
     />
   );
 });
