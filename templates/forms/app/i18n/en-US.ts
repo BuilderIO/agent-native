@@ -259,6 +259,8 @@ const messages = {
     duplicated: "Form duplicated",
     duplicateFailed: "Failed to duplicate form",
     movedToArchive: "Form moved to Archive",
+    movingToArchive: "Moving form to Archive…",
+    archiveFailed: "Failed to move form to Archive",
     restored: "Form restored",
     permanentlyDeleted: "Form permanently deleted",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

@@ -839,7 +839,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         await ensureExtensionsTables();
         const access = await resolveAccess("extension", extensionId);
-        if (!access || access.role === "viewer")
+        if (
+          !access ||
+          (access.resource as ExtensionRow | undefined)?.archivedAt ||
+          access.role === "viewer"
+        )
           return `Error: editor access required for extension ${extensionId}.`;
 
         const userEmail = getRequestUserEmail()?.toLowerCase() ?? "";
@@ -942,7 +946,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
 
         await ensureExtensionsTables();
         const access = await resolveAccess("extension", extensionId);
-        if (!access) return `Error: no access to extension ${extensionId}.`;
+        if (
+          !access ||
+          (access.resource as ExtensionRow | undefined)?.archivedAt
+        )
+          return `Error: no access to extension ${extensionId}.`;
 
         const userEmail = getRequestUserEmail()?.toLowerCase() ?? "";
         const scope = args?.scope ?? "user";
@@ -1012,14 +1020,14 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "delete-extension": {
       tool: {
         description:
-          "Permanently delete an extension everywhere it is shared. Requires owner/admin access. If the user only wants a shared extension removed from their own sidebar/list, use hide-extension instead.",
+          "Archive an extension everywhere it is shared. Archiving is a soft delete: the extension and its history, data, sharing, and slot configuration are retained, but it disappears from normal lists. Requires owner/admin access. If the user only wants a shared extension removed from their own sidebar/list, use hide-extension instead.",
         parameters: {
           type: "object",
           properties: {
             id: {
               type: "string",
               description:
-                "Extension id to permanently delete. Use list-extensions first if you only know the display name.",
+                "Extension id to archive. Use list-extensions first if you only know the display name.",
             },
           },
           required: ["id"],
@@ -1036,7 +1044,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         try {
           const ok = await deleteExtension(id);
           if (!ok) return `Error: extension not found: ${id}`;
-          return { ok: true, deleted: summarizeDeletedExtension(extension) };
+          return { ok: true, archived: summarizeDeletedExtension(extension) };
         } catch (err: any) {
           return {
             ok: false,

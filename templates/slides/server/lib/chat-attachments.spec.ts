@@ -60,6 +60,40 @@ describe("prepareSlidesChatAttachments", () => {
     );
   });
 
+  it("strips oversized inline image data while retaining the saved URL", async () => {
+    saveUploadedReferenceFileMock.mockResolvedValue({
+      path: "data/uploads/user/large-reference.jpeg",
+      url: "https://cdn.example.com/large-reference.jpeg",
+      originalName: "large-reference.jpeg",
+      filename: "stored.jpeg",
+      type: "image/jpeg",
+      size: 10 * 1024 * 1024 + 1,
+    });
+    const data = `data:image/jpeg;base64,${Buffer.alloc(10 * 1024 * 1024 + 1).toString("base64")}`;
+
+    const result = await prepareSlidesChatAttachments({
+      ownerEmail: "adam@builder.io",
+      message: "analyze this screenshot",
+      attachments: [
+        {
+          type: "image",
+          name: "large-reference.jpeg",
+          contentType: "image/jpeg",
+          data,
+        },
+      ],
+    });
+
+    expect(saveUploadedReferenceFileMock).toHaveBeenCalledTimes(1);
+    expect(result?.attachments?.[0]?.data).toBeUndefined();
+    expect((result?.attachments?.[0] as any)?.url).toBe(
+      "https://cdn.example.com/large-reference.jpeg",
+    );
+    expect((result?.attachments?.[0] as any)?.slidesUploadPath).toBe(
+      "data/uploads/user/large-reference.jpeg",
+    );
+  });
+
   it("keeps raw raster image data when storage returns no embeddable URL", async () => {
     saveUploadedReferenceFileMock.mockResolvedValue({
       path: "data/uploads/user/reference.png",
