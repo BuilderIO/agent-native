@@ -286,6 +286,27 @@ describe("getAssistantToolSummaryInfo", () => {
       ]),
     ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
   });
+
+  it("does not count a call-agent row shadowed by agent progress", () => {
+    expect(
+      getAssistantToolSummaryInfo([
+        {
+          type: "tool-call",
+          toolCallId: "call-analytics",
+          toolName: "call-agent",
+          args: { agent: "analytics" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "agent-analytics",
+          toolName: "agent:Analytics",
+          args: {},
+        },
+        { type: "tool-call", toolName: "query", args: {} },
+        { type: "tool-call", toolName: "summarize", args: {} },
+      ]),
+    ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
+  });
 });
 
 describe("isHiddenUserMessage", () => {

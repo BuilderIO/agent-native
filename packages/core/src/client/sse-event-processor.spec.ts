@@ -673,6 +673,37 @@ describe("SSE replay render pacing", () => {
       },
     ]);
   });
+
+  it("marks synthetic agent-call cards as presentation-only activity", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            id: "call-analytics",
+            tool: "call-agent",
+            input: { agent: "analytics", message: "Count signups" },
+          },
+          { type: "agent_call", agent: "Analytics", status: "start" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results[1].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+      }),
+      expect.objectContaining({
+        toolName: "agent:Analytics",
+        activity: true,
+      }),
+    ]);
+  });
 });
 
 describe("SSE event processor no-progress recovery", () => {

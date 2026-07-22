@@ -1372,6 +1372,7 @@ export function processEvent(
         toolName: `agent:${agentName}`,
         argsText: "",
         args: {},
+        activity: true,
       });
     } else if (ev.status === "done" || ev.status === "error") {
       for (let i = content.length - 1; i >= 0; i--) {

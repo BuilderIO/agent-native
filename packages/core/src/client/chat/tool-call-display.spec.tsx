@@ -298,6 +298,57 @@ describe("ToolCallDisplay native renderers", () => {
     expect(shimmer[0]?.textContent).toBe("read file");
   });
 
+  it("shows only the richer agent progress row for call-agent delegations", () => {
+    vi.useFakeTimers();
+    try {
+      const content: ContentPart[] = [
+        {
+          type: "tool-call",
+          toolCallId: "call-analytics",
+          toolName: "call-agent",
+          argsText: JSON.stringify({
+            agent: "analytics",
+            message: "Count signups",
+          }),
+          args: { agent: "analytics", message: "Count signups" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "agent-analytics",
+          toolName: "agent:Analytics",
+          argsText: "",
+          args: {},
+          activity: true,
+        },
+      ];
+
+      act(() => {
+        root.render(
+          <ChatRunningContext.Provider value={true}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>,
+        );
+      });
+
+      expect(container.querySelectorAll(".agent-tool-call")).toHaveLength(1);
+      expect(container.querySelectorAll(".animate-spin")).toHaveLength(1);
+      expect(container.textContent).toContain("Asking Analytics...");
+      expect(container.textContent).not.toContain("call agent");
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(
+        container.textContent?.match(
+          /Still working\. Large updates can take a minute or two\./g,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps only the newest resolved reconnect tool active while the chat runs", () => {
     const content: ContentPart[] = [
       {
