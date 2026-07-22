@@ -26,6 +26,8 @@ export interface EmailCta {
 export interface RenderEmailArgs {
   /** Short preview text shown by email clients next to the subject. */
   preheader?: string;
+  /** Small brand logo shown centered above everything else in the card. */
+  logoUrl?: string;
   imageUrl?: string;
   /** Large headline at the top of the card. */
   heading: string;
@@ -34,6 +36,12 @@ export interface RenderEmailArgs {
   /** Primary call-to-action rendered as a real button. */
   cta?: EmailCta;
   secondaryCta?: EmailCta;
+  /**
+   * Optional note + raw link rendered between the CTA buttons and the
+   * footer, e.g. for pasting into an external tool. Styled with more
+   * emphasis than plain paragraph text but less than the CTA button.
+   */
+  linkCallout?: { note: string; url: string };
   /** Small muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /**
@@ -87,6 +95,18 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     )
     .join("");
 
+  const logoHtml = args.logoUrl
+    ? `
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px 0;">
+        <tr>
+          <td align="center">
+            <img src="${escapeAttr(args.logoUrl)}" alt="Agent Native" height="18" style="display:block; height:18px; width:auto;" />
+          </td>
+        </tr>
+      </table>
+    `
+    : "";
+
   let imageHtml = "";
   if (args.imageUrl) {
     const imgTag = `<img src="${escapeAttr(args.imageUrl)}" alt="" width="488" style="display:block; width:100%; max-width:488px; height:auto; border-radius:12px; border:1px solid #27272a;" />`;
@@ -128,6 +148,15 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     `
     : "";
 
+  const linkCalloutHtml = args.linkCallout
+    ? `
+      <p style="margin:22px 0 8px 0; font-size:14px; line-height:1.5; color:#a1a1aa;">${escapeHtml(args.linkCallout.note)}</p>
+      <p style="margin:0; padding:10px 14px; background-color:#1c1c1f; border:1px solid #27272a; border-radius:8px; font-size:13px; line-height:1.5; word-break:break-all;">
+        <a href="${escapeAttr(args.linkCallout.url)}" style="color:${linkColor}; text-decoration:none;">${escapeHtml(args.linkCallout.url)}</a>
+      </p>
+    `
+    : "";
+
   const footerHtml = args.footer
     ? `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${escapeHtml(args.footer)}</p>`
     : "";
@@ -157,12 +186,14 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;">
             <tr>
               <td style="background-color:#141417; border:1px solid #27272a; border-radius:16px; padding:36px 36px 32px 36px;">
+                ${logoHtml}
                 ${imageHtml}
                 <h1 style="margin:0 0 20px 0; font-size:24px; line-height:1.3; font-weight:600; color:#fafafa; letter-spacing:-0.02em;">
                   ${escapeHtml(args.heading)}
                 </h1>
                 ${paragraphsHtml}
                 ${ctaHtml}
+                ${linkCalloutHtml}
                 ${footerHtml}
               </td>
             </tr>
@@ -186,6 +217,11 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   }
   if (args.secondaryCta) {
     textLines.push(args.secondaryCta.label + ": " + args.secondaryCta.url);
+    textLines.push("");
+  }
+  if (args.linkCallout) {
+    textLines.push(args.linkCallout.note);
+    textLines.push(args.linkCallout.url);
     textLines.push("");
   }
   if (args.footer) {

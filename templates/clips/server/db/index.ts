@@ -17,7 +17,8 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 export { schema, getDbExec };
 
-export const CLIPS_EMAIL_FROM = "Clips <clips@agent-native.com>";
+export const CLIPS_EMAIL_FROM = "Agent-Native Clips <clips@agent-native.com>";
+const CLIPS_LOGO_PATH = "/agent-native-logo-dark.svg";
 const AI_SUMMARY_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export function aiSummaryTokenResourceId(recordingId: string): string {
@@ -79,6 +80,7 @@ registerShareableResource({
   getDb,
   ownerAccessIgnoresOrg: true,
   fromAddress: CLIPS_EMAIL_FROM,
+  logoPath: CLIPS_LOGO_PATH,
   getThumbnailUrl: (recording) => recording.thumbnailUrl ?? undefined,
   getSecondaryCta: getRecordingSummaryCta,
 });

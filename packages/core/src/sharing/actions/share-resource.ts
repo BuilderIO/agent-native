@@ -330,6 +330,9 @@ export default defineAction({
               ? "view and edit"
               : "view";
         const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
+        const logoUrl = reg.logoPath
+          ? new URL(reg.logoPath, appUrl).toString()
+          : undefined;
         const secondaryCta = resource
           ? await reg.getSecondaryCta?.(resource, {
               recipientEmail: principalId,
@@ -342,14 +345,20 @@ export default defineAction({
         );
         const { html, text } = renderEmail({
           preheader: subject,
+          logoUrl,
           imageUrl,
-          heading: `${actor} sent you something`,
+          heading: `${actor} shared "${resourceTitle}" with you`,
           paragraphs: [
-            `${emailStrong(actor)} shared "${emailStrong(resourceTitle)}" with you.`,
             `You can ${roleVerb} it below. If you're asked to sign in, use ${emailStrong(principalId)}.`,
           ],
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           secondaryCta,
+          linkCallout: secondaryCta
+            ? {
+                note: "Prefer to use your own AI agent? Copy and paste this link into it to summarize.",
+                url: notificationUrl,
+              }
+            : undefined,
           footer: `Just reply to this email if you want to get back to ${actor} directly.`,
         });
         await sendEmail({

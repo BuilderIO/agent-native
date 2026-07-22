@@ -64,6 +64,7 @@ export async function notifyOwnerOfFirstView(params: {
 
   const { html, text } = renderEmail({
     preheader: subject,
+    logoUrl: appUrl + "/agent-native-logo-dark.svg",
     imageUrl: recording.thumbnailUrl ?? undefined,
     heading: "It landed.",
     paragraphs: [

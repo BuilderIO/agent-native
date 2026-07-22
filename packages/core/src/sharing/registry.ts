@@ -35,6 +35,12 @@ export interface ShareableResourceRegistration {
    */
   fromAddress?: string;
   /**
+   * Optional app-relative path to a small monochrome logo image (on a dark
+   * background) shown centered above everything else in the "shared with
+   * you" notification email, e.g. "/agent-native-logo-dark.svg".
+   */
+  logoPath?: string;
+  /**
    * Column on the resource table that holds a human-readable title for
    * display in the share UI. Default: "title".
    */
