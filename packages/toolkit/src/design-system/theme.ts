@@ -135,7 +135,7 @@ function renderDeclarations(values: Record<string, string>): string {
 
 export function renderDesignSystemThemeCss(theme: DesignSystemTheme): string {
   const normalized = normalizeDesignSystemTheme(theme);
-  return `:root {\n${renderDeclarations(normalized.light)}\n}\n\n.dark {\n${renderDeclarations(normalized.dark)}\n}\n`;
+  return `:root:root {\n${renderDeclarations(normalized.light)}\n}\n\n.dark.dark {\n${renderDeclarations(normalized.dark)}\n}\n`;
 }
 
 export function defineTheme<const Theme extends DesignSystemTheme>(

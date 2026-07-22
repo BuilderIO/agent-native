@@ -37,8 +37,8 @@ describe("design system themes", () => {
       radius: "0.75rem",
     });
 
-    expect(css).toContain(":root {");
-    expect(css).toContain(".dark {");
+    expect(css).toContain(":root:root {");
+    expect(css).toContain(".dark.dark {");
     expect(css).toContain("--primary:");
     expect(css.match(/--radius: 0.75rem/g)).toHaveLength(2);
   });

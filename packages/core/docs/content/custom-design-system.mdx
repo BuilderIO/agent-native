@@ -132,9 +132,16 @@ export default defineConfig({
 });
 ```
 
-The plugin generates the virtual theme CSS and injects it into the public
-cacheable shell at build time. Version 1 does not choose a theme per request or
-per organization.
+Import the virtual stylesheet once from the app root so both development and
+React Router production builds include it:
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+The plugin generates that virtual theme CSS at build time. Its semantic tokens
+override the scaffold's fallback values without removing fallback-only tokens.
+Version 1 does not choose a theme per request or per organization.
 
 ## The 17 semantic contracts
 
