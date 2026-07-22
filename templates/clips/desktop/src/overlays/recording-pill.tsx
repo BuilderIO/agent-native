@@ -344,6 +344,14 @@ export function RecordingPill() {
     void toggleExpanded();
   };
 
+  const handlePillMouseUp = (e: React.MouseEvent) => {
+    const start = dragStartScreenPointRef.current;
+    if (isDirectPillClick(start, { x: e.screenX, y: e.screenY })) return;
+    void invoke("recording_pill_save_position").catch((err) => {
+      console.warn("[clips-pill] save position failed", err);
+    });
+  };
+
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
   const stopLabel =
@@ -356,6 +364,7 @@ export function RecordingPill() {
           hovered ? " pill-hovered" : ""
         }`}
         onMouseDown={handlePillMouseDown}
+        onMouseUp={handlePillMouseUp}
       >
         <div
           className={`pill-header${

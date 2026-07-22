@@ -276,6 +276,10 @@
       "types": "./dist/data-programs/index.d.ts",
       "default": "./dist/data-programs/index.js"
     },
+    "./dashboard-storage": {
+      "types": "./dist/dashboard-storage/index.d.ts",
+      "default": "./dist/dashboard-storage/index.js"
+    },
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",
       "default": "./dist/local-artifacts/index.js"

@@ -21,6 +21,13 @@ ladder.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
+- Use `prepare-crm-call-evidence` only for a viewer-accessible recording
+  explicitly identified by a user action or the exact approved CRM A2A recipe.
+  It returns an opaque clip ID, durable HTTPS `/r/<id>` page, and optional
+  capture time for CRM; it never returns the event media URL, a transcript,
+  temporary token, quote, or summary. A CRM recipe may install a Clips-owned
+  `clip.created` trigger only through an exact user-approved A2A automation
+  definition.
 - Organization admins can use `set-organization-branding` with
   `defaultVisibility=public|org|private` to choose the visibility applied when
   new recordings omit an explicit visibility. The default remains `public`, and

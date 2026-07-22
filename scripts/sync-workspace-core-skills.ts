@@ -138,6 +138,7 @@ const requiredTemplateSharedSkills: Record<string, string[]> = {
 
 /** Copied into every first-party template that uses shared skills. */
 const requiredAllTemplateSharedSkills = [
+  "agent-native-docs",
   "agent-native-toolkit",
   "customizing-agent-native",
   "feature-flags",

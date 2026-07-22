@@ -60,8 +60,36 @@ That's it. The body is a prompt the agent runs at each scheduled firing. The age
 | `lastStatus` | `"success"` \| `"error"` \| … | _(managed)_  | Latest outcome.                                                                                        |
 | `lastError`  | string                        | _(managed)_  | Error message if the last run failed.                                                                  |
 | `nextRun`    | ISO timestamp                 | _(managed)_  | Computed from `schedule`; used by the scheduler to decide when to fire next.                           |
+| `mcpTools`   | array of MCP tool names       | _(none)_     | Optional explicit allowlist such as `mcp__server__tool`; credentials stay in the connected MCP grant.  |
 
 The `last*` and `nextRun` fields are written by the scheduler. You can read them to see the history, but don't edit them by hand — the next run will overwrite.
+
+## Connecting MCP tools to a job {#connected-mcps}
+
+Recurring jobs can use remote or local MCP tools that are already connected to
+the app. Ask the agent to discover the exact names with `tool-search`, then
+bind only the tools that job needs with `mcpTools`:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Find new recordings since the last successful run. Extract only actionable
+follow-ups, then call the app's bounded import action once with stable source
+and external ids, a short citation, and the recording URL. Do not import the
+full transcript.
+```
+
+The job stores tool names, not MCP URLs, access tokens, or OAuth refresh
+tokens. At run time, the framework resolves the connected grant in the job's
+creator or organization request context and exposes only the allowlisted
+tools. Keep the list narrow, and use an idempotent app action for the final
+import so overlapping runs do not create duplicates. See [MCP Clients](/docs/mcp-clients)
+for connection and OAuth setup.
 
 ## Cron syntax {#cron}
 
@@ -191,12 +219,12 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 A single `manage-jobs` tool is registered in every template. The `action` parameter selects the operation:
 
-| Action   | Parameters                                                                 | Purpose                                                      |
-| -------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`   | Create a new recurring job                                   |
-| `list`   | `scope` (`personal`, `shared`, or all)                                     | List all jobs with status (schedule, enabled, last/next run) |
-| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model` | Edit an existing job                                         |
-| `delete` | `name` (required)                                                          | Delete a job — always confirm with the user first            |
+| Action   | Parameters                                                                             | Purpose                                                      |
+| -------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `create` | `name`, `schedule`, `instructions` (required); `scope`, `runAs`, `model`, `mcpTools`   | Create a new recurring job                                   |
+| `list`   | `scope` (`personal`, `shared`, or all)                                                 | List all jobs with status (schedule, enabled, last/next run) |
+| `update` | `name` (required); `schedule`, `instructions`, `enabled`, `runAs`, `model`, `mcpTools` | Edit an existing job                                         |
+| `delete` | `name` (required)                                                                      | Delete a job — always confirm with the user first            |
 
 `model` is optional on both `create` and `update` — pass a model id to override the channel/app/engine default for that one routine.
 
@@ -216,4 +244,5 @@ Recurring jobs are "how do I make the agent act on its own?" The scheduling pack
 - [**Automations**](/docs/automations) — add event triggers and conditions to the same `jobs/` format
 - [**Agent Resources**](/docs/workspace) — where jobs live alongside skills, memory, and custom agents
 - [**Actions**](/docs/actions) — the tools a job calls
+- [**MCP Clients**](/docs/mcp-clients) — connect remote or local MCP tools and OAuth grants
 - [**Agent Teams**](/docs/agent-teams) — jobs often spawn sub-agents to do parallel work

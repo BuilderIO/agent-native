@@ -133,6 +133,7 @@
         "@tabler/icons-react",
         "clsx",
         "react",
+        "recharts",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
@@ -205,6 +206,38 @@
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"]
+    },
+    {
+      "id": "toolkit/dashboard",
+      "label": "Dashboard kit",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["dashboard"],
+      "entrypoints": ["./dashboard", "./dashboard/*"],
+      "strategy": "source-copy",
+      "sourceEntries": ["src/dashboard"],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-select",
+        "@radix-ui/react-slot",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "react",
+        "recharts",
+        "tailwind-merge"
+      ],
+      "protectedImports": [
+        "@agent-native/toolkit/ui/button",
+        "@agent-native/toolkit/ui/card",
+        "@agent-native/toolkit/ui/select",
+        "@agent-native/toolkit/ui/skeleton",
+        "@agent-native/toolkit/ui/table",
+        "@agent-native/toolkit/utils"
+      ],
+      "verification": [
+        "pnpm --filter @agent-native/toolkit typecheck",
+        "pnpm --filter @agent-native/toolkit test"
+      ]
     },
     {
       "id": "toolkit/editor",

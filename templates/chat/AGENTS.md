@@ -1,4 +1,4 @@
-# {{APP_NAME}} — Agent Guide
+# Chat — Agent Guide
 
 Chat is the minimal chat-first agent-native app template. Keep chat as the
 primary surface, add actions for real capabilities, and add screens only when a

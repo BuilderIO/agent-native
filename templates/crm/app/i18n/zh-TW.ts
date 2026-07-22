@@ -1,0 +1,85 @@
+const messages = {
+  intelligence: {
+    title: "智慧洞察",
+    description:
+      "選擇 CRM 應在受限通話證據中注意的時刻。智慧追蹤器會透過 Ask CRM 評估，絕不直接在此設定畫面中執行。",
+    loading: "正在載入追蹤器…",
+    kindKeyword: "關鍵字",
+    kindSmart: "智慧",
+    enable: "啟用",
+    disable: "停用",
+    toggleTracker: "{{action}}{{name}}",
+    emptyTitle: "尚無訊號追蹤器",
+    emptyDescription:
+      "新增關鍵字進行確定性比對，或新增智慧條件供 Ask CRM 審查。",
+    trackerDeleted: "已刪除追蹤器。",
+    trackerEnabled: "已啟用追蹤器。",
+    trackerDisabled: "已停用追蹤器。",
+    trackerUpdateFailed: "無法更新追蹤器。",
+    trackerCreated: "已建立追蹤器。",
+    trackerCreationFailed: "無法建立追蹤器。",
+    newTracker: "新增追蹤器",
+    createTitle: "建立訊號追蹤器",
+    createDescription:
+      "追蹤確定性關鍵字，或定義供 Ask CRM 根據通話證據評估的受限智慧條件。",
+    name: "名稱",
+    trackerDescription: "說明",
+    detector: "偵測器",
+    keywords: "關鍵字",
+    keywordsPlaceholder: "定價、續約、安全審查",
+    keywordsHelp: "最多使用逗號分隔 40 個關鍵字。",
+    classificationCriterion: "分類條件",
+    criterionPlaceholder: "比對對實作時程的明確疑慮。",
+    creating: "正在建立…",
+    create: "建立追蹤器",
+    deleteTrackerAria: "刪除 {{name}}",
+    deleteTrackerTitle: "要刪除 {{name}} 嗎？",
+    deleteTrackerDescription:
+      "這會阻止後續訊號執行使用此追蹤器。現有已審查訊號不會改變。",
+    cancel: "取消",
+    deleteTracker: "刪除追蹤器",
+    keywordsSummary: "關鍵字：{{keywords}}",
+    noKeywordsConfigured: "未設定關鍵字。",
+    evaluatedThroughAsk: "透過 Ask CRM 評估。",
+  },
+  recordActions: {
+    evidenceAttached: "已附加通話證據。",
+    evidenceAttachFailed: "無法附加證據。",
+    addEvidence: "新增證據",
+    attachEvidenceTitle: "附加 Clips 證據",
+    attachEvidenceDescription:
+      "請使用持久的 Clips 頁面連結。CRM 只會儲存成品參照、頁面 URL 與受限摘錄，絕不儲存媒體或文字記錄。",
+    artifactId: "成品 ID",
+    clipsUrl: "Clips 頁面 URL",
+    summary: "摘要",
+    shortExcerpt: "簡短摘錄",
+    attachEvidence: "附加證據",
+    automate: "自動化",
+    reviewNewClipsCalls: "審查新的 Clips 通話",
+    reviewDescription:
+      "為此 CRM 記錄準備審查方案，但不複製 Clips 媒體或文字記錄。",
+    disabledAutomationDescription:
+      "此自動化一開始為停用狀態，並且始終連結至 {{name}}。明確啟用後，每個新片段只能將已檢查存取權的錄製頁面參照附加至此記錄。",
+    handoffDescription:
+      "交接只會保留不透明的片段 ID、持久的 {{path}} 頁面 URL 與擷取時間。它會拒絕活動 URL、媒體、存取權杖、文字記錄、推斷記錄與提供者寫入。",
+    manageAutomations: "管理自動化",
+    configureWithAgent: "使用代理程式設定",
+  },
+  dashboard: {
+    metaTitle: "銷售管道 · CRM",
+    pipeline: "銷售管道",
+    ready: "銷售管道儀表板已就緒。",
+    installFailed: "無法安裝銷售管道儀表板。",
+    loadingDescription: "正在載入按存取範圍限制的銷售管道儀表板…",
+    emptyDescription: "依階段顯示商機價值的即時權限感知檢視。",
+    installTitle: "安裝銷售管道儀表板",
+    installDescription: "這會為目前工作區建立 CRM 自有的資料程式和私人儀表板。",
+    installAction: "安裝銷售管道儀表板",
+    liveDescription:
+      "即時商機總額使用目前檢視者的 CRM 存取權限，並從快取的資料程式重新整理。",
+    updating: "正在更新…",
+    updatePack: "更新套件",
+  },
+};
+
+export default messages;

@@ -94,6 +94,9 @@ export function parseTriggerFrontmatter(content: string): {
       case "domain":
         meta.domain = value;
         break;
+      case "delegatedPolicyId":
+        meta.delegatedPolicyId = value || undefined;
+        break;
       case "createdBy":
         meta.createdBy = value;
         break;
@@ -135,6 +138,16 @@ export function buildTriggerContent(
     lines.push(`condition: "${meta.condition.replace(/"/g, '\\"')}"`);
   lines.push(`mode: ${meta.mode}`);
   if (meta.domain) lines.push(`domain: ${meta.domain}`);
+  if (
+    meta.delegatedPolicyId &&
+    !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(meta.delegatedPolicyId)
+  ) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+  if (meta.delegatedPolicyId)
+    lines.push(`delegatedPolicyId: ${meta.delegatedPolicyId}`);
   if (meta.createdBy) lines.push(`createdBy: ${meta.createdBy}`);
   if (meta.orgId) lines.push(`orgId: ${meta.orgId}`);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
@@ -360,7 +373,7 @@ async function isTriggerRunAsStillValid(
 }
 
 async function dispatchAgentic(
-  resource: { path: string; owner: string; content: string },
+  resource: { id: string; path: string; owner: string; content: string },
   meta: TriggerFrontmatter,
   body: string,
   payload: unknown,
@@ -483,6 +496,12 @@ ${body}`;
             send: (event) => events.push(event),
             signal: controller.signal,
             threadId: thread.id,
+            actionCaller: "automation",
+            automation: {
+              triggerId: resource.id,
+              triggerName,
+              policyId: meta.delegatedPolicyId,
+            },
           });
         } finally {
           clearTimeout(timeout);

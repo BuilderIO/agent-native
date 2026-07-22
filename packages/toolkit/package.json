@@ -61,6 +61,20 @@
       "import": "./dist/collab-ui/*.js",
       "default": "./dist/collab-ui/*.js"
     },
+    "./dashboard": {
+      "types": "./dist/dashboard/index.d.ts",
+      "browser": "./dist/dashboard/index.js",
+      "development": "./dist/dashboard/index.js",
+      "import": "./dist/dashboard/index.js",
+      "default": "./dist/dashboard/index.js"
+    },
+    "./dashboard/*": {
+      "types": "./dist/dashboard/*.d.ts",
+      "browser": "./dist/dashboard/*.js",
+      "development": "./dist/dashboard/*.js",
+      "import": "./dist/dashboard/*.js",
+      "default": "./dist/dashboard/*.js"
+    },
     "./chat-history": {
       "types": "./dist/chat-history/index.d.ts",
       "browser": "./dist/chat-history/index.js",

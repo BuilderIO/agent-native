@@ -39,6 +39,7 @@ export type GenericWorkspaceOAuthProvider =
   | "google_drive"
   | "github"
   | "hubspot"
+  | "salesforce"
   | "jira"
   | "sentry"
   | "notion";
@@ -48,6 +49,7 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "google_drive",
   "github",
   "hubspot",
+  "salesforce",
   "jira",
   "sentry",
   "notion",
@@ -55,6 +57,8 @@ const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
 const FLOW_TTL_SECONDS = 10 * 60;
 const PROVIDER_REQUEST_TIMEOUT_MS = 10_000;
 const PROVIDER_RESPONSE_MAX_BYTES = 256 * 1024;
+const SALESFORCE_PRODUCTION_LOGIN_URL = "https://login.salesforce.com";
+const SALESFORCE_SANDBOX_LOGIN_URL = "https://test.salesforce.com";
 
 export interface WorkspaceProviderOAuthFlow {
   provider: GenericWorkspaceOAuthProvider;
@@ -64,6 +68,7 @@ export interface WorkspaceProviderOAuthFlow {
   owner: string;
   orgId?: string;
   appId: string;
+  salesforceLoginUrl?: string;
   expiresAt: number;
 }
 
@@ -112,6 +117,14 @@ export async function handleWorkspaceProviderOAuthStart(
   }
   const provider = requiredProvider(providerId);
   const query = getQuery(event);
+  const salesforceLoginUrl =
+    providerId === "salesforce"
+      ? resolveSalesforceOAuthLoginUrl(text(query.environment))
+      : undefined;
+  if (providerId === "salesforce" && !salesforceLoginUrl) {
+    setResponseStatus(event, 400);
+    return { error: "Salesforce environment must be production or sandbox." };
+  }
   const appId = normalizeAppId(
     text(query.appId) ??
       process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
@@ -163,6 +176,7 @@ export async function handleWorkspaceProviderOAuthStart(
         owner: session.email,
         orgId,
         appId,
+        ...(salesforceLoginUrl ? { salesforceLoginUrl } : {}),
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
       setCookie(
@@ -183,6 +197,14 @@ export async function handleWorkspaceProviderOAuthStart(
         redirectUri,
         state,
         challenge,
+        ...(salesforceLoginUrl
+          ? {
+              authorizationUrl: salesforceOAuthEndpoint(
+                salesforceLoginUrl,
+                "authorize",
+              ),
+            }
+          : {}),
       });
       return Response.redirect(authorizationUrl, 302);
     },
@@ -259,6 +281,14 @@ export async function handleWorkspaceProviderOAuthCallback(
         code,
         verifier: flow.verifier,
         redirectUri: flow.redirectUri,
+        ...(providerId === "salesforce"
+          ? {
+              tokenUrl: salesforceOAuthEndpoint(
+                flow.salesforceLoginUrl ?? SALESFORCE_PRODUCTION_LOGIN_URL,
+                "token",
+              ),
+            }
+          : {}),
       });
       const identities = await resolveWorkspaceProviderIdentities(
         providerId,
@@ -299,10 +329,18 @@ export async function handleWorkspaceProviderOAuthCallback(
         );
         const connectionConfig = {
           credentialMode: "oauth",
-          ...(providerId === "hubspot" || providerId === "jira"
+          ...(providerId === "hubspot" ||
+          providerId === "salesforce" ||
+          providerId === "jira"
             ? { externalAccountId: identity.accountId }
             : {}),
           ...(identity.config ?? {}),
+          ...(providerId === "salesforce"
+            ? {
+                salesforceLoginUrl:
+                  flow.salesforceLoginUrl ?? SALESFORCE_PRODUCTION_LOGIN_URL,
+              }
+            : {}),
         };
         const connection = await upsertWorkspaceConnection({
           ...(existing ? { id: existing.id } : {}),
@@ -339,10 +377,13 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   redirectUri: string;
   state: string;
   challenge: string;
+  authorizationUrl?: string;
 }): string {
   if (!input.provider.oauth)
     throw new Error("Provider does not support OAuth.");
-  const url = new URL(input.provider.oauth.authorizationUrl);
+  const url = new URL(
+    input.authorizationUrl ?? input.provider.oauth.authorizationUrl,
+  );
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
@@ -378,8 +419,9 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
   code: string;
   verifier: string;
   redirectUri: string;
+  tokenUrl?: string;
 }): Promise<Record<string, unknown>> {
-  const tokenUrl = input.provider.oauth?.tokenUrl;
+  const tokenUrl = input.tokenUrl ?? input.provider.oauth?.tokenUrl;
   if (!tokenUrl) throw new Error("Provider does not support OAuth.");
   const authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString("base64")}`;
   if (input.providerId === "github") {
@@ -441,6 +483,36 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
       ...(Number.isFinite(Number(body.expires_in)) &&
       Number(body.expires_in) > 0
         ? { expiry_date: Date.now() + Number(body.expires_in) * 1_000 }
+        : {}),
+    };
+  }
+  if (input.providerId === "salesforce") {
+    const { response, body } = await fetchBoundedProviderJson(
+      tokenUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: input.clientId,
+          client_secret: input.clientSecret,
+          code: input.code,
+          redirect_uri: input.redirectUri,
+        }),
+      },
+      input.provider.label,
+    );
+    const accessToken = text(body.access_token);
+    if (!response.ok || !accessToken) {
+      throw new Error(
+        `${input.provider.label} OAuth token exchange failed (${response.status}).`,
+      );
+    }
+    const expiresIn = Number(body.expires_in);
+    return {
+      ...body,
+      ...(Number.isFinite(expiresIn) && expiresIn > 0
+        ? { expiry_date: Date.now() + expiresIn * 1_000 }
         : {}),
     };
   }
@@ -679,6 +751,26 @@ async function resolveWorkspaceProviderIdentitySingle(
       label: text(body.hub_domain) ?? `HubSpot portal ${accountId}`,
     };
   }
+  if (providerId === "salesforce") {
+    const instanceUrl = normalizeSalesforceInstanceUrl(
+      text(tokens.instance_url),
+    );
+    const identity = parseSalesforceIdentityUrl(text(tokens.id));
+    if (!instanceUrl || !identity) {
+      throw new Error(
+        "Salesforce OAuth response did not identify the connected organization.",
+      );
+    }
+    return {
+      accountId: identity.organizationId,
+      label: instanceUrl.hostname,
+      config: {
+        salesforceInstanceUrl: instanceUrl.origin,
+        salesforceIdentityUrl: identity.url.href,
+        salesforceOrganizationId: identity.organizationId,
+      },
+    };
+  }
   if (providerId === "sentry") {
     const accessToken = text(tokens.access_token)!;
     const { response, body: user } = await fetchBoundedProviderJson(
@@ -799,7 +891,13 @@ export function scopedOAuthAccountId(
   owner: string,
   accountId: string,
 ): string {
-  if (provider !== "hubspot" && provider !== "jira") return accountId;
+  if (
+    provider !== "hubspot" &&
+    provider !== "salesforce" &&
+    provider !== "jira"
+  ) {
+    return accountId;
+  }
   const ownerKey = crypto
     .createHash("sha256")
     .update(`${provider}:${owner.trim().toLowerCase()}`)
@@ -902,7 +1000,86 @@ function clientCredentialKeys(
     const integrationPrefix = `HUBSPOT_INTEGRATION_CLIENT_${suffix}`;
     return [integrationPrefix, `HUBSPOT_CLIENT_${suffix}`];
   }
+  if (provider === "salesforce") {
+    const integrationPrefix = `SALESFORCE_INTEGRATION_CLIENT_${suffix}`;
+    const consumerCredential = `SALESFORCE_CONSUMER_${
+      field === "id" ? "KEY" : "SECRET"
+    }`;
+    return [
+      integrationPrefix,
+      `SALESFORCE_CLIENT_${suffix}`,
+      consumerCredential,
+    ];
+  }
   return [`${prefix}_CLIENT_${suffix}`];
+}
+
+function normalizeSalesforceInstanceUrl(value: string | undefined): URL | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      (host !== "salesforce.com" && !host.endsWith(".salesforce.com"))
+    ) {
+      return null;
+    }
+    return new URL(url.origin);
+  } catch {
+    return null;
+  }
+}
+
+function parseSalesforceIdentityUrl(
+  value: string | undefined,
+): { organizationId: string; url: URL } | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      (host !== "salesforce.com" && !host.endsWith(".salesforce.com"))
+    ) {
+      return null;
+    }
+    const match = url.pathname.match(/^\/id\/([^/]+)\/[^/]+\/?$/);
+    if (!match?.[1]) return null;
+    return { organizationId: match[1], url };
+  } catch {
+    return null;
+  }
+}
+
+export function resolveSalesforceOAuthLoginUrl(
+  environment: string | undefined,
+): string | null {
+  const normalized = environment?.trim().toLowerCase();
+  if (!normalized || normalized === "production") {
+    return SALESFORCE_PRODUCTION_LOGIN_URL;
+  }
+  if (normalized === "sandbox") return SALESFORCE_SANDBOX_LOGIN_URL;
+  return null;
+}
+
+export function salesforceOAuthEndpoint(
+  loginUrl: string,
+  phase: "authorize" | "token",
+): string {
+  if (
+    loginUrl !== SALESFORCE_PRODUCTION_LOGIN_URL &&
+    loginUrl !== SALESFORCE_SANDBOX_LOGIN_URL
+  ) {
+    throw new Error("Invalid Salesforce OAuth login URL.");
+  }
+  return `${loginUrl}/services/oauth2/${phase}`;
 }
 
 async function resolveProviderClientCredentials(

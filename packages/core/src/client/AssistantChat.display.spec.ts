@@ -25,6 +25,7 @@ import {
   AssistantMessageListErrorBoundary,
   AssistantUiStaleIndexErrorBoundary,
   assistantMessageRunId,
+  assistantChatAutoscrollStatusKey,
   assistantUiRecoverableRenderErrorKind,
   dedupeReconnectContentAgainstMessages,
   displayableUserMessageText,
@@ -1230,6 +1231,7 @@ describe("missing agent engine setup", () => {
     expect(source).toContain("missingKeySetupOpen");
     expect(source).toContain("requestMissingKeySetup");
     expect(source).toContain('className="agent-composer-missing-key-trigger"');
+    expect(source).toContain('className="agent-composer-missing-key-cta"');
     expect(source).toContain("<BuilderSetupContent");
     expect(source).toContain('missingApiKeySetupLayout === "sidebar"');
     expect(source).toContain("collisionPadding={12}");
@@ -1240,6 +1242,9 @@ describe("missing agent engine setup", () => {
     );
     expect(css).toMatch(
       /\.agent-composer-missing-key-trigger:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px hsl\(var\(--ring\)\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-composer-missing-key-cta\s*\{[^}]*background:\s*hsl\(var\(--foreground\)\);[^}]*color:\s*hsl\(var\(--background\)\);/s,
     );
   });
 });
@@ -1534,6 +1539,20 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
+  it("hides a generic activity status while reasoning is visibly streaming", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: "Thinking",
+        latestMessage: {
+          role: "assistant",
+          content: [{ type: "reasoning", text: "Checking the schema." }],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
   it("keeps a specific tool activity ahead of visible reasoning", () => {
     expect(
       shouldShowGlobalRunningStatus({
@@ -1630,6 +1649,26 @@ describe("shouldShowGlobalRunningStatus", () => {
         reconnectContent: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("assistantChatAutoscrollStatusKey", () => {
+  it("ignores activity labels that are not rendered", () => {
+    expect(
+      assistantChatAutoscrollStatusKey({
+        showGlobalRunningStatus: false,
+        runningStatusLabel: "Thinking",
+      }),
+    ).toBe("idle");
+  });
+
+  it("tracks a visible activity label", () => {
+    expect(
+      assistantChatAutoscrollStatusKey({
+        showGlobalRunningStatus: true,
+        runningStatusLabel: "Querying submissions",
+      }),
+    ).toBe("Querying submissions");
   });
 });
 

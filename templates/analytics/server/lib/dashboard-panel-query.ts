@@ -31,6 +31,7 @@ export interface DashboardPanelQueryResult {
   rows: Record<string, unknown>[];
   schema: { name: string; type: string }[];
   truncated?: boolean;
+  bytesProcessed?: number;
 }
 
 export function isDashboardPanelSource(

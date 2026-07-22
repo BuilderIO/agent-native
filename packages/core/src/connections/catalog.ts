@@ -13,6 +13,7 @@ export type WorkspaceConnectionTemplateUse =
   | "calendar"
   | "clips"
   | "content"
+  | "crm"
   | "design"
   | "dispatch"
   | "forms"
@@ -27,6 +28,7 @@ export type WorkspaceConnectionProviderId =
   | "gmail"
   | "google_drive"
   | "hubspot"
+  | "salesforce"
   | "jira"
   | "sentry"
   | "granola"
@@ -239,7 +241,24 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       ],
     },
     capabilities: ["search", "import", "crm"],
-    recommendedTemplateUses: ["analytics", "brain", "mail", "dispatch"],
+    recommendedTemplateUses: ["analytics", "brain", "crm", "mail", "dispatch"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "salesforce",
+    label: "Salesforce",
+    description:
+      "CRM accounts, contacts, opportunities, custom objects, and activity history for customer-aware apps.",
+    credentialKeys: [],
+    oauth: {
+      provider: "salesforce",
+      authorizationUrl:
+        "https://login.salesforce.com/services/oauth2/authorize",
+      tokenUrl: "https://login.salesforce.com/services/oauth2/token",
+      refreshUrl: "https://login.salesforce.com/services/oauth2/token",
+      scopes: ["api", "refresh_token", "id"],
+    },
+    capabilities: ["search", "import", "crm"],
+    recommendedTemplateUses: ["analytics", "brain", "crm", "dispatch"],
   }),
   defineWorkspaceConnectionProvider({
     id: "jira",

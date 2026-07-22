@@ -1591,11 +1591,30 @@ export function shouldShowGlobalRunningStatus({
   ) {
     return false;
   }
+  // The reasoning cell already owns the generic Thinking state. Activity
+  // events can briefly reassert that same label between reasoning deltas;
+  // rendering both makes a second Thinking row flash beneath the thought.
+  if (
+    runningActivityLabel === "Thinking" &&
+    (latestMessageHasReasoning || contentHasVisibleReasoning(reconnectContent))
+  ) {
+    return false;
+  }
   if (runningActivityLabel) return true;
 
   return (
     !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
   );
+}
+
+export function assistantChatAutoscrollStatusKey({
+  showGlobalRunningStatus,
+  runningStatusLabel,
+}: {
+  showGlobalRunningStatus: boolean;
+  runningStatusLabel: string;
+}): string {
+  return showGlobalRunningStatus ? runningStatusLabel : "idle";
 }
 
 type QueuedMessage = {
@@ -4804,11 +4823,28 @@ const AssistantChatInner = forwardRef<
         adapterHandoffPending || reconnectTailOnlyRef.current,
     },
   );
+  const latestMessage = messages[messages.length - 1];
+  const reconnectStatusContent =
+    visibleReconnectContent.length > 0
+      ? visibleReconnectContent
+      : reconnectContent.length === 0
+        ? reconnectActivityContent
+        : [];
+  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
+    showRunningInUI,
+    runningActivityLabel,
+    runningActivityTool,
+    latestMessage,
+    reconnectContent: reconnectStatusContent,
+  });
   const autoscrollFollowKey = [
     messages.map(messageFollowKey).join(";"),
     `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
     `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
-    `status:${showRunningInUI ? runningStatusLabel : "idle"}`,
+    `status:${assistantChatAutoscrollStatusKey({
+      showGlobalRunningStatus,
+      runningStatusLabel,
+    })}`,
   ].join(";;");
   const {
     scrollRef,
@@ -4882,21 +4918,7 @@ const AssistantChatInner = forwardRef<
     () => latestNonRecoveryUserMessageText(messages),
     [messages],
   );
-  const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
-  const reconnectStatusContent =
-    visibleReconnectContent.length > 0
-      ? visibleReconnectContent
-      : reconnectContent.length === 0
-        ? reconnectActivityContent
-        : [];
-  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
-    showRunningInUI,
-    runningActivityLabel,
-    runningActivityTool,
-    latestMessage,
-    reconnectContent: reconnectStatusContent,
-  });
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
@@ -5535,18 +5557,23 @@ const AssistantChatInner = forwardRef<
                               className="agent-composer-missing-key-trigger"
                               aria-label="Connect AI to start chatting"
                             >
-                              <span className="agent-composer-missing-key-copy">
-                                <span className="agent-composer-missing-key-title">
-                                  {missingApiKeySetupLayout === "sidebar"
-                                    ? "Connect AI to chat"
-                                    : "Connect AI to start chatting"}
-                                </span>
-                                {missingApiKeySetupLayout !== "sidebar" ? (
-                                  <span className="agent-composer-missing-key-description">
-                                    Builder.io includes free credits, or use
-                                    your own API key.
+                              <span className="agent-composer-missing-key-content">
+                                <span className="agent-composer-missing-key-copy">
+                                  <span className="agent-composer-missing-key-title">
+                                    {missingApiKeySetupLayout === "sidebar"
+                                      ? "Connect AI to chat"
+                                      : "Connect AI to start chatting"}
                                   </span>
-                                ) : null}
+                                  {missingApiKeySetupLayout !== "sidebar" ? (
+                                    <span className="agent-composer-missing-key-description">
+                                      Builder.io includes free credits, or use
+                                      your own API key.
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="agent-composer-missing-key-cta">
+                                  Connect AI
+                                </span>
                               </span>
                             </button>
                           </PopoverTrigger>

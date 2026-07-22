@@ -453,6 +453,7 @@ const messages = {
     cancel: "Cancel",
     recurringDetails: "Recurring job details",
     instructions: "Instructions",
+    mcpTools: "Connected MCP tools",
     automationsLoadError: "Could not load automations.",
     automationsEmpty: "No automations yet.",
     automationEventTrigger: "On {{event}}",

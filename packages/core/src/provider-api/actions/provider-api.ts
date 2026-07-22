@@ -177,7 +177,7 @@ export function createProviderApiRequestSchema(
       .string()
       .optional()
       .describe(
-        "Optional shared workspace connection id to use when the provider has multiple granted connections.",
+        "Shared workspace connection id to use when the provider has multiple granted connections. Required when provider-api-catalog marks requiresConnectionId.",
       ),
     accountId: z
       .string()

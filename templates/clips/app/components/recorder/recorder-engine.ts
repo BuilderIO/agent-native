@@ -1524,25 +1524,32 @@ export class RecorderEngine {
       return this.compressAndReupload(meta);
     }
 
-    await this.resetUploadedChunks(null, signal);
+    const uploadMode = await this.resetUploadedChunks(null, signal);
     this.transition("uploading", { progress: 0 });
     const assembled = new Blob(this.localChunks, { type: this.mimeType });
-    return this.uploadBlobInSlices(assembled, this.mimeType, meta, signal);
+    return uploadMode === "streaming"
+      ? this.uploadBlobInStreamingChunks(assembled, this.mimeType, meta, signal)
+      : this.uploadBlobInSlices(assembled, this.mimeType, meta, signal);
   }
 
   private async resetUploadedChunks(
     compression: CompressionUploadMeta | null,
     signal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<UploadMode> {
     const resetUrl = `${appBasePath()}/api/uploads/${
       this.opts.recordingId
     }/reset-chunks`;
+    const uploadMimeType = compression?.outputMimeType || this.mimeType;
     let resetRes: Response;
     try {
       resetRes = await fetch(resetUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ compression }),
+        body: JSON.stringify({
+          compression,
+          requestStreaming: this.uploadMode === "streaming",
+          mimeType: uploadMimeType,
+        }),
         signal,
       });
     } catch (err) {
@@ -1566,6 +1573,17 @@ export class RecorderEngine {
         }). ${text || resetRes.statusText}`,
       );
     }
+    const reset = (await resetRes.json().catch(() => null)) as {
+      uploadMode?: unknown;
+    } | null;
+    if (reset?.uploadMode !== "streaming" && reset?.uploadMode !== "buffered") {
+      throw new Error(
+        "Couldn't prepare the recording for re-upload (reset-chunks returned no upload mode).",
+      );
+    }
+    const uploadMode = reset.uploadMode;
+    this.uploadMode = uploadMode;
+    return uploadMode;
   }
 
   // -------------------------------------------------------------------------
@@ -1653,7 +1671,10 @@ export class RecorderEngine {
             outputMimeType: compression.outputMimeType,
           }
         : null;
-      await this.resetUploadedChunks(compressionPayload, abort.signal);
+      const uploadMode = await this.resetUploadedChunks(
+        compressionPayload,
+        abort.signal,
+      );
 
       if (compressionError) {
         // Compression itself failed — we still hold the original assembled
@@ -1680,12 +1701,19 @@ export class RecorderEngine {
       }
 
       this.transition("uploading", { progress: 0 });
-      return this.uploadBlobInSlices(
-        finalBlob,
-        compression.outputMimeType,
-        meta,
-        abort.signal,
-      );
+      return uploadMode === "streaming"
+        ? this.uploadBlobInStreamingChunks(
+            finalBlob,
+            compression.outputMimeType,
+            meta,
+            abort.signal,
+          )
+        : this.uploadBlobInSlices(
+            finalBlob,
+            compression.outputMimeType,
+            meta,
+            abort.signal,
+          );
     } finally {
       // Always release the controller reference even on throw — otherwise
       // a subsequent cancel() would abort a freshly-started compression.
@@ -2023,6 +2051,55 @@ export class RecorderEngine {
     });
 
     return results[finalSlice.index];
+  }
+
+  private async uploadBlobInStreamingChunks(
+    blob: Blob,
+    mimeType: string,
+    meta: {
+      durationMs: number;
+      dimensions: { width: number; height: number };
+      hasAudio: boolean;
+      hasCamera: boolean;
+    },
+    signal?: AbortSignal,
+  ): Promise<Record<string, unknown> | undefined> {
+    if (blob.size === 0) {
+      throw new Error("Cannot retry an empty recording upload.");
+    }
+
+    this.chunkIndex = 0;
+    const totalChunks = Math.ceil(blob.size / STREAM_CHUNK_BYTES);
+    let result: Record<string, unknown> | undefined;
+
+    for (let index = 0; index < totalChunks; index++) {
+      const start = index * STREAM_CHUNK_BYTES;
+      const end = Math.min(start + STREAM_CHUNK_BYTES, blob.size);
+      const isFinal = index === totalChunks - 1;
+      const chunk = blob.slice(start, end, mimeType);
+      result = await this.uploadChunk(chunk, this.chunkIndex++, {
+        isFinal,
+        total: totalChunks,
+        mimeType,
+        ...(isFinal
+          ? {
+              durationMs: meta.durationMs,
+              width: meta.dimensions.width,
+              height: meta.dimensions.height,
+              hasAudio: meta.hasAudio,
+              hasCamera: meta.hasCamera,
+            }
+          : {}),
+        signal,
+      });
+      this.opts.onChunk?.({
+        index,
+        bytes: chunk.size,
+        total: totalChunks,
+      });
+    }
+
+    return result;
   }
 
   private async uploadChunk(

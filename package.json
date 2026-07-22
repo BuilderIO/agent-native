@@ -59,6 +59,8 @@
     "guard:template-list": "node scripts/guard-template-list.mjs",
     "guard:netlify-private-env": "tsx scripts/guard-netlify-private-env.ts",
     "guard:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts --check",
+    "sync:template-standard": "tsx scripts/template-standard/index.ts",
+    "guard:template-standard": "tsx scripts/template-standard/index.ts --check",
     "guard:public-packages": "tsx scripts/guard-public-packages.ts",
     "guard:shared-ui-singletons": "tsx scripts/guard-shared-ui-singletons.ts",
     "guard:no-core-client-barrel-imports": "tsx scripts/guard-no-core-client-barrel-imports.ts",

@@ -859,6 +859,27 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   });
 }
 
+// Only the last assistant message may shimmer as "the currently running
+// tool" — an older message's dangling unresolved tool-call must never
+// shimmer once a later run is active.
+export function computeLatestRunningToolCallId(
+  content: ContentPart[] | undefined,
+  { chatRunning, isLast }: { chatRunning: boolean; isLast: boolean },
+): string | null {
+  if (!isLast) return null;
+  return (
+    content?.reduce(
+      (latestToolCallId, part) =>
+        part.type === "tool-call" &&
+        part.result === undefined &&
+        (chatRunning || part.activity === true)
+          ? part.toolCallId
+          : latestToolCallId,
+      null as string | null,
+    ) ?? null
+  );
+}
+
 export function shouldShowAssistantMessageFooter({
   isLast,
   chatRunning,
@@ -1157,6 +1178,10 @@ export function AssistantMessage() {
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
+  const latestRunningToolCallId = computeLatestRunningToolCallId(msgContent, {
+    chatRunning,
+    isLast,
+  });
 
   if (!hasRenderableContent) return null;
 
@@ -1201,7 +1226,16 @@ export function AssistantMessage() {
               case "reasoning":
                 return <ReasoningMessagePart />;
               case "tool-call":
-                return part.toolUI ?? <ToolCallFallback {...part} />;
+                return (
+                  part.toolUI ?? (
+                    <ToolCallFallback
+                      {...part}
+                      isLatestRunning={
+                        part.toolCallId === latestRunningToolCallId
+                      }
+                    />
+                  )
+                );
               default:
                 return null;
             }

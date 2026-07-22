@@ -102,6 +102,11 @@ beforeEach(() => {
   delete process.env.OPENAI_BASE_URL;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.GROQ_API_KEY;
+  delete process.env.EMAIL_AGENT_ADDRESS;
+  delete process.env.EMAIL_FROM;
+  delete process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
+  delete process.env.RESEND_API_KEY;
+  delete process.env.SENDGRID_API_KEY;
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
@@ -620,6 +625,23 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
       true,
     );
+  });
+
+  it("uses app-provided email env keys for signed-in production shared-database users", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SENDGRID_API_KEY = "sendgrid-deploy-key";
+    process.env.EMAIL_FROM = "Clips <clips@example.com>";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("SENDGRID_API_KEY")).toBe("sendgrid-deploy-key");
+    expect(await resolveSecret("EMAIL_FROM")).toBe("Clips <clips@example.com>");
+    expect(canUseDeployCredentialFallbackForRequest("SENDGRID_API_KEY")).toBe(
+      true,
+    );
+    expect(canUseDeployCredentialFallbackForRequest("EMAIL_FROM")).toBe(true);
   });
 
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {

@@ -144,6 +144,10 @@
       "dist/data-programs/index.d.ts",
       "dist/data-programs/index.js"
     ],
+    "./dashboard-storage": [
+      "dist/dashboard-storage/index.d.ts",
+      "dist/dashboard-storage/index.js"
+    ],
     "./data-widgets": ["dist/data-widgets/index.js"],
     "./db": ["dist/db/index.js"],
     "./db-admin": ["dist/db-admin/index.js"],

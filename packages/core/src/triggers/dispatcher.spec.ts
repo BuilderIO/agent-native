@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { initTriggerDispatcher } from "./dispatcher.js";
+import { buildTriggerContent, initTriggerDispatcher } from "./dispatcher.js";
 
 const resourceListAllOwnersMock = vi.hoisted(() => vi.fn());
 const resourcePutMock = vi.hoisted(() => vi.fn());
@@ -93,6 +93,22 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
 });
 
 describe("trigger dispatcher", () => {
+  it("rejects delegated policy ids that could inject trigger frontmatter", () => {
+    expect(() =>
+      buildTriggerContent(
+        {
+          schedule: "",
+          enabled: true,
+          triggerType: "event",
+          event: "clip.created",
+          mode: "agentic",
+          delegatedPolicyId: "crm-safe\nenabled: false",
+        },
+        "Review the clip.",
+      ),
+    ).toThrow("Delegated automation policy IDs");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: user exists and (when checked) is an org member.
@@ -324,7 +340,65 @@ Respond to the event.`,
       }),
     );
     expect(runAgentLoopMock).toHaveBeenCalledWith(
-      expect.objectContaining({ threadId: "thread-1" }),
+      expect.objectContaining({
+        threadId: "thread-1",
+        actionCaller: "automation",
+        automation: {
+          triggerId: "resource-1",
+          triggerName: "inbox-alert",
+          policyId: undefined,
+        },
+      }),
+    );
+  });
+
+  it("passes a stored delegated policy only from trigger frontmatter", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-policy",
+        owner: "alice+triggers@agent-native.test",
+        path: "jobs/crm-follow-up.md",
+        content: `---
+schedule: ""
+enabled: true
+triggerType: event
+event: crm.follow-up
+mode: agentic
+delegatedPolicyId: crm-sales-routine-local-v1
+createdBy: alice+triggers@agent-native.test
+---
+
+Update the local follow-up status.`,
+      },
+    ]);
+
+    await initTriggerDispatcher({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      model: "test-model",
+    });
+    const handler = subscribeMock.mock.calls.find(
+      ([eventName]) => eventName === "crm.follow-up",
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+    await handler(
+      { recordId: "record-1" },
+      {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-policy",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      },
+    );
+
+    expect(runAgentLoopMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionCaller: "automation",
+        automation: {
+          triggerId: "resource-policy",
+          triggerName: "crm-follow-up",
+          policyId: "crm-sales-routine-local-v1",
+        },
+      }),
     );
   });
 

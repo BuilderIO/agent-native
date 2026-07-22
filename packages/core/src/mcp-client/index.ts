@@ -166,6 +166,8 @@ import {
 
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
+  /** Restrict the generated entries to an explicit background capability set. */
+  toolNames?: readonly string[];
 }
 
 export function mcpToolsToActionEntries(
@@ -173,7 +175,11 @@ export function mcpToolsToActionEntries(
   options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
+  const selectedToolNames = options.toolNames
+    ? new Set(options.toolNames)
+    : undefined;
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
+    if (selectedToolNames && !selectedToolNames.has(tool.name)) continue;
     entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;

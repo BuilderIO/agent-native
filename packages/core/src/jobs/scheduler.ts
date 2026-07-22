@@ -42,6 +42,50 @@ export interface JobFrontmatter {
   deliveryThreadRef?: string;
   deliveryTenantId?: string;
   model?: string;
+  /** Explicit MCP tool capabilities available to this background run. */
+  mcpTools?: string[];
+}
+
+const MAX_JOB_MCP_TOOLS = 64;
+const JOB_MCP_TOOL_NAME_RE = /^mcp__[^\s]+__[^\s]+$/;
+
+/**
+ * Normalize the non-secret MCP capability references persisted with a job.
+ * Tool names are opaque framework identifiers; URLs and credentials never
+ * belong in job frontmatter.
+ */
+export function normalizeJobMcpTools(value: unknown): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            throw new Error("mcpTools must be a JSON array of tool names.");
+          }
+        })()
+      : value;
+  if (!Array.isArray(parsed)) {
+    throw new Error("mcpTools must be an array of MCP tool names.");
+  }
+  if (parsed.length > MAX_JOB_MCP_TOOLS) {
+    throw new Error(
+      `mcpTools may contain at most ${MAX_JOB_MCP_TOOLS} tool names.`,
+    );
+  }
+  const normalized = [...new Set(parsed)];
+  if (
+    normalized.some(
+      (toolName) =>
+        typeof toolName !== "string" || !JOB_MCP_TOOL_NAME_RE.test(toolName),
+    )
+  ) {
+    throw new Error(
+      "mcpTools must contain only framework MCP tool names such as mcp__server__tool.",
+    );
+  }
+  return normalized;
 }
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
@@ -129,6 +173,14 @@ export function parseJobFrontmatter(content: string): {
       case "model":
         meta.model = value;
         break;
+      case "mcpTools":
+        try {
+          meta.mcpTools = normalizeJobMcpTools(value);
+        } catch {
+          // Ignore malformed optional capability metadata and keep the job
+          // readable; newly-created jobs are validated before persistence.
+        }
+        break;
     }
   }
 
@@ -166,6 +218,8 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
   if (meta.deliveryTenantId)
     lines.push(`deliveryTenantId: ${meta.deliveryTenantId}`);
   if (meta.model) lines.push(`model: ${meta.model}`);
+  if (meta.mcpTools?.length)
+    lines.push(`mcpTools: ${JSON.stringify(meta.mcpTools)}`);
   lines.push(`---`);
   lines.push("");
   lines.push(body);
@@ -174,8 +228,15 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
 
 // ─── Job execution ──────────────────────────────────────────────────────────
 
+export interface RecurringJobContext {
+  name: string;
+  meta: JobFrontmatter;
+  body: string;
+  resource: Resource;
+}
+
 export interface SchedulerDeps {
-  getActions: () => Record<string, ActionEntry>;
+  getActions: (job?: RecurringJobContext) => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
   /**
    * Tool names to expose on the FIRST engine request for a job run. When
@@ -188,7 +249,7 @@ export interface SchedulerDeps {
    * merged actions are the app's own vs. framework additions, so this must
    * be supplied explicitly rather than inferred here.
    */
-  getInitialToolNames?: () => string[] | undefined;
+  getInitialToolNames?: (job?: RecurringJobContext) => string[] | undefined;
   /** Optional engine override. Defaults to the resolved request engine. */
   engine?: AgentEngine;
   apiKey?: string;
@@ -477,9 +538,15 @@ async function executeJob(
     },
     async () => {
       try {
-        const baseActions = deps.getActions();
+        const jobContext: RecurringJobContext = {
+          name: jobName,
+          meta,
+          body,
+          resource,
+        };
+        const baseActions = deps.getActions(jobContext);
         const systemPrompt = await deps.getSystemPrompt(jobUserEmail);
-        const initialToolNames = deps.getInitialToolNames?.();
+        const initialToolNames = deps.getInitialToolNames?.(jobContext);
         // Only attach tool-search (and pay its schema cost) when the caller
         // actually supplied an initial subset to filter down to — otherwise
         // this is byte-for-byte the prior unfiltered behavior.

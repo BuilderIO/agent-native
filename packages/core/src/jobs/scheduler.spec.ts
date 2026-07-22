@@ -179,6 +179,51 @@ Summarize the inbox.`,
     );
   });
 
+  it("passes persisted MCP capabilities to the background action suppliers", async () => {
+    resourceListAllOwnersMock.mockResolvedValueOnce([
+      {
+        id: "resource-mcp",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/hourly-meeting-todos.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+createdBy: alice+jobs@agent-native.test
+mcpTools: ["mcp__meeting-notes__list_meetings"]
+---
+
+Import action items.`,
+      },
+    ]);
+    const getActions = vi.fn(() => ({}));
+    const getInitialToolNames = vi.fn(() => ["manage-jobs"]);
+
+    await processRecurringJobs({
+      getActions,
+      getInitialToolNames,
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    });
+
+    expect(getActions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "hourly-meeting-todos",
+        meta: expect.objectContaining({
+          mcpTools: ["mcp__meeting-notes__list_meetings"],
+        }),
+      }),
+    );
+    expect(getInitialToolNames).toHaveBeenCalledWith(
+      expect.objectContaining({
+        meta: expect.objectContaining({
+          mcpTools: ["mcp__meeting-notes__list_meetings"],
+        }),
+      }),
+    );
+  });
+
   it("defers framework-added tools behind tool-search on the first job request when an initial tool list is supplied", async () => {
     actionsToEngineToolsMock.mockImplementation(
       (actionsMap: Record<string, { tool: { description: string } }>) =>

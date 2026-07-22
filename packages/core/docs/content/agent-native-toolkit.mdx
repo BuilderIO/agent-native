@@ -112,6 +112,22 @@ being rebuilt in slightly different ways every time.
   keep an independent lifecycle manifest, dependency graph, and release cadence.
 - Dispatch remains a **separate product**, not a Toolkit capability module.
 
+## Dashboard kit {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` is an ejectable, presentation-only unit for
+metric and stats cards, data tables, date-range controls, panel ordering and
+layout, and generic chart rendering. It receives rows and callbacks from an
+app-owned adapter: it never fetches data, resolves credentials, or owns a
+dashboard's state.
+
+Use `agent-native eject inspect toolkit/dashboard` before applying
+`toolkit/dashboard` to an app. Keep durable dashboards in that app with
+`@agent-native/core/dashboard-storage`: instantiate its access-scoped schema
+and store per app, not in a cross-app dashboard table. Panel data flows through
+a `PanelSourceResolver`; the built-in `program` source runs an app-owned data
+program and is the canonical no-provider default. Provider resolvers belong in
+the app that owns their connection and query policy.
+
 ## Implementation Boundary {#implementation-boundary}
 
 Toolkit docs are organized by reusable product capability, not npm package.

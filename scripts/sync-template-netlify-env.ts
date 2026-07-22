@@ -9,6 +9,7 @@ import { TEMPLATES } from "../packages/core/src/cli/templates-meta.js";
 type TemplateSite = {
   name: string;
   siteId: string;
+  sourceTemplate: string;
 };
 
 type Options = {
@@ -32,6 +33,7 @@ type TemplateEnvPlan = {
   normalizedKeys: string[];
   skippedKeys: string[];
   sourcesByKey: Map<string, string[]>;
+  siteName: string;
   template: string;
 };
 
@@ -44,9 +46,20 @@ const NETLIFY_SITES = JSON.parse(
   readFileSync(path.join(REPO_ROOT, "scripts/netlify-sites.json"), "utf8"),
 ) as Record<string, string>;
 
+const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "chat"]]);
+const NETLIFY_TEMPLATE_ALIASES = new Map([["chat", "starter"]]);
+const NETLIFY_SITE_PRODUCTION_URLS = new Map([
+  ["starter", "https://starter.agent-native.com"],
+]);
+
 const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
+  // fw is the public framework site, not a template environment target.
   .filter(([name]) => name !== "fw")
-  .map(([name, siteId]) => ({ name, siteId }));
+  .map(([name, siteId]) => ({
+    name,
+    siteId,
+    sourceTemplate: NETLIFY_SITE_SOURCE_TEMPLATES.get(name) ?? name,
+  }));
 
 const SITE_BY_NAME = new Map(TEMPLATE_SITES.map((site) => [site.name, site]));
 const DEFAULT_SOURCES = [".env", ".env.local"];
@@ -133,11 +146,16 @@ const PUBLIC_KEY_EXACT = new Set([
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
-const TEMPLATE_PROD_URL_BY_NAME = new Map(
-  TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
+const TEMPLATE_PROD_URL_BY_NAME = new Map([
+  ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
     (entry): entry is [string, string] => Boolean(entry[1]),
   ),
-);
+  ...NETLIFY_SITE_PRODUCTION_URLS,
+]);
+
+export function resolveNetlifyTemplateName(name: string): string {
+  return NETLIFY_TEMPLATE_ALIASES.get(name) ?? name;
+}
 
 function usage(): string {
   const names = TEMPLATE_SITES.map((site) => site.name).join(", ");
@@ -212,7 +230,9 @@ function parseArgs(argv: string[]): Options {
     }
   }
 
-  const selected = all ? TEMPLATE_SITES.map((site) => site.name) : templates;
+  const selected = all
+    ? TEMPLATE_SITES.map((site) => site.name)
+    : templates.map(resolveNetlifyTemplateName);
   const uniqueTemplates = [...new Set(selected.map((name) => name.trim()))]
     .filter(Boolean)
     .sort();
@@ -366,12 +386,12 @@ function formatKeySources(
 }
 
 function buildTemplateEnvPlan(
-  template: string,
+  site: TemplateSite,
   context: string,
   sources: string[],
 ): TemplateEnvPlan {
   const { foundSources, sourcesByKey, values } = loadTemplateEnv(
-    template,
+    site.sourceTemplate,
     sources,
   );
   const forbiddenKeys = [...values.keys()]
@@ -390,7 +410,7 @@ function buildTemplateEnvPlan(
     }
 
     const normalized = normalizeProductionUrlEntry(
-      template,
+      site.name,
       context,
       key,
       value,
@@ -406,7 +426,8 @@ function buildTemplateEnvPlan(
     normalizedKeys,
     skippedKeys: [...new Set(skippedKeys)].sort(),
     sourcesByKey,
-    template,
+    siteName: site.name,
+    template: site.sourceTemplate,
   };
 }
 
@@ -583,9 +604,11 @@ async function main() {
     );
   }
 
-  const plans = options.templates.map((template) =>
-    buildTemplateEnvPlan(template, options.context, options.sources),
-  );
+  const plans = options.templates.map((siteName) => {
+    const site = SITE_BY_NAME.get(siteName);
+    if (!site) throw new Error(`Missing site mapping for ${siteName}.`);
+    return buildTemplateEnvPlan(site, options.context, options.sources);
+  });
   const forbidden = plans.flatMap((plan) =>
     plan.forbiddenKeys.map((key) => ({
       key,
@@ -613,14 +636,16 @@ async function main() {
   );
 
   for (const plan of plans) {
-    const site = SITE_BY_NAME.get(plan.template);
+    const site = SITE_BY_NAME.get(plan.siteName);
     if (!site) throw new Error(`Missing site mapping for ${plan.template}.`);
 
     const entries = plan.entries;
     const keys = entries.map(([key]) => key).sort();
 
     console.log("");
-    console.log(`[${plan.template}] site=${site.siteId}`);
+    console.log(
+      `[${plan.siteName}] template=${plan.template} site=${site.siteId}`,
+    );
     console.log(
       `  sources: ${plan.foundSources.length > 0 ? plan.foundSources.join(", ") : "(none)"}`,
     );

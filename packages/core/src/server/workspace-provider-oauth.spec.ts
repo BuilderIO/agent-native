@@ -9,6 +9,8 @@ import {
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
+  resolveSalesforceOAuthLoginUrl,
+  salesforceOAuthEndpoint,
   scopedOAuthAccountId,
   type WorkspaceProviderOAuthFlow,
 } from "./workspace-provider-oauth.js";
@@ -36,6 +38,9 @@ describe("workspace provider OAuth", () => {
     expect(
       scopedOAuthAccountId("hubspot", "grace@example.com", "12345"),
     ).not.toBe(scopedOAuthAccountId("hubspot", "ada@example.com", "12345"));
+    expect(
+      scopedOAuthAccountId("salesforce", "ada@example.com", "00Dexample"),
+    ).not.toBe("00Dexample");
     expect(scopedOAuthAccountId("figma", "ada@example.com", "figma-1")).toBe(
       "figma-1",
     );
@@ -218,6 +223,43 @@ describe("workspace provider OAuth", () => {
         "offline_access",
       ]),
     );
+  });
+
+  it("builds a Salesforce authorization request with CRM and refresh scopes", () => {
+    const provider = getWorkspaceConnectionProvider("salesforce")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "salesforce-client",
+        redirectUri:
+          "https://app.example.com/_agent-native/connections/oauth/salesforce/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://login.salesforce.com/services/oauth2/authorize",
+    );
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining(["api", "refresh_token", "id"]),
+    );
+  });
+
+  it("uses validated production and sandbox Salesforce OAuth endpoints", () => {
+    expect(resolveSalesforceOAuthLoginUrl()).toBe(
+      "https://login.salesforce.com",
+    );
+    expect(resolveSalesforceOAuthLoginUrl("sandbox")).toBe(
+      "https://test.salesforce.com",
+    );
+    expect(resolveSalesforceOAuthLoginUrl("staging")).toBeNull();
+    expect(
+      salesforceOAuthEndpoint("https://test.salesforce.com", "authorize"),
+    ).toBe("https://test.salesforce.com/services/oauth2/authorize");
+    expect(() =>
+      salesforceOAuthEndpoint("https://evil.example.test", "token"),
+    ).toThrow("Invalid Salesforce OAuth login URL.");
   });
 
   it("isolates offline consent to Picker-selected Drive files", () => {
@@ -454,6 +496,76 @@ describe("workspace provider OAuth", () => {
     });
   });
 
+  it("exchanges Salesforce authorization codes as a form-encoded request", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        "Content-Type": "application/x-www-form-urlencoded",
+      });
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("client_id")).toBe("salesforce-client");
+      expect(body.get("client_secret")).toBe("salesforce-secret");
+      expect(body.get("grant_type")).toBe("authorization_code");
+      return new Response(
+        JSON.stringify({
+          access_token: "salesforce-token",
+          refresh_token: "salesforce-refresh",
+          expires_in: 7200,
+          instance_url: "https://acme.my.salesforce.com",
+          id: "https://login.salesforce.com/id/00Dexample/005example",
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = getWorkspaceConnectionProvider("salesforce")!;
+    await expect(
+      exchangeWorkspaceProviderOAuthCode({
+        providerId: "salesforce",
+        provider,
+        clientId: "salesforce-client",
+        clientSecret: "salesforce-secret",
+        code: "code",
+        verifier: "unused-verifier",
+        redirectUri: "https://app.example.com/callback",
+      }),
+    ).resolves.toMatchObject({
+      access_token: "salesforce-token",
+      refresh_token: "salesforce-refresh",
+      expiry_date: expect.any(Number),
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://login.salesforce.com/services/oauth2/token",
+      expect.any(Object),
+    );
+  });
+
+  it("exchanges Salesforce sandbox authorization codes at the sandbox issuer", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ access_token: "salesforce-token" }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await exchangeWorkspaceProviderOAuthCode({
+      providerId: "salesforce",
+      provider: getWorkspaceConnectionProvider("salesforce")!,
+      clientId: "salesforce-client",
+      clientSecret: "salesforce-secret",
+      code: "code",
+      verifier: "unused-verifier",
+      redirectUri: "https://app.example.com/callback",
+      tokenUrl: salesforceOAuthEndpoint("https://test.salesforce.com", "token"),
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://test.salesforce.com/services/oauth2/token",
+      expect.any(Object),
+    );
+  });
+
   it("exchanges Sentry authorization codes with PKCE", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({
@@ -641,6 +753,45 @@ it("resolves HubSpot portal identity through the token metadata endpoint", async
     expect.objectContaining({
       headers: { Accept: "application/json" },
     }),
+  );
+});
+
+it("records a Salesforce organization and validated instance metadata", async () => {
+  await expect(
+    resolveWorkspaceProviderIdentity("salesforce", {
+      access_token: "salesforce-access",
+      instance_url: "https://acme.my.salesforce.com",
+      id: "https://login.salesforce.com/id/00Dexample/005example",
+    }),
+  ).resolves.toEqual({
+    accountId: "00Dexample",
+    label: "acme.my.salesforce.com",
+    config: {
+      salesforceInstanceUrl: "https://acme.my.salesforce.com",
+      salesforceIdentityUrl:
+        "https://login.salesforce.com/id/00Dexample/005example",
+      salesforceOrganizationId: "00Dexample",
+    },
+  });
+
+  await expect(
+    resolveWorkspaceProviderIdentity("salesforce", {
+      access_token: "salesforce-access",
+      instance_url: "https://internal.example.test",
+      id: "https://login.salesforce.com/id/00Dexample/005example",
+    }),
+  ).rejects.toThrow(
+    "Salesforce OAuth response did not identify the connected organization.",
+  );
+
+  await expect(
+    resolveWorkspaceProviderIdentity("salesforce", {
+      access_token: "salesforce-access",
+      instance_url: "https://acme.my.salesforce.com:8443",
+      id: "https://login.salesforce.com/id/00Dexample/005example",
+    }),
+  ).rejects.toThrow(
+    "Salesforce OAuth response did not identify the connected organization.",
   );
 });
 

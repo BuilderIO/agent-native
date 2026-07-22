@@ -36,4 +36,26 @@ describe("framework secret registrations", () => {
       },
     });
   });
+
+  it("registers Salesforce workspace OAuth credentials and connection metadata", () => {
+    registerFrameworkSecrets();
+
+    expect(getRequiredSecret("SALESFORCE_CLIENT_ID")).toMatchObject({
+      label: "Salesforce OAuth client ID",
+      scope: "workspace",
+      kind: "api-key",
+    });
+    expect(getRequiredSecret("SALESFORCE_CLIENT_SECRET")).toMatchObject({
+      label: "Salesforce OAuth client secret",
+      scope: "workspace",
+      kind: "api-key",
+    });
+    expect(getRequiredSecret("SALESFORCE_CONNECTED")).toMatchObject({
+      label: "Salesforce account",
+      scope: "user",
+      kind: "oauth",
+      oauthProvider: "salesforce",
+      oauthConnectUrl: "/_agent-native/connections/oauth/salesforce/start",
+    });
+  });
 });

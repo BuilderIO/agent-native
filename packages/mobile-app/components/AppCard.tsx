@@ -15,6 +15,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Database: "database",
   MessageSquare: "message-square",
   Route: "shuffle",
+  Users: "users",
   ListCheck: "check-square",
   Settings: "settings",
 };

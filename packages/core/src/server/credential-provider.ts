@@ -75,6 +75,9 @@ export function readDeployCredentialEnv(key: string): string | undefined {
 
 const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "ANTHROPIC_API_KEY",
+  "EMAIL_FROM",
+  "EMAIL_INBOUND_WEBHOOK_SECRET",
+  "EMAIL_AGENT_ADDRESS",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
   "OPENROUTER_API_KEY",
@@ -84,6 +87,8 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "GROQ_API_KEY",
   "MISTRAL_API_KEY",
   "COHERE_API_KEY",
+  "RESEND_API_KEY",
+  "SENDGRID_API_KEY",
 ]);
 
 function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
@@ -97,9 +102,10 @@ function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
  * identity-bearing provider keys so one deploy key does not silently
  * impersonate another tenant. App-provided service credentials are different:
  * they configure the deployed app itself rather than identifying a user. This
- * includes LLM keys that let the app developer pay for model usage and OAuth
- * client credentials whose per-user identity remains in scoped OAuth tokens.
- * Key-aware callers may use those env vars.
+ * includes LLM keys that let the app developer pay for model usage, email
+ * transport configuration owned by the deployment, and OAuth client
+ * credentials whose per-user identity remains in scoped OAuth tokens. Key-aware
+ * callers may use those env vars.
  *
  * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
  * provider secrets. This stricter helper remains for legacy call sites with
