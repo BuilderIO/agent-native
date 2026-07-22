@@ -202,13 +202,11 @@ function TabTrigger({
   label: string;
 }) {
   return (
-    <Button
+    <ActionButton
       type="button"
-      variant="ghost"
       emphasis="ghost"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
+      aria-pressed={active}
+      onPress={onClick}
       className={cn(
         "inline-flex !h-auto items-center gap-1.5 !rounded-none border-b-2 !px-3 !py-2 text-sm font-medium transition-colors hover:!bg-transparent active:!scale-100 focus-visible:!ring-0 focus-visible:!ring-offset-0 [&_svg]:!size-auto",
         active
@@ -218,7 +216,7 @@ function TabTrigger({
     >
       {icon}
       {label}
-    </Button>
+    </ActionButton>
   );
 }
 
@@ -370,18 +368,17 @@ function PersonRow({
       <span className="flex-1 min-w-0 truncate">{person.label}</span>
       <span className="text-xs text-muted-foreground">{person.roleLabel}</span>
       {canManage && person.share ? (
-        <Button
+        <ActionButton
           type="button"
-          variant="ghost"
           intent="danger"
           emphasis="ghost"
           size="icon"
           aria-label={removeLabel}
-          onClick={() => onRemove(person.share!)}
+          onPress={() => onRemove(person.share!)}
           className={cn(BUTTON_GHOST_ICON, "[&_svg]:!size-auto")}
         >
           <IconTrash size={14} />
-        </Button>
+        </ActionButton>
       ) : null}
     </li>
   );
@@ -432,29 +429,32 @@ function CopyField({
       </div>
       <div className="flex items-stretch gap-2">
         {multiline ? (
-          <textarea
+          <TextArea
             readOnly
             value={value}
-            className="flex-1 h-20 rounded-md border border-input bg-background px-3 py-2 text-xs font-mono text-foreground resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+            onChange={() => undefined}
+            aria-label={label}
+            className="flex-1 h-20 text-xs font-mono"
           />
         ) : (
-          <input
+          <TextField
             readOnly
             value={value}
-            className="flex-1 min-w-0 h-9 rounded-md border border-input bg-background px-3 text-xs font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            onChange={() => undefined}
+            aria-label={label}
+            className="flex-1 min-w-0 text-xs font-mono"
           />
         )}
-        <Button
+        <ActionButton
           type="button"
-          variant="outline"
           emphasis="outline"
           size="icon"
-          onClick={() => void controller.copy(field, value)}
+          onPress={() => void controller.copy(field, value)}
           aria-label={controller.labels.copy}
           className={cn(BUTTON_OUTLINE_SM, "!w-9 !px-0 [&_svg]:!size-auto")}
         >
           {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        </Button>
+        </ActionButton>
       </div>
     </div>
   );
