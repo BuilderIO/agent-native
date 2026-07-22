@@ -39,6 +39,11 @@ page.on("console", (message) => {
 });
 await page.goto("/settings", { waitUntil: "domcontentloaded", timeout: 45_000 });
 await page.waitForTimeout(2_000);
+const manageAgentTab = page.locator('[role="tab"]').nth(1);
+if (await manageAgentTab.count()) {
+  await manageAgentTab.click({ force: true });
+  await page.waitForTimeout(1_000);
+}
 if (page.url().includes("/_agent-native/sign-in")) {
   const email = `qa-${app}-${Date.now()}@example.com`;
   await page.locator('[data-tab="signup"]').click();
@@ -70,7 +75,7 @@ const info = await page.evaluate(() => ({
 }));
 console.log(JSON.stringify({ app, info, errors }, null, 2));
 mkdirSync("/tmp/agent-native-ds-shots", { recursive: true });
-const output = `/tmp/agent-native-ds-shots/chat-${app}-settings-${mode}.png`;
+const output = `/tmp/agent-native-ds-shots/${app}-settings-${mode}.png`;
 await page.screenshot({ path: output, fullPage: true });
 console.log(`screenshot ${output}`);
 await context.close();
