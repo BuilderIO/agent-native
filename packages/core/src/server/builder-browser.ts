@@ -348,13 +348,13 @@ export function verifyBuilderRelayRequest(input: {
   body: BuilderRelayRequestBody;
 } | null {
   console.log(`shomix - verifyBuilderRelayRequest:`);
-  console.log(`shomix - body - ${body}`);
-  console.log(`shomix - timestamp - ${timestamp}`);
-  console.log(`shomix - flowId - ${flowId}`);
-  console.log(`shomix - signature - ${signature}`);
-  console.log(`shomix - requestOrigin - ${requestOrigin}`);
-  console.log(`shomix - requestBasePath - ${requestBasePath}`);
-  console.log(`shomix - now - ${now}`);
+  console.log(`shomix - body - ${input.body}`);
+  console.log(`shomix - timestamp - ${input.timestamp}`);
+  console.log(`shomix - flowId - ${input.flowId}`);
+  console.log(`shomix - signature - ${input.signature}`);
+  console.log(`shomix - requestOrigin - ${input.requestOrigin}`);
+  console.log(`shomix - requestBasePath - ${input.requestBasePath}`);
+  console.log(`shomix - now - ${input.now}`);
   const timestamp = Number(input.timestamp);
   const now = input.now ?? Date.now();
   if (
