@@ -726,6 +726,56 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("excludes legacy synthetic agent cards from structured history", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-legacy-agent-card-history",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Count signups" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-analytics",
+                toolName: "call-agent",
+                args: { agent: "analytics", message: "Count signups" },
+                result: "42 signups",
+              },
+              {
+                type: "tool-call",
+                toolCallId: "agent-analytics",
+                toolName: "agent:Analytics",
+                args: {},
+                result: "Done",
+              },
+            ],
+          },
+          {
+            role: "user",
+            content: [{ type: "text", text: "Use that in my todo" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    const serializedHistory = JSON.stringify(body.structuredHistory);
+    expect(serializedHistory).toContain('"toolName":"call-agent"');
+    expect(serializedHistory).not.toContain("agent:Analytics");
+  });
+
   it("sends the explicit dev-frame surface for outer frame-hosted chat", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
     vi.stubGlobal("fetch", fetchSpy);
