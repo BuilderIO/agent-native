@@ -157,10 +157,14 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
 
   const linkCalloutHtml = args.linkCallout
     ? `
-      <p style="margin:24px 0 4px 0; text-align:center; ${SECONDARY_TEXT_STYLE}">${escapeHtml(args.linkCallout.note)}</p>
-      <p style="margin:0; text-align:center; word-break:break-all; ${SECONDARY_TEXT_STYLE}">
-        <a href="${escapeAttr(args.linkCallout.url)}" style="color:${linkColor}; text-decoration:underline;">${escapeHtml(args.linkCallout.url)}</a>
-      </p>
+      <p style="margin:24px 0 10px 0; text-align:center; ${SECONDARY_TEXT_STYLE}">${escapeHtml(args.linkCallout.note)}</p>
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+        <tr>
+          <td style="background-color:#1c1c1f; border:1px solid #27272a; border-radius:8px; padding:10px 14px; text-align:center; word-break:break-all; ${SECONDARY_TEXT_STYLE}">
+            <a href="${escapeAttr(args.linkCallout.url)}" style="color:${linkColor}; text-decoration:underline;">${escapeHtml(args.linkCallout.url)}</a>
+          </td>
+        </tr>
+      </table>
     `
     : "";
 

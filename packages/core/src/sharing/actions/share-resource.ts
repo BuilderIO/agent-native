@@ -27,6 +27,21 @@ import {
 // spamming the recipient's inbox every time someone hits "Add".
 const RE_INVITE_THROTTLE_MS = 10 * 60 * 1000;
 
+/**
+ * A 4xx `statusCode` marks an error as safe to show verbatim in the client
+ * toast (see `server/action-routes.js`'s `isUserFacing` check) — anything
+ * without one gets masked as "Internal server error" to avoid leaking
+ * internals. This is a normal, expected condition, not a bug, so it gets a
+ * real status instead of falling through to that mask.
+ */
+class RecentlyNotifiedError extends Error {
+  statusCode = 429;
+  constructor(message: string) {
+    super(message);
+    this.name = "RecentlyNotifiedError";
+  }
+}
+
 const SHARE_NOTIFICATIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS share_notifications (
   resource_type TEXT NOT NULL,
   resource_id TEXT NOT NULL,
@@ -450,7 +465,7 @@ export default defineAction({
           const elapsedMs = Date.now() - new Date(lastNotifiedAt).getTime();
           if (elapsedMs < RE_INVITE_THROTTLE_MS) {
             const minutesAgo = Math.max(1, Math.round(elapsedMs / 60_000));
-            throw new Error(
+            throw new RecentlyNotifiedError(
               `${principalId} already got an invite for this ${reg.displayName.toLowerCase()} ${
                 minutesAgo === 1 ? "a minute" : `${minutesAgo} minutes`
               } ago. Give it a little longer before resending.`,
