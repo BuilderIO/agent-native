@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import { useT } from "../i18n.js";
-import { useActionMutation, useActionQuery } from "../use-action.js";
+import {
+  extractShareErrorMessage,
+  optimisticallyUpdateShareCache,
+  rollbackShareCache,
+  useShareMutationGuard,
+  useShareMutations,
+  useShareOrgMemberSearch,
+  useShareQuery,
+} from "./share-controller-helpers.js";
+import type { ShareOrgMember } from "./share-controller-helpers.js";
 
 export type ShareVisibility = "private" | "org" | "public";
 export type ShareRole = "viewer" | "editor" | "admin";
@@ -23,7 +31,7 @@ export interface ResourceSharesResponse {
   visibility: ShareVisibility | null;
   role?: "owner" | ShareRole;
   shares: ResourceShare[];
-  policy?: { allowPublic: boolean };
+  policy?: { allowPublic: boolean; requireOrgMemberForUserShares?: boolean };
 }
 
 export interface ShareDialogControllerOptions {
@@ -113,39 +121,6 @@ export interface ShareDialogController {
   canManage: boolean;
 }
 
-interface OrgMember {
-  email: string;
-  name?: string | null;
-}
-
-function useOrgMembers(): OrgMember[] {
-  const [members, setMembers] = useState<OrgMember[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(agentNativePath("/_agent-native/org/members"))
-      .then((response) => (response.ok ? response.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        const list: unknown[] = Array.isArray(data?.members)
-          ? data.members
-          : [];
-        setMembers(
-          list
-            .map((member: unknown) => normalizeOrgMember(member))
-            .filter((member): member is OrgMember => member !== null),
-        );
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return members;
-}
-
 export function useShareDialogController({
   open,
   onClose,
@@ -156,14 +131,21 @@ export function useShareDialogController({
   embedUrl,
 }: ShareDialogControllerOptions): ShareDialogController {
   const t = useT();
-  const sharesQuery = useActionQuery<ResourceSharesResponse>(
-    "list-resource-shares",
-    { resourceType, resourceId },
-  );
-  const shareMutation = useActionMutation("share-resource");
-  const unshareMutation = useActionMutation("unshare-resource");
-  const visibilityMutation = useActionMutation("set-resource-visibility");
-  const orgMembers = useOrgMembers();
+  const {
+    query: sharesQuery,
+    queryKey: shareQueryKey,
+    queryClient,
+  } = useShareQuery<ResourceSharesResponse>(resourceType, resourceId);
+  const {
+    share: shareMutation,
+    unshare: unshareMutation,
+    setVisibility: visibilityMutation,
+  } = useShareMutations();
+  const memberSearch = useShareOrgMemberSearch("", true, {
+    limit: undefined,
+    debounceMs: 0,
+  });
+  const orgMembers = memberSearch.members;
   const hasLinkTab = Boolean(shareUrl);
   const hasEmbedTab = Boolean(embedUrl);
   const tabsEnabled = hasLinkTab || hasEmbedTab;
@@ -174,6 +156,10 @@ export function useShareDialogController({
   const [role, setRole] = useState<ShareRole>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [visibilityOverride, setVisibilityOverride] =
+    useState<ShareVisibility | null>(null);
+  const [mutationError, setMutationError] = useState<unknown>(null);
+  const visibilityGuard = useShareMutationGuard();
   const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -188,7 +174,7 @@ export function useShareDialogController({
   );
 
   const data = sharesQuery.data;
-  const visibility = data?.visibility ?? "private";
+  const visibility = visibilityOverride ?? data?.visibility ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
   const visibilityOptions = useMemo(
     () =>
@@ -214,9 +200,58 @@ export function useShareDialogController({
   const setVisibility = useCallback(
     (next: ShareVisibility) => {
       if (!canManage || next === visibility) return;
+      const requestId = visibilityGuard.begin();
+      const previous = optimisticallyUpdateShareCache<ResourceSharesResponse>(
+        queryClient,
+        shareQueryKey,
+        (cached) => (cached ? { ...cached, visibility: next } : cached),
+      );
+      setMutationError(null);
+      setVisibilityOverride(next);
       visibilityMutation.mutate(
         { resourceType, resourceId, visibility: next } as never,
-        { onSuccess: refetch },
+        {
+          onSuccess: (result: unknown) => {
+            if (visibilityGuard.isLatest(requestId)) {
+              const resultVisibility =
+                typeof result === "object" &&
+                result !== null &&
+                "visibility" in result &&
+                (result as { visibility?: unknown }).visibility;
+              optimisticallyUpdateShareCache<ResourceSharesResponse>(
+                queryClient,
+                shareQueryKey,
+                (cached) =>
+                  cached
+                    ? {
+                        ...cached,
+                        visibility:
+                          (resultVisibility as ShareVisibility | undefined) ??
+                          next,
+                      }
+                    : cached,
+              );
+            }
+            Promise.resolve(refetch())
+              .catch((error) => {
+                if (visibilityGuard.isLatest(requestId)) {
+                  setMutationError(extractShareErrorMessage(error));
+                }
+              })
+              .finally(() => {
+                if (visibilityGuard.isLatest(requestId)) {
+                  setVisibilityOverride(null);
+                }
+              });
+          },
+          onError: (error: unknown) => {
+            if (visibilityGuard.isLatest(requestId)) {
+              rollbackShareCache(queryClient, shareQueryKey, previous);
+              setVisibilityOverride(null);
+              setMutationError(extractShareErrorMessage(error));
+            }
+          },
+        },
       );
     },
     [
@@ -224,13 +259,29 @@ export function useShareDialogController({
       refetch,
       resourceId,
       resourceType,
+      queryClient,
+      shareQueryKey,
       visibility,
+      visibilityGuard,
       visibilityMutation,
     ],
   );
   const submitInvite = useCallback(() => {
     const principalId = email.trim();
     if (!canManage || !principalId) return;
+    const optimistic: ResourceShare = {
+      id: `pending-${principalId}`,
+      principalType: "user",
+      principalId,
+      role,
+    };
+    const previous = optimisticallyUpdateShareCache<ResourceSharesResponse>(
+      queryClient,
+      shareQueryKey,
+      (cached) =>
+        cached ? { ...cached, shares: [...cached.shares, optimistic] } : cached,
+    );
+    setMutationError(null);
     shareMutation.mutate(
       {
         resourceType,
@@ -244,7 +295,11 @@ export function useShareDialogController({
       {
         onSuccess: () => {
           setEmail("");
-          refetch();
+          void refetch();
+        },
+        onError: (error: unknown) => {
+          rollbackShareCache(queryClient, shareQueryKey, previous);
+          setMutationError(extractShareErrorMessage(error));
         },
       },
     );
@@ -256,12 +311,32 @@ export function useShareDialogController({
     resourceId,
     resourceType,
     role,
+    queryClient,
+    shareQueryKey,
     shareMutation,
     shareUrl,
   ]);
   const removeShare = useCallback(
     (share: ResourceShare) => {
       if (!canManage) return;
+      const previous = optimisticallyUpdateShareCache<ResourceSharesResponse>(
+        queryClient,
+        shareQueryKey,
+        (cached) =>
+          cached
+            ? {
+                ...cached,
+                shares: cached.shares.filter(
+                  (current) =>
+                    !(
+                      current.principalType === share.principalType &&
+                      current.principalId === share.principalId
+                    ),
+                ),
+              }
+            : cached,
+      );
+      setMutationError(null);
       unshareMutation.mutate(
         {
           resourceType,
@@ -269,10 +344,24 @@ export function useShareDialogController({
           principalType: share.principalType,
           principalId: share.principalId,
         } as never,
-        { onSuccess: refetch },
+        {
+          onSuccess: refetch,
+          onError: (error: unknown) => {
+            rollbackShareCache(queryClient, shareQueryKey, previous);
+            setMutationError(extractShareErrorMessage(error));
+          },
+        },
       );
     },
-    [canManage, refetch, resourceId, resourceType, unshareMutation],
+    [
+      canManage,
+      queryClient,
+      refetch,
+      resourceId,
+      resourceType,
+      shareQueryKey,
+      unshareMutation,
+    ],
   );
   const copy = useCallback(async (field: string, value: string) => {
     const copied = await writeClipboardText(value);
@@ -362,19 +451,9 @@ export function useShareDialogController({
     copiedField,
     copy,
     loading: sharesQuery.isLoading,
-    error: sharesQuery.error,
+    error: sharesQuery.error ?? mutationError,
     refetch,
     canManage,
-  };
-}
-
-function normalizeOrgMember(value: unknown): OrgMember | null {
-  if (!value || typeof value !== "object") return null;
-  const member = value as { email?: unknown; name?: unknown };
-  if (typeof member.email !== "string" || !member.email) return null;
-  return {
-    email: member.email,
-    name: typeof member.name === "string" ? member.name : null,
   };
 }
 
@@ -412,7 +491,7 @@ function roleOption(
 
 function buildPeople(
   data: ResourceSharesResponse | undefined,
-  members: OrgMember[],
+  members: ShareOrgMember[],
   t: ReturnType<typeof useT>,
 ): ShareDialogPerson[] {
   const people: ShareDialogPerson[] = [];
@@ -441,7 +520,7 @@ function buildPeople(
   return people;
 }
 
-function displayName(email: string, members: OrgMember[]): string {
+function displayName(email: string, members: ShareOrgMember[]): string {
   const normalized = email.trim().toLowerCase();
   const match = members.find(
     (member) => member.email.toLowerCase() === normalized,
@@ -450,7 +529,10 @@ function displayName(email: string, members: OrgMember[]): string {
   return normalized.includes("@") ? email : "Unknown person";
 }
 
-function principalLabel(share: ResourceShare, members: OrgMember[]): string {
+function principalLabel(
+  share: ResourceShare,
+  members: ShareOrgMember[],
+): string {
   const serverLabel = share.displayName?.trim();
   if (serverLabel) return serverLabel;
   if (share.principalType === "org") return "Organization";

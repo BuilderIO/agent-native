@@ -88,6 +88,13 @@ const TAB_ICONS: Record<ShareDialogTab, typeof IconLink> = {
   embed: IconCode,
 };
 
+/**
+ * Framework share dialog. Drop into any template via
+ * `<ShareDialog open onClose resourceType resourceId />`. Passing `shareUrl`
+ * lights up a Link tab with a copy field; passing `embedUrl` lights up an
+ * Embed tab. With neither prop, renders a single Invite + general-access
+ * panel (Google-Docs-lite).
+ */
 export function ShareDialog({
   open,
   onClose,

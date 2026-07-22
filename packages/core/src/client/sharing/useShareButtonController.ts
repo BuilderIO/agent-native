@@ -1,8 +1,17 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { agentNativePath } from "../api-path.js";
-import { useActionMutation, useActionQuery } from "../use-action.js";
+import type { useActionQuery } from "../use-action.js";
+import {
+  DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
+  DEFAULT_MEMBER_SUGGESTION_LIMIT,
+  extractShareErrorMessage,
+  optimisticallyUpdateShareCache,
+  rollbackShareCache,
+  useShareOrgMemberSearch,
+  useShareMutationGuard,
+  useShareMutations,
+  useShareQuery,
+} from "./share-controller-helpers.js";
 
 export type ShareButtonVisibility = "private" | "org" | "public";
 export type ShareButtonRole = "viewer" | "editor" | "admin";
@@ -99,9 +108,6 @@ export interface ShareButtonController {
   handleDone: () => void;
 }
 
-const MEMBER_SUGGESTION_LIMIT = 25;
-const MEMBER_SEARCH_DEBOUNCE_MS = 140;
-
 export function useShareButtonController(
   options: ShareButtonControllerOptions,
 ): ShareButtonController {
@@ -112,26 +118,19 @@ export function useShareButtonController(
   const [visibilityOverride, setVisibilityOverride] =
     useState<ShareButtonVisibility | null>(null);
   const appliedDefaultOpenRef = useRef(false);
-  const visibilityRequestId = useRef(0);
-  const queryClient = useQueryClient();
-  const shareQueryParams = useMemo(
-    () => ({
-      resourceType: options.resourceType,
-      resourceId: options.resourceId,
-    }),
-    [options.resourceId, options.resourceType],
+  const {
+    queryKey: shareQueryKey,
+    query: sharesQuery,
+    queryClient,
+  } = useShareQuery<ShareButtonSharesResponse>(
+    options.resourceType,
+    options.resourceId,
   );
-  const shareQueryKey = useMemo(
-    () => ["action", "list-resource-shares", shareQueryParams] as const,
-    [shareQueryParams],
-  );
-  const setVisibility = useActionMutation("set-resource-visibility");
-  const sharesQuery = useActionQuery<ShareButtonSharesResponse>(
-    "list-resource-shares",
-    shareQueryParams,
-  );
-  const share = useActionMutation("share-resource");
-  const unshare = useActionMutation("unshare-resource");
+  const { setVisibility, share, unshare } = useShareMutations();
+  const visibilityGuard = useShareMutationGuard();
+  const data = sharesQuery.data;
+  const canManage = data?.role === "owner" || data?.role === "admin";
+  const [shareError, setShareError] = useState<string | null>(null);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -164,23 +163,20 @@ export function useShareButtonController(
     [options.shareTabs],
   );
 
-  const updateCachedVisibility = useCallback(
-    (visibility: ShareButtonVisibility) => {
-      queryClient.setQueryData<ShareButtonSharesResponse>(
-        shareQueryKey,
-        (prev) => (prev ? { ...prev, visibility } : prev),
-      );
-    },
-    [queryClient, shareQueryKey],
-  );
-
   const handleVisibilityChange = useCallback(
     (next: ShareButtonVisibility): Promise<void> => {
-      const requestId = ++visibilityRequestId.current;
+      if (!canManage) {
+        setShareError("Only owners and admins can change access.");
+        return Promise.resolve();
+      }
+      const requestId = visibilityGuard.begin();
       const previous =
-        queryClient.getQueryData<ShareButtonSharesResponse>(shareQueryKey);
+        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          (prev) => (prev ? { ...prev, visibility: next } : prev),
+        );
       setVisibilityOverride(next);
-      updateCachedVisibility(next);
       return new Promise((resolve, reject) => {
         setVisibility.mutate(
           {
@@ -190,15 +186,25 @@ export function useShareButtonController(
           } as never,
           {
             onSuccess: (result: unknown) => {
-              if (requestId === visibilityRequestId.current) {
+              if (visibilityGuard.isLatest(requestId)) {
                 const resultVisibility =
                   typeof result === "object" &&
                   result !== null &&
                   "visibility" in result &&
                   (result as { visibility?: unknown }).visibility;
-                updateCachedVisibility(
-                  (resultVisibility as ShareButtonVisibility | undefined) ??
-                    next,
+                optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+                  queryClient,
+                  shareQueryKey,
+                  (prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          visibility:
+                            (resultVisibility as
+                              | ShareButtonVisibility
+                              | undefined) ?? next,
+                        }
+                      : prev,
                 );
               }
               sharesQuery
@@ -206,19 +212,15 @@ export function useShareButtonController(
                 .then(() => resolve())
                 .catch(reject)
                 .finally(() => {
-                  if (requestId === visibilityRequestId.current) {
+                  if (visibilityGuard.isLatest(requestId)) {
                     setVisibilityOverride(null);
                   }
                 });
             },
             onError: (error) => {
-              if (requestId === visibilityRequestId.current) {
+              if (visibilityGuard.isLatest(requestId)) {
                 setVisibilityOverride(null);
-                if (previous) {
-                  queryClient.setQueryData(shareQueryKey, previous);
-                } else {
-                  queryClient.invalidateQueries({ queryKey: shareQueryKey });
-                }
+                rollbackShareCache(queryClient, shareQueryKey, previous);
               }
               reject(error);
             },
@@ -233,11 +235,11 @@ export function useShareButtonController(
       setVisibility,
       shareQueryKey,
       sharesQuery,
-      updateCachedVisibility,
+      canManage,
+      visibilityGuard,
     ],
   );
 
-  const data = sharesQuery.data;
   const policy = data?.policy ?? {
     allowPublic: true,
     requireOrgMemberForUserShares: false,
@@ -246,10 +248,8 @@ export function useShareButtonController(
     visibilityOverride ?? data?.visibility ?? ("private" as const);
   const triggerVisibility =
     visibilityOverride ?? (data ? (data.visibility ?? "private") : null);
-  const canManage = data?.role === "owner" || data?.role === "admin";
   const [role, setRole] = useState<ShareButtonRole>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
-  const [shareError, setShareError] = useState<string | null>(null);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [pendingAdds, setPendingAdds] = useState<ShareButtonShare[]>([]);
   const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
@@ -257,20 +257,20 @@ export function useShareButtonController(
     Record<string, ShareButtonRole>
   >({});
   const [inFlight, setInFlight] = useState<Set<string>>(new Set());
+  const inFlightRef = useRef<Set<string>>(new Set());
 
-  const addInFlight = useCallback(
-    (key: string) => setInFlight((prev) => new Set(prev).add(key)),
-    [],
-  );
-  const clearInFlight = useCallback(
-    (key: string) =>
-      setInFlight((prev) => {
-        const next = new Set(prev);
-        next.delete(key);
-        return next;
-      }),
-    [],
-  );
+  const addInFlight = useCallback((key: string) => {
+    inFlightRef.current.add(key);
+    setInFlight((prev) => new Set(prev).add(key));
+  }, []);
+  const clearInFlight = useCallback((key: string) => {
+    inFlightRef.current.delete(key);
+    setInFlight((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     sharesQuery.refetch();
@@ -278,9 +278,13 @@ export function useShareButtonController(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const memberSearch = useOrgMemberSearch(
+  const memberSearch = useShareOrgMemberSearch(
     inviteEmail,
     canManage && suggestionsOpen,
+    {
+      limit: DEFAULT_MEMBER_SUGGESTION_LIMIT,
+      debounceMs: DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
+    },
   );
   const serverShares = data?.shares ?? [];
   const shares: ShareButtonShare[] = [
@@ -290,7 +294,10 @@ export function useShareButtonController(
         ...share,
         role: roleOverrides[keyOf(share)] ?? share.role,
       })),
-    ...pendingAdds,
+    ...pendingAdds.filter(
+      (pending) =>
+        !serverShares.some((share) => keyOf(share) === keyOf(pending)),
+    ),
   ];
   const excludedMemberEmails = new Set<string>();
   if (data?.ownerEmail) excludedMemberEmails.add(data.ownerEmail.toLowerCase());
@@ -342,12 +349,18 @@ export function useShareButtonController(
       role,
     };
     const key = keyOf(optimistic);
-    if (inFlight.has(key)) return;
+    if (inFlightRef.current.has(key)) return;
     setShareError(null);
     setPendingAdds((previous) => [...previous, optimistic]);
     setInviteEmail("");
     setSuggestionsOpen(false);
     addInFlight(key);
+    const previous = optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+      queryClient,
+      shareQueryKey,
+      (cached) =>
+        cached ? { ...cached, shares: [...cached.shares, optimistic] } : cached,
+    );
     share.mutate(
       {
         resourceType: options.resourceType,
@@ -368,6 +381,7 @@ export function useShareButtonController(
           });
         },
         onError: (error: unknown) => {
+          rollbackShareCache(queryClient, shareQueryKey, previous);
           setPendingAdds((previous) =>
             previous.filter((item) => item.id !== optimistic.id),
           );
@@ -389,16 +403,36 @@ export function useShareButtonController(
     options.shareUrl,
     role,
     share,
+    queryClient,
+    shareQueryKey,
     sharesQuery,
   ]);
 
   const handleChangeRole = useCallback(
     (currentShare: ShareButtonShare, next: ShareButtonRole) => {
       if (currentShare.role === next) return;
+      if (!canManage) {
+        setShareError("Only owners and admins can change access.");
+        return;
+      }
       const key = keyOf(currentShare);
-      if (inFlight.has(key)) return;
+      if (inFlightRef.current.has(key)) return;
       setRoleOverrides((previous) => ({ ...previous, [key]: next }));
       addInFlight(key);
+      const previous =
+        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          (cached) =>
+            cached
+              ? {
+                  ...cached,
+                  shares: cached.shares.map((share) =>
+                    keyOf(share) === key ? { ...share, role: next } : share,
+                  ),
+                }
+              : cached,
+        );
       share.mutate(
         {
           resourceType: options.resourceType,
@@ -418,22 +452,27 @@ export function useShareButtonController(
               clearInFlight(key);
             });
           },
-          onError: () => {
+          onError: (error: unknown) => {
+            rollbackShareCache(queryClient, shareQueryKey, previous);
             setRoleOverrides((previous) => {
               const { [key]: _removed, ...rest } = previous;
               return rest;
             });
             clearInFlight(key);
+            setShareError(extractShareErrorMessage(error));
           },
         },
       );
     },
     [
       addInFlight,
+      canManage,
       clearInFlight,
       inFlight,
       options.resourceId,
       options.resourceType,
+      queryClient,
+      shareQueryKey,
       share,
       sharesQuery,
     ],
@@ -441,10 +480,26 @@ export function useShareButtonController(
 
   const handleRemove = useCallback(
     (currentShare: ShareButtonShare) => {
+      if (!canManage) {
+        setShareError("Only owners and admins can change access.");
+        return;
+      }
       const key = keyOf(currentShare);
-      if (inFlight.has(key)) return;
+      if (inFlightRef.current.has(key)) return;
       setPendingRemoves((previous) => new Set(previous).add(key));
       addInFlight(key);
+      const previous =
+        optimisticallyUpdateShareCache<ShareButtonSharesResponse>(
+          queryClient,
+          shareQueryKey,
+          (cached) =>
+            cached
+              ? {
+                  ...cached,
+                  shares: cached.shares.filter((share) => keyOf(share) !== key),
+                }
+              : cached,
+        );
       unshare.mutate(
         {
           resourceType: options.resourceType,
@@ -463,23 +518,28 @@ export function useShareButtonController(
               clearInFlight(key);
             });
           },
-          onError: () => {
+          onError: (error: unknown) => {
+            rollbackShareCache(queryClient, shareQueryKey, previous);
             setPendingRemoves((previous) => {
               const next = new Set(previous);
               next.delete(key);
               return next;
             });
             clearInFlight(key);
+            setShareError(extractShareErrorMessage(error));
           },
         },
       );
     },
     [
       addInFlight,
+      canManage,
       clearInFlight,
       inFlight,
       options.resourceId,
       options.resourceType,
+      queryClient,
+      shareQueryKey,
       sharesQuery,
       unshare,
     ],
@@ -527,153 +587,6 @@ export function useShareButtonController(
   };
 }
 
-function useOrgMemberSearch(
-  query: string,
-  enabled: boolean,
-): ShareButtonOrgMemberSearch {
-  const search = query.trim();
-  const [members, setMembers] = useState<ShareButtonOrgMember[]>([]);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState(false);
-  const requestIdRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const fetchPage = useCallback(
-    (offset: number, append: boolean) => {
-      if (!enabled) return;
-      const requestId = ++requestIdRef.current;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      if (append) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoading(true);
-        setMembers([]);
-        setNextOffset(null);
-        setHasMore(false);
-      }
-      setError(false);
-
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      params.set("limit", String(MEMBER_SUGGESTION_LIMIT));
-      params.set("offset", String(offset));
-
-      fetch(`${agentNativePath("/_agent-native/org/members")}?${params}`, {
-        credentials: "include",
-        signal: controller.signal,
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error("Could not load people");
-          return response.json() as Promise<{
-            members?: unknown[];
-            hasMore?: boolean;
-            nextOffset?: number | null;
-          }>;
-        })
-        .then((result) => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          const nextMembers = normalizeMembers(result?.members);
-          setMembers((previous) =>
-            append ? mergeMembers(previous, nextMembers) : nextMembers,
-          );
-          setHasMore(result?.hasMore === true);
-          setNextOffset(
-            typeof result?.nextOffset === "number" ? result.nextOffset : null,
-          );
-        })
-        .catch(() => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          setError(true);
-          setHasMore(false);
-          setNextOffset(null);
-          if (!append) setMembers([]);
-        })
-        .finally(() => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          if (append) setIsLoadingMore(false);
-          else setIsLoading(false);
-        });
-    },
-    [enabled, search],
-  );
-
-  useEffect(() => {
-    if (!enabled) {
-      abortRef.current?.abort();
-      setMembers([]);
-      setNextOffset(null);
-      setHasMore(false);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      setError(false);
-      return;
-    }
-    const timeout = setTimeout(
-      () => fetchPage(0, false),
-      search ? MEMBER_SEARCH_DEBOUNCE_MS : 0,
-    );
-    return () => {
-      clearTimeout(timeout);
-      abortRef.current?.abort();
-    };
-  }, [enabled, fetchPage, search]);
-
-  const loadMore = useCallback(() => {
-    if (!enabled || !hasMore || nextOffset === null) return;
-    if (isLoading || isLoadingMore) return;
-    fetchPage(nextOffset, true);
-  }, [enabled, fetchPage, hasMore, isLoading, isLoadingMore, nextOffset]);
-
-  return {
-    members,
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    error,
-    loadMore,
-  };
-}
-
-function normalizeMembers(value: unknown): ShareButtonOrgMember[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((member: any) => ({
-      email: typeof member?.email === "string" ? member.email : "",
-      name: typeof member?.name === "string" ? member.name : null,
-      role: typeof member?.role === "string" ? member.role : null,
-      joinedAt:
-        typeof member?.joinedAt === "number"
-          ? member.joinedAt
-          : typeof member?.joined_at === "number"
-            ? member.joined_at
-            : null,
-    }))
-    .filter((member) => member.email);
-}
-
-function mergeMembers(
-  existing: ShareButtonOrgMember[],
-  next: ShareButtonOrgMember[],
-): ShareButtonOrgMember[] {
-  const seen = new Set(existing.map((member) => member.email.toLowerCase()));
-  const merged = [...existing];
-  for (const member of next) {
-    const key = member.email.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(member);
-  }
-  return merged;
-}
-
 function keyOf(share: ShareButtonShare): string {
   return `${share.principalType}:${share.principalId}`;
 }
@@ -682,21 +595,4 @@ function getNotificationUrl(explicit?: string): string | undefined {
   if (explicit) return explicit;
   if (typeof window === "undefined") return undefined;
   return window.location.href;
-}
-
-function extractShareErrorMessage(error: unknown): string {
-  const fallback = "Could not update sharing — please try again.";
-  if (!error) return fallback;
-  const raw =
-    error instanceof Error
-      ? error.message
-      : typeof error === "string"
-        ? error
-        : typeof error === "object" && error !== null
-          ? ((error as { error?: unknown; message?: unknown }).error ??
-            (error as { message?: unknown }).message)
-          : null;
-  if (typeof raw !== "string" || !raw.trim()) return fallback;
-  if (raw.trim().toLowerCase() === "failed to fetch") return fallback;
-  return raw.replace(/^Action\s+[\w-]+\s+failed:\s*/i, "") || fallback;
 }

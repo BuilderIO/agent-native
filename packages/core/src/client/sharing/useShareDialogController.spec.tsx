@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,6 +50,7 @@ describe("useShareDialogController", () => {
   let root: Root;
   let controller: ShareDialogController | undefined;
   let options: ShareDialogControllerOptions;
+  let queryClient: QueryClient;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -104,11 +106,18 @@ describe("useShareDialogController", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
   });
 
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    queryClient.clear();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     controller = undefined;
@@ -123,7 +132,11 @@ describe("useShareDialogController", () => {
     nextOptions: ShareDialogControllerOptions = options,
   ): Promise<ShareDialogController> {
     await act(async () => {
-      root.render(<Harness {...nextOptions} />);
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Harness {...nextOptions} />
+        </QueryClientProvider>,
+      );
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -195,7 +208,7 @@ describe("useShareDialogController", () => {
         notify: false,
         resourceUrl: "https://example.test/share/doc-1",
       },
-      { onSuccess: expect.any(Function) },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
 
     act(() => mocks.share.mutate.mock.calls[0]?.[1]?.onSuccess());
@@ -210,7 +223,7 @@ describe("useShareDialogController", () => {
     act(() => result.visibility.set("org"));
     expect(mocks.visibility.mutate).toHaveBeenCalledWith(
       { resourceType: "document", resourceId: "doc-1", visibility: "org" },
-      { onSuccess: expect.any(Function) },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
     act(() => result.removeShare(memberShare!));
     expect(mocks.unshare.mutate).toHaveBeenCalledWith(
@@ -220,7 +233,7 @@ describe("useShareDialogController", () => {
         principalType: "user",
         principalId: "member@example.test",
       },
-      { onSuccess: expect.any(Function) },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
 
     mocks.query.data = { ...mocks.query.data!, role: "viewer" };
@@ -277,5 +290,42 @@ describe("useShareDialogController", () => {
     act(() => vi.advanceTimersByTime(1_400));
     expect((controller as ShareDialogController).copiedField).toBeNull();
     vi.useRealTimers();
+  });
+
+  it("rolls back failed mutations and exposes a normalized error", async () => {
+    const initial = {
+      ...mocks.query.data!,
+      shares: [...mocks.query.data!.shares],
+    };
+    queryClient.setQueryData(
+      [
+        "action",
+        "list-resource-shares",
+        { resourceType: "document", resourceId: "doc-1" },
+      ],
+      initial,
+    );
+    let result = await render();
+    act(() => result.invite.setEmail("new@example.test"));
+    result = controller as ShareDialogController;
+    act(() => result.invite.submit());
+    await act(async () => {
+      mocks.share.mutate.mock.calls[0]?.[1]?.onError(
+        new Error("Action share-resource failed: invite denied"),
+      );
+      await Promise.resolve();
+    });
+
+    expect((controller as ShareDialogController).error).toBe("invite denied");
+    expect((controller as ShareDialogController).invite.email).toBe(
+      "new@example.test",
+    );
+    expect(
+      queryClient.getQueryData([
+        "action",
+        "list-resource-shares",
+        { resourceType: "document", resourceId: "doc-1" },
+      ]),
+    ).toEqual(initial);
   });
 });

@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,11 +32,15 @@ import { ShareDialog } from "./ShareDialog.js";
 
 let container: HTMLDivElement;
 let root: Root;
+let queryClient: QueryClient;
 
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
@@ -47,6 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  queryClient.clear();
   container.remove();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -55,13 +61,15 @@ afterEach(() => {
 async function renderDialog(onClose = vi.fn()) {
   await act(async () => {
     root.render(
-      <ShareDialog
-        open
-        onClose={onClose}
-        resourceType="document"
-        resourceId="doc-1"
-        resourceTitle="Quarterly plan"
-      />,
+      <QueryClientProvider client={queryClient}>
+        <ShareDialog
+          open
+          onClose={onClose}
+          resourceType="document"
+          resourceId="doc-1"
+          resourceTitle="Quarterly plan"
+        />
+      </QueryClientProvider>,
     );
     await Promise.resolve();
   });

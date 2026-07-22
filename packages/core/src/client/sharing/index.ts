@@ -23,3 +23,22 @@ export {
   type ShareRole,
   type ShareVisibility,
 } from "./useShareDialogController.js";
+export {
+  createShareQueryKey,
+  createShareQueryParams,
+  extractShareErrorMessage,
+  fetchOrgMemberPage,
+  mergeOrgMembers,
+  normalizeOrgMembers,
+  optimisticallyUpdateShareCache,
+  rollbackShareCache,
+  useShareMutationGuard,
+  useShareMutations,
+  useShareOrgMemberSearch,
+  useShareQuery,
+  type OrgMemberPage,
+  type ShareOrgMember,
+  type ShareOrgMemberSearchResult,
+  type ShareQueryKey,
+  type ShareQueryParams,
+} from "./share-controller-helpers.js";
