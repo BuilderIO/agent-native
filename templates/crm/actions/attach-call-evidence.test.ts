@@ -5,7 +5,7 @@ import action from "./attach-call-evidence.js";
 const baseEvidence = {
   recordId: "record-1",
   artifactId: "clip-1",
-  sourceUrl: "https://clips.example.test/call/1",
+  sourceUrl: "https://clips.example.test/share/clip-1",
 };
 
 describe("attach-call-evidence firewall", () => {
@@ -54,5 +54,17 @@ describe("attach-call-evidence firewall", () => {
         sourceUrl: baseEvidence.sourceUrl,
       }).success,
     ).toBe(false);
+  });
+
+  it("rejects Clips media endpoints and temporary access links", () => {
+    for (const sourceUrl of [
+      "https://clips.example.test/api/video/clip-1",
+      "https://clips.example.test/share/clip-1?token=temporary",
+      "https://clips.example.test/share/clip-1#transcript",
+    ]) {
+      expect(
+        action.schema.safeParse({ ...baseEvidence, sourceUrl }).success,
+      ).toBe(false);
+    }
   });
 });

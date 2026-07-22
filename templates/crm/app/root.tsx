@@ -14,6 +14,7 @@ import type { LinksFunction } from "react-router";
 
 import { CrmLayout } from "@/components/layout/CrmLayout";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { i18nCatalog } from "@/i18n";
 import { TAB_ID } from "@/lib/tab-id";
 
 import stylesheet from "./global.css?url";
@@ -75,7 +76,7 @@ function SyncBridge() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient}>
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
       <SyncBridge />
       <CrmLayout>
         <Outlet />

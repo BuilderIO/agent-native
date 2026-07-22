@@ -5,15 +5,16 @@ import { z } from "zod";
 
 import { isSafeCrmEvidenceExcerpt } from "../server/crm/crm-field-firewall.js";
 import { getDb, schema } from "../server/db/index.js";
+import { isDurableClipsEvidenceUrl } from "../shared/crm-automation-recipes.js";
 import { requireCrmScope } from "./_crm-action-utils.js";
 
-const httpUrl = z
+const httpsUrl = z
   .string()
   .url()
   .max(2_048)
   .refine(
-    (value) => /^https?:\/\//i.test(value),
-    "sourceUrl must be an http(s) URL",
+    (value) => /^https:\/\//i.test(value),
+    "sourceUrl must be an https URL",
   );
 
 export default defineAction({
@@ -29,7 +30,7 @@ export default defineAction({
         .optional(),
       interactionId: z.string().trim().min(1).max(128).optional(),
       artifactId: z.string().trim().min(1).max(256),
-      sourceUrl: httpUrl,
+      sourceUrl: httpsUrl,
       sourceApp: z.string().trim().min(1).max(80).default("clips"),
       artifactType: z.string().trim().min(1).max(80).default("call-evidence"),
       quote: z
@@ -75,6 +76,17 @@ export default defineAction({
           code: "custom",
           message: "endSeconds must be after startSeconds",
           path: ["endSeconds"],
+        });
+      }
+      if (
+        value.sourceApp.trim().toLowerCase() === "clips" &&
+        !isDurableClipsEvidenceUrl(value.sourceUrl)
+      ) {
+        issue.addIssue({
+          code: "custom",
+          message:
+            "Clips evidence must use a durable /share/<id> or /r/<id> page URL without an access token, media endpoint, or transcript fragment",
+          path: ["sourceUrl"],
         });
       }
     }),

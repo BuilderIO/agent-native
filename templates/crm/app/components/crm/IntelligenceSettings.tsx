@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -72,6 +73,7 @@ interface ManageTrackerInput {
 }
 
 export function IntelligenceSettings() {
+  const t = useT();
   const trackersQuery = useActionQuery<SignalTrackersResult>(
     "list-crm-signal-trackers" as never,
     {} as never,
@@ -93,14 +95,16 @@ export function IntelligenceSettings() {
       await manageTracker.mutateAsync(input);
       toast.success(
         input.operation === "delete"
-          ? "Tracker deleted."
+          ? t("intelligence.trackerDeleted")
           : input.enabled
-            ? "Tracker enabled."
-            : "Tracker disabled.",
+            ? t("intelligence.trackerEnabled")
+            : t("intelligence.trackerDisabled"),
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Tracker update failed.",
+        error instanceof Error
+          ? error.message
+          : t("intelligence.trackerUpdateFailed"),
       );
     } finally {
       setPendingTrackerIds((current) => {
@@ -115,18 +119,20 @@ export function IntelligenceSettings() {
     <div className="mx-auto w-full max-w-2xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight">Intelligence</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            {t("intelligence.title")}
+          </h1>
           <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-            Choose the moments CRM should notice in bounded call evidence. Smart
-            trackers are evaluated through Ask CRM, never directly in the
-            settings screen.
+            {t("intelligence.description")}
           </p>
         </div>
         <CreateTrackerDialog mutation={createTracker} />
       </div>
 
       {trackersQuery.isLoading ? (
-        <p className="mt-8 text-sm text-muted-foreground">Loading trackers…</p>
+        <p className="mt-8 text-sm text-muted-foreground">
+          {t("intelligence.loading")}
+        </p>
       ) : trackers.length ? (
         <div className="mt-8 divide-y divide-border/70 rounded-lg border border-border/70 bg-card">
           {trackers.map((tracker) => {
@@ -144,18 +150,25 @@ export function IntelligenceSettings() {
                       {tracker.name}
                     </p>
                     <Badge variant="secondary" className="font-normal">
-                      {tracker.kind === "keyword" ? "Keyword" : "Smart"}
+                      {tracker.kind === "keyword"
+                        ? t("intelligence.kindKeyword")
+                        : t("intelligence.kindSmart")}
                     </Badge>
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {tracker.description || trackerSummary(tracker)}
+                    {tracker.description || trackerSummary(tracker, t)}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Switch
                     checked={tracker.enabled}
                     disabled={pending}
-                    aria-label={`${tracker.enabled ? "Disable" : "Enable"} ${tracker.name}`}
+                    aria-label={t("intelligence.toggleTracker", {
+                      action: tracker.enabled
+                        ? t("intelligence.disable")
+                        : t("intelligence.enable"),
+                      name: tracker.name,
+                    })}
                     onCheckedChange={(enabled) =>
                       void manage({
                         trackerId: tracker.id,
@@ -181,10 +194,9 @@ export function IntelligenceSettings() {
         </div>
       ) : (
         <div className="mt-8 rounded-lg border border-dashed border-border px-4 py-10 text-center">
-          <p className="text-sm font-medium">No signal trackers yet</p>
+          <p className="text-sm font-medium">{t("intelligence.emptyTitle")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Add a keyword for deterministic matching or a smart criterion for
-            Ask CRM to review.
+            {t("intelligence.emptyDescription")}
           </p>
         </div>
       )}
@@ -200,6 +212,7 @@ function CreateTrackerDialog({
     mutateAsync: (input: CreateTrackerInput) => Promise<unknown>;
   };
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -230,10 +243,12 @@ function CreateTrackerDialog({
       setDescription("");
       setKeywords("");
       setCriterion("");
-      toast.success("Tracker created.");
+      toast.success(t("intelligence.trackerCreated"));
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Tracker creation failed.",
+        error instanceof Error
+          ? error.message
+          : t("intelligence.trackerCreationFailed"),
       );
     }
   }
@@ -242,20 +257,19 @@ function CreateTrackerDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-1.5">
-          <IconPlus className="size-4" /> New tracker
+          <IconPlus className="size-4" /> {t("intelligence.newTracker")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create signal tracker</DialogTitle>
+          <DialogTitle>{t("intelligence.createTitle")}</DialogTitle>
           <DialogDescription>
-            Track deterministic keywords or define a bounded smart criterion for
-            Ask CRM to evaluate against call evidence.
+            {t("intelligence.createDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <Label htmlFor="tracker-name">Name</Label>
+            <Label htmlFor="tracker-name">{t("intelligence.name")}</Label>
             <Input
               id="tracker-name"
               value={name}
@@ -264,7 +278,9 @@ function CreateTrackerDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="tracker-description">Description</Label>
+            <Label htmlFor="tracker-description">
+              {t("intelligence.trackerDescription")}
+            </Label>
             <Textarea
               id="tracker-description"
               value={description}
@@ -273,7 +289,7 @@ function CreateTrackerDialog({
             />
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="tracker-kind">Detector</Label>
+            <Label htmlFor="tracker-kind">{t("intelligence.detector")}</Label>
             <Select
               value={kind}
               onValueChange={(value) => setKind(value as TrackerKind)}
@@ -283,36 +299,42 @@ function CreateTrackerDialog({
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="keyword">Keyword</SelectItem>
-                  <SelectItem value="smart">Smart</SelectItem>
+                  <SelectItem value="keyword">
+                    {t("intelligence.kindKeyword")}
+                  </SelectItem>
+                  <SelectItem value="smart">
+                    {t("intelligence.kindSmart")}
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
           </div>
           {kind === "keyword" ? (
             <div className="grid gap-2">
-              <Label htmlFor="tracker-keywords">Keywords</Label>
+              <Label htmlFor="tracker-keywords">
+                {t("intelligence.keywords")}
+              </Label>
               <Input
                 id="tracker-keywords"
                 value={keywords}
                 maxLength={3_200}
-                placeholder="pricing, renewal, security review"
+                placeholder={t("intelligence.keywordsPlaceholder")}
                 onChange={(event) => setKeywords(event.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Separate up to 40 keywords with commas.
+                {t("intelligence.keywordsHelp")}
               </p>
             </div>
           ) : (
             <div className="grid gap-2">
               <Label htmlFor="tracker-criterion">
-                Classification criterion
+                {t("intelligence.classificationCriterion")}
               </Label>
               <Textarea
                 id="tracker-criterion"
                 value={criterion}
                 maxLength={1_000}
-                placeholder="Match a clear concern about implementation timing."
+                placeholder={t("intelligence.criterionPlaceholder")}
                 onChange={(event) => setCriterion(event.target.value)}
               />
             </div>
@@ -323,7 +345,9 @@ function CreateTrackerDialog({
             disabled={!canCreate || mutation.isPending}
             onClick={() => void create()}
           >
-            {mutation.isPending ? "Creating…" : "Create tracker"}
+            {mutation.isPending
+              ? t("intelligence.creating")
+              : t("intelligence.create")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -340,6 +364,7 @@ function DeleteTrackerButton({
   pending: boolean;
   onDelete: () => void;
 }) {
+  const t = useT();
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -347,23 +372,26 @@ function DeleteTrackerButton({
           variant="ghost"
           size="icon"
           disabled={pending}
-          aria-label={`Delete ${tracker.name}`}
+          aria-label={t("intelligence.deleteTrackerAria", {
+            name: tracker.name,
+          })}
         >
           <IconTrash className="size-4" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete {tracker.name}?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {t("intelligence.deleteTrackerTitle", { name: tracker.name })}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            This stops future signal runs from using this tracker. Existing
-            reviewed signals stay unchanged.
+            {t("intelligence.deleteTrackerDescription")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{t("intelligence.cancel")}</AlertDialogCancel>
           <AlertDialogAction onClick={onDelete}>
-            Delete tracker
+            {t("intelligence.deleteTracker")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -371,10 +399,15 @@ function DeleteTrackerButton({
   );
 }
 
-function trackerSummary(tracker: SignalTracker) {
+function trackerSummary(
+  tracker: SignalTracker,
+  t: (key: string, options?: Record<string, unknown>) => string,
+) {
   if (tracker.kind === "keyword")
     return tracker.keywords.length
-      ? `Keywords: ${tracker.keywords.join(", ")}`
-      : "No keywords configured.";
-  return "Evaluated through Ask CRM.";
+      ? t("intelligence.keywordsSummary", {
+          keywords: tracker.keywords.join(", "),
+        })
+      : t("intelligence.noKeywordsConfigured");
+  return t("intelligence.evaluatedThroughAsk");
 }

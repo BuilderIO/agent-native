@@ -12,29 +12,20 @@ templates/crm/app/components/crm/CrmSignalsPanel.tsx|Confirm signal
 templates/crm/app/components/crm/CrmSignalsPanel.tsx|Dismiss signal
 templates/crm/app/components/crm/CrmSignalsPanel.tsx|Evidence-grounded moments and next steps from attached Clips calls.
 templates/crm/app/components/crm/CrmSignalsPanel.tsx|Open call evidence
-templates/crm/app/components/crm/RecordActions.tsx|Add evidence
 templates/crm/app/components/crm/RecordActions.tsx|Add record task
 templates/crm/app/components/crm/RecordActions.tsx|Add task
-templates/crm/app/components/crm/RecordActions.tsx|Artifact ID
-templates/crm/app/components/crm/RecordActions.tsx|Attach Clips evidence
-templates/crm/app/components/crm/RecordActions.tsx|Attach evidence
-templates/crm/app/components/crm/RecordActions.tsx|CRM stores only the artifact reference, URL, and a bounded excerpt—never media or a transcript.
 templates/crm/app/components/crm/RecordActions.tsx|CRM update failed.
-templates/crm/app/components/crm/RecordActions.tsx|Call evidence attached.
 templates/crm/app/components/crm/RecordActions.tsx|Choose a value
-templates/crm/app/components/crm/RecordActions.tsx|Clips URL
 templates/crm/app/components/crm/RecordActions.tsx|Connected CRM proposal
 templates/crm/app/components/crm/RecordActions.tsx|Create task
 templates/crm/app/components/crm/RecordActions.tsx|Edit CRM field
 templates/crm/app/components/crm/RecordActions.tsx|Edit field
 templates/crm/app/components/crm/RecordActions.tsx|Enter a valid number.
-templates/crm/app/components/crm/RecordActions.tsx|Evidence could not be attached.
 templates/crm/app/components/crm/RecordActions.tsx|Field name
 templates/crm/app/components/crm/RecordActions.tsx|Follow-up task created.
 templates/crm/app/components/crm/RecordActions.tsx|Keep a local follow-up next to this CRM record.
 templates/crm/app/components/crm/RecordActions.tsx|Local CRM field
 templates/crm/app/components/crm/RecordActions.tsx|New value
-templates/crm/app/components/crm/RecordActions.tsx|Short excerpt
 templates/crm/app/components/crm/RecordActions.tsx|Task creation failed.
 templates/crm/app/components/crm/RecordActions.tsx|Value type
 templates/crm/app/components/crm/RecordGrid.tsx|Next step

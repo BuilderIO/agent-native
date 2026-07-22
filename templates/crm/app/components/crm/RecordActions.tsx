@@ -1,4 +1,9 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
   Dialog,
@@ -19,8 +24,15 @@ import {
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import { IconChecklist, IconFilePlus, IconPencil } from "@tabler/icons-react";
+import {
+  IconBolt,
+  IconChecklist,
+  IconExternalLink,
+  IconFilePlus,
+  IconPencil,
+} from "@tabler/icons-react";
 import { useState } from "react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 
 import type { CrmRecordDetail } from "@/lib/types";
@@ -31,6 +43,7 @@ export function RecordActions({ record }: { record: CrmRecordDetail }) {
       <EditFieldDialog record={record} />
       <CreateRecordTaskDialog recordId={record.id} />
       <AttachEvidenceDialog recordId={record.id} />
+      <CallEvidenceAutomationDialog record={record} />
     </div>
   );
 }
@@ -293,6 +306,7 @@ function CreateRecordTaskDialog({ recordId }: { recordId: string }) {
 }
 
 function AttachEvidenceDialog({ recordId }: { recordId: string }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [artifactId, setArtifactId] = useState("");
   const [sourceUrl, setSourceUrl] = useState("");
@@ -325,12 +339,12 @@ function AttachEvidenceDialog({ recordId }: { recordId: string }) {
       setSourceUrl("");
       setQuote("");
       setSummary("");
-      toast.success("Call evidence attached.");
+      toast.success(t("recordActions.evidenceAttached"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : "Evidence could not be attached.",
+          : t("recordActions.evidenceAttachFailed"),
       );
     }
   }
@@ -339,19 +353,21 @@ function AttachEvidenceDialog({ recordId }: { recordId: string }) {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5">
-          <IconFilePlus className="size-4" /> Add evidence
+          <IconFilePlus className="size-4" /> {t("recordActions.addEvidence")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Attach Clips evidence</DialogTitle>
+          <DialogTitle>{t("recordActions.attachEvidenceTitle")}</DialogTitle>
           <DialogDescription>
-            CRM stores only the artifact reference, URL, and a bounded
-            excerpt—never media or a transcript.
+            {t("recordActions.attachEvidenceDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2 sm:grid-cols-2">
-          <FormField label="Artifact ID" htmlFor="evidence-id">
+          <FormField
+            label={t("recordActions.artifactId")}
+            htmlFor="evidence-id"
+          >
             <Input
               id="evidence-id"
               value={artifactId}
@@ -359,7 +375,7 @@ function AttachEvidenceDialog({ recordId }: { recordId: string }) {
               onChange={(event) => setArtifactId(event.target.value)}
             />
           </FormField>
-          <FormField label="Clips URL" htmlFor="evidence-url">
+          <FormField label={t("recordActions.clipsUrl")} htmlFor="evidence-url">
             <Input
               id="evidence-url"
               type="url"
@@ -369,7 +385,7 @@ function AttachEvidenceDialog({ recordId }: { recordId: string }) {
             />
           </FormField>
           <FormField
-            label="Summary"
+            label={t("recordActions.summary")}
             htmlFor="evidence-summary"
             className="sm:col-span-2"
           >
@@ -381,7 +397,7 @@ function AttachEvidenceDialog({ recordId }: { recordId: string }) {
             />
           </FormField>
           <FormField
-            label="Short excerpt"
+            label={t("recordActions.shortExcerpt")}
             htmlFor="evidence-quote"
             className="sm:col-span-2"
           >
@@ -400,7 +416,73 @@ function AttachEvidenceDialog({ recordId }: { recordId: string }) {
             }
             onClick={() => void submit()}
           >
-            Attach evidence
+            {t("recordActions.attachEvidence")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CallEvidenceAutomationDialog({ record }: { record: CrmRecordDetail }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const recipeQuery = useActionQuery<{
+    title: string;
+    description: string;
+    enabledByDefault: false;
+    agentContext: string;
+  }>("get-crm-automation-recipe" as never, { recordId: record.id } as never, {
+    enabled: open,
+  });
+  const recipe = recipeQuery.data;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5">
+          <IconBolt className="size-4" /> {t("recordActions.automate")}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            {recipe?.title ?? t("recordActions.reviewNewClipsCalls")}
+          </DialogTitle>
+          <DialogDescription>
+            {recipe?.description ?? t("recordActions.reviewDescription")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm text-muted-foreground">
+          <p>
+            {t("recordActions.disabledAutomationDescription", {
+              name: record.displayName,
+            })}
+          </p>
+          <p>{t("recordActions.handoffDescription", { path: "/r" })}</p>
+        </div>
+        <DialogFooter className="flex-row flex-wrap justify-end gap-2 sm:justify-end">
+          <Button asChild variant="ghost" size="sm" className="gap-1.5">
+            <Link to="/agent#jobs" onClick={() => setOpen(false)}>
+              <IconExternalLink className="size-4" />{" "}
+              {t("recordActions.manageAutomations")}
+            </Link>
+          </Button>
+          <Button
+            size="sm"
+            disabled={!recipe || recipeQuery.isLoading}
+            onClick={() => {
+              if (!recipe) return;
+              sendToAgentChat({
+                message: `Set up the disabled Clips call-evidence review recipe for ${record.displayName}.`,
+                context: recipe.agentContext,
+                submit: true,
+                newTab: true,
+              });
+              setOpen(false);
+            }}
+          >
+            {t("recordActions.configureWithAgent")}
           </Button>
         </DialogFooter>
       </DialogContent>

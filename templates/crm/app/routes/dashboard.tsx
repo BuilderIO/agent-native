@@ -2,6 +2,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { IconRefresh } from "@tabler/icons-react";
 import { useMemo } from "react";
@@ -10,13 +11,15 @@ import { toast } from "sonner";
 
 import { CrmDashboardPanel } from "@/components/crm/CrmDashboardPanel";
 import { PageHeader, SetupEmptyState } from "@/components/crm/Surface";
+import { crmDashboardMetaTitle } from "@/i18n/en-US";
 import type { CrmDashboard } from "@/lib/types";
 
 export function meta() {
-  return [{ title: "Pipeline · CRM" }];
+  return [{ title: crmDashboardMetaTitle }];
 }
 
 export default function DashboardRoute() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const dashboards = useActionQuery<CrmDashboard[]>(
@@ -41,12 +44,10 @@ export default function DashboardRoute() {
       navigate(`/dashboard?id=${encodeURIComponent(result.dashboardId)}`, {
         replace: true,
       });
-      toast.success("Pipeline dashboard is ready.");
+      toast.success(t("dashboard.ready"));
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Pipeline dashboard could not be installed.",
+        error instanceof Error ? error.message : t("dashboard.installFailed"),
       );
     }
   }
@@ -55,8 +56,8 @@ export default function DashboardRoute() {
     return (
       <PageHeader
         eyebrow="CRM"
-        title="Pipeline"
-        description="Loading your access-scoped pipeline dashboard…"
+        title={t("dashboard.pipeline")}
+        description={t("dashboard.loadingDescription")}
       />
     );
   }
@@ -66,15 +67,15 @@ export default function DashboardRoute() {
       <>
         <PageHeader
           eyebrow="CRM"
-          title="Pipeline"
-          description="A live, permission-aware view of opportunity value by stage."
+          title={t("dashboard.pipeline")}
+          description={t("dashboard.emptyDescription")}
         />
         <SetupEmptyState
-          title="Install the Pipeline dashboard"
-          description="It creates a CRM-owned data program and a private dashboard for your current workspace."
+          title={t("dashboard.installTitle")}
+          description={t("dashboard.installDescription")}
           onSync={installDashboard}
           isSyncing={install.isPending}
-          actionLabel="Install Pipeline dashboard"
+          actionLabel={t("dashboard.installAction")}
         />
       </>
     );
@@ -85,7 +86,7 @@ export default function DashboardRoute() {
       <PageHeader
         eyebrow="CRM"
         title={dashboard.title}
-        description="Live opportunity totals use the current viewer’s CRM access and refresh from a cached data program."
+        description={t("dashboard.liveDescription")}
         actions={
           <Button
             variant="outline"
@@ -95,7 +96,9 @@ export default function DashboardRoute() {
             disabled={install.isPending}
           >
             <IconRefresh className="size-4" />
-            {install.isPending ? "Updating…" : "Update pack"}
+            {install.isPending
+              ? t("dashboard.updating")
+              : t("dashboard.updatePack")}
           </Button>
         }
       />

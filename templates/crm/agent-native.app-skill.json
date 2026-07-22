@@ -36,6 +36,11 @@
       "id": "crm-signals",
       "action": "list-crm-signal-hits",
       "path": "/records"
+    },
+    {
+      "id": "crm-clips-review-recipe",
+      "action": "get-crm-automation-recipe",
+      "path": "/records"
     }
   ],
   "skills": [
