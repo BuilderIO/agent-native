@@ -1403,6 +1403,30 @@ body[data-clips-route="recording-pill"] #root {
   gap: 8px;
 }
 
+.rewind-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rewind-docs-link:hover {
+  color: var(--fg);
+}
+
+.rewind-docs-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+  border-radius: 4px;
+}
+
 .rewind-settings-entry-main {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
