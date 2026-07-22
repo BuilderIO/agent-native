@@ -964,6 +964,8 @@ export async function consumeBuilderRelayRequest(
   } catch {
     return { ok: false, status: 503, error: "Builder relay is not configured" };
   }
+
+  console.log(`shomix - verifyBuilderRelayRequest - ${verified}`);
   if (!verified) {
     return { ok: false, status: 401, error: "Invalid Builder relay request" };
   }
