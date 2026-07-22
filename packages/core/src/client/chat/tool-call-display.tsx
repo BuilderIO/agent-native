@@ -43,7 +43,10 @@ import {
   WriteCell,
   FilesChangedSummary,
 } from "../tool-cells/index.js";
-import { humanizeToolName } from "../tool-display.js";
+import {
+  humanizeToolName,
+  isCallAgentToolCallShadowed,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
 import {
   SmoothMarkdownText,
@@ -951,13 +954,16 @@ export function ReconnectStreamMessage({
     content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
   const latestActiveToolIndex = content.reduce(
     (latestIndex, part, index) =>
-      part.type === "tool-call" && (chatRunning || part.activity === true)
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      (chatRunning || part.activity === true)
         ? index
         : latestIndex,
     -1,
   );
 
   const renderPart = (part: ContentPart, i: number) => {
+    if (isCallAgentToolCallShadowed(content, i)) return null;
     if (part.type === "text") {
       const partStreaming = chatRunning && i === streamingTextPartIndex;
       return (
@@ -1023,6 +1029,7 @@ export function ReconnectStreamMessage({
 
   for (let i = 0; i < content.length; i++) {
     const part = content[i]!;
+    if (isCallAgentToolCallShadowed(content, i)) continue;
     const isOlderToolWork =
       toolSummary.startIndex >= 0 &&
       i < toolSummary.startIndex &&
@@ -1048,7 +1055,11 @@ export function ReconnectStreamMessage({
 
 function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
   const toolCallIndices = content.reduce<number[]>((indices, part, index) => {
-    if (part.type === "tool-call" && isReconnectSummarizablePart(part)) {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      isReconnectSummarizablePart(part)
+    ) {
       indices.push(index);
     }
     return indices;
@@ -1080,11 +1091,17 @@ function isReconnectToolSummaryPart(
   startIndex: number,
 ): boolean {
   if (startIndex < 0 || index >= startIndex) return false;
-  if (!isReconnectSummarizablePart(content[index]!)) return false;
+  if (
+    isCallAgentToolCallShadowed(content, index) ||
+    !isReconnectSummarizablePart(content[index]!)
+  ) {
+    return false;
+  }
 
   let segmentStart = index;
   while (
     segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(content, segmentStart - 1) &&
     isReconnectSummarizablePart(content[segmentStart - 1]!)
   ) {
     segmentStart--;
@@ -1093,6 +1110,7 @@ function isReconnectToolSummaryPart(
   let segmentEnd = index + 1;
   while (
     segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(content, segmentEnd) &&
     isReconnectSummarizablePart(content[segmentEnd]!)
   ) {
     segmentEnd++;

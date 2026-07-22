@@ -64,6 +64,10 @@ import {
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
+import {
+  isCallAgentToolCallShadowed,
+  shadowedCallAgentToolCallIds,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
 import {
   MarkdownText,
@@ -913,8 +917,10 @@ export function computeActiveTailToolCallId(
   if (!isLast) return null;
   return (
     content?.reduce(
-      (latestToolCallId, part) =>
-        part.type === "tool-call" && (chatRunning || part.activity === true)
+      (latestToolCallId, part, index) =>
+        part.type === "tool-call" &&
+        !isCallAgentToolCallShadowed(content, index) &&
+        (chatRunning || part.activity === true)
           ? part.toolCallId
           : latestToolCallId,
       null as string | null,
@@ -1042,13 +1048,19 @@ export function isCollapsibleAssistantWorkPart(part: {
 export function getAssistantToolSummaryInfo(
   parts: readonly {
     type?: string;
+    toolCallId?: string;
     toolName?: string;
+    args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
   }[],
 ): { startIndex: number; hiddenToolCount: number } {
   const toolCallIndices = parts.reduce<number[]>((indices, part, index) => {
-    if (part.type === "tool-call" && isCollapsibleAssistantWorkPart(part)) {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(parts, index) &&
+      isCollapsibleAssistantWorkPart(part)
+    ) {
       indices.push(index);
     }
     return indices;
@@ -1071,18 +1083,23 @@ export function getAssistantToolSummaryInfo(
 function groupAssistantWorkParts(
   part: {
     type?: string;
+    toolCallId?: string;
     toolName?: string;
+    args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
   },
   index: number,
   parts: readonly {
     type?: string;
+    toolCallId?: string;
     toolName?: string;
+    args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
   }[],
 ): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  if (isCallAgentToolCallShadowed(parts, index)) return null;
   if (isCollapsibleAssistantWorkPart(part)) {
     const { startIndex } = getAssistantToolSummaryInfo(parts);
     if (isAssistantToolSummaryPart(parts, index, startIndex)) {
@@ -1096,7 +1113,9 @@ function groupAssistantWorkParts(
 function isAssistantToolSummaryPart(
   parts: readonly {
     type?: string;
+    toolCallId?: string;
     toolName?: string;
+    args?: Record<string, unknown>;
     chatUI?: unknown;
     mcpApp?: unknown;
   }[],
@@ -1104,11 +1123,17 @@ function isAssistantToolSummaryPart(
   startIndex: number,
 ): boolean {
   if (startIndex < 0 || index >= startIndex) return false;
-  if (!isCollapsibleAssistantWorkPart(parts[index]!)) return false;
+  if (
+    isCallAgentToolCallShadowed(parts, index) ||
+    !isCollapsibleAssistantWorkPart(parts[index]!)
+  ) {
+    return false;
+  }
 
   let segmentStart = index;
   while (
     segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(parts, segmentStart - 1) &&
     isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
   ) {
     segmentStart--;
@@ -1117,6 +1142,7 @@ function isAssistantToolSummaryPart(
   let segmentEnd = index + 1;
   while (
     segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(parts, segmentEnd) &&
     isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
   ) {
     segmentEnd++;
@@ -1266,10 +1292,14 @@ export function AssistantMessage() {
   const hasCollapsibleWork =
     Array.isArray(msgContent) &&
     msgContent.some(
-      (p) =>
+      (p, index) =>
+        !isCallAgentToolCallShadowed(msgContent, index) &&
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
+  const shadowedToolCallIds = Array.isArray(msgContent)
+    ? shadowedCallAgentToolCallIds(msgContent)
+    : new Set<string>();
   const activeTailToolCallId = computeActiveTailToolCallId(msgContent, {
     chatRunning,
     isLast,
@@ -1318,6 +1348,7 @@ export function AssistantMessage() {
               case "reasoning":
                 return <ReasoningMessagePart />;
               case "tool-call":
+                if (shadowedToolCallIds.has(part.toolCallId)) return null;
                 return part.toolUI ? (
                   <ToolActivityPresentation
                     toolName={part.toolName}

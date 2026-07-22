@@ -81,18 +81,21 @@ describe("ShareDialog primitive normalization", () => {
     encoding: "utf8",
   });
 
-  it("uses Toolkit dialog, select, and button primitives", () => {
-    expect(source).toContain('from "@agent-native/toolkit/ui/dialog"');
-    expect(source).toContain('from "@agent-native/toolkit/ui/select"');
-    expect(source).toContain('from "@agent-native/toolkit/ui/button"');
-    expect(source).toContain("<DialogContent");
-    expect(source.match(/\[&_svg\]:!size-auto/g)).toHaveLength(4);
-    expect(source).toContain("data-[state=open]:!animate-none");
+  it("routes sharing controls through the registered design system", () => {
+    expect(source).toContain(
+      'from "@agent-native/toolkit/design-system"',
+    );
+    expect(source).toContain("<DesignSystemDialog");
+    expect(source).toContain("<Picker");
+    expect(source).toContain("<TextField");
+    expect(source).toContain("<DesignSystemAvatar");
+    expect(source).toContain("<Status");
+    expect(source).toContain("<ActionButton");
   });
 
   it("does not bypass Toolkit with raw portal or Radix select imports", () => {
     expect(source).not.toContain('from "react-dom"');
-    expect(source).not.toContain('from "@radix-ui/react-select"');
+    expect(source).not.toContain('from "@agent-native/toolkit/ui/select"');
   });
 
   it("moves focus into the modal and closes on Escape", async () => {
