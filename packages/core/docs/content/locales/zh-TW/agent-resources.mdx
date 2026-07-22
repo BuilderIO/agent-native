@@ -5,12 +5,6 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 
 # 代理資源
 
-<Callout tone="info">
-
-**哪個工作區檔案？** 此頁面涵蓋 **代理資源** — 代理自訂層。對於部署形狀（一個單一儲存庫，許多應用程式），請參閱 [Multi-App Workspaces](/docs/multi-app-workspace)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
-
-</Callout>
-
 每個 Agent-Native 應用程式都附帶**代理資源**：使代理成為您的自訂層。它包含團隊指令 (`AGENTS.md`)、共用學習內容 (`LEARNINGS.md`)、個人結構化記憶 (`memory/MEMORY.md`)、代理按需拉入的 skills、自訂子代理、計畫作業和連線的 MCP 伺服器 — 您期望從 Claude 程式碼 / Codex 設定獲得的一切。
 
 變化：**它是 SQL 行，而不是檔案系統檔案。**每個使用者都將自己的一組代理資源儲存在資料庫中。沒有要啟動的開發盒，沒有每個使用者的容器，沒有要安裝的檔案。多租戶 SaaS 可以為每個使用者提供基本上免費的完全可自訂的代理，因為所有這些都是行——個人記憶、個人 MCP 伺服器、個人 skills、個人子代理——並且共用程式碼庫同時託管所有這些。
@@ -233,7 +227,7 @@ workspace context/brand.md
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## 資源分頁 {#workspace-panel}
+## 資源分頁 {#resources-tab}
 
 代理面板包括一個 **資源** 分頁以及聊天和 CLI。它顯示了所有資源的資料夾組織樹、任何文字檔案的行內編輯器（Markdown、JSON、YAML、純文字）以及 `+` 選單的型別化建立流程（檔案、Skills、代理、計畫工作）。使用者可以瀏覽繼承的工作區預設設定並建立/編輯/刪除個人或組織資源。
 

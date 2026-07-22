@@ -228,11 +228,16 @@ membership id when its native update status reports `update-available`.
   `dashboard-report-subscriptions` actions. They send daily snapshots scoped to
   the exact user/org context that created the subscription with saved URL
   filters; do not hand-wire custom email routes around that action surface.
+- Table panels can be exported with `export-dashboard-panel-to-google-sheet`.
+  The action re-runs the accessible panel query with the dashboard's current
+  filter variables, creates a new Sheet through the connected Google Drive
+  workspace connection, and returns its URL plus bounded export metadata.
   Report PNGs are Playwright captures of the real dashboard route in
   `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
   and embedded inline in email as ordered CID images. Complete dashboards are
-  captured sequentially in bounded panel windows; every window must match the
-  panel ids snapshotted at the start, and a failed or mismatched window
+  captured sequentially in four-panel windows matching the browser's four-query
+  concurrency limit; every window must match the panel ids snapshotted at the
+  start, and a failed or mismatched window
   invalidates the entire image set so the scheduler can retry instead of
   sending a partial report. Capture is capped at 10 windows and 14 MiB of raw
   PNG data, and subscriptions are capped at five distinct recipients; use a

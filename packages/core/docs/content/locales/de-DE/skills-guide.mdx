@@ -137,7 +137,7 @@ Erstellen Sie einen Skill, wenn:
 Erstellen Sie keinen Skill, wenn:
 
 - Die Anleitung ist bereits in einem anderen Skill vorhanden – erweitern Sie sie stattdessen
-- Die Anleitung ist einmalig – legen Sie sie stattdessen in `AGENTS.md` oder im Arbeitsspeicher ab
+- Die Anleitung ist einmalig – legen Sie sie stattdessen in `AGENTS.md` oder im Agentenspeicher ab
 
 ## Skill-Format {#skill-format}
 
@@ -295,11 +295,11 @@ Dies ersetzt den alten Trick, sich darauf zu verlassen, dass Claude-Code nur `.c
 
 </Callout>
 
-Wenn das Wissen für _jeden_ gilt, der in der App arbeitet („CTEs immer gegenüber Unterabfragen bevorzugen“), handelt es sich um eine Fertigkeit oder ein gemeinsames `LEARNINGS.md`. Wenn es um _diesen bestimmten Benutzer_ geht („Steve mag prägnante Antworten“), gehört es in `memory/MEMORY.md`. Die vollständige Behandlung finden Sie unter [Workspace Memory](/docs/workspace#memory).
+Wenn das Wissen für _jeden_ gilt, der in der App arbeitet („CTEs immer gegenüber Unterabfragen bevorzugen“), handelt es sich um eine Fertigkeit oder ein gemeinsames `LEARNINGS.md`. Wenn es um _diesen bestimmten Benutzer_ geht („Steve mag prägnante Antworten“), gehört es in `memory/MEMORY.md`. Die vollständige Behandlung finden Sie unter [Agent-Ressourcen — Memory](/docs/agent-resources#memory).
 
 ## Skills im Vergleich zu SQL-Ressourcen {#skills-vs-resources}
 
-Diese Seite beschreibt einen Skill als Datei unter `.agents/skills/<name>/SKILL.md`. [Workspace](/docs/workspace#skills) beschreibt denselben Skill als SQL-Ressource im Pfad `skills/<slug>/SKILL.md` mit Workspace-, gemeinsamem oder persönlichem Geltungsbereich. Es ist dasselbe Konzept aus zwei Perspektiven: Im Code-Modus wird die Datei direkt gelesen und geschrieben; im App-Modus wird sie als Ressourcenzeile gespeichert, damit sie ohne Dateisystem funktioniert. Verwenden Sie in beiden Fällen das Format dieser Seite.
+Diese Seite beschreibt einen Skill als Datei unter `.agents/skills/<name>/SKILL.md`. [Agent-Ressourcen](/docs/agent-resources#skills) beschreibt denselben Skill als SQL-Ressource im Pfad `skills/<slug>/SKILL.md` mit Workspace-, gemeinsamem oder persönlichem Geltungsbereich. Es ist dasselbe Konzept aus zwei Perspektiven: Im Code-Modus wird die Datei direkt gelesen und geschrieben; im App-Modus wird sie als Ressourcenzeile gespeichert, damit sie ohne Dateisystem funktioniert. Verwenden Sie in beiden Fällen das Format dieser Seite.
 
 ## App-gestütztes skills – vollständige Details {#app-backed-skills-full}
 
@@ -424,6 +424,6 @@ die gleichen Anweisungen, ohne eine zweite Kopie zu behalten.
 ## Wie geht es weiter? {#whats-next}
 
 - [**Agentenanweisungen schreiben**](/docs/writing-agent-instructions) — Skill-Beschreibungen formulieren und Anleitungen auf AGENTS.md, Skills und Speicher verteilen
-- [**Workspace**](/docs/workspace#skills) — wo Skills im App-Modus als SQL-Ressourcen gespeichert werden
+- [**Agent-Ressourcen**](/docs/agent-resources#skills) — wo Skills im App-Modus als SQL-Ressourcen gespeichert werden
 - [**Agentenerwähnungen**](/docs/agent-mentions) — der `/`-Befehl, der einen Skill im Chat aufruft
 - [**Plan-Plugin und Marketplace**](/docs/plan-plugin) — durchgängige Installation und automatische Aktualisierung eines echten App-gestützten Skills

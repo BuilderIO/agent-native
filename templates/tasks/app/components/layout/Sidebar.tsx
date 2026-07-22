@@ -188,30 +188,13 @@ export function Sidebar({
           />
         </div>
 
-        <div
-          className={cn(
-            collapsed
-              ? "flex justify-center px-1 py-1"
-              : "border-t border-sidebar-border px-3 py-2",
-          )}
-        >
-          <FeedbackButton
-            variant={collapsed ? "icon" : "sidebar"}
-            side="right"
-            align={collapsed ? "center" : "end"}
-          />
-        </div>
-
-        {collapseButton ? (
-          <div
-            className={cn(
-              collapsed
-                ? "flex justify-center px-1 py-1"
-                : "flex justify-end border-t border-sidebar-border px-3 py-2",
-            )}
-          >
+        {!collapsed ? (
+          <div className="flex items-center justify-end gap-1 border-t border-sidebar-border px-3 py-2">
+            <FeedbackButton className="min-w-0 flex-1" side="right" />
             {collapseButton}
           </div>
+        ) : collapseButton ? (
+          <div className="flex justify-center px-1 py-1">{collapseButton}</div>
         ) : null}
       </div>
     </aside>

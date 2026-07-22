@@ -272,9 +272,11 @@ export default defineAction({
       );
     });
     if (missing.length || blocked.length) {
-      throw new Error(
+      const error = new Error(
         `Only discovered, updateable CRM fields can be changed. Unsupported: ${[...new Set([...missing, ...blocked])].join(", ")}`,
-      );
+      ) as Error & { statusCode?: number };
+      error.statusCode = 422;
+      throw error;
     }
 
     const wrongAuthority = fieldNames.filter((fieldName) => {

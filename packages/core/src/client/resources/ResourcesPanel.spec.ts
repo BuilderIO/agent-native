@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   filterResourceTree,
+  normalizeResourceFileName,
   resolveInitialResourceScope,
 } from "./ResourcesPanel.js";
 import type { TreeNode } from "./use-resources.js";
@@ -14,6 +15,28 @@ describe("resolveInitialResourceScope", () => {
   it("keeps the existing fallback when the panel has no requested scope", () => {
     expect(resolveInitialResourceScope(undefined, false)).toBe("personal");
     expect(resolveInitialResourceScope(undefined, true)).toBe("shared");
+  });
+});
+
+describe("normalizeResourceFileName", () => {
+  it("adds a Markdown extension when the file name has no extension", () => {
+    expect(normalizeResourceFileName("notes")).toBe("notes.md");
+    expect(normalizeResourceFileName("research/ideas")).toBe(
+      "research/ideas.md",
+    );
+  });
+
+  it("preserves nested names that already include an extension", () => {
+    expect(normalizeResourceFileName("foo/bar.whatever")).toBe(
+      "foo/bar.whatever",
+    );
+    expect(normalizeResourceFileName("config/.env")).toBe("config/.env");
+  });
+
+  it("trims input and rejects blank or folder-only names", () => {
+    expect(normalizeResourceFileName("  notes.txt  ")).toBe("notes.txt");
+    expect(normalizeResourceFileName("   ")).toBe("");
+    expect(normalizeResourceFileName("notes/")).toBe("");
   });
 });
 

@@ -1,6 +1,6 @@
 ---
 title: "Drop-in Agent"
-description: "Mount the agent chat + workspace into any React app with <AgentPanel>, <AgentSidebar>, and sendToAgentChat()."
+description: "Mount the agent chat + resources into any React app with <AgentPanel>, <AgentSidebar>, and sendToAgentChat()."
 ---
 
 # Drop-in Agent
@@ -47,7 +47,7 @@ All of these are exported from `@agent-native/core/client`.
       </div>
       <div class="diagram-node panel">
         Agent panel<br /><small class="diagram-muted"
-          >chat &middot; CLI &middot; workspace</small
+          >chat &middot; CLI &middot; resources</small
         >
       </div>
     </div>
@@ -170,7 +170,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` gives you the raw tabs (Chat / CLI / Workspace) without the sidebar wrapper, the collapse button, or any state persistence. Put it wherever you want; you handle the layout.
+`<AgentPanel>` gives you the raw tabs (Chat / CLI / Resources) without the sidebar wrapper, the collapse button, or any state persistence. Put it wherever you want; you handle the layout.
 
 ### Selected props
 
@@ -337,5 +337,5 @@ The user sees a chat button in the header, can open it, and can talk to the agen
 
 - [**Actions**](/docs/actions) — `defineAction()` and `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selection, navigation, view-screen
-- [**Agent Resources**](/docs/workspace) — what the Resources tab contains (skills, memory, MCP servers, scheduled jobs)
+- [**Agent Resources**](/docs/agent-resources) — what the Resources tab contains (skills, memory, MCP servers, scheduled jobs)
 - [**Voice Input**](/docs/voice-input) — the microphone in the chat composer

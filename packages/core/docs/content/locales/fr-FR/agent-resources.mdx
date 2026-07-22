@@ -5,12 +5,6 @@ description: "Personnalisation au niveau du code Claude par utilisateur – ski
 
 # Ressources de l'agent
 
-<Callout tone="info">
-
-**Quel document d'espace de travail ?** Cette page couvre les **Ressources de l'agent** – la couche de personnalisation de l'agent. Pour la forme de déploiement (un monorepo, plusieurs applications), voir [Multi-App Workspaces](/docs/multi-app-workspace) ; pour la gouvernance (qui examine, approuve et possède quoi), voir [Workspace Governance](/docs/workspace-management).
-
-</Callout>
-
 Chaque application native d'agent est livrée avec des **ressources de l'agent** : la couche de personnalisation qui fait de l'agent le vôtre. Il contient des instructions d'équipe (`AGENTS.md`), des apprentissages partagés (`LEARNINGS.md`), une mémoire structurée personnelle (`memory/MEMORY.md`), un skills que l'agent extrait à la demande, des sous-agents personnalisés, des tâches planifiées et des serveurs MCP connectés – tout ce que vous attendez d'une configuration Claude Code / Codex.
 
 Le twist : **il s'agit de lignes SQL, pas de fichiers du système de fichiers.** Chaque utilisateur obtient son propre ensemble de ressources de l'agent stocké dans la base de données. Il n'y a pas de boîte de développement à démarrer, pas de conteneur par utilisateur, pas de fichiers à monter. Un SaaS multi-locataires peut offrir à chaque utilisateur un agent entièrement personnalisable et essentiellement gratuit, car il s'agit uniquement de lignes (mémoire personnelle, serveurs MCP personnels, skills personnels, sous-agents personnels) et la base de code partagée les héberge toutes en même temps.
@@ -234,7 +228,7 @@ Par exemple :
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Onglet Ressources {#workspace-panel}
+## Onglet Ressources {#resources-tab}
 
 Le panneau de l'agent comprend un onglet **Ressources** à côté de Chat et CLI. Il affiche une arborescence organisée en dossiers de toutes les ressources, un éditeur en ligne pour n'importe quel fichier texte (Markdown, JSON, YAML, texte brut) et les flux de création typés du menu `+` (Fichiers, Skills, Agents, Tâches planifiées). Les utilisateurs peuvent parcourir les paramètres par défaut hérités de l'espace de travail et créer/modifier/supprimer des ressources personnelles ou d'organisation.
 

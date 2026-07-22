@@ -36,6 +36,13 @@ export default function ChatRoute() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const threadUrlSync = threadId
+    ? {
+        routeThreadId: threadId,
+        getPath: chatThreadPath,
+        navigate,
+      }
+    : undefined;
 
   useEffect(() => {
     function handleChatRunning(event: Event) {
@@ -56,11 +63,7 @@ export default function ChatRoute() {
         className="h-full"
         defaultMode="chat"
         storageKey="chat"
-        threadUrlSync={{
-          routeThreadId: threadId ?? null,
-          getPath: chatThreadPath,
-          navigate,
-        }}
+        threadUrlSync={threadUrlSync}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}

@@ -10,6 +10,11 @@ import { agentNativePath } from "../api-path.js";
 import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
 import {
+  clearMcpConnectionResume,
+  notifyMcpConnectionComplete,
+  saveMcpConnectionResume,
+} from "./mcp-connection-resume.js";
+import {
   buildMcpOAuthStartUrl,
   findMcpIntegrationForText,
   getMcpIntegrationApiFallback,
@@ -144,6 +149,7 @@ export function McpConnectionSuggestion({
     }
 
     if (canStartOAuth(integration)) {
+      saveMcpConnectionResume(variant === "response" ? contextText : text);
       window.location.assign(
         agentNativePath(
           buildMcpOAuthStartUrl({
@@ -162,6 +168,7 @@ export function McpConnectionSuggestion({
       integration.authMode === "none" &&
       integration.connectionMode === "direct"
     ) {
+      saveMcpConnectionResume(variant === "response" ? contextText : text);
       setConnecting(true);
       try {
         await createMcpServer.mutateAsync({
@@ -171,7 +178,9 @@ export function McpConnectionSuggestion({
           description: integration.description,
         });
         setDismissedId(integration.id);
+        notifyMcpConnectionComplete();
       } catch (cause) {
+        clearMcpConnectionResume();
         setError(
           cause instanceof Error ? cause.message : t("mcpIntegrations.failed"),
         );
@@ -181,6 +190,7 @@ export function McpConnectionSuggestion({
       return;
     }
 
+    saveMcpConnectionResume(variant === "response" ? contextText : text);
     setDialogOpen(true);
   };
 
@@ -262,13 +272,20 @@ export function McpConnectionSuggestion({
       )}
       <McpIntegrationDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) clearMcpConnectionResume();
+        }}
         initialIntegrationId={integration.id}
         defaultScope="user"
         canCreateOrgMcp={false}
         hasOrg={Boolean(mcpServersQuery.data?.orgId)}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
-        onCreated={() => setDismissedId(integration.id)}
+        onCreated={() => {
+          setDismissedId(integration.id);
+          saveMcpConnectionResume(variant === "response" ? contextText : text);
+          notifyMcpConnectionComplete();
+        }}
         integrations={integrations}
       />
     </>

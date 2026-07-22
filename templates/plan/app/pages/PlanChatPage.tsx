@@ -30,7 +30,6 @@ export function PlanChatPage() {
       contentClassName="max-w-5xl"
       surfaceClassName="border-0 bg-transparent shadow-none"
       storageKey="plans"
-      restoreActiveThread={false}
       showHeader={false}
       showTabBar={false}
       dynamicSuggestions={false}

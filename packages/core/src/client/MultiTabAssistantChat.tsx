@@ -53,7 +53,6 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
-import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
 import { useChangeVersion } from "./use-change-version.js";
@@ -703,7 +702,7 @@ export type MultiTabAssistantChatProps = Omit<
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
   renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
-  /** Optional overlay actions renderer for the active tab */
+  /** Optional page-level top-bar actions renderer for the active tab. */
   renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
@@ -2442,7 +2441,11 @@ export function MultiTabAssistantChat({
 
       {/* Chat content with optional overlay */}
       <div
-        className="relative flex-1 flex flex-col min-h-0"
+        className={cn(
+          "relative flex-1 flex flex-col min-h-0",
+          renderOverlay && "pt-14",
+        )}
+        data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
         data-agent-page-chat-scrolled={
           renderOverlay && pageOverlayScrolled ? "" : undefined
         }
@@ -2494,11 +2497,6 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
-                <KeepTabOpenNotice
-                  threadId={tabId}
-                  enabled={tabId === activeThreadId}
-                  apiUrl={apiUrl}
-                />
                 <RunStuckBanner
                   threadId={tabId}
                   enabled={tabId === activeThreadId}

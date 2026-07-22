@@ -194,7 +194,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       },
     ],
     capabilities: ["search", "import", "docs"],
-    recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    recommendedTemplateUses: [
+      "brain",
+      "content",
+      "slides",
+      "dispatch",
+      "analytics",
+    ],
     oauth: {
       provider: "google",
       authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",

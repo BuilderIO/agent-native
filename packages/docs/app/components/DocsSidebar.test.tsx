@@ -83,6 +83,15 @@ describe("DocsSidebar", () => {
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
   });
 
+  it("uses the Agent Resources section and canonical overview link", () => {
+    const html = renderSidebar("/docs/agent-resources");
+
+    expect(html).toContain("Agent Resources");
+    expect(html).toContain("Agent Resources Overview");
+    expect(html).toContain('href="/docs/agent-resources"');
+    expect(html).not.toContain('href="/docs/workspace"');
+  });
+
   it("expands the section that contains the active docs page", () => {
     const html = renderSidebar("/docs/tracking");
 

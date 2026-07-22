@@ -351,6 +351,8 @@ const PanelCell = memo(function PanelCell({
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
+        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        filters={vars}
         extensionContext={
           panel.chartType === "extension"
             ? {

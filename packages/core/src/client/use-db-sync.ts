@@ -40,6 +40,7 @@ const POLL_ABORT_MIN_MS = 10_000;
 // four times per minute forever. Focus and active agent work still poll now.
 const SSE_FALLBACK_INTERVAL_MS = 60_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
+const HIDDEN_POLL_INTERVAL_MS = 10_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
@@ -545,11 +546,14 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const base = this.isActive
+    const visibleBase = this.isActive
       ? this.effectiveInterval
       : this.sseConnected
         ? this.effectiveFallbackInterval
         : this.effectiveIdleInterval;
+    const base = isDocumentHidden()
+      ? Math.max(visibleBase, HIDDEN_POLL_INTERVAL_MS)
+      : visibleBase;
     // Exponential backoff while polls keep failing (500s during a deploy,
     // DNS blips, a struggling DB). Auth failures have their own cooldown
     // above; this covers everything else so a down server isn't hammered at
@@ -766,6 +770,11 @@ class SyncTransport {
         clearTimeout(this.timer);
         this.timer = null;
       }
+    } else {
+      // Keep push connected and the polling safety net alive in backgrounded
+      // tabs, but relax an active chat's cadence so hidden work stays current
+      // without polling as aggressively as the visible surface.
+      this.reschedule();
     }
   };
 
@@ -931,7 +940,7 @@ export function subscribeSyncEvents(
   transport.add(id, {
     onEvents: options.onEvents,
     onSseStateChange: options.onSseStateChange,
-    pauseWhenHidden: options.pauseWhenHidden ?? true,
+    pauseWhenHidden: options.pauseWhenHidden ?? false,
     interval: options.interval ?? 60_000,
     idleInterval: options.interval ?? 60_000,
     fallbackInterval: options.fallbackInterval ?? 60_000,
@@ -965,8 +974,9 @@ export function subscribeSyncEvents(
  * @param options.interval - Poll interval in ms. Default: 2000
  * @param options.fallbackInterval - Poll interval while SSE is connected.
  *   Default: 60000
- * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
- *   Default: true
+ * @param options.pauseWhenHidden - Pause sync while the tab is hidden.
+ *   Default: false. Hidden tabs keep SSE connected and poll no faster than
+ *   every 10 seconds while active; idle polling remains at 60 seconds.
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
@@ -1004,7 +1014,7 @@ export function useDbSync(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
-    pauseWhenHidden = true,
+    pauseWhenHidden = false,
   } = options;
   const idleInterval =
     options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
@@ -1347,7 +1357,7 @@ export function useScreenRefreshKey(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
-    pauseWhenHidden = true,
+    pauseWhenHidden = false,
   } = options;
   const idleInterval =
     options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
