@@ -10,6 +10,7 @@
  * mirrors the server transcription route's key/env resolution.
  */
 
+import { Switch } from "@agent-native/toolkit/design-system";
 import {
   IconAlertCircle,
   IconCheck,
@@ -20,7 +21,6 @@ import {
   IconLockOpen,
   IconMicrophone,
 } from "@tabler/icons-react";
-import { Switch } from "@agent-native/toolkit/design-system";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";

@@ -1844,33 +1844,17 @@ function EmailSectionInner({
         <SettingsSkeleton lines={2} />
       ) : (
         <div className="space-y-2">
-          <label className="block space-y-1">
-            <span
-              className={cn(
-                "uppercase tracking-wide text-muted-foreground",
-                noteTextClass(isPage),
-              )}
-            >
-              Provider
-            </span>
-            <Select
-              value={emailProvider}
-              onValueChange={(value) =>
-                setEmailProvider(value as "resend" | "sendgrid")
-              }
-            >
-              <SelectTrigger
-                className={cn(textInputClass(isPage), "w-full")}
-                style={isPage ? CONTROL_STYLE_PAGE : undefined}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="resend">Resend</SelectItem>
-                <SelectItem value="sendgrid">SendGrid</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
+          <SettingsSelect
+            label="Provider"
+            value={emailProvider}
+            options={[
+              { value: "resend", label: "Resend" },
+              { value: "sendgrid", label: "SendGrid" },
+            ]}
+            onValueChange={(value) =>
+              setEmailProvider(value as "resend" | "sendgrid")
+            }
+          />
 
           {emailProvider === "resend" ? (
             <ManualSetupCard

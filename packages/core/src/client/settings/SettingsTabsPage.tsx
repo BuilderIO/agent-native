@@ -1,3 +1,4 @@
+import { Tabs } from "@agent-native/toolkit/design-system";
 import {
   IconHistory,
   IconSearch,
@@ -5,7 +6,6 @@ import {
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
-import { Tabs } from "@agent-native/toolkit/design-system";
 import {
   useCallback,
   useEffect,

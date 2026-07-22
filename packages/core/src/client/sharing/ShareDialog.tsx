@@ -2,6 +2,7 @@ import {
   ActionButton,
   Avatar as DesignSystemAvatar,
   Dialog as DesignSystemDialog,
+  IconButton,
   Picker,
   Status,
   TextArea,
@@ -27,7 +28,6 @@ import {
   type ShareDialogController,
   type ShareDialogPerson,
   type ShareDialogTab,
-  type ShareRole,
   type ShareVisibility,
 } from "./useShareDialogController.js";
 
@@ -136,53 +136,53 @@ export function ShareDialog({
         ) : null}
       </div>
 
-        {controller.tabsEnabled ? (
-          <div
-            role="tablist"
-            aria-label={controller.labels.shareOptions}
-            className="mx-5 mt-1 flex gap-1 border-b border-border"
-          >
+      {controller.tabsEnabled ? (
+        <div
+          role="tablist"
+          aria-label={controller.labels.shareOptions}
+          className="mx-5 mt-1 flex gap-1 border-b border-border"
+        >
           {controller.tabs.map((tab) => {
             const Icon = TAB_ICONS[tab.value];
             return (
               <TabTrigger
-                  key={tab.value}
-                  active={controller.activeTab === tab.value}
-                  onClick={() => controller.setActiveTab(tab.value)}
-                  icon={<Icon size={14} strokeWidth={1.75} />}
-                  label={tab.label}
-                />
-              );
-            })}
-          </div>
+                key={tab.value}
+                active={controller.activeTab === tab.value}
+                onClick={() => controller.setActiveTab(tab.value)}
+                icon={<Icon size={14} strokeWidth={1.75} />}
+                label={tab.label}
+              />
+            );
+          })}
+        </div>
+      ) : null}
+
+      <div className="px-5 py-4">
+        {controller.tabsEnabled && controller.activeTab === "link" ? (
+          <LinkTab controller={controller} extras={linkTabExtras} />
         ) : null}
+        {!controller.tabsEnabled || controller.activeTab === "invite" ? (
+          <InviteTab
+            controller={controller}
+            showVisibility={!controller.tabsEnabled}
+          />
+        ) : null}
+        {controller.tabsEnabled && controller.activeTab === "embed"
+          ? (embedTabContent ?? <DefaultEmbedBody controller={controller} />)
+          : null}
+      </div>
 
-        <div className="px-5 py-4">
-          {controller.tabsEnabled && controller.activeTab === "link" ? (
-            <LinkTab controller={controller} extras={linkTabExtras} />
-          ) : null}
-          {!controller.tabsEnabled || controller.activeTab === "invite" ? (
-            <InviteTab
-              controller={controller}
-              showVisibility={!controller.tabsEnabled}
-            />
-          ) : null}
-          {controller.tabsEnabled && controller.activeTab === "embed"
-            ? (embedTabContent ?? <DefaultEmbedBody controller={controller} />)
-            : null}
-        </div>
-
-        <div className="flex justify-end border-t border-border px-5 py-3">
-          <ActionButton
-            type="button"
-            intent="primary"
-            emphasis="solid"
-            onPress={controller.close}
-            className={BUTTON_PRIMARY_SM}
-          >
-            {controller.labels.done}
-          </ActionButton>
-        </div>
+      <div className="flex justify-end border-t border-border px-5 py-3">
+        <ActionButton
+          type="button"
+          intent="primary"
+          emphasis="solid"
+          onPress={controller.close}
+          className={BUTTON_PRIMARY_SM}
+        >
+          {controller.labels.done}
+        </ActionButton>
+      </div>
     </DesignSystemDialog>
   );
 }
@@ -382,17 +382,16 @@ function PersonRow({
         {person.roleLabel}
       </Status>
       {canManage && person.share ? (
-        <ActionButton
-          type="button"
+        <IconButton
           intent="danger"
           emphasis="ghost"
-          size="icon"
+          size="compact"
+          icon={<IconTrash size={14} />}
+          label={removeLabel}
           aria-label={removeLabel}
           onPress={() => onRemove(person.share!)}
           className={cn(BUTTON_GHOST_ICON, "[&_svg]:!size-auto")}
-        >
-          <IconTrash size={14} />
-        </ActionButton>
+        />
       ) : null}
     </li>
   );
@@ -459,16 +458,15 @@ function CopyField({
             className="flex-1 min-w-0 text-xs font-mono"
           />
         )}
-        <ActionButton
-          type="button"
+        <IconButton
           emphasis="outline"
-          size="icon"
+          size="compact"
+          icon={copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
+          label={controller.labels.copy}
           onPress={() => void controller.copy(field, value)}
           aria-label={controller.labels.copy}
           className={cn(BUTTON_OUTLINE_SM, "!w-9 !px-0 [&_svg]:!size-auto")}
-        >
-          {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        </ActionButton>
+        />
       </div>
     </div>
   );

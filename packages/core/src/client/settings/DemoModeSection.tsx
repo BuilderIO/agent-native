@@ -1,7 +1,7 @@
 /** Browser-local presentation toggle. Backend and agent results stay real. */
 
-import { IconEyeOff } from "@tabler/icons-react";
 import { Switch } from "@agent-native/toolkit/design-system";
+import { IconEyeOff } from "@tabler/icons-react";
 
 import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
