@@ -225,30 +225,30 @@ function findEnclosingList(
   return null;
 }
 
-/** Set the text of a list row, preserving a leading bullet marker span. */
-function setRowText(row: HTMLElement, text: string): void {
-  const spans = Array.from(row.children).filter(
-    (c) => c.tagName === "SPAN",
-  ) as HTMLElement[];
-  const textSpans = spans.filter((s) => !isBulletMarker(s));
-  if (textSpans.length > 0) {
-    textSpans[0].textContent = text;
-    for (let i = 1; i < textSpans.length; i++) textSpans[i].textContent = "";
-  } else {
-    row.textContent = text;
-  }
-}
+/** Zero-width space: keeps the caret inside an otherwise-empty text span so
+ * typed characters inherit that span's font instead of the container's. */
+const ZERO_WIDTH_SPACE = "\u200B";
 
-/** Place the caret at the start of a list row's editable text. */
-function focusRowStart(row: HTMLElement): void {
+/**
+ * Seed a freshly-inserted row with the given tail text and place the caret at
+ * the start of its editable text. The text is written into a real text node
+ * inside the row's non-marker text span so typed characters inherit the row's
+ * font size (an empty inline span would drop the caret to the container).
+ */
+function primeNewRow(row: HTMLElement, tail: string): void {
   const spans = Array.from(row.children).filter(
     (c) => c.tagName === "SPAN",
   ) as HTMLElement[];
-  const target: Node = spans.find((s) => !isBulletMarker(s)) ?? row;
+  const textSpan = spans.find((s) => !isBulletMarker(s));
+  const target: HTMLElement = textSpan ?? row;
+  const initial = tail.length > 0 ? tail : ZERO_WIDTH_SPACE;
+  const textNode = document.createTextNode(initial);
+  target.replaceChildren(textNode);
+
   const sel = window.getSelection();
   if (!sel) return;
   const range = document.createRange();
-  range.selectNodeContents(target);
+  range.setStart(textNode, tail.length > 0 ? 0 : ZERO_WIDTH_SPACE.length);
   range.collapse(true);
   sel.removeAllRanges();
   sel.addRange(range);
@@ -285,13 +285,12 @@ function insertBulletAfterCaret(list: HTMLElement): boolean {
   }
 
   const newRow = row.cloneNode(true) as HTMLElement;
-  for (const node of [newRow, ...Array.from(newRow.querySelectorAll("*"))]) {
-    node.removeAttribute("data-builder-id");
-    node.removeAttribute("data-fusion-element-id");
+  for (const el of [newRow, ...Array.from(newRow.querySelectorAll("*"))]) {
+    el.removeAttribute("data-builder-id");
+    el.removeAttribute("data-fusion-element-id");
   }
-  setRowText(newRow, tail);
   row.after(newRow);
-  focusRowStart(newRow);
+  primeNewRow(newRow, tail);
   return true;
 }
 
@@ -354,7 +353,9 @@ function stripBuilderIds(html: string): string {
       doc.querySelector("[data-strip-root]")?.innerHTML ?? doc.body.innerHTML;
   }
 
-  return cleaned.replace(/\s*data-builder-id="[^"]*"/g, "");
+  return cleaned
+    .replace(/\s*data-builder-id="[^"]*"/g, "")
+    .replace(/\u200B/g, "");
 }
 
 function cssPx(value: string): number {
