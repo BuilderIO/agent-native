@@ -240,6 +240,11 @@ import {
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import {
+  assessPlanPrompt,
+  isProbablyImportedPlan,
+  type CreatePlanKind,
+} from "@/lib/create-plan-routing";
+import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
 } from "@/lib/desktop-plan-files";
@@ -1596,9 +1601,9 @@ function buildPlanAgentContext(input: {
       : [
           "Fast iteration workflow:",
           "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-          "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+          '2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. When the user asks for higher fidelity, polished mockups, production-like UI, real design, or anything "not sketchy," update this same plan in place: rewrite the relevant screen HTML/CSS and include set-visual-render-mode with renderMode design. Do not create a second plan, put CSS in style tags, or treat the viewer-local Clean toggle as a fidelity upgrade. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.',
           "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "4. Match the requested fidelity: ordinary UI planning can use sketch diagrams and wireframes; high-fidelity requests need the persisted Design surface with deliberate branded HTML/CSS and stable data-design-id targets.",
           "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
           "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
           "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
@@ -8323,93 +8328,6 @@ const CREATE_PLAN_PROMPTS = [
   },
 ] as const;
 
-type CreatePlanKind = "auto" | "ui" | "questions" | "visual";
-type ResolvedPlanKind = Exclude<CreatePlanKind, "auto">;
-type AutoPlanKind = Exclude<ResolvedPlanKind, "questions">;
-
-function isProbablyImportedPlan(prompt: string) {
-  const trimmed = prompt.trim();
-  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
-  if (trimmed.length > 900 && lines.length > 8) return true;
-  const hasHeading = lines.some((line) => /^#{1,4}\s+\S/.test(line.trim()));
-  const checklistCount = lines.filter((line) =>
-    /^[-*]\s+\[[ x]\]\s+\S/i.test(line.trim()),
-  ).length;
-  const taskCount = lines.filter((line) =>
-    /^([-*]|\d+[.)])\s+\S/.test(line.trim()),
-  ).length;
-  const hasPlanLanguage =
-    /\b(implementation plan|acceptance criteria|milestones?|phases?|risks?|open questions?|test plan)\b/i.test(
-      trimmed,
-    );
-  return (
-    trimmed.includes("```") ||
-    (hasHeading && (taskCount >= 3 || hasPlanLanguage)) ||
-    (checklistCount >= 2 && trimmed.length > 220)
-  );
-}
-
-function assessPlanPrompt(prompt: string): {
-  kind: AutoPlanKind;
-} {
-  let score = 0;
-  let ambiguitySignals = 0;
-
-  const wantsExploration =
-    /\b(ask questions|questions first|intake first|show me options|explore options|help me choose|not sure|unsure|which direction|compare)\b/i.test(
-      prompt,
-    );
-  const exactOrTrivial =
-    /\b(typo|copy tweak|one line|single file|exactly|no questions|don't ask|dont ask|just implement)\b/i.test(
-      prompt,
-    );
-  const uiDirection =
-    /\b(ui|screen|screens|layout|wireframe|mockup|form factor|mobile|desktop|responsive|nav|sidebar|flow|redesign|empty state|loading state|error state)\b/i.test(
-      prompt,
-    );
-  const multipleApproaches =
-    /\b(option|variant|alternative|tradeoff|approach|architecture|data model|permission|auth|integration|migration|state machine)\b/i.test(
-      prompt,
-    );
-  const newSurface =
-    /\b(new surface|multi-screen|workflow|journey|end-to-end|dashboard|settings|checkout|onboarding|review flow)\b/i.test(
-      prompt,
-    );
-  const risky =
-    /\b(auth|permission|billing|migration|schema|integration|oauth|webhook|security|role|privacy|external)\b/i.test(
-      prompt,
-    );
-
-  if (uiDirection) {
-    score += 2;
-    ambiguitySignals += 1;
-  }
-  if (multipleApproaches) {
-    score += 2;
-    ambiguitySignals += 1;
-  }
-  if (newSurface) score += 1;
-  if (risky) score += 1;
-  if (
-    wantsExploration ||
-    /\b(best|better|improve|explore|direction|choose)\b/i.test(prompt)
-  ) {
-    score += 1;
-    ambiguitySignals += 1;
-  }
-  if (exactOrTrivial) score -= 3;
-
-  if (uiDirection) {
-    return {
-      kind: "ui",
-    };
-  }
-
-  return {
-    kind: "visual",
-  };
-}
-
 function sourceOptionDisplayLabel(
   source: PlanSource,
   t: ReturnType<typeof useT>,
@@ -8440,11 +8358,13 @@ function buildCreatePlanAgentMessage({
     planKind === "auto" ? assessPlanPrompt(prompt).kind : planKind;
   const routing = imported
     ? "Build from this existing plan while preserving its intent."
-    : resolvedPlanKind === "ui"
-      ? "Create a UI-first plan with AI-authored wireframes and state coverage."
-      : resolvedPlanKind === "questions"
-        ? "Create visual intake questions before generating the final plan."
-        : "Create a general visual plan with diagrams and implementation detail.";
+    : resolvedPlanKind === "design"
+      ? "Create a design-first plan with full-fidelity branded screens. Use create-plan-design, ground the result in the real app shell and design tokens, and treat the Design tab as the visual source of truth."
+      : resolvedPlanKind === "ui"
+        ? "Create a UI-first plan with AI-authored wireframes and state coverage."
+        : resolvedPlanKind === "questions"
+          ? "Create visual intake questions before generating the final plan."
+          : "Create a general visual plan with diagrams and implementation detail.";
 
   return [
     "Create an Agent-Native Plan from this request.",
@@ -8452,7 +8372,7 @@ function buildCreatePlanAgentMessage({
     routing,
     `Source/provenance: ${sourceOptionDisplayLabel(source, t)}.`,
     "",
-    "Use the Plan actions after you have enough substance. Generate the wireframes, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
+    "Use the Plan actions after you have enough substance. Generate the requested review surface, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
     "After creating the plan, open the plan link for review.",
     "",
     "Request:",
@@ -8595,11 +8515,13 @@ function CreatePlanDialog({
                             ),
                           })
                         : planKindDisplayLabel("auto", t)
-                      : planKind === "ui"
-                        ? planKindDisplayLabel("ui", t)
-                        : planKind === "questions"
-                          ? planKindDisplayLabel("questions", t)
-                          : planKindDisplayLabel("visual", t)}
+                      : planKind === "design"
+                        ? planKindDisplayLabel("design", t)
+                        : planKind === "ui"
+                          ? planKindDisplayLabel("ui", t)
+                          : planKind === "questions"
+                            ? planKindDisplayLabel("questions", t)
+                            : planKindDisplayLabel("visual", t)}
                   </span>
                   <IconChevronDown
                     className={cn(
@@ -8643,13 +8565,12 @@ function CreatePlanDialog({
                     value={planKind}
                     onValueChange={(value) =>
                       setPlanKind(
-                        value === "auto"
-                          ? "auto"
-                          : value === "visual"
-                            ? "visual"
-                            : value === "questions"
-                              ? "questions"
-                              : "ui",
+                        value === "auto" ||
+                          value === "design" ||
+                          value === "visual" ||
+                          value === "questions"
+                          ? value
+                          : "ui",
                       )
                     }
                   >
@@ -8664,6 +8585,9 @@ function CreatePlanDialog({
                       </SelectItem>
                       <SelectItem value="ui">
                         {t("plansPage.create.kindOptions.ui.description")}
+                      </SelectItem>
+                      <SelectItem value="design">
+                        {t("plansPage.create.kindOptions.design.description")}
                       </SelectItem>
                       <SelectItem value="questions">
                         {t(

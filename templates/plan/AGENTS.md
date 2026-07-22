@@ -104,6 +104,16 @@ Design tab as the visual source of truth and the Prototype tab as the same
 direction made interactive. (`create-plan-design` is an MCP tool reached from
 `/visual-plan`, not a separate slash command.)
 
+Treat “higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,”
+“real design,” and “not a sketch/wireframe” as design-first requests, even when
+the prompt also says “mockup.” For an existing plan, do not create a duplicate:
+call `update-visual-plan` on the same plan id with a
+`set-visual-render-mode` patch using `renderMode: "design"`, and replace or patch
+the affected screen HTML/CSS in the same update. Put scoped styles in each
+screen's `css` field, never in `<style>` tags. Merely switching the viewer-local
+Clean toggle removes rough.js for one browser but does not create a high-fidelity
+artifact.
+
 Use `/visual-recap` when the user wants a high-level review surface for a PR,
 commit, branch, or git diff that already changed. Recaps are reverse plans:
 derive blocks from the real diff, call `create-visual-recap` with the recap

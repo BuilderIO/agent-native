@@ -855,6 +855,15 @@ export type PlanContentPatch =
       brief?: string;
     }
   | {
+      /**
+       * Persist the artifact's visual treatment for every viewer. `design`
+       * disables sketch rendering and preserves authored HTML/CSS; it is not
+       * the same as the viewer-local clean/sketchy preference.
+       */
+      op: "set-visual-render-mode";
+      renderMode: PlanVisualCanvasMode;
+    }
+  | {
       op: "set-prototype";
       prototype: PlanPrototype;
     }
@@ -2666,7 +2675,7 @@ const prototypeScreenPatchSchema = z
  * Raw (uncast) discriminated union behind `planContentPatchSchema`, kept as a
  * named const so `agentPlanContentPatchSchema` below can walk `.options` and
  * swap only the block-carrying ops for the compact `agentPlanBlockSchema`
- * instead of duplicating this whole 20-branch union.
+ * instead of duplicating this whole discriminated union.
  */
 const planContentPatchUnion = z.discriminatedUnion("op", [
   z
@@ -2678,6 +2687,12 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
     .refine((patch) => patch.title !== undefined || patch.brief !== undefined, {
       message: "Metadata patch must include title or brief.",
     }),
+  z.object({
+    op: z.literal("set-visual-render-mode"),
+    renderMode: visualCanvasModeSchema.describe(
+      "`design` persists polished HTML/CSS rendering and disables rough.js for every viewer; `wireframe` restores the viewer-controlled sketchy/clean treatment.",
+    ),
+  }),
   z.object({
     op: z.literal("set-prototype"),
     prototype: prototypeSchema,
@@ -2871,7 +2886,7 @@ const AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION =
 
 /**
  * Compact ADVERTISED-ONLY stand-in for `planContentPatchSchema`, for use as
- * part of `defineAction`'s `agentInputSchema`. Same 20 `op` branches as the
+ * part of `defineAction`'s `agentInputSchema`. Same `op` branches as the
  * real union — only the ops that carry a deep block/wireframe union swap in
  * their compact stand-ins:
  * - `replace-block` / `append-block` / `replace-blocks`: `agentPlanBlockSchema`
@@ -2934,11 +2949,16 @@ export function applyPlanContentPatches(
   patches: PlanContentPatch[],
 ): PlanContent {
   const next = cloneJson(planContentSchema.parse(content));
+  let pendingVisualRenderMode: PlanVisualCanvasMode | undefined;
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
     if (patch.op === "set-metadata") {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.brief !== undefined) next.brief = patch.brief;
+      continue;
+    }
+    if (patch.op === "set-visual-render-mode") {
+      pendingVisualRenderMode = patch.renderMode;
       continue;
     }
     if (patch.op === "set-prototype") {
@@ -3274,12 +3294,100 @@ export function applyPlanContentPatches(
     }
   }
 
+  if (pendingVisualRenderMode) {
+    setVisualRenderMode(next, pendingVisualRenderMode);
+  }
   syncCanvasWireframes(next);
   return planContentSchema.parse(next);
 }
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function setVisualRenderMode(
+  content: PlanContent,
+  renderMode: PlanVisualCanvasMode,
+) {
+  const hasLegacyBlock = (blocks: PlanBlock[]): boolean =>
+    blocks.some((block) => {
+      if (block.type === "legacy-wireframe") return true;
+      if (block.type === "tabs") {
+        return block.data.tabs.some((tab) => hasLegacyBlock(tab.blocks));
+      }
+      if (block.type === "columns") {
+        return block.data.columns.some((column) =>
+          hasLegacyBlock(column.blocks),
+        );
+      }
+      return false;
+    });
+  const hasLegacyFrame = content.canvas?.frames.some(
+    (frame) => frame.legacyWireframe,
+  );
+  if (hasLegacyBlock(content.blocks) || hasLegacyFrame) {
+    throw new Error(
+      "Cannot set visual render mode while the plan contains legacy-wireframe content. Replace legacy-wireframe blocks and canvas legacyWireframe fields with current wireframes in the same update, then set the render mode.",
+    );
+  }
+
+  let changed = false;
+
+  const updateBlock = (block: PlanBlock): PlanBlock => {
+    if (block.type === "wireframe") {
+      changed = true;
+      return { ...block, data: { ...block.data, renderMode } };
+    }
+    if (block.type === "tabs") {
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          tabs: block.data.tabs.map((tab) => ({
+            ...tab,
+            blocks: tab.blocks.map(updateBlock),
+          })),
+        },
+      };
+    }
+    if (block.type === "columns") {
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          columns: block.data.columns.map((column) => ({
+            ...column,
+            blocks: column.blocks.map(updateBlock),
+          })),
+        },
+      };
+    }
+    return block;
+  };
+
+  content.blocks = content.blocks.map(updateBlock);
+
+  if (content.canvas) {
+    content.canvas.mode = renderMode;
+    changed = true;
+    for (const frame of content.canvas.frames) {
+      if (!frame.wireframe) continue;
+      frame.wireframe.renderMode = renderMode;
+    }
+  }
+
+  if (content.prototype) {
+    for (const screen of content.prototype.screens) {
+      screen.renderMode = renderMode;
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    throw new Error(
+      "Cannot set visual render mode because the plan has no wireframes or prototype screens.",
+    );
+  }
 }
 
 function isWireframeBlock(

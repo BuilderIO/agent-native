@@ -298,6 +298,8 @@ const messages = {
       agentMissing:
         "Conecte el agente para ejecutarlo: agregue una clave API o use Builder.",
       assessment: {
+        design:
+          "Se detectó automáticamente una solicitud de alta fidelidad; el agente creará pantallas de marca pulidas.",
         ui: "Estados o flujos de UI detectados automáticamente; el agente hará un plan primero con estructura alámbrica.",
         visual:
           "Auto le pedirá al agente un plan técnico completo con diagramas y detalles de implementación.",
@@ -321,6 +323,10 @@ const messages = {
           description:
             "Flujo de interfaz de usuario: estructuras alámbricas y estados",
           label: "flujo de interfaz de usuario",
+        },
+        design: {
+          description: "Diseño de alta fidelidad: pantallas de marca pulidas",
+          label: "Diseño de alta fidelidad",
         },
         visual: {
           description: "Visual general: diagramas y notas.",
