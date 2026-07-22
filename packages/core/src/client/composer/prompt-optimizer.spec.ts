@@ -59,22 +59,43 @@ describe("optimizePromptSubmission", () => {
     expect(typeof res.promptText).toBe("string");
   });
 
-  it("handles pasted-text attachments gracefully in non-browser environments", async () => {
+  it("never drops or replaces the original pasted-text attachment", async () => {
+    // `create-extension`/`update-extension` resolve pasted-text attachments
+    // verbatim by name via `contentFromAttachment`; the optimizer must not
+    // convert or remove them, only the inline promptText is a candidate.
     const largeText = "Large pasted text spec document content line.\n".repeat(
       450,
     );
+    const attachment = {
+      type: "file",
+      name: "pasted-text-1784738614897-g1f8se.txt",
+      contentType: "text/plain",
+      text: largeText,
+    };
     const res = await optimizePromptSubmission("Use the attached context.", {
-      attachments: [
-        {
-          type: "file",
-          name: "pasted-text-1784738614897-g1f8se.txt",
-          contentType: "text/plain",
-          text: largeText,
-        },
-      ],
+      attachments: [attachment],
     });
 
-    expect(res).toBeDefined();
     expect(res.attachments).toHaveLength(1);
+    expect(res.attachments?.[0]).toMatchObject(attachment);
+  });
+
+  it("falls back to the original prompt when the page count exceeds the frame budget", async () => {
+    // ~200,000 chars -> ~45 pages at CHARS_PER_PAGE=4500, well over
+    // MAX_VISION_FRAMES=20. The optimizer must not attempt to replace the
+    // prompt with a heavier multi-frame representation just because it
+    // would otherwise clear the token-savings threshold.
+    const hugePrompt = "Oversized paste content for budget testing.\n".repeat(
+      5000,
+    );
+    const metrics = evaluatePromptOptimization(hugePrompt);
+    expect(metrics.shouldOptimize).toBe(true);
+    expect(metrics.pageCount).toBeGreaterThan(20);
+
+    const res = await optimizePromptSubmission(hugePrompt);
+
+    expect(res.isOptimized).toBe(false);
+    expect(res.promptText).toBe(hugePrompt);
+    expect(res.attachments).toBeUndefined();
   });
 });

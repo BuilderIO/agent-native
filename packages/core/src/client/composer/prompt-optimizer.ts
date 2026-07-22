@@ -250,112 +250,74 @@ export interface OptimizePromptOptions {
   attachments?: AttachmentItem[];
 }
 
+// Ceiling on generated vision frames for a single prompt, so a pathological
+// paste can't balloon the outbound request past the server's chat body cap
+// (DEFAULT_CHAT_MAX_BODY_BYTES = 25MB in h3-helpers.ts) and leaves headroom
+// for prior history and any user-attached files sharing the same request.
+const MAX_VISION_FRAMES = 20;
+const MAX_VISION_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
 /**
- * Main Web Prompt Optimizer function. Converts oversized prompts and pasted-text
- * attachments into vision image frames. Includes fail-safe fallbacks.
+ * Main Web Prompt Optimizer function. Converts an oversized inline prompt into
+ * vision image frames. Pasted-text attachments (e.g. `pasted-text-*.txt`) are
+ * passed through untouched: actions such as `create-extension` resolve them
+ * verbatim by name via `contentFromAttachment`, and re-sending the original
+ * text alongside a vision copy would only add bytes with no token savings.
+ * Includes fail-safe fallbacks.
  */
 export async function optimizePromptSubmission(
   promptText: string,
   options: OptimizePromptOptions = {},
 ): Promise<OptimizedPromptResult> {
-  let isOptimized = false;
-  let savedTokens = 0;
-  let finalPromptText = promptText;
-  const processedAttachments: AttachmentItem[] = [];
-
-  // 1. Evaluate and optimize main promptText if oversized
   const textMetrics = evaluatePromptOptimization(promptText, options.isCode);
-  if (textMetrics.shouldOptimize) {
+
+  if (
+    textMetrics.shouldOptimize &&
+    textMetrics.pageCount <= MAX_VISION_FRAMES
+  ) {
     try {
       const pageDataUrls = await renderTextToImagePagesWeb(
         promptText,
         options.renderOptions,
       );
+      const frameBytes = pageDataUrls.reduce((sum, url) => sum + url.length, 0);
 
-      const visionAttachments = pageDataUrls.map((url, idx) => ({
-        name: `prompt-vision-frame-${idx + 1}.png`,
-        type: "image",
-        contentType: "image/png",
-        data: url,
-        url,
-      }));
+      if (
+        pageDataUrls.length > 0 &&
+        pageDataUrls.length <= MAX_VISION_FRAMES &&
+        frameBytes <= MAX_VISION_ATTACHMENT_BYTES
+      ) {
+        const visionAttachments: AttachmentItem[] = pageDataUrls.map(
+          (data, idx) => ({
+            name: `prompt-vision-frame-${idx + 1}.png`,
+            type: "image",
+            contentType: "image/png",
+            data,
+          }),
+        );
 
-      processedAttachments.push(...visionAttachments);
-      savedTokens += textMetrics.expectedTokenSavings;
-      isOptimized = true;
-
-      finalPromptText =
-        `[PROMPT OPTIMIZER ACTIVE: Oversized prompt (${textMetrics.estimatedTextTokens} tokens) ` +
-        `condensed to ${pageDataUrls.length} vision frame(s) saving ~${textMetrics.expectedTokenSavings} input tokens]`;
+        return {
+          promptText:
+            `[PROMPT OPTIMIZER ACTIVE: Oversized prompt (${textMetrics.estimatedTextTokens} tokens) ` +
+            `condensed to ${pageDataUrls.length} vision frame(s) saving ~${textMetrics.expectedTokenSavings} input tokens]`,
+          attachments: options.attachments
+            ? [...options.attachments, ...visionAttachments]
+            : visionAttachments,
+          isOptimized: true,
+          savedTokens: textMetrics.expectedTokenSavings,
+        };
+      }
+      // Over budget (too many frames or too many bytes) — fall back to the
+      // original text rather than replacing it with a heavier representation.
     } catch {
       // Fail-safe fallback
     }
   }
 
-  // 2. Evaluate and optimize text attachments (including pasted-text-*.txt)
-  if (options.attachments && options.attachments.length > 0) {
-    for (const attachment of options.attachments) {
-      const rawText =
-        typeof attachment.text === "string" ? attachment.text : "";
-      const isTextFile =
-        rawText.length > 0 ||
-        attachment.contentType === "text/plain" ||
-        (attachment.name && attachment.name.startsWith("pasted-text-"));
-
-      if (isTextFile && rawText) {
-        const attMetrics = evaluatePromptOptimization(rawText, options.isCode);
-        if (attMetrics.shouldOptimize) {
-          try {
-            const pageDataUrls = await renderTextToImagePagesWeb(
-              rawText,
-              options.renderOptions,
-            );
-
-            const baseName = attachment.name
-              ? attachment.name.replace(/\.[^.]+$/, "")
-              : "pasted-text";
-            const visionAttachments = pageDataUrls.map((url, idx) => ({
-              name: `${baseName}-vision-frame-${idx + 1}.png`,
-              type: "image",
-              contentType: "image/png",
-              data: url,
-              url,
-            }));
-
-            processedAttachments.push(...visionAttachments);
-            savedTokens += attMetrics.expectedTokenSavings;
-            isOptimized = true;
-
-            if (!textMetrics.shouldOptimize && finalPromptText === promptText) {
-              finalPromptText =
-                `[PROMPT OPTIMIZER ACTIVE: Attached text (${attMetrics.estimatedTextTokens} tokens) ` +
-                `condensed to ${pageDataUrls.length} vision frame(s) saving ~${attMetrics.expectedTokenSavings} input tokens]`;
-            }
-            continue; // Replaced text file attachment with vision frames
-          } catch {
-            // Fail-safe: keep original text attachment
-          }
-        }
-      }
-
-      processedAttachments.push(attachment);
-    }
-  }
-
-  if (!isOptimized) {
-    return {
-      promptText,
-      attachments: options.attachments,
-      isOptimized: false,
-      savedTokens: 0,
-    };
-  }
-
   return {
-    promptText: finalPromptText,
-    attachments:
-      processedAttachments.length > 0 ? processedAttachments : undefined,
-    isOptimized,
-    savedTokens,
+    promptText,
+    attachments: options.attachments,
+    isOptimized: false,
+    savedTokens: 0,
   };
 }
