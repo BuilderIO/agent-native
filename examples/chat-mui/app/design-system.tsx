@@ -119,6 +119,20 @@ const contentProps = (props: {
   "aria-controls": props["aria-controls"],
 });
 
+function dialogClassSlots(className?: string) {
+  const tokens = className?.split(/\s+/).filter(Boolean) ?? [];
+  const isPositionToken = (token: string) =>
+    /^(?:[^:]+:)*!?-?(?:top|translate-y)-/.test(token);
+  const isZIndexToken = (token: string) => /^(?:[^:]+:)*!?z-/.test(token);
+  return {
+    rootClassName: tokens.filter(isZIndexToken).join(" ") || undefined,
+    paperClassName:
+      tokens
+        .filter((token) => !isPositionToken(token) && !isZIndexToken(token))
+        .join(" ") || undefined,
+  };
+}
+
 const ActionButton: DesignSystemComponents["ActionButton"] = ({
   children,
   intent,
@@ -594,6 +608,7 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
   ...props
 }) => {
   const { className, style, ...accessibleProps } = contentProps(props);
+  const { rootClassName, paperClassName } = dialogClassSlots(className);
   useEffect(() => {
     const timer = setTimeout(() => {
       if (open) initialFocusRef?.current?.focus();
@@ -609,8 +624,11 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
       disableAutoFocus={Boolean(initialFocusRef)}
       disableRestoreFocus={Boolean(restoreFocusRef)}
       slotProps={{
+        root: {
+          className: rootClassName,
+        },
         paper: {
-          className,
+          className: paperClassName,
           style,
         },
         transition: {
