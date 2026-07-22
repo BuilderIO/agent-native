@@ -205,7 +205,10 @@ function isBulletList(el: HTMLElement): boolean {
  * native <ul>/<ol> or a styled bullet-row container — so Enter can add a new
  * item to the whole list instead of being trapped inside one item.
  */
-function findEnclosingList(el: HTMLElement, root: HTMLElement): HTMLElement | null {
+function findEnclosingList(
+  el: HTMLElement,
+  root: HTMLElement,
+): HTMLElement | null {
   let node: HTMLElement | null = el;
   while (node && root.contains(node)) {
     const parent = node.parentElement;
