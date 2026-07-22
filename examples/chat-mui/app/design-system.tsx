@@ -593,6 +593,7 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
   portalContainer,
   ...props
 }) => {
+  const { className, style, ...accessibleProps } = contentProps(props);
   useEffect(() => {
     const timer = setTimeout(() => {
       if (open) initialFocusRef?.current?.focus();
@@ -602,12 +603,16 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
   }, [open, initialFocusRef, restoreFocusRef]);
   return (
     <MuiDialog
-      {...contentProps(props)}
+      {...accessibleProps}
       open={open}
       container={overlayContainer(portalContainer)}
       disableAutoFocus={Boolean(initialFocusRef)}
       disableRestoreFocus={Boolean(restoreFocusRef)}
       slotProps={{
+        paper: {
+          className,
+          style,
+        },
         transition: {
           onEntered: () => initialFocusRef?.current?.focus(),
           onExited: () => restoreFocusRef?.current?.focus(),
@@ -797,6 +802,7 @@ const Tabs: DesignSystemComponents["Tabs"] = ({
           value={item.value}
           label={item.label}
           icon={item.icon as ReactElement | undefined}
+          iconPosition={item.icon ? "start" : undefined}
           disabled={item.disabled}
         />
       ))}

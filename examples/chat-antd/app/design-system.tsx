@@ -711,10 +711,20 @@ const Tabs: DesignSystemComponents["Tabs"] = ({
     }}
     items={items.map((item) => ({
       key: String(item.value),
-      label: item.label,
+      label: (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          {item.icon}
+          <span>{item.label}</span>
+        </span>
+      ),
       children: item.content,
       disabled: item.disabled,
-      icon: item.icon,
     }))}
   />
 );
