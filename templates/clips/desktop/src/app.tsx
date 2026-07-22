@@ -3693,59 +3693,79 @@ export function App() {
           onOpenPermission={openPrivacySettings}
         />
 
-        <section className="rewind-home-card" aria-label="Rewind status">
-          <div className="rewind-home-status">
-            <span
-              className={`rewind-home-dot ${homeRewindPresentation.isLive ? "is-live" : ""}`}
-            />
-            <div>
-              <strong>{homeRewindPresentation.title}</strong>
-              {!homeRewindPresentation.isLive ||
-              homeRewindPresentation.hasError ? (
-                <p>{homeRewindPresentation.detail}</p>
-              ) : null}
+        <section className="rewind-home-card" aria-label="Rewind">
+          <button
+            type="button"
+            className="rewind-home-summary"
+            aria-expanded={rewindHomeOpen}
+            onClick={() => setRewindHomeOpen((open) => !open)}
+          >
+            <span className="rewind-home-title">Rewind</span>
+            <span className="rewind-home-state">
+              {homeRewindOn ? "On" : "Off"}
+              {rewindHomeOpen ? (
+                <IconChevronDown size={13} stroke={2} />
+              ) : (
+                <IconChevronRight size={13} stroke={2} />
+              )}
+            </span>
+          </button>
+          {rewindHomeOpen ? (
+            <div className="rewind-home-details">
+              <p>{homeRewindPresentation.detail}</p>
+              <div className="rewind-home-detail-actions">
+                <div className="rewind-home-controls">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="rewind-agent-prompt-copy"
+                        onClick={() => void copyRewindAgentPrompt()}
+                        aria-label={
+                          rewindAgentPromptCopied
+                            ? "Setup prompt copied — paste it into your agent once"
+                            : "Copy setup prompt for your agent"
+                        }
+                      >
+                        {rewindAgentPromptCopied ? (
+                          <IconCircleCheck size={15} stroke={2} />
+                        ) : (
+                          <IconCopy size={15} stroke={1.9} />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {rewindAgentPromptCopied
+                        ? "Setup prompt copied"
+                        : "Copy setup prompt for your agent"}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Switch
+                    on={homeRewindOn}
+                    disabled={
+                      homeScreenMemoryBusy || isRecording || recordingFlowActive
+                    }
+                    onChange={(remembering) =>
+                      void setHomeRewindRemembering(remembering)
+                    }
+                    label={
+                      featureConfig?.screenMemory?.enabled === true
+                        ? "Remember with Rewind"
+                        : "Set up Rewind"
+                    }
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="rewind-docs-link"
+                  onClick={openRewindDocs}
+                >
+                  Learn about Rewind
+                  <IconExternalLink size={13} stroke={1.9} />
+                </button>
+              </div>
             </div>
-            <div className="rewind-home-controls">
-              <button
-                type="button"
-                className="rewind-agent-prompt-copy"
-                onClick={() => void copyRewindAgentPrompt()}
-                aria-label={
-                  rewindAgentPromptCopied
-                    ? "Setup prompt copied — paste it into your agent once"
-                    : "Set up your agent"
-                }
-                title={
-                  rewindAgentPromptCopied
-                    ? "Setup prompt copied — paste it into your agent once"
-                    : "Set up your agent"
-                }
-              >
-                {rewindAgentPromptCopied ? (
-                  <IconCircleCheck size={15} stroke={2} />
-                ) : (
-                  <IconCopy size={15} stroke={1.9} />
-                )}
-              </button>
-              <Switch
-                on={
-                  featureConfig?.screenMemory?.enabled === true &&
-                  featureConfig.screenMemory.paused !== true
-                }
-                disabled={
-                  homeScreenMemoryBusy || isRecording || recordingFlowActive
-                }
-                onChange={(remembering) =>
-                  void setHomeRewindRemembering(remembering)
-                }
-                label={
-                  featureConfig?.screenMemory?.enabled === true
-                    ? "Remember with Rewind"
-                    : "Set up Rewind"
-                }
-              />
-            </div>
-          </div>
+          ) : null}
         </section>
 
         {!isRecording ? (
