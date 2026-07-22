@@ -85,6 +85,30 @@ describe("tool display labels", () => {
     );
   });
 
+  it("shadows reconnect activity with empty arguments after named agent progress", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        argsText: "",
+        args: {},
+      },
+      {
+        type: "tool-call",
+        toolCallId: "reconnect-activity:call-agent",
+        toolName: "call-agent",
+        argsText: "",
+        args: {},
+      },
+    ];
+
+    expect(isCallAgentToolCallShadowed(parts, 1)).toBe(true);
+    expect(shadowedCallAgentToolCallIds(parts)).toEqual(
+      new Set(["reconnect-activity:call-agent"]),
+    );
+  });
+
   it("keeps unmatched and differently targeted call-agent rows visible", () => {
     const unmatched = [
       {

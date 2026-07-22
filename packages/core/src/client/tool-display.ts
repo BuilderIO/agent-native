@@ -82,18 +82,21 @@ export function isCallAgentToolCallShadowed(
     return false;
   }
 
-  const target = callAgentTarget(part);
-  if (!target) return false;
-
-  return parts.slice(index + 1).some((candidate) => {
+  const agentRows = parts.filter((candidate) => {
     if (
       candidate.type !== "tool-call" ||
       !candidate.toolName?.startsWith("agent:")
     ) {
       return false;
     }
-    return normalizedAgentName(candidate.toolName.slice(6)) === target;
+    return true;
   });
+  const target = callAgentTarget(part);
+  if (!target) return agentRows.length > 0;
+
+  return agentRows.some(
+    (candidate) => normalizedAgentName(candidate.toolName?.slice(6)) === target,
+  );
 }
 
 export function shadowedCallAgentToolCallIds(
