@@ -18,6 +18,7 @@ export interface RecurringJob {
   lastError: string | null;
   nextRun: string | null;
   createdBy: string | null;
+  mcpTools: string[];
   canUpdate: boolean;
 }
 

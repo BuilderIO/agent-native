@@ -1,0 +1,120 @@
+{
+  "$comment": "Ratchet baseline for guard:template-standard. Every entry is a known, pre-existing template-standard gap accepted for now (Phase 1 does not edit templates/*). The guard only fails on NEW drift not listed here. Fix the underlying template and delete the entry instead of leaving it here once addressed. See scripts/template-standard/baseline.ts for the reconciliation rules.",
+  "violations": [
+    {
+      "rule": "byte-sync:learnings-defaults:mismatch",
+      "template": "analytics",
+      "note": "Extended the shared scaffold with real app-specific learnings (metric definitions, schema/provider gotchas). Content divergence is intentional, not a defect — Phase 2/3 should decide whether byte-exact is even the right rule for a file the agent is meant to keep updating."
+    },
+    {
+      "rule": "byte-sync:learnings-defaults:mismatch",
+      "template": "clips",
+      "note": "Extended the shared scaffold (and reworded its header) with real app-specific learnings. Same reasoning as analytics — intentional customization, not a gap to silently overwrite."
+    },
+    {
+      "rule": "byte-sync:learnings-defaults:missing",
+      "template": "content",
+      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:learnings-defaults:missing",
+      "template": "crm",
+      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:learnings-defaults:missing",
+      "template": "forms",
+      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:learnings-defaults:missing",
+      "template": "macros",
+      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "analytics",
+      "note": "Has a working .gitignore but no _gitignore, so scaffolding a new app from this template won't get the canonical ignore rules re-applied. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "assets",
+      "note": "Existing _gitignore has legitimate template-specific additions (.generated/, .agent-native/, data/*.db*) on top of the shared base. Needs a human decision in Phase 2/3: reconcile into the canonical file or keep as an accepted per-template diff."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "brain",
+      "note": "Existing _gitignore predates the canonical shape (different section ordering/entries). Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "calendar",
+      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "chat",
+      "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "content",
+      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "crm",
+      "note": "Existing _gitignore predates the canonical shape (different section ordering/entries). Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "design",
+      "note": "Existing _gitignore adds Playwright E2E artifact paths on top of the shared base — legitimate template-specific addition. Needs a human decision in Phase 2/3 on reconciling vs. keeping as an accepted diff."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "dispatch",
+      "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "forms",
+      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "macros",
+      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "mail",
+      "note": "Has a working .gitignore but no _gitignore — this is the template the canonical learnings.defaults.md scaffold is sourced from, but it never got a _gitignore of its own. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:mismatch",
+      "template": "plan",
+      "note": "Existing _gitignore adds .generated/ and data/*.db* on top of the shared base. Needs reconciliation in Phase 2/3."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "slides",
+      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "byte-sync:gitignore-source:missing",
+      "template": "tasks",
+      "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
+    },
+    {
+      "rule": "claude-md-symlink",
+      "template": "crm",
+      "note": "CLAUDE.md -> AGENTS.md symlink is missing entirely; all other 15 templates have it. Add in Phase 2 (`ln -s AGENTS.md templates/crm/CLAUDE.md`)."
+    },
+    {
+      "rule": "agents-md-placeholder",
+      "template": "chat",
+      "note": "AGENTS.md still starts with the unrendered `{{APP_NAME}}` scaffold placeholder from template generation; needs the real title substituted in Phase 2."
+    }
+  ]
+}

@@ -231,6 +231,18 @@ export const TEMPLATES: TemplateMeta[] = [
     core: false,
   },
   {
+    name: "crm",
+    label: "CRM",
+    hint: "Agent-native CRM companion with scoped HubSpot intelligence, workflows, and write proposals",
+    icon: "Users",
+    color: "#2563EB",
+    colorRgb: "37 99 235",
+    devPort: 8107,
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
+  },
+  {
     name: "macros",
     label: "Macros",
     hint: "Internal template — not shown in pickers",

@@ -18,6 +18,7 @@ import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
+  normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
 
@@ -106,6 +107,13 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     });
   }
 
+  let mcpTools: string[] | undefined;
+  try {
+    mcpTools = normalizeJobMcpTools(args.mcpTools);
+  } catch (err) {
+    return JSON.stringify({ error: (err as Error).message });
+  }
+
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
@@ -135,6 +143,7 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     ...(typeof model === "string" && model.trim()
       ? { model: model.trim() }
       : {}),
+    ...(mcpTools?.length ? { mcpTools } : {}),
   };
 
   const content = buildJobContent(meta, instructions);
@@ -148,6 +157,7 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     scheduleDescription: describeCron(schedule),
     nextRun: next.toISOString(),
     scope: scope || "shared",
+    ...(mcpTools?.length ? { mcpTools } : {}),
   });
 }
 
@@ -184,6 +194,7 @@ async function runList(args: Record<string, any>): Promise<string> {
         deliveryPlatform: meta.deliveryPlatform || null,
         deliveryDestination: meta.deliveryDestination || null,
         model: meta.model || null,
+        mcpTools: meta.mcpTools || [],
       };
     }),
   );
@@ -243,6 +254,16 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   }
   if (typeof model === "string" && model.trim()) meta.model = model.trim();
 
+  if (args.mcpTools !== undefined) {
+    try {
+      const mcpTools = normalizeJobMcpTools(args.mcpTools) ?? [];
+      if (mcpTools.length) meta.mcpTools = mcpTools;
+      else delete meta.mcpTools;
+    } catch (err) {
+      return JSON.stringify({ error: (err as Error).message });
+    }
+  }
+
   const newBody = instructions || body;
   const content = buildJobContent(meta, newBody);
   await resourcePut(resource.owner, resource.path, content);
@@ -254,6 +275,7 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
     scheduleDescription: describeCron(meta.schedule),
     enabled: meta.enabled,
     nextRun: meta.nextRun,
+    mcpTools: meta.mcpTools || [],
   });
 }
 
@@ -295,7 +317,9 @@ Actions:
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.
 
-Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '0 * * * *' (every hour), '0 9 * * 1' (Mondays 9am), '*/30 * * * *' (every 30 min).`,
+Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '0 * * * *' (every hour), '0 9 * * 1' (Mondays 9am), '*/30 * * * *' (every 30 min).
+
+For jobs that use a connected MCP, pass the exact tool names in mcpTools. This binds only those tools to the background run; OAuth credentials remain in the connector and are resolved for the job's user/org context.`,
         parameters: {
           type: "object",
           properties: {
@@ -341,6 +365,12 @@ Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patt
               type: "string",
               description:
                 "Optional model id for this routine. The channel/app/engine default is used when omitted.",
+            },
+            mcpTools: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                'Optional explicit MCP capabilities for this job. Use the connected tool names exactly as advertised, for example ["mcp__meeting-notes__list_meetings", "mcp__meeting-notes__get_transcript"]. The job runs only with these tools; credentials remain in the connector.',
             },
           },
           required: ["action"],

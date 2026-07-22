@@ -4,6 +4,7 @@ import {
   isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
+  resolveNetlifyTemplateName,
 } from "./sync-template-netlify-env";
 
 describe("isAllowedHostedTemplateEnvKey", () => {
@@ -53,5 +54,29 @@ describe("normalizeProductionUrlEntry", () => {
         value,
       ),
     ).toEqual({ value, normalized: false });
+  });
+
+  it("uses the current starter deployment origin for the chat source template", () => {
+    expect(
+      normalizeProductionUrlEntry(
+        "starter",
+        "production",
+        "APP_URL",
+        "https://chat.agent-native.com",
+      ),
+    ).toEqual({
+      value: "https://starter.agent-native.com",
+      normalized: true,
+    });
+  });
+});
+
+describe("resolveNetlifyTemplateName", () => {
+  it("maps the legacy chat template name to the current starter site", () => {
+    expect(resolveNetlifyTemplateName("chat")).toBe("starter");
+  });
+
+  it("preserves current Netlify site names", () => {
+    expect(resolveNetlifyTemplateName("clips")).toBe("clips");
   });
 });
