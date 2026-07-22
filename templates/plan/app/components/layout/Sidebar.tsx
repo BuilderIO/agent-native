@@ -17,7 +17,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
@@ -168,7 +168,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, 8),
+        .slice(0, 15),
     [threads],
   );
   const chatItems = useMemo<ChatHistoryItem[]>(
@@ -245,50 +245,34 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
 
   return (
     <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("sidebar.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("sidebar.newPlanChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("sidebar.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={activeThreadId}
-          onSelect={(threadId) => openThread(threadId)}
-          renameMaxLength={160}
-          onTogglePin={(threadId) => {
-            const thread = visibleThreads.find((item) => item.id === threadId);
-            if (thread) void pinThread(threadId, !thread.pinnedAt);
-          }}
-          onRename={handleRenameThread}
-          onDelete={(threadId) => void handleArchiveThread(threadId)}
-          labels={{
-            options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
-            renameInput: (item) =>
-              `${t("sidebar.renameChat")}: ${item.titleText ?? ""}`,
-            rename: t("sidebar.renameChat"),
-            pin: t("sidebar.pinChat"),
-            unpin: t("sidebar.unpinChat"),
-            delete: t("sidebar.archiveChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={activeThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("sidebar.newChat"),
+          showMore: t("sidebar.chats"),
+          showLess: t("sidebar.chats"),
+        }}
+        renameMaxLength={160}
+        onTogglePin={(threadId) => {
+          const thread = visibleThreads.find((item) => item.id === threadId);
+          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        }}
+        onRename={handleRenameThread}
+        onDelete={(threadId) => void handleArchiveThread(threadId)}
+        labels={{
+          options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
+          renameInput: (item) =>
+            `${t("sidebar.renameChat")}: ${item.titleText ?? ""}`,
+          rename: t("sidebar.renameChat"),
+          pin: t("sidebar.pinChat"),
+          unpin: t("sidebar.unpinChat"),
+          delete: t("sidebar.archiveChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -671,7 +655,7 @@ export function Sidebar({
         })}
       </nav>
 
-      {!collapsed && session && (
+      {!collapsed && session ? (
         <>
           <div className="px-2 py-2">
             <ExtensionsSidebarSection />
@@ -679,30 +663,33 @@ export function Sidebar({
 
           <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
-            <FeedbackButton />
+            <div className="flex items-center justify-end gap-1">
+              <FeedbackButton className="min-w-0 flex-1" side="right" />
+              {collapseButton}
+            </div>
             <OrgSwitcher />
           </div>
         </>
-      )}
+      ) : null}
 
-      {!collapsed && !sessionLoading && !session && (
+      {!collapsed && !sessionLoading && !session ? (
         <div className="space-y-2 px-3 py-2">
           <DevDatabaseLink />
-          <FeedbackButton />
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 px-3 text-xs"
-              onClick={() => signInWithReturnPath(returnPath)}
-            >
-              {t("sidebar.signIn")}
-            </Button>
+          <div className="flex items-center justify-end gap-1">
+            <FeedbackButton className="min-w-0 flex-1" side="right" />
             {collapseButton}
           </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 px-3 text-xs"
+            onClick={() => signInWithReturnPath(returnPath)}
+          >
+            {t("sidebar.signIn")}
+          </Button>
         </div>
-      )}
+      ) : null}
 
       {collapsed && collapsible ? (
         <div
@@ -715,8 +702,11 @@ export function Sidebar({
         </div>
       ) : null}
 
-      {!collapsed && (session || sessionLoading) && collapsible ? (
-        <div className="flex justify-end px-2 py-2">{collapseButton}</div>
+      {!collapsed && sessionLoading && collapsible ? (
+        <div className="flex items-center justify-end gap-1 px-3 py-2">
+          <FeedbackButton className="min-w-0 flex-1" side="right" />
+          {collapseButton}
+        </div>
       ) : null}
     </aside>
   );

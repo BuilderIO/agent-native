@@ -5,12 +5,6 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
 
 # 에이전트 리소스
 
-<Callout tone="info">
-
-**어떤 작업공간 문서입니까?** 이 페이지에서는 **에이전트 리소스**, 즉 에이전트 사용자 정의 레이어를 다룹니다. 배포 형태(하나의 단일 저장소, 많은 앱)는 [Multi-App Workspaces](/docs/multi-app-workspace)를 참조하세요. 거버넌스(누가 무엇을 검토하고, 승인하고, 소유하는지)에 대해서는 [Workspace Governance](/docs/workspace-management)를 참조하세요.
-
-</Callout>
-
 모든 에이전트 기반 앱에는 **에이전트 리소스**, 즉 에이전트를 나만의 것으로 만드는 사용자 정의 레이어가 함께 제공됩니다. 여기에는 팀 지침(`AGENTS.md`), 공유 학습(`LEARNINGS.md`), 개인 구조적 메모리(`memory/MEMORY.md`), 에이전트가 요청 시 가져오는 skills, 사용자 정의 하위 에이전트, 예약된 작업 및 연결된 MCP 서버 등 Claude 코드/Codex 설정에서 기대할 수 있는 모든 것이 포함되어 있습니다.
 
 비틀림: **파일 시스템 파일이 아니라 SQL 행입니다.** 각 사용자는 데이터베이스에 저장된 자신만의 에이전트 리소스를 얻습니다. 가동할 개발 상자도 없고, 사용자당 컨테이너도 없고, 마운트할 파일도 없습니다. 멀티 테넌트 SaaS는 개인 메모리, 개인 MCP 서버, 개인 skills, 개인 하위 에이전트 등 모든 행이 행으로 구성되어 있고 공유 코드베이스가 이 모든 것을 한 번에 호스팅하기 때문에 모든 사용자에게 본질적으로 무료로 완전히 사용자 정의 가능한 에이전트를 제공할 수 있습니다.
@@ -233,7 +227,7 @@ workspace context/brand.md
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## 리소스 탭 {#workspace-panel}
+## 리소스 탭 {#resources-tab}
 
 상담사 패널에는 Chat 및 CLI와 함께 **리소스** 탭이 포함되어 있습니다. 여기에는 모든 리소스의 폴더 구성 트리, 텍스트 파일용 인라인 편집기(Markdown, JSON, YAML, 일반 텍스트) 및 `+` 메뉴의 입력된 생성 흐름(파일, Skills, 에이전트, 예약된 작업)이 표시됩니다. 사용자는 상속된 작업 공간 기본값을 찾아보고 개인 또는 조직 리소스를 생성/편집/삭제할 수 있습니다.
 

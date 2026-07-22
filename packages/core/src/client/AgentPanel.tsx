@@ -66,7 +66,7 @@ import {
   normalizeTooltipText,
 } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
-import { FeedbackButton } from "./FeedbackButton.js";
+import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
 import { ShareButton } from "./sharing/ShareButton.js";
 // Lazy-load the full assistant-ui chat stack (tiptap composer + react-markdown +
@@ -773,6 +773,7 @@ function AgentPanelInner({
   ...assistantChatProps
 }: AgentPanelProps) {
   const t = useT();
+  const feedbackEnabled = resolveFeedbackUrl() !== null;
   const navigate = useNavigate();
   const mounted = useClientOnly();
   const keyPrefix = storageKey ? `:${storageKey}` : "";
@@ -1218,23 +1219,25 @@ function AgentPanelInner({
               />
             );
           })()}
-        <FeedbackButton
-          variant="icon"
-          side="bottom"
-          align="end"
-          chatSessionId={activeChatSessionId}
-          chatStorageKey={storageKey}
-          open={feedbackOpen}
-          onOpenChange={setFeedbackOpen}
-          trigger={
-            <button
-              type="button"
-              tabIndex={-1}
-              aria-hidden="true"
-              className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
-            />
-          }
-        />
+        {feedbackEnabled ? (
+          <FeedbackButton
+            variant="icon"
+            side="bottom"
+            align="end"
+            chatSessionId={activeChatSessionId}
+            chatStorageKey={storageKey}
+            open={feedbackOpen}
+            onOpenChange={setFeedbackOpen}
+            trigger={
+              <button
+                type="button"
+                tabIndex={-1}
+                aria-hidden="true"
+                className="pointer-events-none absolute end-0 top-full h-px w-px opacity-0"
+              />
+            }
+          />
+        ) : null}
         {mode === "chat" && (
           <IconTooltip content={t("agentPanel.newChat")}>
             <button
@@ -1355,17 +1358,19 @@ function AgentPanelInner({
                 {t("agentPanel.settings")}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem
-              onSelect={() => {
-                // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
-                // teardown, otherwise it can immediately dismiss the Popover we're
-                // opening in the same tick (Radix nested-overlay race).
-                setTimeout(() => setFeedbackOpen(true), 0);
-              }}
-            >
-              <IconMessageDots size={14} className="shrink-0" />
-              {t("agentPanel.feedback")}
-            </DropdownMenuItem>
+            {feedbackEnabled ? (
+              <DropdownMenuItem
+                onSelect={() => {
+                  // Defer past the closing DropdownMenu's focus-restore/dismiss-layer
+                  // teardown, otherwise it can immediately dismiss the Popover we're
+                  // opening in the same tick (Radix nested-overlay race).
+                  setTimeout(() => setFeedbackOpen(true), 0);
+                }}
+              >
+                <IconMessageDots size={14} className="shrink-0" />
+                {t("agentPanel.feedback")}
+              </DropdownMenuItem>
+            ) : null}
             {onToggleFullscreen && (
               <DropdownMenuItem onSelect={onToggleFullscreen}>
                 {isFullscreen ? (
@@ -1464,6 +1469,7 @@ function AgentPanelInner({
       closeOtherCliTabs,
       closeTabHint,
       feedbackOpen,
+      feedbackEnabled,
       getChatThreadShareUrl,
       headerMenuOpen,
       isFullscreen,

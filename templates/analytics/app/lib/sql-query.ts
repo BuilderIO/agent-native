@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
@@ -10,8 +11,6 @@ export interface SqlQueryResult {
   error?: string;
   schema?: { name: string; type: string }[];
 }
-
-const MAX_CONCURRENT_SQL_QUERIES = 4;
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;

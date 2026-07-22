@@ -18,6 +18,7 @@ import { and, asc, eq, gt, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { writeBrainExportState } from "../server/lib/brain-export-state.js";
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
@@ -232,6 +233,11 @@ async function buildPayload(
       .orderBy(asc(schema.recordingTags.tag)),
   ]);
 
+  const summary = meeting?.summaryMd?.trim();
+  const captureText = summary
+    ? `Summary\n${summary}\n\nTranscript\n${transcriptText}`
+    : transcriptText;
+
   return {
     sourceKey: "clips",
     externalId: `clips:recording:${recording.id}`,
@@ -246,7 +252,7 @@ async function buildPayload(
       meeting?.scheduledStart ||
       recording.createdAt ||
       new Date().toISOString(),
-    transcript: transcriptText,
+    transcript: captureText,
     segments,
     sourceUrl: resolveSourceUrl(recording.id),
     tags: tags.map((row) => row.tag).filter(Boolean),
@@ -346,14 +352,17 @@ async function exportRecording(
   recording: Recording,
   transcript: RecordingTranscript,
   destination: BrainDestination,
+  attempt = 1,
 ): Promise<BrainExportResult> {
   const payload = await buildPayload(recording, transcript);
   if (!payload) {
-    return {
+    const result: BrainExportResult = {
       recordingId: recording.id,
       status: "skipped",
       reason: "empty-transcript",
     };
+    await persistBrainExportResult(result, attempt);
+    return result;
   }
 
   try {
@@ -370,7 +379,9 @@ async function exportRecording(
       },
       { maxRedirects: 0 },
     );
-    return interpretBrainResponse(recording.id, response);
+    const result = await interpretBrainResponse(recording.id, response);
+    await persistBrainExportResult(result, attempt);
+    return result;
   } catch (err) {
     const reason =
       (err as Error)?.name === "TimeoutError" ||
@@ -382,8 +393,63 @@ async function exportRecording(
       reason,
       error: (err as Error)?.message ?? String(err),
     });
-    return { recordingId: recording.id, status: "failed", reason };
+    const result: BrainExportResult = {
+      recordingId: recording.id,
+      status: "failed",
+      reason,
+    };
+    await persistBrainExportResult(result, attempt);
+    return result;
   }
+}
+
+async function persistBrainExportResult(
+  result: BrainExportResult,
+  attempts: number,
+): Promise<void> {
+  const updatedAt = new Date().toISOString();
+  await writeBrainExportState({
+    recordingId: result.recordingId,
+    status: result.status,
+    attempts,
+    updatedAt,
+    ...(result.status === "exported" ? { captureId: result.captureId } : {}),
+    ...(result.status === "quarantined"
+      ? {
+          sensitivityReceiptId: result.sensitivityReceiptId,
+          sensitivityDisposition: result.sensitivityDisposition,
+        }
+      : {}),
+    ...(result.status === "failed"
+      ? {
+          reason: result.reason,
+          nextAttemptAt: new Date(
+            Date.now() +
+              Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1)),
+          ).toISOString(),
+        }
+      : result.status === "skipped"
+        ? { reason: result.reason }
+        : {}),
+  });
+}
+
+async function persistRetryableBrainExportFailure(
+  recordingId: string,
+  reason: string,
+  attempts: number,
+): Promise<void> {
+  await writeBrainExportState({
+    recordingId,
+    status: "failed",
+    attempts,
+    reason,
+    updatedAt: new Date().toISOString(),
+    nextAttemptAt: new Date(
+      Date.now() +
+        Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1)),
+    ).toISOString(),
+  });
 }
 
 async function mapWithConcurrency<T, R>(
@@ -535,6 +601,7 @@ export default defineAction({
       .min(1)
       .max(8)
       .default(DEFAULT_CONCURRENCY),
+    retryAttempt: z.coerce.number().int().min(1).max(8).optional(),
     cursor: z
       .string()
       .min(1)
@@ -552,11 +619,17 @@ export default defineAction({
       );
       const destinationResult = await resolveBrainDestination();
       if (!destinationResult.destination) {
-        return {
+        const result: BrainExportResult = {
           recordingId: args.recordingId,
           status: "skipped" as const,
           reason: destinationResult.reason,
         };
+        await persistRetryableBrainExportFailure(
+          result.recordingId,
+          result.reason,
+          args.retryAttempt ?? 0,
+        );
+        return result;
       }
       const [transcript] = await getDb()
         .select()
@@ -564,16 +637,19 @@ export default defineAction({
         .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
         .limit(1);
       if (!transcript) {
-        return {
+        const result: BrainExportResult = {
           recordingId: args.recordingId,
           status: "skipped" as const,
           reason: "empty-transcript",
         };
+        await persistBrainExportResult(result, args.retryAttempt ?? 0);
+        return result;
       }
       return exportRecording(
         access.resource as Recording,
         transcript,
         destinationResult.destination,
+        args.retryAttempt ?? 1,
       );
     }
 

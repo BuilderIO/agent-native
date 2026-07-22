@@ -5,12 +5,6 @@ description: "Claude-Anpassung auf Codeebene pro Benutzer – skills, Speicher, 
 
 # Agent-Ressourcen
 
-<Callout tone="info">
-
-**Welches Arbeitsbereichsdokument?** Diese Seite behandelt **Agent-Ressourcen** – die Anpassungsebene des Agenten. Informationen zur Bereitstellungsform (ein Monorepo, viele Apps) finden Sie unter [Multi-App Workspaces](/docs/multi-app-workspace); Informationen zur Governance (wer überprüft, genehmigt und besitzt was) finden Sie unter [Workspace Governance](/docs/workspace-management).
-
-</Callout>
-
 Jede agentennative App wird mit **Agent-Ressourcen** ausgeliefert: der Anpassungsebene, die den Agenten zu Ihrem macht. Es enthält Teamanweisungen (`AGENTS.md`), gemeinsame Erkenntnisse (`LEARNINGS.md`), persönliches strukturiertes Gedächtnis (`memory/MEMORY.md`), skills, das der Agent bei Bedarf einholt, benutzerdefinierte Subagenten, geplante Jobs und verbundene MCP-Server – alles, was Sie von einem Claude-Code-/Codex-Setup erwarten.
 
 Der Clou: **Es sind SQL-Zeilen, keine Dateisystemdateien.** Jeder Benutzer erhält seine eigenen Agent-Ressourcen, die in der Datenbank gespeichert werden. Es muss keine Entwicklungsbox gestartet werden, kein Container pro Benutzer, keine Dateien müssen gemountet werden. Ein mandantenfähiges SaaS kann jedem Benutzer praktisch kostenlos einen vollständig anpassbaren Agenten zur Verfügung stellen, da alles aus Zeilen besteht – persönlicher Speicher, persönliche MCP-Server, persönliche skills, persönliche Subagenten – und die gemeinsame Codebasis sie alle gleichzeitig hostet.
@@ -233,7 +227,7 @@ Zum Beispiel:
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Registerkarte Ressourcen {#workspace-panel}
+## Registerkarte Ressourcen {#resources-tab}
 
 Das Agentenfenster enthält neben Chat und CLI auch die Registerkarte **Ressourcen**. Es zeigt eine in Ordnern organisierte Baumstruktur aller Ressourcen, einen Inline-Editor für jede Textdatei (Markdown, JSON, YAML, einfacher Text) und die typisierten Erstellungsabläufe des `+`-Menüs (Dateien, Skills, Agenten, geplante Aufgaben). Benutzer können übernommene Standardeinstellungen für Arbeitsbereiche durchsuchen und persönliche oder Organisationsressourcen erstellen/bearbeiten/löschen.
 

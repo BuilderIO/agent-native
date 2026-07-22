@@ -123,6 +123,7 @@ function createPage(
     cookieError?: Error;
     captureBox?: { width: number; height: number };
     renderedPanelIds?: string[];
+    loadingPanels?: Array<{ id: string; title: string }>;
     unresponsive?: boolean;
     blockReadyWait?: boolean;
   } = {},
@@ -178,6 +179,7 @@ function createPage(
           return {
             ready: "true",
             loadingCount: 1,
+            loadingPanels: options.loadingPanels ?? [],
             text: "Dashboard still loading",
             url:
               options.pageUrl ??
@@ -251,27 +253,13 @@ describe("dashboard report email", () => {
   it("captures every chunk in one browser, closes each page, and attaches CID images in order", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(39));
     const ids = Array.from({ length: 39 }, (_, index) => `panel-${index}`);
-    const first = createPage({
-      screenshot: Buffer.from("first"),
-      renderedPanelIds: ids.slice(0, 8),
-    });
-    const second = createPage({
-      screenshot: Buffer.from("second"),
-      renderedPanelIds: ids.slice(8, 16),
-    });
-    const third = createPage({
-      screenshot: Buffer.from("third"),
-      renderedPanelIds: ids.slice(16, 24),
-    });
-    const fourth = createPage({
-      screenshot: Buffer.from("fourth"),
-      renderedPanelIds: ids.slice(24, 32),
-    });
-    const fifth = createPage({
-      screenshot: Buffer.from("fifth"),
-      renderedPanelIds: ids.slice(32),
-    });
-    const { browser } = createBrowser([first, second, third, fourth, fifth]);
+    const pages = Array.from({ length: 10 }, (_, index) =>
+      createPage({
+        screenshot: Buffer.from(`image-${index + 1}`),
+        renderedPanelIds: ids.slice(index * 4, (index + 1) * 4),
+      }),
+    );
+    const { browser } = createBrowser([...pages]);
     mocks.launch.mockResolvedValue(browser);
 
     const result = await sendDashboardReportSubscription(subscription());
@@ -281,50 +269,40 @@ describe("dashboard report email", () => {
       screenshotMode: "full",
     });
     expect(mocks.launch).toHaveBeenCalledOnce();
-    expect(browser.newPage).toHaveBeenCalledTimes(5);
-    for (const page of [first, second, third, fourth, fifth])
-      expect(page.page.close).toHaveBeenCalledOnce();
-    const urls = [first, second, third, fourth, fifth].map(
-      (entry) => entry.page.goto.mock.calls[0]?.[0],
-    );
+    expect(browser.newPage).toHaveBeenCalledTimes(10);
+    for (const page of pages) expect(page.page.close).toHaveBeenCalledOnce();
+    const urls = pages.map((entry) => entry.page.goto.mock.calls[0]?.[0]);
     expect(urls).toEqual([
       expect.stringContaining("reportPanelOffset=0"),
+      expect.stringContaining("reportPanelOffset=4"),
       expect.stringContaining("reportPanelOffset=8"),
+      expect.stringContaining("reportPanelOffset=12"),
       expect.stringContaining("reportPanelOffset=16"),
+      expect.stringContaining("reportPanelOffset=20"),
       expect.stringContaining("reportPanelOffset=24"),
+      expect.stringContaining("reportPanelOffset=28"),
       expect.stringContaining("reportPanelOffset=32"),
+      expect.stringContaining("reportPanelOffset=36"),
     ]);
     expect(
-      urls.every((url) => (url ?? "").includes("reportPanelLimit=8")),
+      urls.every((url) => (url ?? "").includes("reportPanelLimit=4")),
     ).toBe(true);
     const email = mocks.sendEmail.mock.calls[0]?.[0];
     expect(
       email.attachments.map(
         (attachment: { content: Buffer }) => attachment.content,
       ),
-    ).toEqual([
-      Buffer.from("first"),
-      Buffer.from("second"),
-      Buffer.from("third"),
-      Buffer.from("fourth"),
-      Buffer.from("fifth"),
-    ]);
+    ).toEqual(pages.map((_page, index) => Buffer.from(`image-${index + 1}`)));
     expect(
       email.attachments.map(
         (attachment: { contentId: string }) => attachment.contentId,
       ),
-    ).toEqual([
-      "dashboard-report-snapshot-1",
-      "dashboard-report-snapshot-2",
-      "dashboard-report-snapshot-3",
-      "dashboard-report-snapshot-4",
-      "dashboard-report-snapshot-5",
-    ]);
-    expect(email.html).toContain("cid:dashboard-report-snapshot-1");
-    expect(email.html).toContain("cid:dashboard-report-snapshot-2");
-    expect(email.html).toContain("cid:dashboard-report-snapshot-3");
-    expect(email.html).toContain("cid:dashboard-report-snapshot-4");
-    expect(email.html).toContain("cid:dashboard-report-snapshot-5");
+    ).toEqual(
+      pages.map((_page, index) => `dashboard-report-snapshot-${index + 1}`),
+    );
+    for (let index = 1; index <= 10; index++) {
+      expect(email.html).toContain(`cid:dashboard-report-snapshot-${index}`);
+    }
   });
 
   it("keeps a single chunk dashboard as one inline image", async () => {
@@ -339,6 +317,37 @@ describe("dashboard report email", () => {
     expect(email.attachments).toHaveLength(1);
     expect(email.attachments[0].contentId).toBe("dashboard-report-snapshot-1");
     expect(email.html).not.toContain("limited fallback");
+  });
+
+  it("gives eight panels two independent four-query serverless readiness windows", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
+    mocks.existsSync.mockReturnValue(false);
+    mocks.getReportDashboard.mockResolvedValue(dashboard(8));
+    const first = createPage({
+      renderedPanelIds: ["panel-0", "panel-1", "panel-2", "panel-3"],
+    });
+    const second = createPage({
+      renderedPanelIds: ["panel-4", "panel-5", "panel-6", "panel-7"],
+    });
+    const { browser } = createBrowser([first, second]);
+    mocks.launchPersistentContext.mockResolvedValue(browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(browser.newPage).toHaveBeenCalledTimes(2);
+    for (const page of [first, second]) {
+      expect(page.page.waitForFunction).toHaveBeenNthCalledWith(
+        1,
+        expect.any(String),
+        undefined,
+        { timeout: 35_000 },
+      );
+      expect(page.page.goto).toHaveBeenCalledWith(
+        expect.stringContaining("reportPanelLimit=4"),
+        expect.any(Object),
+      );
+    }
   });
 
   it("delivers once to a repeated recipient and reports the normalized count", async () => {
@@ -360,16 +369,16 @@ describe("dashboard report email", () => {
   });
 
   it("fails the entire screenshot when any chunk fails and never sends partial images", async () => {
-    mocks.getReportDashboard.mockResolvedValue(dashboard(9));
+    mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
-        { length: 8 },
+        { length: 4 },
         (_, index) => `panel-${index}`,
       ),
     });
     const failed = createPage({
       waitForFails: true,
-      renderedPanelIds: ["panel-8"],
+      renderedPanelIds: ["panel-4", "panel-5", "panel-6", "panel-7"],
     });
     const { browser } = createBrowser([first, failed]);
     mocks.launch.mockResolvedValue(browser);
@@ -412,7 +421,7 @@ describe("dashboard report email", () => {
   );
 
   it("fails before browser launch when a complete dashboard needs more than ten chunks", async () => {
-    mocks.getReportDashboard.mockResolvedValue(dashboard(81));
+    mocks.getReportDashboard.mockResolvedValue(dashboard(41));
 
     const result = await sendDashboardReportSubscription(subscription(), {
       skipEmailWithoutScreenshot: true,
@@ -452,10 +461,10 @@ describe("dashboard report email", () => {
   });
 
   it("rejects a chunk whose rendered panel ids no longer match the initial dashboard snapshot", async () => {
-    mocks.getReportDashboard.mockResolvedValue(dashboard(9));
+    mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
-        { length: 8 },
+        { length: 4 },
         (_, index) => `panel-${index}`,
       ),
     });
@@ -471,7 +480,7 @@ describe("dashboard report email", () => {
       screenshotAttached: false,
       emailsSent: false,
       screenshotError: expect.stringContaining(
-        'report chunk panel mismatch; expected=["panel-8"] actual=[]',
+        'report chunk panel mismatch; expected=["panel-4","panel-5","panel-6","panel-7"] actual=[]',
       ),
     });
     expect(mocks.sendEmail).not.toHaveBeenCalled();
@@ -497,14 +506,16 @@ describe("dashboard report email", () => {
   });
 
   it("pre-seeds each chunk's signed embed token before navigation", async () => {
-    mocks.getReportDashboard.mockResolvedValue(dashboard(9));
+    mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
-        { length: 8 },
+        { length: 4 },
         (_, index) => `panel-${index}`,
       ),
     });
-    const second = createPage({ renderedPanelIds: ["panel-8"] });
+    const second = createPage({
+      renderedPanelIds: ["panel-4", "panel-5", "panel-6", "panel-7"],
+    });
     const { browser } = createBrowser([first, second]);
     mocks.launch.mockResolvedValue(browser);
 
@@ -642,6 +653,29 @@ describe("dashboard report email", () => {
     expect(page.locator.screenshot).not.toHaveBeenCalled();
   });
 
+  it("identifies the exact report panels still loading when a chunk times out", async () => {
+    const page = createPage({
+      readyWaitFails: true,
+      loadingPanels: [
+        { id: "retention-by-cohort", title: "Retention by cohort" },
+        { id: "top-countries", title: "Top countries" },
+      ],
+    });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result.screenshotError).toContain('"id":"retention-by-cohort"');
+    expect(result.screenshotError).toContain('"title":"Retention by cohort"');
+    expect(result.screenshotError).toContain('"id":"top-countries"');
+    expect(page.page.evaluate).toHaveBeenCalledWith(
+      expect.stringContaining("data-dashboard-report-panel-title"),
+    );
+  });
+
   it("bounds serverless cleanup after a completed capture", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
@@ -753,17 +787,17 @@ describe("dashboard report email", () => {
       vi.stubEnv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE", "1024");
       vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
       mocks.existsSync.mockReturnValue(false);
-      mocks.getReportDashboard.mockResolvedValue(dashboard(9));
+      mocks.getReportDashboard.mockResolvedValue(dashboard(8));
       const first = createPage({
         screenshot: Buffer.from("first"),
         renderedPanelIds: Array.from(
-          { length: 8 },
+          { length: 4 },
           (_, index) => `panel-${index}`,
         ),
       });
       const second = createPage({
         blockReadyWait: true,
-        renderedPanelIds: ["panel-8"],
+        renderedPanelIds: ["panel-4", "panel-5", "panel-6", "panel-7"],
       });
       const { browser } = createBrowser([first, second]);
       browser.close.mockImplementation(async () => {

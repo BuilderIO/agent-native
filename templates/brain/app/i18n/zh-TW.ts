@@ -366,6 +366,18 @@ const messages = {
     ignore: "忽略",
     noCapturesTitle: "沒有與此檢視匹配的捕獲",
     noCapturesDetail: "嘗試其他狀態、執行來源同步或匯入轉錄本。",
+    rotateIngestToken: "輪換擷取權杖",
+    connectIngestSource: "連線 {{source}}",
+    ingestHandoffDescription:
+      "請立即將這些值儲存到傳送應用程式中。擷取權杖只會顯示一次，關閉此對話框後便無法復原。",
+    endpoint: "端點",
+    sourceKey: "來源金鑰",
+    ingestToken: "擷取權杖",
+    copied: "已複製",
+    copy: "複製",
+    ingestTokenSecurity:
+      "為了安全起見，Brain 只會儲存此權杖的雜湊。當接收應用程式需要新的憑證時，請輪換權杖。",
+    ingestHandoffSaved: "我已儲存這些值",
     tuneSource: "調音來源",
     setupDescription:
       "設定 Brain 可以擷取的內容。憑證會留在工作區憑證儲存區；此表單只會儲存允許清單、游標與審閱規則。",

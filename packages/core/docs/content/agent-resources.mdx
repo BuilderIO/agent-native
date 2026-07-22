@@ -5,12 +5,6 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 # Agent Resources
 
-<Callout tone="info">
-
-**Which workspace doc?** This page covers **Agent Resources** — the agent customization layer. For the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
-
-</Callout>
-
 Every agent-native app ships with **agent resources**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
 The twist: **it's SQL rows, not filesystem files.** Each user gets their own set of agent resources stored in the database. There's no dev-box to spin up, no container per user, no files to mount. A multi-tenant SaaS can give every user a fully-customizable agent for essentially free, because all of it is rows — personal memory, personal MCP servers, personal skills, personal sub-agents — and the shared codebase hosts all of them at once.
@@ -233,7 +227,7 @@ For example:
 - Avoid: unsupported superlatives and vague AI claims
 ```
 
-## Resources Tab {#workspace-panel}
+## Resources Tab {#resources-tab}
 
 The agent panel includes a **Resources** tab alongside Chat and CLI. It shows a folder-organized tree of all resources, an inline editor for any text file (Markdown, JSON, YAML, plain text), and the `+` menu's typed creation flows (Files, Skills, Agents, Scheduled Tasks). Users can browse inherited workspace defaults and create/edit/delete personal or organization resources.
 

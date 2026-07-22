@@ -7,7 +7,11 @@ import {
   signScopedAgentAccessToken,
 } from "@agent-native/core/server";
 
-export type PostFinalizeJobKind = "media-ready" | "seekable" | "transcript";
+export type PostFinalizeJobKind =
+  | "media-ready"
+  | "seekable"
+  | "transcript"
+  | "brain-export";
 
 export const POST_FINALIZE_JOB_TOKEN_KIND = "clips-post-finalize-job";
 
