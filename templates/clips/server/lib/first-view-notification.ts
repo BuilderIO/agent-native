@@ -12,6 +12,7 @@ import {
   isEmailConfigured,
   renderEmail,
   sendEmail,
+  withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { isSyntheticQaEmail } from "@agent-native/core/sharing/actions/share-resource";
 
@@ -59,7 +60,9 @@ export async function notifyOwnerOfFirstView(params: {
     ? `Someone opened ${emailStrong(recording.title)} and ${watchedVerb}.`
     : `${emailStrong(viewerLabel)} opened ${emailStrong(recording.title)} and ${watchedVerb}.`;
 
-  const appUrl = getAppProductionUrl().replace(/\/+$/, "");
+  const appUrl = withConfiguredAppBasePath(
+    getAppProductionUrl().replace(/\/+$/, ""),
+  );
   const insightsUrl = `${appUrl}/r/${recording.id}?panel=insights`;
 
   const { html, text } = renderEmail({

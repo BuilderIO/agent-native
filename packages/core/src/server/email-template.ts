@@ -37,12 +37,14 @@ export interface RenderEmailArgs {
   cta?: EmailCta;
   secondaryCta?: EmailCta;
   /**
-   * Optional note + raw link rendered between the CTA buttons and the
-   * footer, e.g. for pasting into an external tool. Styled with more
-   * emphasis than plain paragraph text but less than the CTA button.
+   * Optional note + raw link, centered, rendered between the CTA buttons
+   * and the tagline/footer, e.g. for pasting into an external tool. Uses
+   * the same text treatment as the footer and tagline.
    */
   linkCallout?: { note: string; url: string };
-  /** Small muted text under the CTA (e.g. expiry note). */
+  /** Optional descriptive line rendered under the link callout. */
+  tagline?: string;
+  /** Muted text under the CTA (e.g. expiry note). */
   footer?: string;
   /**
    * Optional brand hex color for the CTA button and inline links. Defaults to
@@ -77,6 +79,11 @@ function sanitizeHexColor(input: string | undefined): string | undefined {
   if (!input) return undefined;
   return /^#[0-9a-fA-F]{6}$/.test(input) ? input : undefined;
 }
+
+// Single shared text treatment for every piece of secondary copy below the
+// CTA (link callout note + link, tagline, footer) so the email doesn't mix
+// several font sizes/colors for what all reads as "fine print".
+const SECONDARY_TEXT_STYLE = "font-size:16px; line-height:1.6; color:#d4d4d8;";
 
 export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
@@ -150,15 +157,19 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
 
   const linkCalloutHtml = args.linkCallout
     ? `
-      <p style="margin:22px 0 8px 0; font-size:14px; line-height:1.5; color:#a1a1aa;">${escapeHtml(args.linkCallout.note)}</p>
-      <p style="margin:0; padding:10px 14px; background-color:#1c1c1f; border:1px solid #27272a; border-radius:8px; font-size:13px; line-height:1.5; word-break:break-all;">
-        <a href="${escapeAttr(args.linkCallout.url)}" style="color:${linkColor}; text-decoration:none;">${escapeHtml(args.linkCallout.url)}</a>
+      <p style="margin:24px 0 4px 0; text-align:center; ${SECONDARY_TEXT_STYLE}">${escapeHtml(args.linkCallout.note)}</p>
+      <p style="margin:0; text-align:center; word-break:break-all; ${SECONDARY_TEXT_STYLE}">
+        <a href="${escapeAttr(args.linkCallout.url)}" style="color:${linkColor}; text-decoration:underline;">${escapeHtml(args.linkCallout.url)}</a>
       </p>
     `
     : "";
 
+  const taglineHtml = args.tagline
+    ? `<p style="margin:16px 0 0 0; ${SECONDARY_TEXT_STYLE}">${escapeHtml(args.tagline)}</p>`
+    : "";
+
   const footerHtml = args.footer
-    ? `<p style="margin:28px 0 0 0; font-size:13px; line-height:1.5; color:#71717a;">${escapeHtml(args.footer)}</p>`
+    ? `<p style="margin:16px 0 0 0; ${SECONDARY_TEXT_STYLE}">${escapeHtml(args.footer)}</p>`
     : "";
 
   const html = `<!DOCTYPE html>
@@ -194,6 +205,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
                 ${paragraphsHtml}
                 ${ctaHtml}
                 ${linkCalloutHtml}
+                ${taglineHtml}
                 ${footerHtml}
               </td>
             </tr>
@@ -223,6 +235,9 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     textLines.push(args.linkCallout.note);
     textLines.push(args.linkCallout.url);
     textLines.push("");
+  }
+  if (args.tagline) {
+    textLines.push(args.tagline);
   }
   if (args.footer) {
     textLines.push(args.footer);

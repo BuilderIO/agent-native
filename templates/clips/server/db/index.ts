@@ -2,6 +2,7 @@ import { createGetDb, getDbExec } from "@agent-native/core/db";
 import {
   getAppProductionUrl,
   signShortLivedToken,
+  withConfiguredAppBasePath,
 } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { registerShareableResource } from "@agent-native/core/sharing";
@@ -19,16 +20,22 @@ export { schema, getDbExec };
 
 export const CLIPS_EMAIL_FROM = "Agent-Native Clips <clips@agent-native.com>";
 const CLIPS_LOGO_PATH = "/agent-native-logo-dark.svg";
+const CLIPS_TAGLINE =
+  "Clips is a 100% free, open-source, Agent-Native app for sharing screengrabs with friends and colleagues. No download required.";
 const AI_SUMMARY_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export function aiSummaryTokenResourceId(recordingId: string): string {
   return `clip-ai-summary:${recordingId}`;
 }
 
+type RecordingRow = typeof schema.recordings.$inferSelect;
+
 async function getRecordingSummaryCta(
-  recording: typeof schema.recordings.$inferSelect,
+  recording: RecordingRow,
   ctx: { recipientEmail: string },
-): Promise<{ label: string; url: string } | undefined> {
+): Promise<
+  { label: string; url: string; tagline?: string } | undefined
+> {
   if (recording.status !== "ready") return undefined;
 
   let prefs: ClipsUserPrefs | null = null;
@@ -63,10 +70,13 @@ async function getRecordingSummaryCta(
     viewerEmail: ctx.recipientEmail,
     ttlSeconds: AI_SUMMARY_TOKEN_TTL_SECONDS,
   });
-  const appUrl = getAppProductionUrl().replace(/\/+$/, "");
+  const appUrl = withConfiguredAppBasePath(
+    getAppProductionUrl().replace(/\/+$/, ""),
+  );
   return {
     label: "Summarize with AI",
     url: `${appUrl}/r/${recording.id}?ai=summarize&token=${encodeURIComponent(token)}`,
+    tagline: CLIPS_TAGLINE,
   };
 }
 

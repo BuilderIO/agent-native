@@ -6,7 +6,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
-import { renderEmail, emailStrong } from "../../server/email-template.js";
+import { renderEmail } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
@@ -323,15 +323,9 @@ export default defineAction({
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
-        const roleVerb =
-          args.role === "admin"
-            ? "manage"
-            : args.role === "editor"
-              ? "view and edit"
-              : "view";
         const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
         const logoUrl = reg.logoPath
-          ? new URL(reg.logoPath, appUrl).toString()
+          ? new URL(appPath(reg.logoPath), appUrl).toString()
           : undefined;
         const secondaryCta = resource
           ? await reg.getSecondaryCta?.(resource, {
@@ -348,17 +342,16 @@ export default defineAction({
           logoUrl,
           imageUrl,
           heading: `${actor} shared "${resourceTitle}" with you`,
-          paragraphs: [
-            `You can ${roleVerb} it below. If you're asked to sign in, use ${emailStrong(principalId)}.`,
-          ],
+          paragraphs: [],
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
           secondaryCta,
           linkCallout: secondaryCta
             ? {
-                note: "Prefer to use your own AI agent? Copy and paste this link into it to summarize.",
+                note: "Copy and paste this link for your own AI agent to summarize:",
                 url: notificationUrl,
               }
             : undefined,
+          tagline: secondaryCta?.tagline,
           footer: `Just reply to this email if you want to get back to ${actor} directly.`,
         });
         await sendEmail({

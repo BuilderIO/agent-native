@@ -62,14 +62,17 @@ export interface ShareableResourceRegistration {
    * recipient's email so the resource type can mint a recipient-scoped,
    * single-use action link (e.g. Clips' "Summarize with AI"). Return
    * `undefined` to skip rendering the secondary CTA for this send.
+   *
+   * The optional `tagline` is shown as a short descriptive line under the
+   * "paste this link" callout that's rendered alongside the secondary CTA.
    */
   getSecondaryCta?: (
     resource: any,
     ctx: { recipientEmail: string },
   ) =>
-    | { label: string; url: string }
+    | { label: string; url: string; tagline?: string }
     | undefined
-    | Promise<{ label: string; url: string } | undefined>;
+    | Promise<{ label: string; url: string; tagline?: string } | undefined>;
   /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
