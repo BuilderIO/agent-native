@@ -1,7 +1,4 @@
-import {
-  Tabs,
-  useDesignSystem,
-} from "@agent-native/toolkit/design-system";
+import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
   IconHistory,
   IconSearch,
