@@ -49,19 +49,56 @@ Os trabalhos ficam no [workspace](/docs/workspace) em `jobs/<name>.md` — apena
 
 ## Princípio {#frontmatter}
 
-| Campo        | Tipo                          | Padrão          | Descrição                                                                                                                          |
-| ------------ | ----------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `schedule`   | expressão cron                | _(obrigatório)_ | Cron padrão de 5 campos. `"0 7 * * *"` = todos os dias às 07h00; `"0 */4 * * *"` = a cada 4 horas.                                 |
-| `enabled`    | booleano                      | `true`          | Mude para `false` para pausar sem excluir o trabalho.                                                                              |
-| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` é executado com a identidade do proprietário do trabalho e `ANTHROPIC_API_KEY`. `"shared"` usa a chave da organização. |
-| `createdBy`  | e-mail                        | _(automático)_  | Preenchido quando o trabalho é criado por meio do espaço de trabalho UI ou pelo agente.                                            |
-| `orgId`      | string                        | _(automático)_  | Escopo da organização; herdado da organização ativa do criador.                                                                    |
-| `lastRun`    | Carimbo de data e hora ISO    | _(gerenciado)_  | Escrito pelo agendador após cada execução.                                                                                         |
-| `lastStatus` | `"success"` \| `"error"` \| … | _(gerenciado)_  | Resultado mais recente.                                                                                                            |
-| `lastError`  | string                        | _(gerenciado)_  | Mensagem de erro se a última execução falhou.                                                                                      |
-| `nextRun`    | Carimbo de data e hora ISO    | _(gerenciado)_  | Calculado a partir de `schedule`; usado pelo agendador para decidir quando disparar em seguida.                                    |
+| Campo        | Tipo                               | Padrão          | Descrição                                                                                                                          |
+| ------------ | ---------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `schedule`   | expressão cron                     | _(obrigatório)_ | Cron padrão de 5 campos. `"0 7 * * *"` = todos os dias às 07h00; `"0 */4 * * *"` = a cada 4 horas.                                 |
+| `enabled`    | booleano                           | `true`          | Mude para `false` para pausar sem excluir o trabalho.                                                                              |
+| `runAs`      | `"creator"` \| `"shared"`          | `"creator"`     | `"creator"` é executado com a identidade do proprietário do trabalho e `ANTHROPIC_API_KEY`. `"shared"` usa a chave da organização. |
+| `createdBy`  | e-mail                             | _(automático)_  | Preenchido quando o trabalho é criado por meio do espaço de trabalho UI ou pelo agente.                                            |
+| `orgId`      | string                             | _(automático)_  | Escopo da organização; herdado da organização ativa do criador.                                                                    |
+| `lastRun`    | Carimbo de data e hora ISO         | _(gerenciado)_  | Escrito pelo agendador após cada execução.                                                                                         |
+| `lastStatus` | `"success"` \| `"error"` \| …      | _(gerenciado)_  | Resultado mais recente.                                                                                                            |
+| `lastError`  | string                             | _(gerenciado)_  | Mensagem de erro se a última execução falhou.                                                                                      |
+| `nextRun`    | Carimbo de data e hora ISO         | _(gerenciado)_  | Calculado a partir de `schedule`; usado pelo agendador para decidir quando disparar em seguida.                                    |
+| `mcpTools`   | matriz de nomes de ferramentas MCP | _(nenhum)_      | Lista de permissões explícita opcional, como `mcp__server__tool`; as credenciais permanecem na concessão MCP conectada.            |
 
 Os campos `last*` e `nextRun` são gravados pelo agendador. Você pode lê-los para ver o histórico, mas não os edite manualmente: a próxima execução será substituída.
+
+## Conectar ferramentas MCP a um trabalho {#connected-mcps}
+
+Trabalhos recorrentes podem usar ferramentas MCP remotas ou locais que já estejam conectadas ao aplicativo. Peça ao agente para descobrir os nomes exatos com `tool-search` e, em seguida, associe apenas as ferramentas de que o trabalho precisa usando `mcpTools`:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Encontre novas gravações desde a última execução bem-sucedida. Extraia apenas acompanhamentos acionáveis e, em seguida, chame uma vez a ação de importação limitada do aplicativo com IDs de origem e externos estáveis, uma citação curta e a URL da gravação. Não importe a transcrição completa.
+```
+
+O trabalho armazena nomes de ferramentas, não URLs MCP, tokens de acesso ou tokens de atualização OAuth. Em tempo de execução, o framework resolve a concessão conectada no contexto de solicitação do criador ou da organização do trabalho e expõe apenas as ferramentas da lista de permissões. Mantenha a lista restrita e use uma ação idempotente do aplicativo para a importação final, para que execuções sobrepostas não criem duplicatas. Consulte [Clientes MCP](/docs/mcp-clients) para a configuração de conexão e OAuth.
+
+## Conectar ferramentas MCP a um trabalho {#connected-mcps}
+
+Trabalhos recorrentes podem usar ferramentas MCP remotas ou locais que já estejam conectadas ao app. Peça ao agente para descobrir os nomes exatos com `tool-search` e vincule apenas as ferramentas necessárias em `mcpTools`:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Encontre gravações novas desde a última execução bem-sucedida. Extraia apenas
+acompanhamentos acionáveis e chame uma vez a action de importação limitada do
+app com IDs de origem e externos estáveis, uma citação curta e a URL da
+gravação. Não importe a transcrição completa.
+```
+
+O trabalho armazena apenas nomes de ferramentas, não URLs MCP, tokens de acesso ou tokens de atualização OAuth. Em tempo de execução, o framework resolve a concessão conectada no contexto de requisição do criador do trabalho ou da organização e expõe apenas as ferramentas permitidas. Mantenha a lista pequena e use uma action idempotente do app na importação final para que execuções sobrepostas não criem duplicatas. Consulte [MCP Clients](/docs/mcp-clients) para configurar conexão e OAuth.
 
 ## Sintaxe do Cron {#cron}
 

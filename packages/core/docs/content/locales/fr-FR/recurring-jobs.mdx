@@ -49,19 +49,57 @@ C'est tout. Le corps est une invite que l'agent exécute à chaque déclenchemen
 
 ## Première question {#frontmatter}
 
-| Champ        | Tapez                         | Par défaut      | Description                                                                                                                            |
-| ------------ | ----------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `schedule`   | expression cron               | _(obligatoire)_ | Cron standard à 5 champs. `"0 7 * * *"` = tous les jours à 07h00 ; `"0 */4 * * *"` = toutes les 4 heures.                              |
-| `enabled`    | booléen                       | `true`          | Basculez vers `false` pour mettre en pause sans supprimer la tâche.                                                                    |
-| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` s'exécute avec l'identité du propriétaire de la tâche et `ANTHROPIC_API_KEY`. `"shared"` utilise la clé de l'organisation. |
-| `createdBy`  | e-mail                        | _(auto)_        | Rempli lorsque le travail est créé via l'espace de travail UI ou par l'agent.                                                          |
-| `orgId`      | chaîne                        | _(auto)_        | Portée de l'organisation ; hérité de l'organisation active du créateur.                                                                |
-| `lastRun`    | Horodatage ISO                | _(géré)_        | Écrit par le planificateur après chaque exécution.                                                                                     |
-| `lastStatus` | `"success"` \| `"error"` \| … | _(géré)_        | Dernier résultat.                                                                                                                      |
-| `lastError`  | chaîne                        | _(géré)_        | Message d'erreur si la dernière exécution a échoué.                                                                                    |
-| `nextRun`    | Horodatage ISO                | _(géré)_        | Calculé à partir de `schedule` ; utilisé par le planificateur pour décider quand déclencher ensuite.                                   |
+| Champ        | Tapez                         | Par défaut      | Description                                                                                                                               |
+| ------------ | ----------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `schedule`   | expression cron               | _(obligatoire)_ | Cron standard à 5 champs. `"0 7 * * *"` = tous les jours à 07h00 ; `"0 */4 * * *"` = toutes les 4 heures.                                 |
+| `enabled`    | booléen                       | `true`          | Basculez vers `false` pour mettre en pause sans supprimer la tâche.                                                                       |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` s'exécute avec l'identité du propriétaire de la tâche et `ANTHROPIC_API_KEY`. `"shared"` utilise la clé de l'organisation.    |
+| `createdBy`  | e-mail                        | _(auto)_        | Rempli lorsque le travail est créé via l'espace de travail UI ou par l'agent.                                                             |
+| `orgId`      | chaîne                        | _(auto)_        | Portée de l'organisation ; hérité de l'organisation active du créateur.                                                                   |
+| `lastRun`    | Horodatage ISO                | _(géré)_        | Écrit par le planificateur après chaque exécution.                                                                                        |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(géré)_        | Dernier résultat.                                                                                                                         |
+| `lastError`  | chaîne                        | _(géré)_        | Message d'erreur si la dernière exécution a échoué.                                                                                       |
+| `nextRun`    | Horodatage ISO                | _(géré)_        | Calculé à partir de `schedule` ; utilisé par le planificateur pour décider quand déclencher ensuite.                                      |
+| `mcpTools`   | tableau de noms d'outils MCP  | _(aucun)_       | Liste d'autorisation explicite facultative, par exemple `mcp__server__tool` ; les identifiants restent dans l'autorisation MCP connectée. |
 
 Les champs `last*` et `nextRun` sont écrits par le planificateur. Vous pouvez les lire pour voir l'historique, mais ne les modifiez pas manuellement : la prochaine exécution les écrasera.
+
+## Connecter des outils MCP à une tâche {#connected-mcps}
+
+Les tâches récurrentes peuvent utiliser des outils MCP distants ou locaux déjà connectés à l'application. Demandez à l'agent de découvrir les noms exacts avec `tool-search`, puis liez uniquement les outils dont la tâche a besoin avec `mcpTools` :
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Recherchez les nouveaux enregistrements depuis la dernière exécution réussie. Extrayez uniquement les suivis exploitables, puis appelez une seule fois l'action d'importation bornée de l'application avec une source et des identifiants externes stables, une courte citation et l'URL de l'enregistrement. N'importez pas la transcription complète.
+```
+
+La tâche stocke des noms d'outils, pas des URL MCP, des jetons d'accès ou des jetons d'actualisation OAuth. À l'exécution, le framework résout l'autorisation connectée dans le contexte de requête du créateur ou de l'organisation de la tâche et n'expose que les outils de la liste d'autorisation. Gardez cette liste restreinte et utilisez une action d'application idempotente pour l'import final afin que des exécutions qui se chevauchent ne créent pas de doublons. Consultez [Clients MCP](/docs/mcp-clients) pour la configuration de la connexion et d'OAuth.
+
+## Connecter des outils MCP à une tâche {#connected-mcps}
+
+Les tâches récurrentes peuvent utiliser des outils MCP distants ou locaux déjà connectés à l'application. Demandez à l'agent de découvrir les noms exacts avec `tool-search`, puis liez uniquement les outils nécessaires via `mcpTools :`
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools: ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Recherchez les nouveaux enregistrements depuis la dernière exécution réussie.
+Extrayez uniquement les suivis exploitables, puis appelez une fois l'action
+d'import bornée de l'application avec des identifiants source et externes
+stables, une courte citation et l'URL de l'enregistrement. N'importez pas la
+transcription complète.
+```
+
+La tâche ne stocke que les noms d'outils, pas les URL MCP, les jetons d'accès ni les jetons de renouvellement OAuth. À l'exécution, le framework résout l'autorisation connectée dans le contexte de requête du créateur de la tâche ou de l'organisation et n'expose que les outils autorisés. Gardez la liste courte et utilisez une action d'application idempotente pour l'import final afin que les exécutions qui se chevauchent ne créent pas de doublons. Consultez [MCP Clients](/docs/mcp-clients) pour la connexion et la configuration OAuth.
 
 ## Syntaxe Cron {#cron}
 
