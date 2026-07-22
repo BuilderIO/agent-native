@@ -153,15 +153,18 @@ export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
   ) {
     return false;
   }
-  const configured = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
-  if (!configured) return false;
-  return configured
+  const exactOriginMatch = (process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] ?? "")
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean)
     .some((origin) => origin === value && !origin.includes("*"));
+  return (
+    exactOriginMatch ||
+    builderRelayTargetDomainSuffixes().some((suffix) =>
+      hostname.endsWith(suffix),
+    )
+  );
 }
-
 export function signBuilderPreviewRelayState(input: {
   ownerEmail: string;
   targetOrigin: string;
