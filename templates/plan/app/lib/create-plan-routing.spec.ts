@@ -8,6 +8,7 @@ describe("assessPlanPrompt", () => {
     "Make this polished, not sketchy",
     "Turn the wireframe into a production-like branded design",
     "Take this beyond the wireframe with full-fidelity screens",
+    "Create pixel-accurate mockups for checkout",
   ])("routes high-fidelity design language to design: %s", (prompt) => {
     expect(assessPlanPrompt(prompt)).toEqual({ kind: "design" });
   });

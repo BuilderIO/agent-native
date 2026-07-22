@@ -831,6 +831,21 @@ describe("canvas frame / annotation patch interactions", () => {
     }
   });
 
+  it("sets design mode on a canvas without wireframe targets", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: { frames: [] },
+      blocks: [],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      { op: "set-visual-render-mode", renderMode: "design" },
+    ]);
+
+    expect(next.canvas?.mode).toBe("design");
+    expect(next.blocks).toEqual(content.blocks);
+  });
+
   it("BUG PROBE: syncCanvasWireframes can revive frame.wireframe right after update-canvas-frame clears it", () => {
     // A frame referencing a block (blockId) gets its inline `wireframe`
     // re-synced from that block at the end of applyPlanContentPatches. If a

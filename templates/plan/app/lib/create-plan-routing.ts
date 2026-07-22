@@ -26,7 +26,7 @@ export function isProbablyImportedPlan(prompt: string) {
 
 export function assessPlanPrompt(prompt: string): { kind: AutoPlanKind } {
   const highFidelity =
-    /\b(high(?:er)?[- ]fidelity|full[- ]fidelity|hi[- ]fi|polished(?: mockups?)?|production[- ](?:like|ready)|pixel[- ]perfect|brand(?:ed|[- ]aware)|real design|not (?:a )?(?:sketch(?:y)?|wireframe)|beyond (?:the )?(?:sketch|wireframe))\b/i.test(
+    /\b(high(?:er)?[- ]fidelity|full[- ]fidelity|hi[- ]fi|polished(?: mockups?)?|production[- ](?:like|ready)|pixel[- ](?:perfect|accurate)|brand(?:ed|[- ]aware)|real design|not (?:a )?(?:sketch(?:y)?|wireframe)|beyond (?:the )?(?:sketch|wireframe))\b/i.test(
       prompt,
     );
   if (highFidelity) return { kind: "design" };

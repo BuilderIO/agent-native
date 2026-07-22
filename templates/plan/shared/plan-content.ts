@@ -3347,10 +3347,10 @@ function setVisualRenderMode(
 
   if (content.canvas) {
     content.canvas.mode = renderMode;
+    changed = true;
     for (const frame of content.canvas.frames) {
       if (!frame.wireframe) continue;
       frame.wireframe.renderMode = renderMode;
-      changed = true;
     }
   }
 
