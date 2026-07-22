@@ -1766,7 +1766,10 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
-  return getOwnPackageDependencyVersion("@agent-native/dispatch");
+  // Unlike toolkit, core's own package.json does not declare
+  // @agent-native/dispatch as a dependency, so there is no published
+  // compatible range to read here — "latest" is the best available signal.
+  return "latest";
 }
 
 function getToolkitDependencyVersion(): string {
@@ -1779,12 +1782,12 @@ function getToolkitDependencyVersion(): string {
 }
 
 /**
- * Sibling framework packages (toolkit, dispatch) are versioned and published
- * independently of core, so their npm `latest` dist-tags can briefly point to
- * incompatible releases relative to the core version currently running this
- * CLI. The published core `package.json` already carries the exact
- * compatible range changesets resolved at release time — read it from there
- * instead of trusting `latest`, which is only safe for pinning `core` itself.
+ * Toolkit is versioned and published independently of core, so its npm
+ * `latest` dist-tag can briefly point to an incompatible release relative to
+ * the core version currently running this CLI. The published core
+ * `package.json` already carries the exact compatible range changesets
+ * resolved at release time — read it from there instead of trusting
+ * `latest`, which is only safe for pinning `core` itself.
  */
 function getOwnPackageDependencyVersion(depName: string): string {
   try {

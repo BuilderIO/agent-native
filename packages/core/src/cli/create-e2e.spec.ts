@@ -1009,12 +1009,14 @@ describe("template/core version compatibility", () => {
     }
   });
 
-  it("pins the generated toolkit/dispatch dependency to core's own published range", () => {
+  it("pins the generated toolkit dependency to the core published range", () => {
     // Once changesets publishes core, its package.json has the `workspace:`
     // protocol rewritten to a real semver range. Scaffolded apps must use
-    // that exact range instead of `latest`, since toolkit/dispatch are
-    // versioned and published independently and their `latest` dist-tag can
-    // briefly lag or outrun the core release this CLI shipped with.
+    // that exact range instead of `latest`, since toolkit is versioned and
+    // published independently and its `latest` dist-tag can briefly lag or
+    // outrun the core release this CLI shipped with. Dispatch is not listed
+    // as a dependency of core, so it has no published range to read and
+    // stays pinned to `latest`.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     const originalReadFileSync = fs.readFileSync;
@@ -1025,7 +1027,6 @@ describe("template/core version compatibility", () => {
           return JSON.stringify({
             dependencies: {
               "@agent-native/toolkit": "^0.9.1",
-              "@agent-native/dispatch": "^1.2.3",
             },
           });
         }
@@ -1033,7 +1034,7 @@ describe("template/core version compatibility", () => {
       });
     try {
       expect(_getToolkitDependencyVersion()).toBe("^0.9.1");
-      expect(_getDispatchDependencyVersion()).toBe("^1.2.3");
+      expect(_getDispatchDependencyVersion()).toBe("latest");
     } finally {
       readFileSyncSpy.mockRestore();
       if (previous === undefined) {
