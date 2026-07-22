@@ -1484,14 +1484,16 @@ export function PropertyManagementPopover({
           ) : (
             <>
               {hasColumnMenu ? (
-                <button
-                  type="button"
-                  onClick={() => setView("quick")}
-                  className="flex items-center gap-1.5 px-2 pb-0.5 pt-1.5 text-xs text-muted-foreground hover:text-foreground"
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setView("quick");
+                  }}
+                  className="gap-1.5 py-1 text-xs text-muted-foreground focus:text-foreground"
                 >
                   <IconArrowLeft className="size-3.5" />
                   {t("editor.properties.backToColumnMenu")}
-                </button>
+                </DropdownMenuItem>
               ) : null}
               <div
                 className="flex items-center gap-2 p-1"
