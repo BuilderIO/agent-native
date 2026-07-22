@@ -69,21 +69,31 @@ describe("Brain export recovery sweep", () => {
   });
 
   it("bounds pending work and records an attempt when an item throws", async () => {
-    mocks.execute.mockResolvedValue({
-      rows: [
-        {
-          session_id: "person@example.com",
-          key: "clips-brain-export-recording-1",
-          value: JSON.stringify({
-            recordingId: "recording-1",
-            status: "pending",
-            attempts: 0,
-            updatedAt: "2026-07-22T00:00:00.000Z",
-            nextAttemptAt: "2026-07-22T00:00:00.000Z",
-          }),
-        },
-      ],
-    });
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "recent-recording",
+            owner_email: "person@example.com",
+            org_id: "org-example",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            session_id: "person@example.com",
+            key: "clips-brain-export-recording-1",
+            value: JSON.stringify({
+              recordingId: "recording-1",
+              status: "pending",
+              attempts: 0,
+              updatedAt: "2026-07-22T00:00:00.000Z",
+              nextAttemptAt: "2026-07-22T00:00:00.000Z",
+            }),
+          },
+        ],
+      });
     mocks.select.mockReturnValue(
       queryResult([{ ownerEmail: "person@example.com", orgId: "org-example" }]),
     );
@@ -91,15 +101,27 @@ describe("Brain export recovery sweep", () => {
 
     await runBrainExportSweepOnce();
 
-    expect(mocks.execute).toHaveBeenCalledWith({
+    expect(mocks.execute).toHaveBeenNthCalledWith(1, {
+      sql: expect.stringContaining("NOT EXISTS"),
+      args: ["ready", expect.any(String), "ready", "clips-brain-export-", 20],
+    });
+    expect(mocks.execute).toHaveBeenNthCalledWith(2, {
       sql: expect.stringContaining("ORDER BY updated_at ASC LIMIT ?"),
       args: [
         "clips-brain-export-%",
         '%"status":"pending"%',
         '%"status":"failed"%',
-        100,
+        4,
       ],
     });
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "clips-brain-export-recent-recording",
+      expect.objectContaining({
+        recordingId: "recent-recording",
+        status: "pending",
+        attempts: 0,
+      }),
+    );
     expect(mocks.exportRun).toHaveBeenCalledWith({
       recordingId: "recording-1",
       retryAttempt: 1,

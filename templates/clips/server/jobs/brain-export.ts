@@ -13,10 +13,65 @@ import { ownerEmailMatches } from "../lib/recordings.js";
 
 const SWEEP_INTERVAL_MS = 60_000;
 const MAX_ATTEMPTS = 8;
-const SWEEP_LIMIT = 100;
+const SWEEP_LIMIT = 4;
+const DISCOVERY_LIMIT = 20;
+const BACKFILL_DAYS = 7;
 let skippingLogged = false;
 
+async function seedRecentBrainExports(): Promise<void> {
+  const now = new Date();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT recordings.id, recordings.owner_email, recordings.org_id
+      FROM recordings
+      INNER JOIN recording_transcripts
+        ON recording_transcripts.recording_id = recordings.id
+      WHERE recordings.status = ?
+        AND recordings.trashed_at IS NULL
+        AND recordings.org_id IS NOT NULL
+        AND recordings.created_at >= ?
+        AND recording_transcripts.status = ?
+        AND LENGTH(TRIM(COALESCE(recording_transcripts.full_text, ''))) > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM application_state
+          WHERE application_state.session_id = recordings.owner_email
+            AND application_state.key = ? || recordings.id
+        )
+      ORDER BY recordings.created_at DESC
+      LIMIT ?`,
+    args: [
+      "ready",
+      new Date(
+        now.getTime() - BACKFILL_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString(),
+      "ready",
+      BRAIN_EXPORT_STATE_PREFIX,
+      DISCOVERY_LIMIT,
+    ],
+  });
+  for (const row of rows as Array<{
+    id?: unknown;
+    owner_email?: unknown;
+    org_id?: unknown;
+  }>) {
+    const recordingId = typeof row.id === "string" ? row.id.trim() : "";
+    const ownerEmail =
+      typeof row.owner_email === "string" ? row.owner_email.trim() : "";
+    const orgId = typeof row.org_id === "string" ? row.org_id.trim() : "";
+    if (!recordingId || !ownerEmail || !orgId) continue;
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+      writeBrainExportState({
+        recordingId,
+        status: "pending",
+        attempts: 0,
+        updatedAt: now.toISOString(),
+        nextAttemptAt: now.toISOString(),
+      }),
+    );
+  }
+}
+
 export async function runBrainExportSweepOnce(): Promise<void> {
+  await seedRecentBrainExports();
   const { rows } = await getDbExec().execute({
     sql: "SELECT session_id, key, value FROM application_state WHERE key LIKE ? AND (value LIKE ? OR value LIKE ?) ORDER BY updated_at ASC LIMIT ?",
     args: [
