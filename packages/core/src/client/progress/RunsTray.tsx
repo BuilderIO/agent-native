@@ -297,11 +297,13 @@ export function RunsTray({
       open={open}
       onOpenChange={setOpen}
       trigger={
-        <DesignSystemTooltip
-          trigger={trigger}
-          content={triggerLabel}
-          delayMs={200}
-        />
+        <span className="contents">
+          <DesignSystemTooltip
+            trigger={trigger}
+            content={triggerLabel}
+            delayMs={200}
+          />
+        </span>
       }
       align={align}
       placement="bottom"
