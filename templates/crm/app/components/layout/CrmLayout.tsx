@@ -6,18 +6,18 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
 } from "@agent-native/core/client/agent-chat";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { CrmSidebar } from "@/components/layout/CrmSidebar";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function CrmLayout({ children }: { children: React.ReactNode }) {

@@ -13,21 +13,92 @@ metadata:
 
 ## Rule
 
-Start with the public component and its props, slots, callbacks, and stable
-class names. If those seams are not enough, use the eject CLI to transfer the
-smallest supported feature into the app and make that copy app-owned. Never
-edit `node_modules`, deep-import a private source file at runtime, or patch an
-`@agent-native/*` package.
+Start with the app's registered design system and local UI adapters, then use
+the public feature's props, semantic components, controller, product slots,
+and callbacks. If those seams are not enough, use the eject CLI to transfer
+the smallest supported feature into the app and make that copy app-owned.
+Never edit `node_modules`, deep-import a private source file at runtime, or
+patch an `@agent-native/*` package.
 
 Use this order:
 
-1. Configure the public component.
-2. Compose public primitives behind a local app component.
-3. Eject the smallest feature into app-owned source.
-4. Propose a new Toolkit seam when the same override is useful in two apps.
+1. Set brand tokens with the build-time theme configuration when tokens are
+   enough.
+2. Register company components in `app/design-system.ts` with
+   `defineDesignSystem`, then pass that definition to `ToolkitProvider`.
+3. Configure a public feature through its semantic components, headless
+   controller, and product-level render slots.
+4. Compose app primitives behind the app's local UI adapter layer.
+5. Eject the smallest feature into app-owned source.
+6. Propose a new Toolkit seam when the same override is useful in two apps.
 
 Ejection is for intentional product customization, not for hiding an upgrade
 failure or replacing Core runtime behavior.
+
+## Use A Company Design System
+
+Keep the explicit, typed registration seam in `app/design-system.ts`:
+
+```tsx
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import {
+  AcmeActionButtonAdapter,
+  AcmeDialogAdapter,
+} from "./design-system/acme-adapter";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  components: {
+    ActionButton: AcmeActionButtonAdapter,
+    Dialog: AcmeDialogAdapter,
+  },
+});
+```
+
+Adapters translate the semantic Toolkit contract into company component props.
+They are ordinary React components and may use MUI-style providers, React Aria,
+CSS modules, CSS-in-JS, or another styling runtime. `className` and `style` are
+optional interoperability hooks, not Tailwind or CVA requirements.
+
+The contract has nine leaf components (`ActionButton`, `IconButton`,
+`TextField`, `TextArea`, `Spinner`, `Skeleton`, `Status`, `Surface`, `Avatar`)
+and eight behavior components (`Tooltip`, `Menu`, `Popover`, `Dialog`,
+`Picker`, `Checkbox`, `Switch`, `Tabs`). `Picker` covers select and combobox
+behavior, not date picking. Behavior adapters own their portal, focus,
+keyboard, dismissal, and stacking implementation while honoring the semantic
+props and `portalContainer` interop contract.
+
+App product code imports standard controls from its local adapter path, usually
+`@/components/ui/*`. Do not import `@agent-native/toolkit/ui/*` directly from
+pages, routes, or domain components. That bypasses the app seam and makes a
+future design-system replacement incomplete. Toolkit feature packages remain
+valid imports; configure their presentation through the registered semantic
+components, controller, and product slots.
+
+Run the published conformance kit against a complete adapter in its own CI:
+
+```tsx
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+
+await assertDesignSystemConformance({
+  adapterName: "Acme",
+  components,
+  contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+});
+```
+
+New components and optional props are minor contract changes. Required props,
+removed APIs, or behavioral changes require a new contract major.
+
+## Customize A Shared Feature
+
+Prefer feature-level headless controllers over rebuilding individual widgets.
+One controller must power both the Toolkit default view and every custom render
+path so behavior, actions, analytics, accessibility state, and error handling
+cannot drift. Use a product-level render slot to replace the view while keeping
+that controller. Eject only when the controller and slots cannot express the
+required product behavior.
 
 ## Eject A Feature
 
@@ -104,11 +175,14 @@ UI ownership may change; product contracts should not:
   Core. Do not copy those runtimes into the app.
 - Keep local adapters narrow so package upgrades still improve every surface
   the app has not intentionally taken ownership of.
+- Keep page, route, and domain code on local UI adapter imports. Never reach
+  around the registered design system with direct Toolkit UI primitive imports.
 
 ## App Shapes
 
-- **Template app:** begin with its existing local adapters and domain UI. Use
-  Toolkit for repeated workspace UI; eject only the unit being customized.
+- **Template app:** begin with `app/design-system.ts`, its local UI adapters,
+  and domain UI. Use Toolkit features for repeated workspace behavior; eject
+  only the unit being customized.
 - **Chat app:** keep `AgentChatSurface`, thread state, and chat transport in
   Core. Compose or eject Toolkit presentation such as chat-history UI around it.
 - **Headless app:** stay action-first while no UI is needed. When adding a UI,
@@ -135,6 +209,7 @@ UI ownership may change; product contracts should not:
 - Don't copy Core auth, DB, action, agent-loop, or transport internals.
 - Don't manually copy a first-party unit with a missing recipe; fix its manifest.
 - Don't eject a full package when a prop, slot, wrapper, or smaller unit works.
+- Don't fork feature state into a custom view; consume the feature's controller.
 
 ## Related Skills
 

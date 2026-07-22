@@ -47,6 +47,34 @@ Before creating an app-local version of repeated workspace or agent UI:
 Use public package exports at runtime. Published source and ejection manifests
 are discovery and ownership-transfer mechanisms, not private runtime APIs.
 
+## Design-System Boundary
+
+Every app keeps an explicit design-system seam in `app/design-system.ts` using
+`defineDesignSystem` from `@agent-native/toolkit/design-system`, and supplies it
+to `ToolkitProvider`. The semantic contract contains:
+
+- nine leaf components: `ActionButton`, `IconButton`, `TextField`, `TextArea`,
+  `Spinner`, `Skeleton`, `Status`, `Surface`, and `Avatar`
+- eight behavior components: `Tooltip`, `Menu`, `Popover`, `Dialog`, `Picker`,
+  `Checkbox`, `Switch`, and `Tabs`
+
+These are semantic contracts, not styling contracts. An adapter may use
+Tailwind/shadcn, MUI-style theme providers, React Aria, CSS modules, CSS-in-JS,
+or another React design system. Do not assume CVA, utility classes, or even a
+`className`; behavior adapters may supply their overlay and focus
+implementation wholesale while honoring portal, focus-restoration, keyboard,
+dismissal, ARIA, and z-index interoperability.
+
+Pages, routes, and domain components import ordinary controls through the app's
+local adapter layer, usually `@/components/ui/*`. They must not import
+`@agent-native/toolkit/ui/*` directly. Toolkit feature exports are still the
+right home for shared workspace behavior; their presentation flows through the
+registered semantic components, feature controller, and product-level slots.
+
+Customer adapter packages are normal npm packages imported explicitly by the
+app. Never auto-detect them or load React components from JSON. Run the adapter
+against `@agent-native/toolkit/conformance` in customer CI before adopting it.
+
 ## Settings Direction
 
 Durable settings belong in the Settings app or a registered settings route. The
@@ -113,8 +141,9 @@ in the moment of agent use.
 When adding or refactoring one of these areas:
 
 1. Search existing framework and template code for duplicated UI or actions.
-2. Decide the shared contract: data shape, action API, React component/hook, and
-   app adapter points.
+2. Decide the shared contract: data shape, action API, feature-level headless
+   controller, default view, semantic components, and product-level render
+   slots.
 3. Keep shared data provider-agnostic and scoped by auth/sharing rules.
 4. Expose the same capability to the UI and agent through actions or documented
    client helpers.
@@ -125,6 +154,12 @@ When adding or refactoring one of these areas:
    ship readable source plus a complete ejection unit so apps can take ownership
    of the smallest feature when needed. See `customizing-agent-native` for the
    configure → compose → eject → propose seam ladder.
+8. Keep one controller as the source of truth for the default and custom render
+   paths. A custom design must not fork actions, analytics, async state, or
+   accessibility behavior.
+9. Verify the default adapter and at least one non-Tailwind adapter with the
+   conformance kit, including focus and portal stacking across mixed overlay
+   implementations.
 
 ## Related Skills
 

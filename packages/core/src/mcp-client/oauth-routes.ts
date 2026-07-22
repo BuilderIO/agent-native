@@ -54,6 +54,20 @@ export interface McpOAuthRoutesOptions {
   reconfigure: () => Promise<void>;
 }
 
+export function redirectWithStagedCookies(
+  event: H3Event,
+  location: string,
+): Response {
+  const headers = new Headers({
+    Location: location,
+    "Cache-Control": "no-store",
+  });
+  for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+    headers.append("set-cookie", cookie);
+  }
+  return new Response(null, { status: 302, headers });
+}
+
 export function mountMcpOAuthRoutes(
   nitroApp: any,
   options: McpOAuthRoutesOptions,
@@ -182,7 +196,7 @@ async function handleMcpOAuthStart(
       path: "/",
       maxAge: FLOW_TTL_SECONDS,
     });
-    return Response.redirect(started.authorizationUrl.href, 302);
+    return redirectWithStagedCookies(event, started.authorizationUrl.href);
   } catch {
     setResponseStatus(event, 400);
     return {
@@ -254,7 +268,7 @@ async function handleMcpOAuthCallback(
     const returnPath =
       flow.returnUrl ??
       `/settings/connections?connected=mcp-${encodeURIComponent(flow.name)}`;
-    return Response.redirect(getAppUrl(event, returnPath), 302);
+    return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
   } catch {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth authorization could not be completed." };

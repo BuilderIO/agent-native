@@ -888,6 +888,12 @@ body[data-clips-route="recording-pill"] #root {
 /* Readiness disclosure                                                       */
 /* ------------------------------------------------------------------------- */
 
+.recorder-disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .readiness {
   border: none;
   border-radius: 0;
@@ -953,6 +959,12 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
+}
+
+.readiness-action svg,
+.rewind-home-state svg {
+  width: 11px;
+  height: 11px;
 }
 
 .readiness-open .readiness-action {
@@ -1401,6 +1413,7 @@ body[data-clips-route="recording-pill"] #root {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin-left: auto;
 }
 
 .rewind-docs-link {

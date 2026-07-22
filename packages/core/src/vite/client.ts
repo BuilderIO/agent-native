@@ -5,6 +5,10 @@ import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import {
+  renderDesignSystemThemeCss,
+  type DesignSystemTheme,
+} from "@agent-native/toolkit/design-system/theme";
 import type {
   ConfigEnv,
   HotUpdateOptions,
@@ -1342,6 +1346,8 @@ export interface ClientConfigOptions {
   logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
   plugins?: any[];
+  /** Static design tokens emitted into the client build. */
+  designSystemTheme?: DesignSystemTheme;
   /** Nitro plugin options (preset, srcDir, etc) */
   nitro?: NitroOptions;
   /** Override resolve aliases */
@@ -2459,6 +2465,38 @@ function createTailwindPlugin(options: Pick<ClientConfigOptions, "tailwind">) {
   }
 }
 
+const DESIGN_SYSTEM_THEME_MODULE_ID = "virtual:agent-native-theme.css";
+const RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID = `\0${DESIGN_SYSTEM_THEME_MODULE_ID}`;
+
+function createDesignSystemThemePlugin(
+  theme: DesignSystemTheme | undefined,
+): Plugin | null {
+  if (!theme) return null;
+  const css = renderDesignSystemThemeCss(theme);
+
+  return {
+    name: "agent-native-design-system-theme",
+    resolveId(id) {
+      if (id === DESIGN_SYSTEM_THEME_MODULE_ID) {
+        return RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID;
+      }
+    },
+    load(id) {
+      if (id === RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID) return css;
+    },
+    transformIndexHtml() {
+      return [
+        {
+          tag: "style",
+          attrs: { "data-agent-native-theme": "" },
+          children: css,
+          injectTo: "head",
+        },
+      ];
+    },
+  };
+}
+
 function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
   // APP_BASE_PATH lets this app be mounted under a prefix (e.g. "/mail") as
   // part of a unified workspace deploy. Defaults to "/" for standalone apps.
@@ -2665,6 +2703,7 @@ function createAgentNativePlugins(
         ? [nitroPlugin]
         : []),
     includeReactTransform ? createReactTransformPlugin() : null,
+    createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
   ].filter(Boolean);
 }

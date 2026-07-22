@@ -36,6 +36,7 @@ export interface Message {
 export type TaskState =
   | "submitted"
   | "working"
+  | "processing"
   | "completed"
   | "failed"
   | "canceled"

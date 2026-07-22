@@ -39,3 +39,74 @@ export function humanizeToolLabelText(
   if (!tool) return text;
   return text.split(tool).join(humanizeToolName(tool));
 }
+
+type ToolDisplayPart = {
+  type?: string;
+  toolCallId?: string;
+  toolName?: string;
+  argsText?: string;
+  args?: Record<string, unknown>;
+};
+
+function normalizedAgentName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim().toLowerCase();
+  return name || null;
+}
+
+function callAgentTarget(part: ToolDisplayPart): string | null {
+  const parsedTarget = normalizedAgentName(part.args?.agent);
+  if (parsedTarget) return parsedTarget;
+  if (!part.argsText) return null;
+
+  try {
+    const args = JSON.parse(part.argsText) as Record<string, unknown>;
+    return normalizedAgentName(args.agent);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `call-agent` emits both its ordinary tool row and a richer `agent:<name>`
+ * progress row. Keep the ordinary part in message state for tool completion
+ * and history, but let presentation code suppress it once the richer row is
+ * available.
+ */
+export function isCallAgentToolCallShadowed(
+  parts: readonly ToolDisplayPart[],
+  index: number,
+): boolean {
+  const part = parts[index];
+  if (part?.type !== "tool-call" || part.toolName !== "call-agent") {
+    return false;
+  }
+
+  const agentRows = parts.filter((candidate) => {
+    if (
+      candidate.type !== "tool-call" ||
+      !candidate.toolName?.startsWith("agent:")
+    ) {
+      return false;
+    }
+    return true;
+  });
+  const target = callAgentTarget(part);
+  if (!target) return agentRows.length > 0;
+
+  return agentRows.some(
+    (candidate) => normalizedAgentName(candidate.toolName?.slice(6)) === target,
+  );
+}
+
+export function shadowedCallAgentToolCallIds(
+  parts: readonly ToolDisplayPart[],
+): Set<string> {
+  const ids = new Set<string>();
+  parts.forEach((part, index) => {
+    if (part.toolCallId && isCallAgentToolCallShadowed(parts, index)) {
+      ids.add(part.toolCallId);
+    }
+  });
+  return ids;
+}

@@ -18,6 +18,8 @@ const guards = [
   "guard:shared-ui-singletons",
   "guard:no-core-client-barrel-imports",
   "guard:toolkit-must-not-import-core",
+  "guard:template-ui-imports",
+  "guard:controller-boundaries",
   "guard:migration-manifest",
   "guard:eject-manifests",
   "guard:no-generated-artifacts",

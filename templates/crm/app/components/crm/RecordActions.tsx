@@ -4,26 +4,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconBolt,
   IconChecklist,
@@ -35,6 +15,26 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import type { CrmRecordDetail } from "@/lib/types";
 
 export function RecordActions({ record }: { record: CrmRecordDetail }) {

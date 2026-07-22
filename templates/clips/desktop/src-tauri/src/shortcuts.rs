@@ -26,6 +26,41 @@ fn numpad_enter_shortcut() -> Shortcut {
     Shortcut::new(None, Code::NumpadEnter)
 }
 
+fn countdown_return_shortcuts() -> Vec<Shortcut> {
+    // Windows maps both keys to VK_RETURN, so registering both always fails.
+    #[cfg(target_os = "windows")]
+    {
+        vec![enter_shortcut()]
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        vec![enter_shortcut(), numpad_enter_shortcut()]
+    }
+}
+
+fn countdown_shortcuts() -> Vec<Shortcut> {
+    let mut shortcuts = vec![escape_shortcut()];
+    shortcuts.extend(countdown_return_shortcuts());
+    shortcuts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn countdown_return_shortcuts_match_platform_registration() {
+        let shortcuts = countdown_return_shortcuts();
+        assert!(shortcuts.contains(&enter_shortcut()));
+
+        #[cfg(target_os = "windows")]
+        assert!(!shortcuts.contains(&numpad_enter_shortcut()));
+
+        #[cfg(not(target_os = "windows"))]
+        assert!(shortcuts.contains(&numpad_enter_shortcut()));
+    }
+}
+
 static CUSTOM_VOICE_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_POPOVER_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
 static CUSTOM_RECORD_SHORTCUT: OnceLock<Mutex<Option<Shortcut>>> = OnceLock::new();
@@ -344,7 +379,7 @@ pub(crate) async fn prepare_countdown_shortcuts(app: AppHandle) -> Result<u64, S
         COUNTDOWN_SHORTCUTS_ACTIVE.store(true, Ordering::SeqCst);
         let gs = app.global_shortcut();
         let mut newly_registered = Vec::new();
-        for shortcut in [escape_shortcut(), enter_shortcut(), numpad_enter_shortcut()] {
+        for shortcut in countdown_shortcuts() {
             if !gs.is_registered(shortcut) {
                 if let Err(error) = gs.register(shortcut) {
                     for registered in newly_registered {
@@ -379,7 +414,7 @@ pub(crate) async fn finish_countdown_shortcuts(
         }
         COUNTDOWN_SHORTCUTS_ACTIVE.store(false, Ordering::SeqCst);
         let gs = app.global_shortcut();
-        for shortcut in [enter_shortcut(), numpad_enter_shortcut()] {
+        for shortcut in countdown_return_shortcuts() {
             if gs.is_registered(shortcut) {
                 let _ = gs.unregister(shortcut);
             }

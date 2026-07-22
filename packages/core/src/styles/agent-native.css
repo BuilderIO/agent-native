@@ -927,33 +927,9 @@
   display: inline-block;
 }
 
-.agent-tool-call {
-  position: relative;
-}
-
 @media (prefers-reduced-motion: no-preference) {
   .agent-tool-call--entering {
     animation: agent-tool-call-enter 220ms var(--ease-out-strong) both;
-  }
-
-  .agent-tool-call[data-active-tail="true"]::after {
-    position: absolute;
-    z-index: 1;
-    inset: 0 0 auto;
-    height: 2rem;
-    pointer-events: none;
-    content: "";
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      transparent 38%,
-      hsl(var(--foreground) / 0.055) 50%,
-      transparent 62%,
-      transparent 100%
-    );
-    background-repeat: repeat;
-    background-size: 14rem 100%;
-    animation: agent-thinking-shine 2.6s linear infinite;
   }
 
   @supports ((background-clip: text) or (-webkit-background-clip: text)) {

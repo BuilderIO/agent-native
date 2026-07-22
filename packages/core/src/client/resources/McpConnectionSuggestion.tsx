@@ -20,6 +20,7 @@ import {
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isMcpConnectionFailureText,
+  navigateToMcpOAuthStart,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
@@ -149,8 +150,9 @@ export function McpConnectionSuggestion({
     }
 
     if (canStartOAuth(integration)) {
+      setConnecting(true);
       saveMcpConnectionResume(variant === "response" ? contextText : text);
-      window.location.assign(
+      navigateToMcpOAuthStart(
         agentNativePath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -209,7 +211,7 @@ export function McpConnectionSuggestion({
         className={
           variant === "response"
             ? "mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
-            : "mx-auto mb-2 flex w-[min(100%,680px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            : "mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),680px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
         }
         data-mcp-connection-suggestion={integration.id}
       >
@@ -238,6 +240,7 @@ export function McpConnectionSuggestion({
           type="button"
           onClick={() => void connect()}
           disabled={connecting}
+          aria-busy={connecting}
           className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
         >
           {connecting && <IconLoader2 className="h-3 w-3 animate-spin" />}

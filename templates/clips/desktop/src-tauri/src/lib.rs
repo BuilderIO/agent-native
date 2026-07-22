@@ -458,7 +458,16 @@ pub fn run() {
             // login (tagged with `--autostart`) so it doesn't pop up every boot.
             let launched_at_login = std::env::args().any(|arg| arg == "--autostart");
             if !launched_at_login {
-                toggle_popover(app.handle());
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..8 {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        if tray::refresh_tray_anchor(&app_handle) {
+                            break;
+                        }
+                    }
+                    clips::force_show_popover(&app_handle);
+                });
             }
 
             Ok(())

@@ -1,8 +1,9 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import { DataTable } from "@agent-native/toolkit/dashboard";
-import { Badge } from "@agent-native/toolkit/ui/badge";
 import { IconChartDots } from "@tabler/icons-react";
 import { useEffect, useRef } from "react";
+
+import { Badge } from "@/components/ui/badge";
 
 interface ProgramPreview {
   ok: boolean;

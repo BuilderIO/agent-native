@@ -1,5 +1,10 @@
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Input } from "@agent-native/toolkit/ui/input";
+import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router";
+
+import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -7,12 +12,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@agent-native/toolkit/ui/table";
-import { IconArrowUpRight, IconSearch } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router";
-
-import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
+} from "@/components/ui/table";
 import type { CrmKind, CrmRecordSummary } from "@/lib/types";
 
 const labels: Record<CrmKind, string> = {

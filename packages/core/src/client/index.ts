@@ -224,9 +224,17 @@ export {
 } from "./review/index.js";
 export {
   BuilderConnectCard,
+  DefaultBuilderConnectCardView,
   ProviderReadinessBadge,
   SetupConnectionsPage,
+  useBuilderConnectCardController,
+  type BuilderConnectCardAction,
+  type BuilderConnectCardControllerOptions,
   type BuilderConnectCardProps,
+  type BuilderConnectCardRenderContext,
+  type BuilderConnectCardStatus,
+  type BuilderConnectCardViewModel,
+  type DefaultBuilderConnectCardViewProps,
   type ProviderReadinessBadgeProps,
   type SetupConnectionsPageProps,
 } from "./setup-connections/index.js";
@@ -292,7 +300,16 @@ export {
 export {
   ShareButton,
   ShareDialog,
+  useShareButtonController,
   type ShareButtonProps,
+  type ShareButtonController,
+  type ShareButtonControllerOptions,
+  type ShareButtonOrgMember,
+  type ShareButtonOrgMemberSearch,
+  type ShareButtonRole,
+  type ShareButtonShare,
+  type ShareButtonSharesResponse,
+  type ShareButtonVisibility,
   type ShareDialogProps,
 } from "./sharing/index.js";
 export {

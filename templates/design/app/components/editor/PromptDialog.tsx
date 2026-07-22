@@ -9,14 +9,6 @@ import {
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@agent-native/toolkit/ui/command";
-import {
   IconApps,
   IconCheck,
   IconChevronDown,
@@ -33,6 +25,14 @@ import { toast } from "sonner";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,

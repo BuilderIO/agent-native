@@ -1,4 +1,3 @@
-import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconBuilding,
   IconChecklist,
@@ -13,6 +12,7 @@ import {
 } from "@tabler/icons-react";
 import { Link, NavLink } from "react-router";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const navigation = [

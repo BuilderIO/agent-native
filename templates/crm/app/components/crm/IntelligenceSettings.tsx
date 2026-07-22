@@ -3,6 +3,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { IconBrain, IconPlus, IconTags, IconTrash } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,9 +17,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -24,9 +28,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -34,12 +38,9 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { Switch } from "@agent-native/toolkit/ui/switch";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import { IconBrain, IconPlus, IconTags, IconTrash } from "@tabler/icons-react";
-import { useState } from "react";
-import { toast } from "sonner";
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 type TrackerKind = "keyword" | "smart";
 

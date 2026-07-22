@@ -2,20 +2,6 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import { IconCheck, IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -26,6 +12,20 @@ import {
   PageHeader,
   SetupEmptyState,
 } from "@/components/crm/Surface";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { normalizeTasks } from "@/lib/types";
 
 interface ManageTaskInput {

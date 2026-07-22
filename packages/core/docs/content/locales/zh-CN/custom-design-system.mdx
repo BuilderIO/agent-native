@@ -1,0 +1,323 @@
+---
+title: "自定义设计系统"
+description: "无需替换 Agent Native 的行为，即可在 Agent Native 应用和共享 Toolkit 体验中使用公司的 React 设计系统。"
+---
+
+# 自定义设计系统
+
+Agent Native 可以使用公司的 React 组件渲染应用自有屏幕和共享 Toolkit 体验。注册一次明确且类型安全的适配器后，原有的功能控制器仍会负责操作、状态、无障碍要求以及对代理可见的行为。
+
+适配器契约不要求 Tailwind、shadcn、Radix、`className` 或任何特定的样式运行时。组件可以使用主题提供程序、CSS-in-JS、CSS Modules、React Aria 或普通 CSS。`className` 和 `style` 是可选的互操作钩子，而不是样式要求。
+
+有关完整适配器、主题提供程序接线、深色模式和已记录的 v1 差距，请参阅可运行的 [Material UI Chat 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 和 [Ant Design Chat 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd)。
+
+## 选择最小的自定义层级
+
+| 层级                    | 适用场景                                               | 仍然共享的内容                             |
+| ----------------------- | ------------------------------------------------------ | ------------------------------------------ |
+| **Theme tokens**        | 快速统一默认界面和尚未适配的界面品牌                   | Toolkit 组件、控制器和行为                 |
+| **Semantic components** | 公司自己的按钮、字段、选择器、对话框、菜单和表面等控件 | 功能控制器和产品契约                       |
+| **Product slots**       | 某个功能的公司专属布局，例如连接卡片或聊天历史栏       | 该功能的控制器和操作                       |
+| **Eject**               | 受支持的插槽无法表达的产品行为或结构                   | Core 运行时契约；被 eject 的功能归应用所有 |
+
+从令牌开始，在系统有对应项的地方添加语义组件；使用 product slot 进行功能级组合；只有仍需要由你负责的最小单元才进行 eject。
+
+## 注册适配器
+
+客户适配器就是普通的 npm 包。在 `app/design-system.ts` 中显式导入一个适配器；Agent Native 不会扫描依赖、自动检测库，也不会从 JSON 加载组件。
+
+将构建时主题放在依赖较少的模块中，这样 Vite 加载配置时无需评估客户的 React 包：
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+通过应用的提供程序接缝接入该定义：
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+支持部分适配器。你省略的组件会使用 Agent Native 的默认适配器。如果某个自定义组件在渲染时抛出异常，组件级错误边界会记录失败，并为该控件渲染默认组件；其余自定义系统仍保持启用。
+
+两个完整的 Chat 应用会针对真实设计系统验证这一契约：[Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 使用 Emotion、`ThemeProvider` 和 MUI 的叠加层堆栈；[Ant Design 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 使用 `ConfigProvider` 以及 Ant Design 的表单和叠加层原语。它们的 `app/design-system.tsx` 文件是主要的集成参考；上面的 Acme fixture 有意保持精简，用于单元测试。
+
+旧版 `components={{ Button }}` 提供程序 API 仍然兼容，并作为优先级最低的 `ActionButton` 适配器处理。如果两者同时提供，`designSystem.components.ActionButton` 优先，开发构建会记录警告。
+
+## 构建时主题令牌
+
+`defineTheme` 接受标准 CSS 颜色，包括十六进制、`rgb()`、`hsl()` 和 OKLCH。Core Vite 插件会校验并将其规范化为 Agent Native 现有的语义变量。深色颜色逐令牌回退到浅色调色板；Agent Native 不会自动推导深色调色板。
+
+将主题传给 Vite 插件：
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+从应用根目录导入一次虚拟样式表，使开发环境和 React Router 生产构建都包含它：
+
+```tsx filename="app/root.tsx"
+import "virtual:agent-native-theme.css";
+```
+
+插件会在构建时生成该虚拟主题 CSS。其语义 token 会覆盖脚手架的 fallback 值，但不会移除仅作 fallback 的 token。版本 1 不会按请求或按组织选择主题。
+
+## 17 个语义契约
+
+该契约刻意关注含义和行为，而不是 DOM 形状或视觉实现。在产品状态必须保持可移植的地方，值和打开状态由外部控制。
+
+### 叶级契约
+
+| 组件           | 必需契约                             | 重要的可选语义                                                                  |
+| -------------- | ------------------------------------ | ------------------------------------------------------------------------------- |
+| `ActionButton` | 根据需要提供 `children` 和 `onPress` | `intent`、`emphasis`、`size`、`pending`、图标、disabled state、button type、ref |
+| `IconButton`   | 可访问的 `label`、`icon`             | 与 `ActionButton` 匹配的按钮语义                                                |
+| `TextField`    | 受控字符串 `value`、`onChange`       | label、description、error、input type/mode、validation、adornments、events、ref |
+| `TextArea`     | 受控字符串 `value`、`onChange`       | label、description、error、rows、validation、events、ref                        |
+| `Spinner`      | 进度指示器                           | 可访问的 label 和语义尺寸                                                       |
+| `Skeleton`     | 不可交互的占位符                     | width、height、line/rectangle/circle shape                                      |
+| `Status`       | `children`                           | neutral/info/success/warning/danger 色调、icon、size                            |
+| `Surface`      | `children`                           | semantic element、elevation、padding、interactive press behavior                |
+| `Avatar`       | 可访问的 `name`                      | image source、fallback、size、presence status、image ref                        |
+
+### 行为契约
+
+| 组件       | 必需契约                                       | 由适配器负责的行为                                                              |
+| ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Tooltip`  | trigger 和 content                             | 受控/非受控 open state、delay、placement、portal behavior                       |
+| `Menu`     | trigger、items/sections、`onAction`            | 键盘导航、嵌套项、selection、dismissal、portal behavior                         |
+| `Popover`  | trigger 和 children                            | 受控/非受控 open state、dismissal、focus、modality、portal behavior             |
+| `Dialog`   | 受控的 `open`、`onOpenChange`、title、children | dialog semantics、dismissal、initial/restore focus、portal 和 stacking behavior |
+| `Picker`   | `mode`、options、受控的 `value`、`onChange`    | select/combobox semantics、search/open state、validation、loading/empty state   |
+| `Checkbox` | 受控的 `checked`、`onChange`                   | checkbox semantics、indeterminate/required/invalid state                        |
+| `Switch`   | 受控的 `checked`、`onChange`                   | switch semantics 和 disabled state                                              |
+| `Tabs`     | items、受控的 `value`、`onChange`              | tab semantics、orientation、automatic/manual activation                         |
+
+`intent` 是 `primary`、`neutral` 或 `danger`；`emphasis` 是 `solid`、`outline` 或 `ghost`；size 是 `compact`、`default` 或 `large`。这些值描述用途，而不是默认 UI 的 class 或 variant 名称。
+
+默认适配器除了语义属性外，还会让这些视觉 props 产生可观察的行为：button、spinner、status、skeleton、avatar 和 dialog 的 size 会选择具体 variant；skeleton shape 和 avatar presence status 会改变其呈现；菜单选择和 `closeOnAction` 会影响行为。自定义适配器仍需负责将相同含义映射到自己的视觉词汇。
+
+`Picker` 只覆盖 select 和 combobox 行为。日期选择不属于版本 1 的语义契约。
+
+## 叠加层、portal 与焦点
+
+行为组件可以完整使用设计系统自己的叠加层和焦点实现。它们不必包装 Radix，但必须遵守语义契约，包括受控状态、可访问角色以及提供的 `portalContainer`、`initialFocusRef` 和 `restoreFocusRef` 接缝。
+
+当原生设计系统对话框从 Radix 托管的 Toolkit 界面打开时，这一点尤其重要。适配器拥有自己的叠加层堆栈，而这些接缝让两个系统能够在 portal 层级、z-index 顺序、初始焦点和焦点恢复上达成一致。请在真实应用中测试嵌套和相邻的叠加层，不要只在隔离的组件浏览器中测试。
+
+## 无头功能控制器与产品插槽
+
+语义组件是共享词汇。功能控制器是行为边界。控制器拥有状态转换、操作、跟踪和视图模型；默认视图和产品插槽都使用同一个控制器。
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+这是功能级无头 UI，而不是为每个控件再提供一套底层 hooks。`BuilderConnectCard` 和 `ChatHistoryRail` 是首批验证切片；settings 和 sharing 遵循相同的 controller/default-view/custom-view 不变量。
+
+`ChatHistoryRail` 在 v1 中刻意保留一个不透明的 `renderRail` 插槽。该插槽会整体替换 rail 视图，并接收共享控制器和列表 props；独立的 header、footer 和 row 插槽会推迟到第二个产品需要它们时再提供。这样可以限制 API，同时让历史状态和操作留在共享控制器上。
+
+如果某个插槽无法表达所需的产品变更，请检查并 eject 最小的已发布单元：
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+Ejection 会转移所有权；它不会分叉 Core auth、actions、persistence、access checks、chat transport 或 agent execution。
+
+## 运行一致性测试套件
+
+从客户包中导出完整的组件映射，并在类似浏览器的测试环境中运行随附的测试套件：
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+该套件会检查全部 17 个导出、受控值和打开状态、可访问角色、键盘交互、选择、portal 目标、z-index 互操作性、初始焦点和焦点恢复。在适配器包的 CI 中运行它，并保留一个小型应用级叠加层测试来验证提供程序特有的组合。
+
+契约演进遵循语义化版本：
+
+- 新增组件和可选 props 是兼容的 minor 变更。
+- 新增必需 props、删除组件/props 或变更行为契约需要新的 contract major。
+- 当适配器的 contract major 与 Toolkit 的 contract major 不同时，一致性测试套件会失败。
+
+## 适配器配方
+
+### MUI 风格的主题提供程序系统
+
+[Chat + Material UI 示例](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 是主要的实作参考。它的单一 `app/design-system.tsx` 模块导出语义适配器、MUI 的浅色和深色 `createTheme` 值以及 `defineTheme` 令牌源。应用的 `AppToolkitProvider` 将 MUI `ThemeProvider` 保持在共享 Toolkit 界面之上，而 `vite.config.ts` 导入同一个 `theme` 值来生成构建时 CSS。这样 Emotion 样式、MUI portal 和 Agent Native 令牌都使用同一个事实来源。
+
+让公司的主题提供程序位于 `AppToolkitProvider` 之上，并在包边界处适配语义 props。在适配器内部将 `intent`、`emphasis` 和 `size` 映射到系统自己的词汇，不要在 Agent Native 功能代码中映射。对于叠加层，将 `portalContainer` 转发到设计系统的 container 或 portal prop，并使用其焦点管理器实现 `initialFocusRef`/`restoreFocusRef`。
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+不要将某个功能的主题提供程序复制到每个适配器组件中。在应用边界安装一次，让 portal 和叠加层继承相同的上下文。
+
+[Chat MUI 适配器](https://github.com/BuilderIO/agent-native/blob/main/examples/chat-mui/app/design-system.tsx) 是一个完整示例：它导出一个 `defineTheme` 值，将该值导入 `defineDesignSystem`，并从 `vite.config.ts` 导入同一模块。这个单一事实来源让 MUI 的浅色/深色提供程序令牌与构建时语义 CSS 令牌保持一致，而无需运行时生成主题。
+
+### 基于 React Aria 的系统
+
+使用 React Aria 组件或 hooks 直接实现语义。保留受控的 `value`/`open` props，并转发它们的变更回调，而不要创建第二个状态存储。对于行为契约，请使用自己的叠加层提供程序和焦点范围，从 `portalContainer` 设置其 portal 根，并将 initial/restore ref 连接到焦点管理 API。一致性测试套件是最低限度的行为检查；设计系统仍需负责完整的键盘和屏幕阅读器测试矩阵。
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules 与普通 React
+
+适配器可以是普通 React 和 CSS Modules。如果 `className` 会绕过组件的样式契约，就完全忽略它；它是可选的。明确保留 DOM 角色、可访问名称、键盘行为和受控状态。
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## Version 1 的边界
+
+版本 1 的语义桥接不会替换每一种第三方 UI 生态。以下界面在可用时会接收主题令牌和功能插槽，但其内部控件还不是语义适配器契约：
+
+- `@assistant-ui/react` 聊天和 composer 内部实现
+- Tiptap 编辑器套件
+- `cmdk`、`vaul`、Recharts 和 `react-day-picker`
+- date-picker 组件（`Picker` 契约仅支持 select/combobox）
+- Dispatch 的独立原语分支
+- Pinpoint 的 Solid.js 和 Shadow DOM UI
+
+明确这些边界后，适配器包才能准确说明支持范围。只有当相同的含义和行为对多个功能都有用时，才应提出新的语义组件；单一功能的差异请使用 product slots 或 eject。
+
+## 后续步骤
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — 本地适配器、提供程序接线和共享原语导入。
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — 可复用的功能所有权和包边界。
+- [**Settings Kit**](/docs/toolkit-settings) 和 [**Sharing Kit**](/docs/toolkit-sharing) — 保留应用操作和访问契约的共享功能控制器。
+
+## Chat 示例覆盖范围
+
+可运行的 [Material UI Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-mui) 和 [Ant Design Chat](https://github.com/BuilderIO/agent-native/tree/main/examples/chat-antd) 示例会注册全部 17 个 contract components，并通过 adapters 渲染其中的 16/17。`Menu` 仍是明确的缺口，因为 agent-panel header 包含一个 v1 data-only contract 无法表达的 live compound submenu。assistant-ui composer/message renderer、cmdk internals 和 Tiptap editor 仍属于 v1 non-goals。
+
+日常的 Chat 分享按钮仍使用旧版 popover。随应用发布的 `/design-system-proof` 路由让完整的 Core `ShareDialog` 可访问，同时不会把该 popover 误称为设计系统 dialog。

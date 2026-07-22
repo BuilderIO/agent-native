@@ -2,6 +2,36 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "chat-mui",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/967cecd3-5ccc-46c6-af9c-e706fd1acd04/scratchpad/chat-mui-verify.sqlite",
+        "PORT=3210",
+        "pnpm",
+        "--dir",
+        "examples/chat-mui",
+        "dev",
+        "--port",
+        "3210"
+      ],
+      "port": 3210
+    },
+    {
+      "name": "chat-antd",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/967cecd3-5ccc-46c6-af9c-e706fd1acd04/scratchpad/chat-antd-verify.sqlite",
+        "PORT=3211",
+        "pnpm",
+        "--dir",
+        "examples/chat-antd",
+        "dev",
+        "--port",
+        "3211"
+      ],
+      "port": 3211
+    },
+    {
       "name": "docs",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "packages/docs", "dev"],

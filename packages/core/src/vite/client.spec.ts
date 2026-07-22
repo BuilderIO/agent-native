@@ -32,6 +32,46 @@ function flatPlugins(plugins: any[] | undefined): any[] {
   return (plugins ?? []).flat().filter(Boolean) as any[];
 }
 
+describe("design system theme plugin", () => {
+  it("emits normalized build-time CSS from a virtual module", async () => {
+    const plugins = flatPlugins(
+      defineConfig({
+        designSystemTheme: {
+          colors: {
+            light: { primary: "oklch(60% 0.2 250)", background: "white" },
+            dark: { background: "#101010" },
+          },
+        },
+      }).plugins,
+    );
+    const plugin = plugins.find(
+      (candidate) => candidate.name === "agent-native-design-system-theme",
+    );
+
+    expect(plugin).toBeDefined();
+    const resolved = await plugin.resolveId("virtual:agent-native-theme.css");
+    const css = await plugin.load(resolved);
+    expect(css).toContain("--primary:");
+    expect(css).toContain("--background: 0 0% 6.275%");
+    expect(await plugin.transformIndexHtml()).toEqual([
+      expect.objectContaining({
+        tag: "style",
+        children: css,
+        injectTo: "head",
+      }),
+    ]);
+  });
+
+  it("does not add theme CSS when a theme is not configured", () => {
+    const plugins = flatPlugins(defineConfig().plugins);
+    expect(
+      plugins.some(
+        (candidate) => candidate.name === "agent-native-design-system-theme",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("dev server mounted path helpers", () => {
   const previousSecret = process.env.OAUTH_STATE_SECRET;
 

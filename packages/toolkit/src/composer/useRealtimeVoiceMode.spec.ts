@@ -6,6 +6,7 @@ import {
   createRealtimeVoiceGreetingEvent,
   createRealtimeVoiceGreetingStarter,
   createRealtimeVoicePreferenceUpdate,
+  createRealtimeVoiceResponseCoordinator,
   createRealtimeVoiceSession,
   createRealtimeVoiceSessionWithCapability,
   createRealtimeVoiceTranscriptSequencer,
@@ -521,7 +522,7 @@ describe("Realtime voice dynamic tool manifests", () => {
 });
 
 describe("extractRealtimeVoiceFunctionCalls", () => {
-  it("uses the low-latency completed-arguments event", () => {
+  it("waits for the terminal response event before returning a function call", () => {
     expect(
       extractRealtimeVoiceFunctionCalls({
         type: "response.function_call_arguments.done",
@@ -529,13 +530,7 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
         call_id: "call-1",
         arguments: '{"path":"/inbox"}',
       }),
-    ).toEqual([
-      {
-        name: "navigate",
-        callId: "call-1",
-        argumentsText: '{"path":"/inbox"}',
-      },
-    ]);
+    ).toEqual([]);
   });
 
   it("falls back to completed function items on response.done", () => {
@@ -543,6 +538,7 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
       extractRealtimeVoiceFunctionCalls({
         type: "response.done",
         response: {
+          status: "completed",
           output: [
             { type: "message", role: "assistant" },
             {
@@ -561,6 +557,29 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
         argumentsText: "{}",
       },
     ]);
+  });
+
+  it("ignores function items from failed or cancelled responses", () => {
+    const output = [
+      {
+        type: "function_call",
+        name: "navigate",
+        call_id: "call-3",
+        arguments: "{}",
+      },
+    ];
+    expect(
+      extractRealtimeVoiceFunctionCalls({
+        type: "response.done",
+        response: { status: "failed", output },
+      }),
+    ).toEqual([]);
+    expect(
+      extractRealtimeVoiceFunctionCalls({
+        type: "response.done",
+        response: { status: "cancelled", output },
+      }),
+    ).toEqual([]);
   });
 });
 
@@ -630,6 +649,61 @@ describe("Realtime voice startup and transcript ordering", () => {
     greeting.reset();
     expect(greeting.start()).toBe(true);
     expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("queues response requests behind the active response and retries a rejected request", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceResponseCoordinator((event) =>
+      sent.push(event),
+    );
+
+    coordinator.request();
+    coordinator.handleEvent({
+      type: "response.created",
+      response: { id: "resp-active" },
+    });
+    coordinator.request();
+    expect(sent).toHaveLength(1);
+
+    expect(
+      coordinator.handleError(
+        "Conversation already has an active response in progress: resp-active",
+      ),
+    ).toBe(true);
+    coordinator.handleEvent({
+      type: "response.done",
+      response: { id: "resp-active", status: "completed" },
+    });
+
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual({ type: "response.create" });
+  });
+
+  it("drops queued work after a failed response so the next turn can start", () => {
+    const sent: Record<string, unknown>[] = [];
+    const coordinator = createRealtimeVoiceResponseCoordinator((event) =>
+      sent.push(event),
+    );
+
+    coordinator.request();
+    coordinator.handleEvent({ type: "response.created" });
+    coordinator.request();
+    coordinator.handleEvent({
+      type: "response.done",
+      response: { status: "failed" },
+    });
+
+    expect(sent).toHaveLength(1);
+    coordinator.request();
+    expect(sent).toHaveLength(2);
+  });
+
+  it("ignores unrelated realtime errors", () => {
+    const coordinator = createRealtimeVoiceResponseCoordinator(vi.fn());
+
+    expect(coordinator.handleError("The microphone was disconnected.")).toBe(
+      false,
+    );
   });
 
   it("publishes in conversation order when user ASR finishes after the assistant", () => {

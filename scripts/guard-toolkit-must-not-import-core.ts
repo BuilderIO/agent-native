@@ -20,7 +20,7 @@ export type ToolkitCoreImportViolation = {
   specifier: string;
 };
 
-type Specifier = {
+export type Specifier = {
   index: number;
   value: string;
 };
@@ -113,7 +113,7 @@ function skipStringOrComment(source: string, start: number): number {
   return start;
 }
 
-function scanModuleSpecifiers(source: string): Specifier[] {
+export function scanModuleSpecifiers(source: string): Specifier[] {
   const specifiers: Specifier[] = [];
   let cursor = 0;
   while (cursor < source.length) {

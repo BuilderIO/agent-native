@@ -1,6 +1,11 @@
+import type { H3Event } from "h3";
 import { describe, expect, it } from "vitest";
 
-import { isValidMcpOAuthFlow, type McpOAuthFlow } from "./oauth-routes.js";
+import {
+  isValidMcpOAuthFlow,
+  redirectWithStagedCookies,
+  type McpOAuthFlow,
+} from "./oauth-routes.js";
 
 const baseFlow: McpOAuthFlow = {
   name: "linear",
@@ -17,6 +22,29 @@ const baseFlow: McpOAuthFlow = {
 };
 
 describe("MCP OAuth callback flow validation", () => {
+  it("carries staged cookies on native redirects", () => {
+    const event = {
+      res: { headers: new Headers() },
+    } as unknown as H3Event;
+    event.res.headers.append(
+      "set-cookie",
+      "an_mcp_oauth_flow=encrypted-flow; Path=/; HttpOnly",
+    );
+
+    const response = redirectWithStagedCookies(
+      event,
+      "https://mcp-auth.example.com/oauth/authorize",
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://mcp-auth.example.com/oauth/authorize",
+    );
+    expect(response.headers.get("set-cookie")).toContain(
+      "an_mcp_oauth_flow=encrypted-flow",
+    );
+  });
+
   it("binds a user flow to the initiating user without requiring an org", () => {
     expect(
       isValidMcpOAuthFlow(baseFlow, "alice@example.com", undefined, "<STATE>"),

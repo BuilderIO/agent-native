@@ -27,6 +27,7 @@ import {
 import type { LinksFunction } from "react-router";
 import { Toaster } from "sonner";
 
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 
 import changelog from "../CHANGELOG.md?raw";
@@ -212,13 +213,15 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders
-      queryClient={queryClient}
-      toaster={<Toaster richColors position="bottom-left" closeButton />}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        toaster={<Toaster richColors position="bottom-left" closeButton />}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

@@ -57,10 +57,26 @@ Default to Apple/Linear-level restraint: make the primary workflow obvious, then
 
 ## Agent-Native UI Rules
 
-- Agent-native apps use React, Vite, Tailwind CSS, shadcn/ui, and `@tabler/icons-react`.
-- **Use shadcn/ui primitives for standard UI**: `DropdownMenu`, `Popover`, `Dialog`, `AlertDialog`, `Sheet`, `Tabs`, `Tooltip`, `Select`, `Command`, `Sidebar`, `Table`, `Card`, `Badge`, `Skeleton`, and related primitives.
+- Agent-native apps use React and Vite. The default adapter uses Tailwind CSS,
+  shadcn/ui, and `@tabler/icons-react`, but an app may register a different
+  company design system in `app/design-system.ts`.
+- **Use the app's design-system seam for standard UI.** Inspect
+  `app/design-system.ts`, `ToolkitProvider`, and the local UI adapter directory
+  before choosing a primitive. Use shadcn primitives when they are the active
+  adapter; use the registered company components when they are not.
 - **When touching shadcn/ui components, also read `shadcn-ui` if it exists.** That skill covers `components.json`, CLI docs, component composition, theming, and registry workflows.
 - Check `app/components/ui/` before importing a shadcn component. If a primitive is missing, add it from the app root with `pnpm dlx shadcn@latest add <component>`, then review the generated file.
+- Pages, routes, and domain components must import controls through the app's
+  local adapter path, usually `@/components/ui/*`. Never import
+  `@agent-native/toolkit/ui/*` directly in app product code.
+- Toolkit/Core feature presentation flows through the semantic components from
+  `@agent-native/toolkit/design-system`. Their props express intent, emphasis,
+  size, controlled values, and behavior; they do not require Tailwind, CVA, or
+  `className`.
+- For deeper feature customization, consume the feature-level headless
+  controller through its product render slot. The same controller must power
+  the default and custom views. Eject the smallest supported unit only after
+  tokens, semantic components, controllers, and slots are insufficient.
 - Do not build custom dropdowns, menus, popovers, modals, or confirmations with manual absolute positioning and click-outside effects.
 - Never use browser dialogs (`window.alert`, `window.confirm`, `window.prompt`). Use `AlertDialog`, `Dialog`, or app-specific confirmation UI.
 - Use Tabler icons for all first-party UI icons. Do not add Lucide, Heroicons, inline SVG icon sets, or emoji icons.
@@ -103,10 +119,14 @@ For substantial frontend work:
 2. Start the dev server when the app needs one.
 3. Verify with browser screenshots at desktop and mobile widths.
 4. Check interactive states: hover, focus, loading, empty, error, and destructive confirmations.
+5. When registering or changing a company adapter, run
+   `@agent-native/toolkit/conformance`, including mixed-overlay focus,
+   `portalContainer`, and z-index stacking checks.
 
 ## Related Skills
 
 - **shadcn-ui** — shadcn CLI, component docs, composition rules, theming, and registries
+- **customizing-agent-native** — Design-system registration, feature controllers, product slots, conformance, and ejection
 - **self-modifying-code** — The agent can edit source code to apply design changes
 - **storing-data** — All data lives in SQL; use actions for data access
 - **actions** — `useActionQuery`/`useActionMutation` hooks for frontend data fetching

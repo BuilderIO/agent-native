@@ -30,6 +30,7 @@ import {
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
+  navigateToMcpOAuthStart,
   resolveMcpIntegrationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
@@ -242,24 +243,29 @@ export function McpIntegrationDialog({
     setMode("form");
   };
 
-  const beginOAuth = (args: {
-    name: string;
-    url: string;
-    description: string;
-  }) => {
+  const beginOAuth = (
+    args: {
+      name: string;
+      url: string;
+      description: string;
+    },
+    options?: { quickId?: string },
+  ) => {
     const validationError = getMcpUrlValidationError(args.url);
     if (validationError) {
       setError(validationError);
       setTestResult(null);
       return;
     }
+    setBusy(true);
+    setQuickBusyId(options?.quickId ?? null);
     const returnUrl =
       typeof window === "undefined"
         ? "/"
         : window.location.pathname +
           window.location.search +
           window.location.hash;
-    window.location.assign(
+    navigateToMcpOAuthStart(
       agentNativePath(
         buildMcpOAuthStartUrl({
           name: args.name,
@@ -272,12 +278,18 @@ export function McpIntegrationDialog({
     );
   };
 
-  const connectWithOAuth = (integration: DefaultMcpIntegration) =>
-    beginOAuth({
-      name: integration.name,
-      url: integration.url,
-      description: integration.description,
-    });
+  const connectWithOAuth = (
+    integration: DefaultMcpIntegration,
+    options?: { quickId?: string },
+  ) =>
+    beginOAuth(
+      {
+        name: integration.name,
+        url: integration.url,
+        description: integration.description,
+      },
+      options,
+    );
 
   const connectCustomWithOAuth = () => {
     if (!name.trim()) {
@@ -338,7 +350,7 @@ export function McpIntegrationDialog({
       return;
     }
     if (integration.authMode === "oauth") {
-      connectWithOAuth(integration);
+      connectWithOAuth(integration, { quickId: integration.id });
       return;
     }
     if (integration.authMode === "headers") {
@@ -563,6 +575,7 @@ export function McpIntegrationDialog({
                             type="button"
                             onClick={() => quickConnect(integration)}
                             disabled={busy}
+                            aria-busy={quickBusyId === integration.id}
                             className={cn(
                               "inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90",
                               busy && "cursor-not-allowed opacity-70",
@@ -773,8 +786,12 @@ export function McpIntegrationDialog({
                   type="button"
                   onClick={() => connectWithOAuth(selected)}
                   disabled={!name.trim() || !url.trim() || busy}
+                  aria-busy={busy}
                   className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
                 >
+                  {busy && (
+                    <IconLoader2 className="me-1.5 inline h-3.5 w-3.5 animate-spin" />
+                  )}
                   {t("mcpIntegrations.connectWithOAuth")}
                 </button>
               ) : !selected ? (
@@ -782,8 +799,12 @@ export function McpIntegrationDialog({
                   type="button"
                   onClick={connectCustomWithOAuth}
                   disabled={!name.trim() || !url.trim() || busy}
+                  aria-busy={busy}
                   className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
                 >
+                  {busy && (
+                    <IconLoader2 className="me-1.5 inline h-3.5 w-3.5 animate-spin" />
+                  )}
                   {t("mcpIntegrations.connectWithOAuth")}
                 </button>
               ) : null}

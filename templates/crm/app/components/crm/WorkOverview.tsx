@@ -1,9 +1,9 @@
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconArrowRight, IconCheck, IconListCheck } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   normalizeRecords,
   normalizeTasks,

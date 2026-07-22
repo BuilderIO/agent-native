@@ -1,0 +1,68 @@
+name: Chat template E2E
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: chat-template-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  standalone-chat:
+    name: Generate + run standalone Chat
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Free disk for generated app and browser
+        run: |
+          df -h
+          sudo rm -rf \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/.ghcup \
+            /usr/local/lib/android \
+            /usr/local/share/boost \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            ~/.cache/ms-playwright
+          docker system prune -af || true
+          sudo apt-get clean
+          df -h
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      # postinstall rebuilds any stale/missing dists, including the local CLI
+      # used by qa:standalone-chat-dev.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Generate, install, and run standalone Chat
+        # Covers the public Chat CLI path and the Vite dev SSR/browser runtime
+        # that production builds do not exercise.
+        run: pnpm qa:standalone-chat-dev

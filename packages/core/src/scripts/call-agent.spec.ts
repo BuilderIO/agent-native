@@ -553,6 +553,42 @@ describe("call-agent action", () => {
       }
     });
 
+    it("treats a claimed processing task as active remote progress", async () => {
+      vi.useFakeTimers();
+      try {
+        let onUpdate: ((task: any) => void) | undefined;
+        let resolveCall: ((value: string) => void) | undefined;
+        callAgentMock.mockImplementation((_url, _msg, opts) => {
+          onUpdate = opts.onUpdate;
+          return new Promise<string>((resolve) => {
+            resolveCall = resolve;
+          });
+        });
+
+        const { run } = await import("./call-agent.js");
+        const send = vi.fn();
+        const pending = run({ agent: "slides", message: "long claimed task" }, {
+          send,
+        } as any);
+        while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        onUpdate!(makeTask("processing", "Rendering the deck…"));
+        resolveCall!("final answer");
+        await pending;
+
+        expect(send).toHaveBeenCalledWith({
+          type: "agent_call_progress",
+          agent: "Slides",
+          state: "processing",
+          elapsedSeconds: 30,
+          detail: "Rendering the deck…",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("emits agent_call_progress events the REAL run-manager progress predicate (not a copy) counts as progress", async () => {
       vi.useFakeTimers();
       try {

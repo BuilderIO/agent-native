@@ -1,7 +1,8 @@
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type { ContentDatabaseItem, DocumentProperty } from "@shared/api";
 import { IconLayoutGrid, IconPlus } from "@tabler/icons-react";
 import { useRef, useState } from "react";
+
+import { Spinner } from "@/components/ui/spinner";
 
 import { TYPE_ICONS, displayValue } from "../DocumentProperties";
 import {
