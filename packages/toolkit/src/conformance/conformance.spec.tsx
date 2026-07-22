@@ -3,7 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defaultDesignSystemComponents } from "../design-system/default-adapter.js";
-import { DESIGN_SYSTEM_CONTRACT_VERSION } from "../design-system/types.js";
+import {
+  DESIGN_SYSTEM_CONTRACT_VERSION,
+  type DesignSystemComponents,
+} from "../design-system/types.js";
 import { cssInJsFixtureAdapter } from "./__fixtures__/css-in-js-adapter.js";
 import {
   assertDesignSystemConformance,
@@ -79,5 +82,40 @@ describe("design-system conformance kit", () => {
       contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
     });
     expect(report.results.filter((result) => !result.passed)).toEqual([]);
+  });
+
+  it("rejects tabs that stack an icon above its label", async () => {
+    const stackedTabsAdapter: DesignSystemComponents = {
+      ...cssInJsFixtureAdapter,
+      Tabs: ({ items, value, onChange, orientation }) => (
+        <div>
+          <div role="tablist" aria-orientation={orientation}>
+            {items.map((item) => (
+              <button
+                key={String(item.value)}
+                role="tab"
+                aria-selected={item.value === value}
+                style={{ display: "flex", flexDirection: "column" }}
+                onClick={() => onChange(item.value)}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>
+          {items.find((item) => item.value === value)?.content}
+        </div>
+      ),
+    };
+    const report = await runDesignSystemConformance({
+      adapterName: "stacked-tabs fixture",
+      components: stackedTabsAdapter,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+    const tabsResult = report.results.find(
+      (result) => result.id === "behavior.tabs",
+    );
+    expect(tabsResult?.passed).toBe(false);
+    expect(tabsResult?.message).toContain("same row");
   });
 });
