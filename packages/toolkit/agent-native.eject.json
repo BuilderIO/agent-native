@@ -62,6 +62,7 @@
         "class-variance-authority",
         "clsx",
         "cmdk",
+        "culori",
         "date-fns",
         "embla-carousel-react",
         "highlight.js",
@@ -170,6 +171,23 @@
       "verification": ["pnpm typecheck"]
     },
     {
+      "id": "toolkit/conformance",
+      "label": "Design system conformance kit",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["conformance"],
+      "entrypoints": ["./conformance", "./conformance/*"],
+      "strategy": "source-copy",
+      "sourceEntries": [
+        "src/conformance/index.ts",
+        "src/conformance/runner.tsx",
+        "src/conformance/types.ts",
+        "src/conformance/version.ts"
+      ],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": ["react", "react-dom"],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/context-ui",
       "label": "Context inspection UI",
       "catalog": "toolkit-ui",
@@ -208,6 +226,44 @@
       "verification": ["pnpm typecheck"]
     },
     {
+      "id": "toolkit/design-system",
+      "label": "Design system bridge",
+      "catalog": "toolkit-ui",
+      "catalogItems": ["design-system"],
+      "entrypoints": ["./design-system", "./design-system/*"],
+      "strategy": "source-copy",
+      "sourceEntries": [
+        "src/design-system/components.tsx",
+        "src/design-system/context.tsx",
+        "src/design-system/default-adapter.tsx",
+        "src/design-system/definition.ts",
+        "src/design-system/error-boundary.tsx",
+        "src/design-system/index.ts",
+        "src/design-system/theme.ts",
+        "src/design-system/types.ts"
+      ],
+      "targetRoot": "app/components/agent-native/toolkit",
+      "dependencies": [
+        "@radix-ui/react-avatar",
+        "@radix-ui/react-checkbox",
+        "@radix-ui/react-dialog",
+        "@radix-ui/react-dropdown-menu",
+        "@radix-ui/react-popover",
+        "@radix-ui/react-select",
+        "@radix-ui/react-slot",
+        "@radix-ui/react-switch",
+        "@radix-ui/react-tabs",
+        "@radix-ui/react-tooltip",
+        "@tabler/icons-react",
+        "class-variance-authority",
+        "clsx",
+        "culori",
+        "react",
+        "tailwind-merge"
+      ],
+      "verification": ["pnpm typecheck"]
+    },
+    {
       "id": "toolkit/dashboard",
       "label": "Dashboard kit",
       "catalog": "toolkit-ui",
@@ -222,6 +278,7 @@
         "@tabler/icons-react",
         "class-variance-authority",
         "clsx",
+        "culori",
         "react",
         "recharts",
         "tailwind-merge"
@@ -329,6 +386,7 @@
         "@radix-ui/react-slot",
         "class-variance-authority",
         "clsx",
+        "culori",
         "react",
         "tailwind-merge"
       ],
@@ -387,6 +445,7 @@
         "class-variance-authority",
         "clsx",
         "cmdk",
+        "culori",
         "date-fns",
         "embla-carousel-react",
         "input-otp",
