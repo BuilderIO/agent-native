@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.115.2
+
+### Patch Changes
+
+- f0601ec: Collapse duplicate assistant tool-call ids in the shared agent loop so providers do not reject replayed tool-call history.
+
 ## 0.115.1
 
 ### Patch Changes
