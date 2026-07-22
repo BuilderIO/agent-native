@@ -314,6 +314,7 @@ export default function RecordingPage() {
 
     fetch(appPath("/api/ai-summary-email"), {
       method: "POST",
+      keepalive: true,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recordingId, token: aiSummarizeToken }),
     })
