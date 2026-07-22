@@ -28,6 +28,8 @@ export interface RenderEmailArgs {
   preheader?: string;
   /** Small brand logo shown centered above everything else in the card. */
   logoUrl?: string;
+  /** Optional wordmark text rendered next to the logo, e.g. "Clips". */
+  logoLabel?: string;
   imageUrl?: string;
   /** Large headline at the top of the card. */
   heading: string;
@@ -102,12 +104,22 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     )
     .join("");
 
+  const logoLabelHtml = args.logoLabel
+    ? `<span style="font-size:15px; font-weight:600; color:#fafafa; letter-spacing:-0.01em; vertical-align:middle;">${escapeHtml(args.logoLabel)}</span>`
+    : "";
   const logoHtml = args.logoUrl
     ? `
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px 0;">
         <tr>
           <td align="center">
-            <img src="${escapeAttr(args.logoUrl)}" alt="Agent Native" height="18" style="display:block; height:18px; width:auto;" />
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="vertical-align:middle; padding-right:${args.logoLabel ? "8px" : "0"};">
+                  <img src="${escapeAttr(args.logoUrl)}" alt="${escapeAttr(args.logoLabel || "Agent Native")}" height="20" style="display:block; height:20px; width:auto; vertical-align:middle;" />
+                </td>
+                ${args.logoLabel ? `<td style="vertical-align:middle;">${logoLabelHtml}</td>` : ""}
+              </tr>
+            </table>
           </td>
         </tr>
       </table>

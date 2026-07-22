@@ -19,7 +19,10 @@ export const getDb = createGetDb(schema);
 export { schema, getDbExec };
 
 export const CLIPS_EMAIL_FROM = "Agent-Native Clips <clips@agent-native.com>";
-const CLIPS_LOGO_PATH = "/agent-native-logo-dark.svg";
+// PNG, not SVG — several major email clients (Outlook, some webmail) don't
+// render inline SVG at all, which silently dropped this logo before.
+export const CLIPS_LOGO_PATH = "/agent-native-icon-dark.png";
+export const CLIPS_LOGO_LABEL = "Clips";
 const CLIPS_TAGLINE =
   "Clips is a 100% free, open-source, Agent-Native app for sharing screengrabs with friends and colleagues. No download required.";
 const AI_SUMMARY_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -101,6 +104,7 @@ registerShareableResource({
   ownerAccessIgnoresOrg: true,
   fromAddress: CLIPS_EMAIL_FROM,
   logoPath: CLIPS_LOGO_PATH,
+  logoLabel: CLIPS_LOGO_LABEL,
   getThumbnailUrl: getRecordingEmailThumbnailUrl,
   getSecondaryCta: getRecordingSummaryCta,
 });

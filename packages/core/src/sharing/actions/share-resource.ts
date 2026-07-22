@@ -318,6 +318,7 @@ async function sendShareNotificationEmail(params: {
     const { html, text } = renderEmail({
       preheader: subject,
       logoUrl,
+      logoLabel: reg.logoLabel,
       imageUrl,
       heading: `${actor} shared "${resourceTitle}" with you`,
       paragraphs: [],

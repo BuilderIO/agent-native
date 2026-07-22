@@ -31,6 +31,7 @@ const tables = vi.hoisted(() => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getRequestIP: (...args: unknown[]) => mocks.getRequestIP(...args),
+  getRequestURL: () => new URL("http://localhost:3000/api/view-event"),
   setResponseStatus: (...args: unknown[]) => mocks.setResponseStatus(...args),
 }));
 

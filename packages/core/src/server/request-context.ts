@@ -279,6 +279,17 @@ export function hasRequestContext(): boolean {
 }
 
 /**
+ * Get the inbound request's origin (e.g. `https://<preview-id>.builderio.xyz`),
+ * when the current call chain is running under one. Action routes populate
+ * this from the request URL, so it reflects the actual public address a
+ * browser/email client used to reach this app — unlike `getAppProductionUrl()`'s
+ * env/localhost fallbacks, which don't know about ephemeral preview domains.
+ */
+export function getRequestOrigin(): string | undefined {
+  return als.getStore()?.requestOrigin;
+}
+
+/**
  * Get the current request's user email.
  *
  * - If a request context exists (HTTP/A2A path), returns its `userEmail` —

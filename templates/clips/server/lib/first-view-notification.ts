@@ -16,7 +16,11 @@ import {
 } from "@agent-native/core/server";
 import { isSyntheticQaEmail } from "@agent-native/core/sharing/actions/share-resource";
 
-import { CLIPS_EMAIL_FROM } from "../db/index.js";
+import {
+  CLIPS_EMAIL_FROM,
+  CLIPS_LOGO_LABEL,
+  CLIPS_LOGO_PATH,
+} from "../db/index.js";
 
 const HIGH_COMPLETION_PCT = 95;
 
@@ -67,7 +71,8 @@ export async function notifyOwnerOfFirstView(params: {
 
   const { html, text } = renderEmail({
     preheader: subject,
-    logoUrl: appUrl + "/agent-native-logo-dark.svg",
+    logoUrl: appUrl + CLIPS_LOGO_PATH,
+    logoLabel: CLIPS_LOGO_LABEL,
     imageUrl: recording.thumbnailUrl ?? undefined,
     heading: "It landed.",
     paragraphs: [

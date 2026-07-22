@@ -34,7 +34,12 @@ import {
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { defineEventHandler, getRequestIP, setResponseStatus } from "h3";
+import {
+  defineEventHandler,
+  getRequestIP,
+  getRequestURL,
+  setResponseStatus,
+} from "h3";
 
 import { getDb, schema } from "../../db/index.js";
 import { notifyOwnerOfFirstView } from "../../lib/first-view-notification.js";
@@ -239,7 +244,11 @@ export default defineEventHandler(async (event) => {
   const scrubbedToEnd = body.scrubbedToEnd ?? false;
 
   return runWithRequestContext(
-    { userEmail: sessionEmail, orgId: session?.orgId },
+    {
+      userEmail: sessionEmail,
+      orgId: session?.orgId,
+      requestOrigin: getRequestURL(event).origin,
+    },
     async () => {
       const access = await resolveAccess("recording", recordingId);
       if (!access) {

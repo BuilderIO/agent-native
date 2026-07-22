@@ -10,6 +10,12 @@ import path from "node:path";
  *   1. Explicit public URL env vars (`APP_URL`, workspace OAuth origin,
  *      `BETTER_AUTH_URL`) — operator overrides
  *   2. Incoming request's origin (when an H3Event is available)
+ *   2b. Ambient request-context origin (set by action-routes from the
+ *      request URL) — covers code paths, like transactional emails sent
+ *      from inside a `defineAction`, that don't have an H3Event handy but
+ *      still run inside a request. Matters most for ephemeral preview
+ *      domains (e.g. Builder preview sessions), which no env var or
+ *      hard-coded prod URL knows about.
  *   3. First-party template `prodUrl` from the registry (matched by
  *      package.json name) — lets deployed first-party apps (mail,
  *      calendar, analytics, …) use e.g. `analytics.agent-native.com`
@@ -30,6 +36,7 @@ import { getRequestURL, type H3Event } from "h3";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import { isLocalDatabase } from "../db/client.js";
+import { getRequestOrigin } from "./request-context.js";
 
 let cachedPkgName: string | undefined | null = null;
 
@@ -148,6 +155,9 @@ export function getAppProductionUrl(event?: H3Event): string {
       // fall through
     }
   }
+
+  const ambientOrigin = getRequestOrigin();
+  if (ambientOrigin) return stripTrailingSlash(ambientOrigin);
 
   // Fall back to a first-party template's hard-coded prod URL when we're
   // running in production OR on a remote database (Neon/Postgres/Turso).

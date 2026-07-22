@@ -41,6 +41,11 @@ export interface ShareableResourceRegistration {
    */
   logoPath?: string;
   /**
+   * Optional wordmark text rendered next to the logo image in the "shared
+   * with you" notification email, e.g. "Clips".
+   */
+  logoLabel?: string;
+  /**
    * Column on the resource table that holds a human-readable title for
    * display in the share UI. Default: "title".
    */
