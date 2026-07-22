@@ -2629,7 +2629,11 @@ fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
             .map(|c| {
                 // Reconstruct a 24-bit little-endian signed integer and sign-extend to i32.
                 let raw = (c[0] as i32) | ((c[1] as i32) << 8) | ((c[2] as i32) << 16);
-                let signed = if raw & 0x800000 != 0 { raw | !0x00FF_FFFFi32 } else { raw };
+                let signed = if raw & 0x800000 != 0 {
+                    raw | !0x00FF_FFFFi32
+                } else {
+                    raw
+                };
                 signed as f32 / 8_388_608.0
             })
             .collect(),

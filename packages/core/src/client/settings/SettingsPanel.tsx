@@ -37,6 +37,7 @@ import React, {
 } from "react";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
+import type { UserProfile } from "../../user-profile/shared.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
@@ -45,9 +46,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
-import { callAction } from "../use-action.js";
+import {
+  useActionMutation,
+  useActionQuery,
+  callAction,
+} from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { useSession } from "../use-session.js";
@@ -2458,20 +2464,39 @@ function AccountSectionInner({
   onToggle: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
+  const t = useT();
   const { session, isLoading } = useSession();
   const email = session?.email;
+  const profileQuery = useActionQuery<UserProfile>(
+    "get-user-profile",
+    undefined,
+    { enabled: !!email },
+  );
+  const updateProfile = useActionMutation<UserProfile, { name: string }>(
+    "update-user-profile",
+  );
   const avatarUrl = useAvatarUrl(email);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [name, setName] = useState("");
 
-  const displayName = session?.name || email || "Signed out";
-  const initials = (session?.name || email || "?")
+  const displayName =
+    profileQuery.data?.name ||
+    session?.name ||
+    email ||
+    t("settings.profileSignedOut");
+  const initials = (displayName || "?")
     .split(/[ @._-]+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+
+  useEffect(() => {
+    const nextName = profileQuery.data?.name || session?.name;
+    if (nextName) setName(nextName);
+  }, [profileQuery.data?.name, session?.name]);
 
   const handleAvatarChange = async (
     event: React.ChangeEvent<HTMLInputElement>,
@@ -2491,12 +2516,18 @@ function AccountSectionInner({
     }
   };
 
+  const handleProfileSave = () => {
+    const nextName = name.trim();
+    if (!nextName || !email) return;
+    updateProfile.mutate({ name: nextName });
+  };
+
   return (
     <SettingsSection
       id={settingsSectionDomId("account")}
       icon={<IconUserCircle size={14} />}
-      title="Account"
-      subtitle="Your profile photo and signed-in identity."
+      title={t("settings.profileTitle")}
+      subtitle={t("settings.profileDescription")}
       open={open}
       onToggle={onToggle}
     >
@@ -2524,7 +2555,7 @@ function AccountSectionInner({
               isPage ? "text-sm" : "text-[12px]",
             )}
           >
-            {isLoading ? "Loading..." : displayName}
+            {isLoading ? t("settings.profileLoading") : displayName}
           </p>
           {email && (
             <p
@@ -2543,12 +2574,12 @@ function AccountSectionInner({
                 subTextClass(isPage),
               )}
             >
-              Photo updated
+              {t("settings.profilePhotoUpdated")}
             </p>
           )}
           {status === "error" && (
             <p className={cn("mt-1 text-destructive", subTextClass(isPage))}>
-              Could not update photo
+              {t("settings.profilePhotoError")}
             </p>
           )}
         </div>
@@ -2568,9 +2599,70 @@ function AccountSectionInner({
             "shrink-0 justify-center",
           )}
         >
-          {uploading ? "Uploading..." : "Change photo"}
+          {uploading
+            ? t("settings.profileUploading")
+            : t("settings.profileChangePhoto")}
         </button>
       </div>
+      <form
+        className="space-y-1.5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          handleProfileSave();
+        }}
+      >
+        <label
+          htmlFor="agent-native-profile-name"
+          className={fieldLabelClass(isPage)}
+        >
+          {t("settings.profileNameLabel")}
+        </label>
+        <input
+          id="agent-native-profile-name"
+          type="text"
+          value={name}
+          onChange={(event) => {
+            updateProfile.reset();
+            setName(event.target.value);
+          }}
+          placeholder={t("settings.profileNamePlaceholder")}
+          disabled={!email || profileQuery.isLoading || updateProfile.isPending}
+          maxLength={120}
+          className={textInputClass(isPage)}
+        />
+        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
+          {t("settings.profileNameDescription")}
+        </p>
+        <div className="flex items-center justify-between gap-3 pt-1">
+          <div className="min-h-4">
+            {updateProfile.isSuccess && (
+              <p className="text-green-600 dark:text-green-400">
+                {t("settings.profileSaved")}
+              </p>
+            )}
+            {updateProfile.error && (
+              <p className="text-destructive">
+                {t("settings.profileSaveError")}
+              </p>
+            )}
+          </div>
+          <button
+            type="submit"
+            disabled={
+              !email ||
+              profileQuery.isLoading ||
+              updateProfile.isPending ||
+              !name.trim() ||
+              name.trim() === displayName
+            }
+            className={pillButtonClass(isPage, "solid")}
+          >
+            {updateProfile.isPending
+              ? t("settings.profileSaving")
+              : t("settings.profileSave")}
+          </button>
+        </div>
+      </form>
     </SettingsSection>
   );
 }

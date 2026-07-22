@@ -20,7 +20,7 @@ import {
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconClipboardCheck,
   IconEdit,
   IconLayoutSidebarLeftCollapse,
@@ -74,7 +74,7 @@ function buildBrandingCustomizationMessage(request: string) {
 const navItems = [
   { icon: IconMessageCircle, labelKey: "navigation.ask", href: "/" },
   { icon: IconClipboardCheck, labelKey: "navigation.plan", href: "/plans" },
-  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

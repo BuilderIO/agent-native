@@ -7,7 +7,7 @@ export interface ExtensionDeleteTarget {
   canDelete?: boolean | null;
 }
 
-export type ExtensionDeleteResult = { mode: "deleted" | "hidden" };
+export type ExtensionDeleteResult = { mode: "archived" | "hidden" };
 
 async function readErrorMessage(
   res: Response,
@@ -55,7 +55,7 @@ export async function deleteOrHideExtension(
     agentNativePath(`/_agent-native/extensions/${extension.id}`),
     { method: "DELETE" },
   );
-  if (res.ok) return { mode: "deleted" };
+  if (res.ok) return { mode: "archived" };
 
   if (res.status === 403) {
     return hideExtensionForCurrentUser(extension.id);
