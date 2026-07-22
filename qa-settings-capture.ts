@@ -37,7 +37,21 @@ page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
 page.on("console", (message) => {
   if (message.type() === "error") errors.push(`console: ${message.text()}`);
 });
-await page.goto("/settings", { waitUntil: "networkidle", timeout: 45_000 });
+await page.goto("/settings", { waitUntil: "domcontentloaded", timeout: 45_000 });
+await page.waitForTimeout(2_000);
+if (page.url().includes("/_agent-native/sign-in")) {
+  const email = `qa-${app}-${Date.now()}@example.com`;
+  await page.locator('[data-tab="signup"]').click();
+  await page.locator("#s-email").fill(email);
+  await page.locator("#s-pass").fill("qa-screenshot-password");
+  await page.locator("#s-pass2").fill("qa-screenshot-password");
+  await page.locator('#signup-form button[type="submit"]').click();
+  await page.waitForTimeout(2_000);
+  if (page.url().includes("/_agent-native/sign-in")) {
+    throw new Error(`Sign-up did not establish a session: ${await page.locator("body").innerText()}`);
+  }
+  await page.goto("/settings", { waitUntil: "domcontentloaded", timeout: 45_000 });
+}
 await page.waitForTimeout(2_000);
 const info = await page.evaluate(() => ({
   url: location.href,
