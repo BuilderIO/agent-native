@@ -2,6 +2,11 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
+import {
+  LegacyButtonRenderContext,
+  useDesignSystem,
+} from "../design-system/context.js";
+import { DesignSystemErrorBoundary } from "../design-system/error-boundary.js";
 import { useToolkitComponent } from "../provider.js";
 import { cn } from "../utils.js";
 
@@ -58,19 +63,81 @@ ButtonBase.displayName = "ButtonBase";
 const ButtonOverrideRenderContext = React.createContext(false);
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  (props, ref) => {
+  ({ variant, size, asChild = false, ...props }, ref) => {
+    const DesignSystemActionButton =
+      useDesignSystem()?.components?.ActionButton;
     const Override = useToolkitComponent("Button");
     const isRenderingOverride = React.useContext(ButtonOverrideRenderContext);
+    const isRenderingLegacyButton = React.useContext(LegacyButtonRenderContext);
+    const fallback = (
+      <ButtonBase
+        ref={ref}
+        variant={variant}
+        size={size}
+        asChild={asChild}
+        {...props}
+      />
+    );
+    if (DesignSystemActionButton && !asChild && !isRenderingLegacyButton) {
+      const intent =
+        variant === "destructive"
+          ? "danger"
+          : variant === "default"
+            ? "primary"
+            : "neutral";
+      const emphasis =
+        variant === "outline"
+          ? "outline"
+          : variant === "ghost" || variant === "link"
+            ? "ghost"
+            : "solid";
+      const semanticSize =
+        size === "sm" ? "compact" : size === "lg" ? "large" : "default";
+      return (
+        <DesignSystemErrorBoundary component="ActionButton" fallback={fallback}>
+          <DesignSystemActionButton
+            className={props.className}
+            style={props.style}
+            id={props.id}
+            aria-label={props["aria-label"]}
+            aria-labelledby={props["aria-labelledby"]}
+            aria-describedby={props["aria-describedby"]}
+            aria-controls={props["aria-controls"]}
+            elementRef={ref}
+            type={props.type}
+            disabled={props.disabled}
+            intent={intent}
+            emphasis={emphasis}
+            size={semanticSize}
+            onPress={(event) =>
+              props.onClick?.(
+                event as React.MouseEvent<HTMLButtonElement, MouseEvent>,
+              )
+            }
+          >
+            {props.children}
+          </DesignSystemActionButton>
+        </DesignSystemErrorBoundary>
+      );
+    }
     if (Override && Override !== Button && !isRenderingOverride) {
       const OverrideButton = Override as React.ElementType<ButtonProps>;
       return (
-        <ButtonOverrideRenderContext.Provider value={true}>
-          <OverrideButton ref={ref} {...props} />
-        </ButtonOverrideRenderContext.Provider>
+        <DesignSystemErrorBoundary component="ActionButton" fallback={fallback}>
+          <ButtonOverrideRenderContext.Provider value={true}>
+            <OverrideButton
+              ref={ref}
+              variant={variant}
+              size={size}
+              asChild={asChild}
+              {...props}
+            />
+          </ButtonOverrideRenderContext.Provider>
+        </DesignSystemErrorBoundary>
       );
     }
 
-    return <ButtonBase ref={ref} {...props} />;
+    return fallback;
   },
 );
 Button.displayName = "Button";

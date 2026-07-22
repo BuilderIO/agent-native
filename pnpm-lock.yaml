@@ -1610,6 +1610,9 @@ importers:
       cmdk:
         specifier: ^1.1.1
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      culori:
+        specifier: 4.0.2
+        version: 4.0.2
       date-fns:
         specifier: ^4.4.0
         version: 4.4.0
@@ -1665,6 +1668,9 @@ importers:
         specifier: 'catalog:'
         version: 13.6.31
     devDependencies:
+      '@types/culori':
+        specifier: 4.0.1
+        version: 4.0.1
       '@types/react':
         specifier: ^19.2.14
         version: 19.2.17
@@ -8116,9 +8122,6 @@ packages:
     cpu: [x64]
     os: [darwin]
 
-  '@libsql/hrana-client@0.10.0':
-    resolution: {integrity: sha512-OoA4EMqRAC7kn7V2P6EQqRcpZf2W+AjsNIyCizBg339Tq/aMC7sRnzs3SklderhmQWAqEzvv8A2vhxVmWpkVvw==}
-
   '@libsql/hrana-client@0.7.0':
     resolution: {integrity: sha512-OF8fFQSkbL7vJY9rfuegK1R7sPgQ6kFMkDamiEccNUvieQ+3urzfDFI616oPl8V7T9zRmnTkSjMOImYCAVRVuw==}
 
@@ -12523,6 +12526,9 @@ packages:
 
   '@types/css-font-loading-module@0.0.7':
     resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
+
+  '@types/culori@4.0.1':
+    resolution: {integrity: sha512-43M51r/22CjhbOXyGT361GZ9vncSVQ39u62x5eJdBQFviI8zWp2X5jzqg7k4M6PVgDQAClpy2bUe2dtwEgEDVQ==}
 
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
@@ -22954,15 +22960,6 @@ snapshots:
   '@libsql/darwin-x64@0.5.29':
     optional: true
 
-  '@libsql/hrana-client@0.10.0':
-    dependencies:
-      '@libsql/isomorphic-ws': 0.1.5
-      js-base64: 3.7.8
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
-    optional: true
-
   '@libsql/hrana-client@0.7.0':
     dependencies:
       '@libsql/isomorphic-fetch': 0.3.1
@@ -27589,6 +27586,8 @@ snapshots:
       '@types/node': 25.9.3
 
   '@types/css-font-loading-module@0.0.7': {}
+
+  '@types/culori@4.0.1': {}
 
   '@types/d3-array@3.2.2': {}
 

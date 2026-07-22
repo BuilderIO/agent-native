@@ -47,34 +47,51 @@ interface DialogContentProps extends React.ComponentPropsWithoutRef<
   hideClose?: boolean;
   // High-frequency keyboard surfaces can opt out without changing ordinary dialogs.
   motion?: DialogMotion;
+  container?: React.ComponentPropsWithoutRef<
+    typeof DialogPrimitive.Portal
+  >["container"];
+  closeLabel?: string;
 }
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, hideClose, motion = "default", ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay motion={motion} />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        "fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none",
-        motion === "default" &&
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-        className,
-      )}
-      {...props}
-    >
-      {children}
-      {!hideClose && (
-        <DialogPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
-          <IconX className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
-      )}
-    </DialogPrimitive.Content>
-  </DialogPortal>
-));
+>(
+  (
+    {
+      className,
+      children,
+      hideClose,
+      motion = "default",
+      container,
+      closeLabel = "Close",
+      ...props
+    },
+    ref,
+  ) => (
+    <DialogPortal container={container}>
+      <DialogOverlay motion={motion} />
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(
+          "fixed left-1/2 top-1/2 z-[280] grid max-h-[min(760px,calc(100vh-32px))] w-[calc(100vw-24px)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 overflow-hidden rounded-lg border border-border bg-background p-6 text-foreground shadow-lg outline-none",
+          motion === "default" &&
+            "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200 data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+        {!hideClose && (
+          <DialogPrimitive.Close className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+            <IconX className="h-4 w-4" />
+            <span className="sr-only">{closeLabel}</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  ),
+);
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({
