@@ -243,9 +243,12 @@ export function decideCrmWritePolicy(
   if (input.initiatedBy === "human") return "execute";
 
   if (input.initiatedBy === "automation") {
-    return input.storedAutomationPolicy ? "execute" : "deny";
+    if (input.target === "provider") return "propose";
+    return input.storedAutomationPolicy && input.delegatedAuthority
+      ? "execute"
+      : "deny";
   }
 
   if (input.target === "local") return "execute";
-  return input.delegatedAuthority ? "execute" : "propose";
+  return "propose";
 }

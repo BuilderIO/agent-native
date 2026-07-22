@@ -78,6 +78,7 @@ vi.mock("../server/crm/native-adapter.js", () => ({
 }));
 
 import { decideCrmWritePolicy } from "../shared/crm-contract.js";
+import { CRM_SALES_ROUTINE_LOCAL_POLICY_ID } from "../shared/crm-sales-config.js";
 import action, { fieldPatchSchema } from "./update-crm-record.js";
 
 const record = {
@@ -118,7 +119,7 @@ describe("update-crm-record", () => {
     };
   });
 
-  it("keeps automation writes denied by the shared policy matrix", () => {
+  it("keeps provider automation writes proposal-first in the shared policy matrix", () => {
     expect(
       decideCrmWritePolicy({
         initiatedBy: "automation",
@@ -129,7 +130,32 @@ describe("update-crm-record", () => {
         delegatedAuthority: false,
         storedAutomationPolicy: false,
       }),
-    ).toBe("deny");
+    ).toBe("propose");
+  });
+
+  it("executes only a stored routine local automation policy", () => {
+    expect(
+      decideCrmWritePolicy({
+        initiatedBy: "automation",
+        target: "local",
+        reversibility: "compensatable",
+        scope: "single-record",
+        risk: "routine",
+        delegatedAuthority: true,
+        storedAutomationPolicy: true,
+      }),
+    ).toBe("execute");
+    expect(
+      decideCrmWritePolicy({
+        initiatedBy: "automation",
+        target: "local",
+        reversibility: "compensatable",
+        scope: "single-record",
+        risk: "stage",
+        delegatedAuthority: true,
+        storedAutomationPolicy: true,
+      }),
+    ).toBe("require-approval");
   });
 
   it("applies an allowed local-authoritative field and records a local mutation", async () => {
@@ -146,6 +172,52 @@ describe("update-crm-record", () => {
 
     expect(result).toMatchObject({ recordId: record.id, status: "applied" });
     expect(state.inserted).toHaveLength(2);
+  });
+
+  it("executes a routine local automation update only with the typed sales policy", async () => {
+    state.selectRows = [[record], [policy("local-authoritative")], [], []];
+
+    await expect(
+      action.run(
+        {
+          recordId: record.id,
+          target: "local",
+          fields: { customField: "value" },
+        },
+        {
+          caller: "automation",
+          userEmail: record.ownerEmail,
+          orgId: record.orgId,
+          automation: {
+            triggerId: "trigger-1",
+            triggerName: "crm-follow-up",
+            policyId: CRM_SALES_ROUTINE_LOCAL_POLICY_ID,
+          },
+        },
+      ),
+    ).resolves.toMatchObject({ status: "applied" });
+    expect(state.inserted).toHaveLength(2);
+  });
+
+  it("rejects a routine local automation update without its stored policy", async () => {
+    state.selectRows = [[record], [policy("local-authoritative")]];
+
+    await expect(
+      action.run(
+        {
+          recordId: record.id,
+          target: "local",
+          fields: { customField: "value" },
+        },
+        {
+          caller: "automation",
+          userEmail: record.ownerEmail,
+          orgId: record.orgId,
+          automation: { triggerId: "trigger-1", triggerName: "crm-follow-up" },
+        },
+      ),
+    ).rejects.toThrow("not authorized");
+    expect(state.inserted).toEqual([]);
   });
 
   it("applies a revision-checked Native SQL update through the native adapter", async () => {

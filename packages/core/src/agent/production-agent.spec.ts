@@ -906,6 +906,82 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("passes trusted automation context through to the selected action", async () => {
+    const run = vi.fn(async () => "updated");
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "automation-update",
+                name: "update-local-record",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actions = {
+      "update-local-record": {
+        ...actionEntry({ readOnly: false }),
+        run,
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+      actionCaller: "automation",
+      automation: {
+        triggerId: "trigger-1",
+        triggerName: "crm-follow-up",
+        policyId: "crm-sales-routine-local-v1",
+      },
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        caller: "automation",
+        automation: {
+          triggerId: "trigger-1",
+          triggerName: "crm-follow-up",
+          policyId: "crm-sales-routine-local-v1",
+        },
+      }),
+    );
+  });
+
   it("does not expand the active tool list after no-query tool-search menu results", async () => {
     const actions = attachToolSearch({
       starter: actionEntry({

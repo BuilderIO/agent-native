@@ -24,6 +24,7 @@ export function requireCrmScope(ctx?: ActionRunContext) {
 }
 
 export function crmInitiatedBy(ctx?: ActionRunContext) {
+  if (ctx?.caller === "automation") return "automation" as const;
   return ctx?.caller === "tool" ||
     ctx?.caller === "mcp" ||
     ctx?.caller === "a2a"

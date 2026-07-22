@@ -8,7 +8,11 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import { isAgentActionStopError, type ActionCaller } from "../action.js";
+import {
+  isAgentActionStopError,
+  type ActionAutomationContext,
+  type ActionCaller,
+} from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
@@ -3248,6 +3252,8 @@ export async function runAgentLoop(opts: {
   orgId?: string | null;
   /** Action invocation attribution. Defaults to the normal agent tool loop. */
   actionCaller?: ActionCaller;
+  /** Trusted trigger lineage for automation-dispatched action calls. */
+  automation?: ActionAutomationContext;
   /** Concrete execution id used for cross-app trace correlation. */
   runId?: string;
   /** Verified/telemetry-only delegated lineage supplied by the transport. */
@@ -4321,6 +4327,7 @@ export async function runAgentLoop(opts: {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
                     caller: opts.actionCaller ?? "tool",
+                    automation: opts.automation,
                     networkProtocol: opts.networkProtocol,
                     networkId: opts.networkId,
                     networkPeer: opts.networkPeer,
@@ -4757,6 +4764,7 @@ export async function runAgentLoop(opts: {
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
           caller: opts.actionCaller ?? "tool",
+          automation: opts.automation,
           networkProtocol: opts.networkProtocol,
           networkId: opts.networkId,
           networkPeer: opts.networkPeer,

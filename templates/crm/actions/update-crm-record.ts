@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createNativeCrmAdapter } from "../server/crm/native-adapter.js";
 import { getDb, schema } from "../server/db/index.js";
 import { decideCrmWritePolicy, type CrmValue } from "../shared/crm-contract.js";
+import { resolveCrmSalesDelegatedWrite } from "../shared/crm-sales-config.js";
 import {
   crmInitiatedBy,
   crmWriteRisk,
@@ -291,19 +292,36 @@ export default defineAction({
 
     const risk = crmWriteRisk(fieldNames);
     const initiatedBy = crmInitiatedBy(ctx);
-    const decision = decideCrmWritePolicy({
+    const writePolicy = {
       initiatedBy,
       target: args.target,
       reversibility: "compensatable",
       scope: fieldNames.length === 1 ? "single-field" : "single-record",
       risk,
-      delegatedAuthority: false,
-      storedAutomationPolicy: false,
+    } as const;
+    const delegation = resolveCrmSalesDelegatedWrite({
+      context: ctx,
+      operation: "update",
+      policy: {
+        ...writePolicy,
+        delegatedAuthority: false,
+        storedAutomationPolicy: false,
+      },
     });
+    const decision = decideCrmWritePolicy({ ...writePolicy, ...delegation });
     if (decision === "deny")
       throw new Error(
         "This CRM update is not authorized by the current write policy.",
       );
+    if (
+      initiatedBy === "automation" &&
+      args.target === "local" &&
+      decision !== "execute"
+    ) {
+      throw new Error(
+        "This CRM automation may only execute an explicitly delegated routine local update.",
+      );
+    }
 
     const ownership = {
       ownerEmail: record.ownerEmail,
