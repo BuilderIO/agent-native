@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.117.2
+
+### Patch Changes
+
+- bc91e11: Archive extensions without deleting their history, data, or sharing configuration.
+- bc91e11: Add a shared editable user profile to settings and the workspace switcher.
+- bc91e11: Render transactional email branding with a SendGrid-compatible inline logo and text fallback.
+- bc91e11: Bound foreground serverless database pools to one connection and retry transient connection-exhaustion errors.
+- bc91e11: Render the default Share trigger as a text-only button without a visibility icon.
+
 ## 0.117.1
 
 ### Patch Changes
