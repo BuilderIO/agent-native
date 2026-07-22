@@ -178,7 +178,7 @@ function isBulletMarker(el: Element): boolean {
  * (e.g. `<div><span>●</span><span>Point</span></div>`) rather than a real
  * <li>. Its first element child is a marker glyph and it carries other text.
  */
-function isBulletRow(el: HTMLElement): boolean {
+export function isBulletRow(el: HTMLElement): boolean {
   if (el.tagName !== "DIV" && el.tagName !== "LI" && el.tagName !== "P") {
     return false;
   }
@@ -194,7 +194,7 @@ function isBulletRow(el: HTMLElement): boolean {
 }
 
 /** A container whose element children are all styled bullet rows. */
-function isBulletList(el: HTMLElement): boolean {
+export function isBulletList(el: HTMLElement): boolean {
   const kids = Array.from(el.children);
   if (kids.length === 0) return false;
   return kids.every((k) => isBulletRow(k as HTMLElement));
@@ -205,7 +205,7 @@ function isBulletList(el: HTMLElement): boolean {
  * native <ul>/<ol> or a styled bullet-row container — so Enter can add a new
  * item to the whole list instead of being trapped inside one item.
  */
-function findEnclosingList(
+export function findEnclosingList(
   el: HTMLElement,
   root: HTMLElement,
 ): HTMLElement | null {
@@ -259,7 +259,7 @@ function primeNewRow(row: HTMLElement, tail: string): void {
  * moves into the new row; the marker glyph is preserved. Returns false when
  * the caret isn't inside a direct row of the list so the caller can fall back.
  */
-function insertBulletAfterCaret(list: HTMLElement): boolean {
+export function insertBulletAfterCaret(list: HTMLElement): boolean {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return false;
   const range = sel.getRangeAt(0);
