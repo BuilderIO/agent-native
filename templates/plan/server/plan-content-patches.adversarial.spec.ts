@@ -732,6 +732,105 @@ describe("canvas frame / annotation patch interactions", () => {
     expect(next.canvas?.frames[0]?.y).toBe(80);
   });
 
+  it("promotes every persisted visual surface to design mode in one patch", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      prototype: {
+        initialScreenId: "prototype-screen",
+        screens: [
+          {
+            id: "prototype-screen",
+            html: '<main class="brand-screen">Prototype</main>',
+            css: ".brand-screen { color: #123456; }",
+          },
+        ],
+      },
+      canvas: {
+        frames: [
+          {
+            id: "linked-frame",
+            blockId: "linked-wireframe",
+          },
+          {
+            id: "inline-frame",
+            wireframe: {
+              surface: "mobile",
+              html: '<main class="brand-screen">Inline</main>',
+              css: ".brand-screen { color: #654321; }",
+            },
+          },
+        ],
+        annotations: [
+          { id: "keep-note", targetId: "inline-frame", text: "Keep me." },
+        ],
+      },
+      blocks: [
+        {
+          id: "visual-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "mockups",
+                label: "Mockups",
+                blocks: [
+                  {
+                    id: "linked-wireframe",
+                    type: "wireframe",
+                    data: {
+                      surface: "browser",
+                      html: '<main class="brand-screen">Linked</main>',
+                      css: ".brand-screen { color: #abcdef; }",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      { op: "set-visual-render-mode", renderMode: "design" },
+      {
+        op: "update-canvas-frame",
+        frameId: "inline-frame",
+        patch: {
+          wireframe: {
+            surface: "mobile",
+            html: '<main class="brand-screen">Upgraded inline</main>',
+            css: ".brand-screen { color: #fedcba; }",
+          },
+        },
+      },
+    ]);
+
+    expect(next.canvas?.mode).toBe("design");
+    expect(next.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    expect(next.canvas?.frames[1]?.wireframe?.renderMode).toBe("design");
+    expect(next.canvas?.frames[1]?.wireframe?.css).toBe(
+      ".brand-screen { color: #fedcba; }",
+    );
+    expect(next.prototype?.screens[0]).toMatchObject({
+      renderMode: "design",
+      css: ".brand-screen { color: #123456; }",
+    });
+    expect(next.canvas?.annotations).toEqual(content.canvas?.annotations);
+    const tabs = next.blocks[0];
+    expect(tabs.type).toBe("tabs");
+    if (tabs.type === "tabs") {
+      const wireframe = tabs.data.tabs[0]?.blocks[0];
+      expect(wireframe?.type).toBe("wireframe");
+      if (wireframe?.type === "wireframe") {
+        expect(wireframe.data).toMatchObject({
+          renderMode: "design",
+          css: ".brand-screen { color: #abcdef; }",
+        });
+      }
+    }
+  });
+
   it("BUG PROBE: syncCanvasWireframes can revive frame.wireframe right after update-canvas-frame clears it", () => {
     // A frame referencing a block (blockId) gets its inline `wireframe`
     // re-synced from that block at the end of applyPlanContentPatches. If a
