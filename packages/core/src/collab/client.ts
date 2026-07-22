@@ -768,12 +768,21 @@ class CollabDocConnection {
         for (const change of events) this.handleSharedEvent(change);
       },
       onSseStateChange: (connected, capabilities) => {
+        const wasActive = this.sseActive;
         this.sseActive = connected;
         // Only treat SSE as covering awareness when it's connected AND does not
         // advertise `no-awareness` (the hosted gateway does). Drives whether we
         // relax the presence poll — see getActivePollInterval.
-        this.sseAwarenessCovered =
+        const awarenessCovered =
           connected && !capabilities?.includes(REALTIME_CAP_NO_AWARENESS);
+        const coverageFlipped = awarenessCovered !== this.sseAwarenessCovered;
+        this.sseAwarenessCovered = awarenessCovered;
+        // The gateway handshake lands AFTER onopen, so a relaxed poll timer
+        // scheduled at connect can already be pending when `no-awareness`
+        // arrives. Reschedule only for that mid-connection capability flip so
+        // the fast presence cadence applies immediately; connect/disconnect
+        // transitions keep the pre-existing next-natural-tick behavior.
+        if (coverageFlipped && connected === wasActive) this.reschedulePoll();
         if (connected) this.consecutiveErrors = 0;
       },
       pauseWhenHidden,
