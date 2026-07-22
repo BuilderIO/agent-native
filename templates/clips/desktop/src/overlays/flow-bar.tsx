@@ -16,6 +16,7 @@ type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
  * Events:
  *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete"|"error" }
  *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
+ *   - `voice:dictation-preview` { text: string }
  */
 export function FlowBar() {
   // Default to "recording" not "idle" — there's a race between the Rust
@@ -23,6 +24,8 @@ export function FlowBar() {
   // "idle" caused the bar to flash an "EN" language pill that never went
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
+  const [transcript, setTranscript] = useState("");
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -48,12 +51,19 @@ export function FlowBar() {
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
         setState(ev.payload.state);
+        if (ev.payload.state === "recording") setTranscript("");
       }),
     );
 
     trackListen(
       onAudioLevel(({ level }) => {
         levelRef.current = Math.max(0, Math.min(1, level));
+      }),
+    );
+
+    trackListen(
+      listen<{ text: string }>("voice:dictation-preview", (ev) => {
+        setTranscript(ev.payload.text.trim());
       }),
     );
 
@@ -69,6 +79,11 @@ export function FlowBar() {
       unlistens.length = 0;
     };
   }, []);
+
+  useEffect(() => {
+    const preview = transcriptRef.current;
+    if (preview) preview.scrollTop = preview.scrollHeight;
+  }, [transcript]);
 
   // Waveform canvas rendering loop — only runs during the "recording" state.
   useEffect(() => {
@@ -151,6 +166,16 @@ export function FlowBar() {
 
   return (
     <div className="flow-bar-root">
+      {transcript ? (
+        <div
+          ref={transcriptRef}
+          className="flow-bar-transcript-preview"
+          aria-live="polite"
+        >
+          {transcript}
+        </div>
+      ) : null}
+
       {/* Pill is ALWAYS mounted — when state goes idle we fade the
           opacity to 0 (see CSS) instead of removing it from the DOM.
           Inner content keeps its last frame rendered during the fade

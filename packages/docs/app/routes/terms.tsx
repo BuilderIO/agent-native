@@ -133,7 +133,7 @@ export default function TermsPage() {
         <p>{t("legal.terms.paragraphs.scope1")}</p>
         <p>
           {t("legal.terms.paragraphs.scope2Prefix")}{" "}
-          <InlineLink href="https://www.builder.io/legal/terms">
+          <InlineLink href="https://www.builder.io/legal/terms?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=terms">
             {t("legal.terms.links.builderTerms")}
           </InlineLink>{" "}
           {t("legal.terms.paragraphs.scope2Middle")}{" "}
@@ -196,7 +196,7 @@ export default function TermsPage() {
         <p>{t("legal.terms.paragraphs.disclaimers1")}</p>
         <p>
           {t("legal.terms.paragraphs.disclaimers2Prefix")}{" "}
-          <InlineLink href="https://www.builder.io/legal/terms">
+          <InlineLink href="https://www.builder.io/legal/terms?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=terms">
             {t("legal.terms.links.builderTerms")}
           </InlineLink>{" "}
           {t("legal.terms.paragraphs.disclaimers2Suffix")}
@@ -207,7 +207,7 @@ export default function TermsPage() {
         <p>{t("legal.terms.paragraphs.changes1")}</p>
         <p>
           {t("legal.terms.paragraphs.changes2Prefix")}{" "}
-          <InlineLink href="https://www.builder.io/legal/terms">
+          <InlineLink href="https://www.builder.io/legal/terms?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=terms">
             {t("legal.terms.links.builderTerms")}
           </InlineLink>
           .

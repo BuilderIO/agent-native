@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ export function SelectConfigControl({
   onChange,
   disabled = false,
 }: FieldConfigControlProps) {
+  const t = useT();
   const options = optionsFromConfig(config);
 
   function updateOption(
@@ -56,7 +58,7 @@ export function SelectConfigControl({
         ...options,
         {
           id: `opt_${crypto.randomUUID()}`,
-          name: `Option ${nextIndex}`,
+          name: t("fieldEditor.newOptionName", { index: nextIndex }),
           color: "gray",
           sortOrder: options.length * 1000,
         },
@@ -66,7 +68,7 @@ export function SelectConfigControl({
 
   return (
     <div className="grid gap-2">
-      <Label>Options</Label>
+      <Label>{t("fieldEditor.optionsLabel")}</Label>
       <div className="grid gap-2">
         {options.map((option, index) => (
           <div
@@ -79,7 +81,9 @@ export function SelectConfigControl({
               onChange={(event) =>
                 updateOption(index, { name: event.currentTarget.value })
               }
-              aria-label={`Option ${index + 1} name`}
+              aria-label={t("fieldEditor.optionNameAriaLabel", {
+                index: index + 1,
+              })}
             />
             <Select
               disabled={disabled}
@@ -88,7 +92,11 @@ export function SelectConfigControl({
                 updateOption(index, { color: value as SelectColorToken })
               }
             >
-              <SelectTrigger aria-label={`Option ${option.name} color`}>
+              <SelectTrigger
+                aria-label={t("fieldEditor.optionColorAriaLabel", {
+                  name: option.name,
+                })}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -99,7 +107,7 @@ export function SelectConfigControl({
                         <span
                           className={cn("size-2 rounded-full", color.className)}
                         />
-                        {color.label}
+                        {t(color.labelKey)}
                       </span>
                     </SelectItem>
                   ))}
@@ -112,7 +120,9 @@ export function SelectConfigControl({
               size="icon"
               disabled={disabled}
               onClick={() => removeOption(index)}
-              aria-label={`Remove ${option.name}`}
+              aria-label={t("fieldEditor.removeOptionAriaLabel", {
+                name: option.name,
+              })}
             >
               <IconTrash className="size-4" />
             </Button>
@@ -127,7 +137,7 @@ export function SelectConfigControl({
           className="justify-self-start gap-2"
         >
           <IconPlus className="size-4" />
-          Add option
+          {t("fieldEditor.addOptionButton")}
         </Button>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconGripVertical } from "@tabler/icons-react";
 
 import type {
@@ -19,6 +20,7 @@ export function ListRowDragHandle({
   displayTitle,
   disabled = false,
 }: ListRowDragHandleProps) {
+  const t = useT();
   const { dragHandleProps, isDragging } = rowDrag;
   const { selectionMode } = rowSelection;
 
@@ -29,7 +31,7 @@ export function ListRowDragHandle({
       type="button"
       {...dragHandleProps}
       disabled={disabled}
-      aria-label={`Reorder ${displayTitle}`}
+      aria-label={t("common.reorderAriaLabel", { title: displayTitle })}
       onClick={(event) => {
         if (selectionMode) {
           event.stopPropagation();

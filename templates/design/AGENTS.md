@@ -288,11 +288,15 @@ ladder.
   `view-screen`; not rendered as canvas overlays).
 - `design-reprompt-pending:<designId>:<fileId>` is the client-captured source
   selection, instruction, base hash, and authoritative current request id for
-  a scoped regenerate request.
+  a scoped regenerate request. The frontend starts requests through the
+  compare-and-set `begin-node-rewrite-request` action and must not overwrite a
+  `resolving` acceptance reservation.
 - `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` is one
   request-specific preview-only subtree proposal. Candidate payloads have a
-  256 KiB aggregate serialized limit. Resolution and cancellation use atomic
-  compare-and-set cleanup so an older request cannot erase a newer one.
+  256 KiB aggregate serialized limit. Proposal publication, resolution, and
+  cancellation use atomic multi-key compare-and-set transitions. Acceptance
+  reserves its matching pending request before writing design content, so a
+  newer request and an older acceptance cannot both win.
   `view-screen` lists only proposals paired to the current pending request as
   `pendingCandidateReviews`.
 - `show-design-questions` opens focused pre-generation questions in the main

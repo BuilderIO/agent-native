@@ -1,8 +1,11 @@
+import { randomUUID } from "node:crypto";
+
 import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../action-ui.js";
 import { AgentActionStopError, type ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
+import { getDbExec, isPostgres } from "../db/client.js";
 import { readResource } from "../resources/script-helpers.js";
 import {
   getRequestOrgId,
@@ -36,6 +39,7 @@ import {
 import {
   createExtension,
   deleteExtension,
+  ensureExtensionsTables,
   findRecentDuplicateExtension,
   getHiddenExtensionIdsForCurrentUser,
   getExtension,
@@ -45,6 +49,7 @@ import {
   hideExtension,
   listExtensionHistory,
   listExtensions,
+  notifyExtensionChangeForResource,
   restoreExtensionHistoryVersion,
   unhideExtension,
   updateExtension,
@@ -814,6 +819,220 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         return {
           ok: true,
           extension: await summarizeExtension(result, hiddenIds, false),
+        };
+      },
+    },
+
+    "extension-data-set": {
+      tool: {
+        description:
+          "Write a value to an extension's extensionData store (the tool_data table) from the agent side. Use this when the agent needs to update or seed data that an extension reads via extensionData.get() at render time. Requires editor access to the extension.",
+        parameters: {
+          type: "object",
+          properties: {
+            extensionId: {
+              type: "string",
+              description: "Extension id whose data store to write to.",
+            },
+            collection: {
+              type: "string",
+              description: "Collection name within the extension's data store.",
+            },
+            itemId: {
+              type: "string",
+              description:
+                "Item id within the collection. Upserts if it already exists.",
+            },
+            data: {
+              description:
+                "The data value to store. Objects are JSON-serialized automatically.",
+            },
+            scope: {
+              type: "string",
+              enum: ["user", "org"],
+              description:
+                "Storage scope. 'user' (default) is private to the current user; 'org' is shared across the organization.",
+            },
+          },
+          required: ["extensionId", "collection", "itemId", "data"],
+        },
+      },
+      run: async (args) => {
+        const extensionId = String(args?.extensionId ?? "").trim();
+        const collection = String(args?.collection ?? "").trim();
+        const itemId = String(args?.itemId ?? "").trim();
+        if (!extensionId || !collection || !itemId)
+          return "Error: extensionId, collection, and itemId are required.";
+        if (args?.data === undefined) return "Error: data is required.";
+
+        await ensureExtensionsTables();
+        const access = await resolveAccess("extension", extensionId);
+        if (!access || access.role === "viewer")
+          return `Error: editor access required for extension ${extensionId}.`;
+
+        const userEmail = getRequestUserEmail()?.toLowerCase() ?? "";
+        const scope = args?.scope === "org" ? "org" : "user";
+        const orgId = getRequestOrgId();
+        if (scope === "org" && !orgId)
+          return "Error: org context required for scope=org.";
+
+        const data =
+          typeof args.data === "string" ? args.data : JSON.stringify(args.data);
+        const MAX_BYTES = 1024 * 1024;
+        if (Buffer.byteLength(data, "utf8") > MAX_BYTES)
+          return `Error: data exceeds ${MAX_BYTES} byte limit. Store large payloads in file storage instead.`;
+
+        const now = new Date().toISOString();
+        const scopeKey = scope === "org" ? `org:${orgId}` : userEmail;
+        const client = getDbExec();
+        const pg = isPostgres();
+        const conflictClause = pg
+          ? `ON CONFLICT (tool_id, collection, scope_key, item_id)
+             DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`
+          : `ON CONFLICT (tool_id, collection, scope_key, item_id)
+             DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`;
+
+        await client.execute({
+          sql: `UPDATE tools SET updated_at = ? WHERE id = ?`,
+          args: [now, extensionId],
+        });
+        await client.execute({
+          sql: `INSERT INTO tool_data (id, tool_id, collection, item_id, data, owner_email, scope, org_id, scope_key, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ${conflictClause}`,
+          args: [
+            randomUUID(),
+            extensionId,
+            collection,
+            itemId,
+            data,
+            userEmail,
+            scope,
+            scope === "org" ? orgId! : null,
+            scopeKey,
+            now,
+            now,
+          ],
+        });
+        await notifyExtensionChangeForResource(extensionId);
+
+        return {
+          ok: true,
+          id: itemId,
+          extensionId,
+          collection,
+          scope,
+          updatedAt: now,
+        };
+      },
+    },
+
+    "extension-data-get": {
+      tool: {
+        description:
+          "Read items from an extension's extensionData store (the tool_data table) from the agent side. Use this to inspect what data an extension currently has stored, or to verify a write succeeded. Requires viewer access to the extension.",
+        parameters: {
+          type: "object",
+          properties: {
+            extensionId: {
+              type: "string",
+              description: "Extension id whose data store to read from.",
+            },
+            collection: {
+              type: "string",
+              description: "Collection name within the extension's data store.",
+            },
+            itemId: {
+              type: "string",
+              description:
+                "Optional specific item id. If omitted, lists all items in the collection.",
+            },
+            scope: {
+              type: "string",
+              enum: ["user", "org", "all"],
+              description:
+                "Storage scope to read. 'user' (default) reads the current user's items; 'org' reads organization-shared items; 'all' reads both.",
+            },
+            limit: {
+              type: "number",
+              description:
+                "Maximum items to return when listing (default 100, max 1000).",
+            },
+          },
+          required: ["extensionId", "collection"],
+        },
+      },
+      run: async (args) => {
+        const extensionId = String(args?.extensionId ?? "").trim();
+        const collection = String(args?.collection ?? "").trim();
+        if (!extensionId || !collection)
+          return "Error: extensionId and collection are required.";
+
+        await ensureExtensionsTables();
+        const access = await resolveAccess("extension", extensionId);
+        if (!access) return `Error: no access to extension ${extensionId}.`;
+
+        const userEmail = getRequestUserEmail()?.toLowerCase() ?? "";
+        const scope = args?.scope ?? "user";
+        const orgId = getRequestOrgId();
+        if ((scope === "org" || scope === "all") && !orgId)
+          return "Error: org context required for scope=org or scope=all.";
+        const itemId = args?.itemId ? String(args.itemId).trim() : null;
+        const limit = Math.min(Math.max(1, Number(args?.limit) || 100), 1000);
+        const client = getDbExec();
+
+        if (itemId) {
+          const scopeClause =
+            scope === "org"
+              ? `AND scope = 'org' AND org_id = ?`
+              : scope === "all"
+                ? `AND ((scope = 'user' AND lower(owner_email) = ?) OR (scope = 'org' AND org_id = ?))`
+                : `AND scope = 'user' AND lower(owner_email) = ?`;
+          const scopeArgs =
+            scope === "org"
+              ? [orgId ?? ""]
+              : scope === "all"
+                ? [userEmail, orgId ?? ""]
+                : [userEmail];
+
+          const result = await client.execute({
+            sql: `SELECT COALESCE(item_id, id) AS id, data, scope, owner_email, updated_at
+              FROM tool_data
+              WHERE tool_id = ? AND collection = ? AND COALESCE(item_id, id) = ? ${scopeClause}`,
+            args: [extensionId, collection, itemId, ...scopeArgs],
+          });
+          const row = result.rows?.[0];
+          if (!row) return { found: false, extensionId, collection, itemId };
+          return { found: true, ...row };
+        }
+
+        const scopeClause =
+          scope === "org"
+            ? `AND scope = 'org' AND org_id = ?`
+            : scope === "all"
+              ? `AND ((scope = 'user' AND lower(owner_email) = ?) OR (scope = 'org' AND org_id = ?))`
+              : `AND scope = 'user' AND lower(owner_email) = ?`;
+        const scopeArgs =
+          scope === "org"
+            ? [orgId ?? ""]
+            : scope === "all"
+              ? [userEmail, orgId ?? ""]
+              : [userEmail];
+
+        const result = await client.execute({
+          sql: `SELECT COALESCE(item_id, id) AS id, data, scope, owner_email, updated_at
+            FROM tool_data
+            WHERE tool_id = ? AND collection = ? ${scopeClause}
+            ORDER BY updated_at DESC
+            LIMIT ?`,
+          args: [extensionId, collection, ...scopeArgs, limit],
+        });
+        return {
+          extensionId,
+          collection,
+          scope,
+          count: result.rows?.length ?? 0,
+          items: result.rows ?? [],
         };
       },
     },

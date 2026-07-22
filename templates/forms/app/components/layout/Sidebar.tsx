@@ -12,6 +12,7 @@ import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconArrowUp,
   IconPlus,
+  IconLoader2,
   IconMenu2,
   IconX,
   IconMessageCircle,
@@ -88,11 +89,9 @@ export function Sidebar() {
 
   function handleSkip() {
     setPopoverOpen(false);
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("sidebar.untitledForm") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -171,7 +170,11 @@ export function Sidebar() {
             size="sm"
             className="min-h-10 px-2 text-xs text-muted-foreground active:scale-[0.96] transition-[background-color,color,transform]"
             onClick={handleSkip}
+            disabled={createForm.isPending}
           >
+            {createForm.isPending && (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            )}
             {t("sidebar.skipPrompt")}
           </Button>
           <span className="text-[11px] text-muted-foreground/70">

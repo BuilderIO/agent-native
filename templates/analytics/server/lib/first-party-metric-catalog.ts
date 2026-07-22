@@ -26,6 +26,8 @@
 
 export type MetricWindow = "30d" | "90d" | "all";
 
+export const FIRST_PARTY_DASHBOARD_ID = "agent-native-templates-first-party";
+
 export interface FirstPartyMetric {
   /** Stable catalog key, also used as the default panel id. */
   key: string;
@@ -122,6 +124,7 @@ const USER_KEY_SQL = "NULLIF(user_key, '')";
 const RETENTION_ROLLING_DAYS = 7;
 const RETENTION_MIN_COHORT_SIZE = 5;
 const PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE = 20;
+const RECURRING_ACTIVITY_LOOKBACK_DAYS = 365;
 
 function daysAgoSql(days: number): string {
   const unit = days === 1 ? "day" : "days";
@@ -223,8 +226,85 @@ const RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_S
 const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date > c.cohort_date AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
 const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date >= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
 const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${TEMPLATE_EXPR} ORDER BY count DESC`;
-const RECURRING_USERS_BY_TEMPLATE_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
-const RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
+export const LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT a.event_date AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
+export const LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL = `WITH all_users AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL}, user_id, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS first_date FROM all_users GROUP BY user_key) SELECT to_char(date_trunc('week', a.event_date::date), 'YYYY-MM-DD') AS date, a.template AS template, COUNT(DISTINCT a.user_key) AS users FROM all_users a JOIN first_seen f ON f.user_key = a.user_key WHERE a.event_date <> f.first_date AND a.template <> 'unknown' AND ${dashboardTimeRangeFilter("a.event_date")} GROUP BY 1, 2 ORDER BY date, template`;
+const RECURRING_ACTIVITY_LOOKBACK_FILTER = `${EVENT_DATE_SQL} >= ${daysAgoSql(RECURRING_ACTIVITY_LOOKBACK_DAYS)}`;
+const RECURRING_USERS_BY_TEMPLATE_SQL =
+  LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL.replace(
+    `${DASHBOARD_EMAIL_FILTER}), first_seen`,
+    `${DASHBOARD_EMAIL_FILTER} AND ${RECURRING_ACTIVITY_LOOKBACK_FILTER}), first_seen`,
+  );
+const RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL =
+  LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL.replace(
+    `${DASHBOARD_EMAIL_FILTER}), first_seen`,
+    `${DASHBOARD_EMAIL_FILTER} AND ${RECURRING_ACTIVITY_LOOKBACK_FILTER}), first_seen`,
+  );
+const LEGACY_RECURRING_USERS_DESCRIPTION =
+  "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
+const LEGACY_RECURRING_USERS_WEEKLY_DESCRIPTION =
+  "Weekly distinct signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
+const RECURRING_USERS_DESCRIPTION =
+  "Daily signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.";
+const RECURRING_USERS_WEEKLY_DESCRIPTION =
+  "Weekly distinct signed-in visitors who are not on their first active day observed in the previous 365 days, stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.";
+
+export function repairFirstPartyRecurringUserPanels(
+  config: Record<string, unknown>,
+): { config: Record<string, unknown>; changed: boolean } {
+  if (!Array.isArray(config.panels)) return { config, changed: false };
+
+  const replacements = new Map([
+    [
+      "recurring-users-by-template",
+      {
+        legacySql: LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
+        sql: RECURRING_USERS_BY_TEMPLATE_SQL,
+        legacyDescription: LEGACY_RECURRING_USERS_DESCRIPTION,
+        description: RECURRING_USERS_DESCRIPTION,
+      },
+    ],
+    [
+      "recurring-users-by-template-bar",
+      {
+        legacySql: LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+        sql: RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+        legacyDescription: LEGACY_RECURRING_USERS_WEEKLY_DESCRIPTION,
+        description: RECURRING_USERS_WEEKLY_DESCRIPTION,
+      },
+    ],
+  ]);
+  let changed = false;
+  const panels = config.panels.map((rawPanel) => {
+    if (!rawPanel || typeof rawPanel !== "object") return rawPanel;
+    const panel = rawPanel as Record<string, unknown>;
+    const replacement =
+      typeof panel.id === "string" ? replacements.get(panel.id) : undefined;
+    if (!replacement || panel.sql !== replacement.legacySql) return rawPanel;
+
+    changed = true;
+    const panelConfig =
+      panel.config && typeof panel.config === "object"
+        ? (panel.config as Record<string, unknown>)
+        : null;
+    return {
+      ...panel,
+      sql: replacement.sql,
+      ...(panelConfig
+        ? {
+            config: {
+              ...panelConfig,
+              ...(panelConfig.description === replacement.legacyDescription
+                ? { description: replacement.description }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  });
+  return changed
+    ? { config: { ...config, panels }, changed }
+    : { config, changed };
+}
 const DAU_BY_TEMPLATE_SQL = `SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT ${SIGNED_IN_ACTIVITY_KEY_SQL}) AS visitors FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, ${TEMPLATE_EXPR} ORDER BY date, template`;
 const WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS visitor_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
 
@@ -684,8 +764,7 @@ const ENTRIES: FirstPartyMetric[] = [
         valueKey: "users",
       },
       stacked: true,
-      description:
-        "Daily signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that day. Docs traffic and unknown template are excluded.",
+      description: RECURRING_USERS_DESCRIPTION,
     },
   },
   {
@@ -706,8 +785,7 @@ const ENTRIES: FirstPartyMetric[] = [
         valueKey: "users",
       },
       stacked: true,
-      description:
-        "Weekly distinct signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.",
+      description: RECURRING_USERS_WEEKLY_DESCRIPTION,
     },
   },
   {

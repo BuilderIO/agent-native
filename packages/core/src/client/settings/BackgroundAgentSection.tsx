@@ -6,6 +6,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { withBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import { trackEvent } from "../analytics.js";
 import { agentNativePath } from "../api-path.js";
 import { SettingsSection } from "./SettingsSection.js";
@@ -170,7 +171,10 @@ export function BackgroundAgentSection() {
                 Branch created
               </div>
               <a
-                href={result.url}
+                href={withBuilderUtmTrackingParams(result.url, {
+                  campaign: "product",
+                  content: "background_agent_branch",
+                })}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 text-[10px] text-foreground hover:underline"

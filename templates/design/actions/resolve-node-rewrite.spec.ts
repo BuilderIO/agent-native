@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     listAppState: vi.fn(),
     readAppState: vi.fn(),
     compareAndSetAppState: vi.fn(),
+    compareAndSetManyAppState: vi.fn(),
     readLiveSourceFile: vi.fn(),
     writeInlineSourceFile: vi.fn(),
     assertAccess: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   compareAndSetAppState: mocks.compareAndSetAppState,
+  compareAndSetManyAppState: mocks.compareAndSetManyAppState,
   listAppState: mocks.listAppState,
   readAppState: mocks.readAppState,
 }));
@@ -126,6 +128,7 @@ describe("resolve-node-rewrite", () => {
       createdAt: "2026-07-16T00:00:00.000Z",
     });
     mocks.compareAndSetAppState.mockResolvedValue(true);
+    mocks.compareAndSetManyAppState.mockResolvedValue(true);
     mocks.readLiveSourceFile.mockResolvedValue({
       content: mocks.file.content,
       versionHash: "hash_base",
@@ -169,17 +172,26 @@ describe("resolve-node-rewrite", () => {
         versionHash: "hash_next",
       }),
     );
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
-      designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
-      proposal(),
-      null,
-    );
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(1);
     expect(mocks.compareAndSetAppState).toHaveBeenCalledWith(
       designRepromptPendingStateKey("design_1", "file_1"),
       expect.objectContaining({ repromptId: "reprompt_1" }),
-      null,
+      expect.objectContaining({
+        status: "resolving",
+        proposalId: "proposal_1",
+      }),
     );
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledWith([
+      expect.objectContaining({
+        key: designRepromptProposalStateKey("design_1", "file_1", "reprompt_1"),
+        nextValue: null,
+      }),
+      expect.objectContaining({
+        key: designRepromptPendingStateKey("design_1", "file_1"),
+        expectedValue: expect.objectContaining({ status: "resolving" }),
+        nextValue: null,
+      }),
+    ]);
   });
 
   it("rejects without reading or writing design content and clears both records", async () => {
@@ -190,7 +202,8 @@ describe("resolve-node-rewrite", () => {
 
     expect(mocks.readLiveSourceFile).not.toHaveBeenCalled();
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
-    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).toHaveBeenCalledTimes(1);
     expect(result).toEqual(
       expect.objectContaining({
         resolution: "reject",
@@ -220,6 +233,7 @@ describe("resolve-node-rewrite", () => {
       action.run({ proposalId: "proposal_1", resolution: "reject" }),
     ).rejects.toThrow("newer regeneration request");
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("fails closed on a version mismatch and leaves proposal state intact", async () => {
@@ -234,6 +248,7 @@ describe("resolve-node-rewrite", () => {
     ).rejects.toThrow("Screen changed since proposal");
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
   });
 
   it("does not clear state when the chosen variant index is invalid", async () => {
@@ -246,5 +261,44 @@ describe("resolve-node-rewrite", () => {
     ).rejects.toThrow("out of range");
     expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
     expect(mocks.compareAndSetAppState).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not write when a newer request wins the acceptance reservation", async () => {
+    mocks.compareAndSetAppState.mockResolvedValue(false);
+
+    await expect(
+      action.run({ proposalId: "proposal_1", resolution: "accept" }),
+    ).rejects.toThrow("newer regeneration request");
+    expect(mocks.writeInlineSourceFile).not.toHaveBeenCalled();
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it("releases its acceptance reservation when the content write fails", async () => {
+    mocks.writeInlineSourceFile.mockRejectedValue(new Error("write failed"));
+
+    await expect(
+      action.run({ proposalId: "proposal_1", resolution: "accept" }),
+    ).rejects.toThrow("write failed");
+    expect(mocks.compareAndSetAppState).toHaveBeenCalledTimes(2);
+    expect(mocks.compareAndSetAppState.mock.calls[1]).toEqual([
+      designRepromptPendingStateKey("design_1", "file_1"),
+      expect.objectContaining({ status: "resolving" }),
+      expect.objectContaining({ repromptId: "reprompt_1" }),
+    ]);
+    expect(mocks.compareAndSetManyAppState).not.toHaveBeenCalled();
+  });
+
+  it("reports committed content without claiming incomplete cleanup succeeded", async () => {
+    mocks.compareAndSetManyAppState.mockResolvedValue(false);
+
+    const result = await action.run({
+      proposalId: "proposal_1",
+      resolution: "accept",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({ changed: true, cleanupComplete: false }),
+    );
   });
 });

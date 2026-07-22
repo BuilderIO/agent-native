@@ -1,5 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
@@ -19,10 +20,10 @@ import {
 import { APP_TITLE } from "@/lib/app-config";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { icon: IconInbox, label: "Inbox", href: "/inbox" },
-  { icon: IconCheckbox, label: "Tasks", href: "/tasks" },
-  { icon: IconForms, label: "Fields", href: "/fields" },
+const NAV_ITEMS = [
+  { icon: IconInbox, labelKey: "sidebar.navInbox", href: "/inbox" },
+  { icon: IconCheckbox, labelKey: "sidebar.navTasks", href: "/tasks" },
+  { icon: IconForms, labelKey: "sidebar.navFields", href: "/fields" },
 ];
 
 interface SidebarProps {
@@ -36,6 +37,7 @@ export function Sidebar({
   collapsible = true,
   onCollapsedChange,
 }: SidebarProps) {
+  const t = useT();
   const location = useLocation();
   const ToggleIcon = collapsed
     ? IconLayoutSidebarLeftExpand
@@ -64,13 +66,17 @@ export function Sidebar({
             "flex shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "size-8" : "size-7",
           )}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
         >
           <ToggleIcon className="size-4" />
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
       </TooltipContent>
     </Tooltip>
   ) : null;
@@ -124,26 +130,27 @@ export function Sidebar({
         )}
       >
         <div className={cn("grid", collapsed ? "gap-0" : "gap-1")}>
-          {navItems.map((item) => {
+          {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = location.pathname.startsWith(item.href);
+            const label = t(item.labelKey);
             const link = (
               <Link
                 to={item.href}
                 className={navClass({ isActive })}
                 aria-current={isActive ? "page" : undefined}
-                aria-label={collapsed ? item.label : undefined}
+                aria-label={collapsed ? label : undefined}
               >
                 <Icon className="size-4 shrink-0" />
                 <span className={collapsed ? "sr-only" : "truncate"}>
-                  {item.label}
+                  {label}
                 </span>
               </Link>
             );
             return collapsed ? (
               <Tooltip key={item.href}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
-                <TooltipContent side="right">{item.label}</TooltipContent>
+                <TooltipContent side="right">{label}</TooltipContent>
               </Tooltip>
             ) : (
               <div key={item.href}>{link}</div>

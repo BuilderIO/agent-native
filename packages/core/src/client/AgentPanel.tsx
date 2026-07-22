@@ -81,6 +81,7 @@ const MultiTabAssistantChatLazy = lazy(() =>
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "react-router";
 
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
   consumeAgentSidebarUrlOpenOverride,
@@ -670,14 +671,19 @@ function CodeAccessUnavailablePanel({
   compact?: boolean;
 }) {
   const { connectUrl: builderConnectUrl } = useBuilderConnectUrl();
-  const builderHref =
-    secondaryCtaHref ??
-    (builderConnectUrl
+  const builderHref = secondaryCtaHref
+    ? withBuilderUtmTrackingParams(secondaryCtaHref, {
+        campaign: "product",
+        content: "code_access_unavailable_panel",
+      })
+    : builderConnectUrl
       ? withBuilderConnectTrackingParams(builderConnectUrl, {
           source: "code_access_unavailable_panel",
           flow: "background_agent",
         })
-      : "https://builder.io");
+      : withBuilderUtmTrackingParams("https://builder.io", {
+          content: "code_access_unavailable_panel",
+        });
 
   return (
     <div
