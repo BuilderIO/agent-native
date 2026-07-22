@@ -873,6 +873,187 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("uses a granted Salesforce OAuth connection at its validated instance URL", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: { access_token: "salesforce-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "salesforce",
+      path: "/services/data/v60.0/sobjects/Account",
+      connectionId: "salesforce-connection",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://acme.my.salesforce.com/services/data/v60.0/sobjects/Account",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer salesforce-oauth-example",
+        }),
+      }),
+    );
+  });
+
+  it("keeps a Salesforce OAuth token on its exact connection instance", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: { access_token: "salesforce-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "salesforce",
+        path: "https://other.my.salesforce.com/services/data/v60.0/query",
+        connectionId: "salesforce-connection",
+      }),
+    ).rejects.toThrow(/must stay on the configured provider host/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("documents Salesforce Provider API examples with a concrete API version", () => {
+    const examples = getProviderApiConfig("salesforce").examples ?? [];
+    expect(examples.map((example) => example.path)).toEqual(
+      expect.arrayContaining([
+        "/services/data/v60.0/sobjects/Account",
+        "/services/data/v60.0/query",
+      ]),
+    );
+  });
+
+  it("refreshes Salesforce OAuth before calling the connection instance", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "SALESFORCE_CLIENT_ID"
+        ? "salesforce-client-id"
+        : key === "SALESFORCE_CLIENT_SECRET"
+          ? "salesforce-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "00Dexample::scoped-owner",
+        displayName: "acme.my.salesforce.com",
+        tokens: {
+          access_token: "expired-salesforce-access",
+          refresh_token: "salesforce-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "salesforce-connection",
+        label: "acme.my.salesforce.com",
+        accountId: "00Dexample::scoped-owner",
+        config: {
+          credentialMode: "oauth",
+          salesforceInstanceUrl: "https://acme.my.salesforce.com",
+          salesforceLoginUrl: "https://test.salesforce.com",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "salesforce-access-new",
+            refresh_token: "salesforce-refresh-rotated",
+            expires_in: 7200,
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ records: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "crm",
+      providerIds: ["salesforce"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "salesforce",
+      path: "/services/data/v60.0/query",
+      connectionId: "salesforce-connection",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://test.salesforce.com/services/oauth2/token",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "grant_type=refresh_token",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://acme.my.salesforce.com/services/data/v60.0/query",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer salesforce-access-new",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "salesforce",
+      "00Dexample::scoped-owner",
+      expect.objectContaining({
+        access_token: "salesforce-access-new",
+        refresh_token: "salesforce-refresh-rotated",
+      }),
+      "ada@example.com",
+    );
+  });
+
   it("resolves a connection-bound OAuth token for trusted UI bridges", async () => {
     listOAuthAccountsByOwner.mockResolvedValue([
       {

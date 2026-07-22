@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useSearchParams } from "react-router";
 
+import { CreateCrmRecordDialog } from "@/components/crm/CreateCrmRecordDialog";
 import { RecordGrid } from "@/components/crm/RecordGrid";
 import { SavedViewDataProgram } from "@/components/crm/SavedViewDataProgram";
 import { PageHeader } from "@/components/crm/Surface";
@@ -24,15 +25,16 @@ export default function OpportunitiesRoute() {
         description={
           viewId
             ? "Opportunities matching this saved view."
-            : "Current commercial work from the connected CRM."
+            : "Opportunities in your Native SQL workspace and connected CRM mirrors."
         }
+        actions={<CreateCrmRecordDialog kind="opportunity" />}
       />
       <SavedViewDataProgram data={query.data} />
       <RecordGrid
         kind="opportunity"
         records={normalizeRecords(query.data, "opportunity")}
         isLoading={query.isLoading}
-        emptyTitle="No connected opportunities yet"
+        emptyTitle="No opportunities yet"
       />
     </>
   );

@@ -4,11 +4,14 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import {
+  createConnectedCrmAdapter,
+  isConnectedCrmProvider,
+} from "../server/crm/adapter.js";
+import {
   MAX_SYNC_PAGE_SIZE,
   MAX_SYNC_PAGES,
   syncCrmMirror,
 } from "../server/crm/crm-mirror.js";
-import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
 import { getDb, schema } from "../server/db/index.js";
 import { requireCrmScope } from "./_crm-action-utils.js";
 
@@ -44,7 +47,7 @@ const syncScopeSchema = z
 
 export default defineAction({
   description:
-    "Thinly mirror one bounded HubSpot CRM object cohort. It discovers field policy first, mirrors only explicit safe fields, and returns a continuation cursor instead of claiming an exhaustive sync.",
+    "Thinly mirror one bounded HubSpot or Salesforce CRM object cohort. It discovers field policy first, mirrors only explicit safe fields, and returns a continuation cursor instead of claiming an exhaustive sync.",
   schema: z.object({
     connectionId: z.string().trim().min(1).max(128),
     objectType: z.string().trim().min(1).max(120),
@@ -84,7 +87,7 @@ export default defineAction({
         visibility: response.visibility,
       };
     },
-    summary: (args) => `Synced bounded HubSpot ${args.objectType} cohort`,
+    summary: (args) => `Synced bounded CRM ${args.objectType} cohort`,
     recordInputs: false,
   },
   run: async (args, ctx?: ActionRunContext) => {
@@ -107,12 +110,16 @@ export default defineAction({
       .limit(1);
     if (!connection || connection.status === "disconnected")
       throw new Error("CRM connection is unavailable.");
-    if (connection.provider !== "hubspot" || !connection.workspaceConnectionId)
+    if (
+      !isConnectedCrmProvider(connection.provider) ||
+      !connection.workspaceConnectionId
+    )
       throw new Error(
-        "Phase one sync supports a connected HubSpot workspace connection only.",
+        "CRM sync requires a connected HubSpot or Salesforce workspace connection.",
       );
     const ownership = requireCrmScope(ctx);
-    const adapter = await createHubSpotCrmAdapter({
+    const adapter = await createConnectedCrmAdapter({
+      provider: connection.provider,
       connectionId: connection.workspaceConnectionId,
       userEmail: ownership.ownerEmail,
       orgId: ownership.orgId,

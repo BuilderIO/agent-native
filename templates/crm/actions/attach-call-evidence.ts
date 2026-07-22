@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { isSafeCrmEvidenceExcerpt } from "../server/crm/crm-field-firewall.js";
@@ -21,7 +21,12 @@ export default defineAction({
     "Attach bounded call evidence to a CRM record. Store only an artifact reference, URL, optional short quote, speaker, timestamp, and summary; never submit a transcript or media payload.",
   schema: z
     .object({
-      recordId: z.string().trim().min(1).max(128),
+      recordId: z.string().trim().min(1).max(128).optional(),
+      recordIds: z
+        .array(z.string().trim().min(1).max(128))
+        .min(1)
+        .max(20)
+        .optional(),
       interactionId: z.string().trim().min(1).max(128).optional(),
       artifactId: z.string().trim().min(1).max(256),
       sourceUrl: httpUrl,
@@ -52,6 +57,16 @@ export default defineAction({
     })
     .superRefine((value, issue) => {
       if (
+        (!value.recordId && !value.recordIds) ||
+        (value.recordId && value.recordIds)
+      ) {
+        issue.addIssue({
+          code: "custom",
+          message: "Provide exactly one of recordId or recordIds",
+          path: ["recordId"],
+        });
+      }
+      if (
         value.endSeconds !== undefined &&
         value.startSeconds !== undefined &&
         value.endSeconds < value.startSeconds
@@ -65,34 +80,47 @@ export default defineAction({
     }),
   audit: {
     target: (args, result) => {
-      const evidence = result as {
+      const value = result as {
+        evidence?: Array<{
+          ownerEmail: string;
+          orgId: string | null;
+          visibility: "private" | "org";
+        }>;
         ownerEmail: string;
         orgId: string | null;
         visibility: "private" | "org";
       };
+      const evidence = value.evidence?.[0] ?? value;
       return {
         type: "crm-record",
-        id: args.recordId,
+        id: args.recordId ?? args.recordIds?.[0] ?? "unknown",
         ownerEmail: evidence.ownerEmail,
         orgId: evidence.orgId,
         visibility: evidence.visibility,
       };
     },
-    summary: (args) => `Attached call evidence to CRM record ${args.recordId}`,
+    summary: (args) =>
+      `Attached call evidence to ${args.recordIds?.length ?? 1} CRM record${args.recordIds?.length === 1 ? "" : "s"}`,
     recordInputs: false,
   },
   run: async (args, ctx) => {
-    await assertAccess("crm-record", args.recordId, "editor");
+    const recordIds = args.recordId
+      ? [args.recordId]
+      : [...new Set(args.recordIds ?? [])];
+    await Promise.all(
+      recordIds.map((recordId) =>
+        assertAccess("crm-record", recordId, "editor"),
+      ),
+    );
     if (args.interactionId)
       await assertAccess("crm-interaction", args.interactionId, "viewer");
     const db = getDb();
     const scope = requireCrmScope(ctx);
     const now = new Date().toISOString();
-    const id = crypto.randomUUID();
-    await db.insert(schema.crmCallEvidence).values({
-      id,
+    const rows = recordIds.map((recordId) => ({
+      id: crypto.randomUUID(),
       interactionId: args.interactionId ?? null,
-      recordId: args.recordId,
+      recordId,
       sourceApp: args.sourceApp,
       artifactType: args.artifactType,
       artifactId: args.artifactId,
@@ -106,19 +134,25 @@ export default defineAction({
       ...scope,
       createdAt: now,
       updatedAt: now,
+    }));
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.crmCallEvidence).values(rows);
     });
-    const [evidence] = await db
+    const evidence = await db
       .select()
       .from(schema.crmCallEvidence)
       .where(
         and(
-          eq(schema.crmCallEvidence.id, id),
+          inArray(
+            schema.crmCallEvidence.id,
+            rows.map((row) => row.id),
+          ),
           eq(schema.crmCallEvidence.ownerEmail, scope.ownerEmail),
         ),
       )
-      .limit(1);
-    if (!evidence)
+      .limit(recordIds.length);
+    if (evidence.length !== recordIds.length)
       throw new Error("Call evidence could not be verified after saving.");
-    return evidence;
+    return args.recordId ? evidence[0] : { evidence };
   },
 });

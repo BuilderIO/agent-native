@@ -28,7 +28,7 @@ const AggregateSchema = z.object({
 
 export default createQueryStagedDatasetAction({
   description:
-    "Filter, project, sort, or aggregate a caller-scoped staged HubSpot dataset without re-fetching the provider. For exhaustive CRM analysis, stage every bounded page first and report the dataset's source scope, row count, pagination status, truncation, and gaps.",
+    "Filter, project, sort, or aggregate a caller-scoped staged CRM provider dataset without re-fetching the provider. For exhaustive CRM analysis, stage every bounded page first and report the dataset's source scope, row count, pagination status, truncation, and gaps.",
   schema: z.object({
     datasetId: z.string().min(1),
     where: z.array(WhereSchema).optional(),

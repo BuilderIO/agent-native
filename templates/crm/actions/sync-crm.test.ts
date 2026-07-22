@@ -6,8 +6,10 @@ vi.mock("../server/crm/crm-mirror.js", () => ({
   MAX_SYNC_PAGES: 5,
   syncCrmMirror: mirror.sync,
 }));
-vi.mock("../server/crm/hubspot-adapter.js", () => ({
-  createHubSpotCrmAdapter: vi.fn(),
+vi.mock("../server/crm/adapter.js", () => ({
+  createConnectedCrmAdapter: vi.fn(),
+  isConnectedCrmProvider: (provider: string) =>
+    provider === "hubspot" || provider === "salesforce",
 }));
 vi.mock("../server/db/index.js", () => ({ getDb: vi.fn(), schema: {} }));
 

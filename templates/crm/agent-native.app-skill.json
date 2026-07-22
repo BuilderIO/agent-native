@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "crm",
   "displayName": "CRM",
-  "description": "Work with a field-policy-aware, HubSpot-connected CRM companion.",
+  "description": "Run a local-authoritative Native SQL CRM or a field-policy-aware HubSpot and Salesforce companion.",
   "mcp": { "serverName": "agent-native-crm" },
   "local": {
     "template": "crm",
@@ -16,7 +16,7 @@
   },
   "auth": {
     "mode": "oauth",
-    "setup": "Connect HubSpot through workspace Connections. CRM never accepts or stores provider credentials."
+    "setup": "Start with Native SQL without an external connection, or connect HubSpot or Salesforce through workspace Connections. CRM never accepts or stores provider credentials."
   },
   "surfaces": [
     { "id": "crm-overview", "action": "get-crm-overview", "path": "/" },
@@ -31,6 +31,11 @@
       "id": "crm-saved-views",
       "action": "list-crm-saved-views",
       "path": "/views"
+    },
+    {
+      "id": "crm-signals",
+      "action": "list-crm-signal-hits",
+      "path": "/records"
     }
   ],
   "skills": [

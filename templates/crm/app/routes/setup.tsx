@@ -20,7 +20,7 @@ import { PageHeader } from "@/components/crm/Surface";
 
 interface WorkspaceConnection {
   id: string;
-  provider: string;
+  provider: "hubspot" | "salesforce";
   label: string;
   accountLabel?: string | null;
   status: string;
@@ -33,7 +33,7 @@ export default function SetupRoute() {
     { includeDisabled: false } as never,
   );
   const connections = useMemo(
-    () => hubSpotConnections(connectionsQuery.data),
+    () => crmConnections(connectionsQuery.data),
     [connectionsQuery.data],
   );
   const [workspaceConnectionId, setWorkspaceConnectionId] = useState("");
@@ -43,10 +43,15 @@ export default function SetupRoute() {
     { id: string },
     {
       workspaceConnectionId: string;
+      provider: "hubspot" | "salesforce";
       selectedPipelineIds: string[];
       selectedObjectTypes: string[];
     }
   >("configure-crm-connection" as never);
+  const configureNative = useActionMutation<
+    { id: string },
+    Record<string, never>
+  >("configure-native-crm" as never);
   const sync = useActionMutation<
     unknown,
     {
@@ -62,6 +67,7 @@ export default function SetupRoute() {
   );
 
   async function syncRecentRecords() {
+    if (!selected) return;
     const selectedPipelines = pipelineIds
       .split(",")
       .map((value) => value.trim())
@@ -74,30 +80,46 @@ export default function SetupRoute() {
     try {
       const connection = await configure.mutateAsync({
         workspaceConnectionId,
-        selectedPipelineIds: selectedPipelines,
-        selectedObjectTypes: ["companies", "contacts", "deals"],
+        provider: selected.provider,
+        selectedPipelineIds:
+          selected.provider === "hubspot" ? selectedPipelines : [],
+        selectedObjectTypes: objectTypesForProvider(selected.provider),
       });
       const updatedAfter = new Date(
         Date.now() - days * 24 * 60 * 60 * 1_000,
       ).toISOString();
-      for (const objectType of ["companies", "contacts", "deals"]) {
+      for (const objectType of objectTypesForProvider(selected.provider)) {
         await sync.mutateAsync({
           connectionId: connection.id,
           objectType,
           scope: {
             updatedAfter,
-            ...(objectType === "deals" && selectedPipelines.length
+            ...(selected.provider === "hubspot" &&
+            objectType === "deals" &&
+            selectedPipelines.length
               ? { pipelineIds: selectedPipelines }
               : {}),
           },
           maxPages: 2,
         });
       }
-      toast.success("Recent HubSpot records are ready.");
+      toast.success(
+        `Recent ${providerLabel(selected.provider)} records are ready.`,
+      );
+      navigate("/", { replace: true });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "CRM sync failed.");
+    }
+  }
+
+  async function startNativeCrm() {
+    try {
+      await configureNative.mutateAsync({});
+      toast.success("Your native CRM is ready.");
       navigate("/", { replace: true });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "HubSpot sync failed.",
+        error instanceof Error ? error.message : "Could not start native CRM.",
       );
     }
   }
@@ -107,23 +129,45 @@ export default function SetupRoute() {
       <PageHeader
         eyebrow="CRM"
         title="Set up CRM"
-        description="Choose the exact shared HubSpot connection and a bounded initial cohort."
+        description="Start with CRM's built-in SQL store, or connect a scoped HubSpot or Salesforce companion."
       />
       <div className="mx-auto grid w-full max-w-xl gap-6 p-5 sm:p-7">
+        <section className="grid gap-4 rounded-lg border border-border/70 bg-card p-4">
+          <div className="grid gap-1">
+            <p className="text-sm font-medium">Start with Native SQL</p>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Run accounts, people, opportunities, saved views, tasks, and
+              cadence without connecting another CRM. Your CRM is
+              local-authoritative and portable across SQLite, Postgres, and D1.
+            </p>
+          </div>
+          <Button
+            className="w-full sm:w-fit"
+            disabled={configureNative.isPending}
+            onClick={() => void startNativeCrm()}
+          >
+            {configureNative.isPending ? "Starting…" : "Start with Native SQL"}
+          </Button>
+        </section>
+        <div className="flex items-center gap-3 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+          <span className="h-px flex-1 bg-border" />
+          Or connect an existing CRM
+          <span className="h-px flex-1 bg-border" />
+        </div>
         <div className="grid gap-2">
-          <Label htmlFor="hubspot-connection">HubSpot connection</Label>
+          <Label htmlFor="crm-connection">CRM connection</Label>
           <Select
             value={workspaceConnectionId}
             onValueChange={setWorkspaceConnectionId}
             disabled={connectionsQuery.isLoading}
           >
-            <SelectTrigger id="hubspot-connection">
-              <SelectValue placeholder="Select a shared connection" />
+            <SelectTrigger id="crm-connection">
+              <SelectValue placeholder="Select HubSpot or Salesforce" />
             </SelectTrigger>
             <SelectContent>
               {connections.map((connection) => (
                 <SelectItem key={connection.id} value={connection.id}>
-                  {connection.label}
+                  {connection.label} · {providerLabel(connection.provider)}
                   {connection.accountLabel
                     ? ` · ${connection.accountLabel}`
                     : ""}
@@ -133,7 +177,7 @@ export default function SetupRoute() {
           </Select>
           <p className="text-xs text-muted-foreground">
             Only workspace Connections granted to this app can be used. CRM
-            never stores the provider token.
+            never stores provider tokens.
           </p>
         </div>
         <div className="grid gap-4 rounded-lg border border-border/70 bg-card p-4 sm:grid-cols-2">
@@ -151,19 +195,36 @@ export default function SetupRoute() {
               Days, capped at 365.
             </p>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="pipeline-ids">Deal pipeline IDs</Label>
-            <Input
-              id="pipeline-ids"
-              value={pipelineIds}
-              maxLength={8_000}
-              placeholder="Optional, comma-separated"
-              onChange={(event) => setPipelineIds(event.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              Leave blank for recently updated deals.
-            </p>
-          </div>
+          {selected?.provider === "hubspot" ? (
+            <div className="grid gap-2">
+              <Label htmlFor="pipeline-ids">Deal pipeline IDs</Label>
+              <Input
+                id="pipeline-ids"
+                value={pipelineIds}
+                maxLength={8_000}
+                placeholder="Optional, comma-separated"
+                onChange={(event) => setPipelineIds(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank for recently updated deals.
+              </p>
+            </div>
+          ) : selected?.provider === "salesforce" ? (
+            <div className="grid gap-2">
+              <p className="text-sm font-medium">Salesforce objects</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                CRM mirrors recently updated Accounts, Contacts, and
+                Opportunities in this initial cohort.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <p className="text-sm font-medium">Cohort objects</p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Choose a connection to see its initial object cohort.
+              </p>
+            </div>
+          )}
         </div>
         {connections.length ? (
           <Button
@@ -182,14 +243,25 @@ export default function SetupRoute() {
         ) : (
           <div className="rounded-lg border border-dashed border-border p-5 text-center">
             <p className="text-sm font-medium">
-              No connected HubSpot account is available.
+              No connected HubSpot or Salesforce account is available.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Authorize HubSpot and grant it to CRM from shared settings.
+              You can start with Native SQL above, or authorize a provider and
+              grant it to CRM from shared settings.
             </p>
             <Button asChild variant="outline" className="mt-4">
-              <Link to="/settings#connections">Open shared connections</Link>
+              <Link to="/settings/connections">Open shared connections</Link>
             </Button>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Using a Salesforce sandbox?{" "}
+              <a
+                className="font-medium text-foreground underline underline-offset-4"
+                href="/_agent-native/connections/oauth/salesforce/start?environment=sandbox"
+              >
+                Authorize the sandbox directly
+              </a>
+              .
+            </p>
           </div>
         )}
       </div>
@@ -197,7 +269,7 @@ export default function SetupRoute() {
   );
 }
 
-function hubSpotConnections(data: unknown): WorkspaceConnection[] {
+function crmConnections(data: unknown): WorkspaceConnection[] {
   if (!data || typeof data !== "object") return [];
   const rows = (data as { connections?: unknown }).connections;
   if (!Array.isArray(rows)) return [];
@@ -205,7 +277,7 @@ function hubSpotConnections(data: unknown): WorkspaceConnection[] {
     if (!row || typeof row !== "object") return [];
     const item = row as Record<string, unknown>;
     if (
-      item.provider !== "hubspot" ||
+      (item.provider !== "hubspot" && item.provider !== "salesforce") ||
       typeof item.id !== "string" ||
       typeof item.label !== "string" ||
       typeof item.status !== "string"
@@ -215,7 +287,7 @@ function hubSpotConnections(data: unknown): WorkspaceConnection[] {
     return [
       {
         id: item.id,
-        provider: "hubspot",
+        provider: item.provider,
         label: item.label,
         accountLabel:
           typeof item.accountLabel === "string" ? item.accountLabel : null,
@@ -223,4 +295,14 @@ function hubSpotConnections(data: unknown): WorkspaceConnection[] {
       },
     ];
   });
+}
+
+function objectTypesForProvider(provider: WorkspaceConnection["provider"]) {
+  return provider === "hubspot"
+    ? ["companies", "contacts", "deals"]
+    : ["Account", "Contact", "Opportunity"];
+}
+
+function providerLabel(provider: WorkspaceConnection["provider"]) {
+  return provider === "hubspot" ? "HubSpot" : "Salesforce";
 }

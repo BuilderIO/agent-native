@@ -7,7 +7,10 @@ import { getCredentialContext } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionCredentialForApp } from "@agent-native/core/workspace-connections";
 
 export const CRM_APP_ID = "crm";
-export const CRM_PROVIDER_API_IDS = ["hubspot"] as [ProviderApiId];
+export const CRM_PROVIDER_API_IDS = ["hubspot", "salesforce"] as [
+  ProviderApiId,
+  ProviderApiId,
+];
 
 const resolveCrmProviderCredential: ProviderApiCredentialResolver = async ({
   provider,

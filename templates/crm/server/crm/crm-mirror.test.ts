@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  crmRecordIdentityColumns,
+  crmRecordSummaryColumns,
   fieldsForPolicyDiscovery,
   resolveMirrorFields,
   safeMirroredValue,
@@ -88,7 +90,78 @@ describe("CRM mirror firewall", () => {
         requested: ["email"],
         allowCustomObject: false,
       }),
-    ).toThrow("Custom HubSpot objects");
+    ).toThrow("Custom CRM objects");
+  });
+
+  it("uses a bounded Salesforce allow-list for standard objects", () => {
+    expect(
+      resolveMirrorFields({
+        object: {
+          ...object,
+          provider: "salesforce",
+          objectType: "Contact",
+          fields: [
+            { ...object.fields[0]!, name: "Email" },
+            { ...object.fields[0]!, name: "FirstName" },
+            { ...object.fields[0]!, name: "LastName" },
+            { ...object.fields[0]!, name: "OwnerId" },
+            { ...object.fields[2]!, name: "CallTranscript__c" },
+          ],
+        },
+        requested: undefined,
+        allowCustomObject: false,
+      }),
+    ).toEqual(["FirstName", "LastName", "Email", "OwnerId"]);
+  });
+
+  it("retains Salesforce identity and projects its standard summary aliases", () => {
+    const record = {
+      ref: {
+        connectionId: "salesforce-connection",
+        provider: "salesforce" as const,
+        objectType: "Opportunity",
+        kind: "opportunity" as const,
+        remoteId: "006example",
+      },
+      displayName: "Renewal",
+      fields: {
+        Email: "owner@example.test",
+        Website: "https://example.test",
+        StageName: "Proposal",
+        Amount: 12000,
+        CloseDate: "2026-08-01",
+        OwnerId: "005example",
+        RecordTypeId: "012example",
+      },
+      remoteRevision: "2026-07-21T00:00:00.000Z",
+      remoteUpdatedAt: "2026-07-21T00:00:00.000Z",
+      deleted: false,
+      accessScope: {
+        key: "salesforce-connection:grant",
+        mode: "user" as const,
+        objectReadable: true,
+        objectCreateable: false,
+        objectUpdateable: false,
+        objectDeleteable: false,
+        recordVisibility: "actor" as const,
+      },
+      provenance: [],
+    };
+
+    expect(crmRecordIdentityColumns(record)).toEqual({
+      provider: "salesforce",
+      objectType: "Opportunity",
+      kind: "opportunity",
+    });
+    expect(crmRecordSummaryColumns(record)).toMatchObject({
+      primaryEmail: "owner@example.test",
+      domain: "https://example.test",
+      stage: "Proposal",
+      amount: 12000,
+      closeDate: "2026-08-01",
+      ownerRemoteId: "005example",
+      pipelineId: "012example",
+    });
   });
 
   it("keeps CRM-owned cadence policy outside the remote field allow-list", () => {

@@ -3,6 +3,7 @@ import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { isConnectedCrmProvider } from "../server/crm/adapter.js";
 import { getDb, schema } from "../server/db/index.js";
 import {
   isSafeCrmMutationFields,
@@ -10,8 +11,10 @@ import {
   requireCrmScope,
 } from "./_crm-action-utils.js";
 
-const CONDITIONAL_MUTATION_MESSAGE =
-  "HubSpot did not apply this update because this connection cannot apply the expected revision atomically. Refresh the record and make this change in HubSpot.";
+function conditionalMutationMessage(provider: "hubspot" | "salesforce") {
+  const label = provider === "hubspot" ? "HubSpot" : "Salesforce";
+  return `${label} did not apply this update because this connection has not proved an atomic expected-revision write path. Refresh the record and make this change in ${label}.`;
+}
 
 function updateAffectedRows(result: unknown): number {
   if (!result || typeof result !== "object") return 0;
@@ -36,7 +39,7 @@ function updateAffectedRows(result: unknown): number {
 
 export default defineAction({
   description:
-    "Review one pending HubSpot provider proposal. Phase 1 records approval and fails closed because HubSpot cannot apply the expected revision atomically; make the change upstream after review.",
+    "Review one pending HubSpot or Salesforce provider proposal. The initial release records approval and fails closed unless the connection proves an atomic expected-revision write path; otherwise make the change upstream after review.",
   schema: z.object({
     proposalId: z.string().trim().min(1).max(128),
   }),
@@ -133,9 +136,9 @@ export default defineAction({
         "CRM proposal no longer has an available record and connection.",
       );
     }
-    if (connection.provider !== "hubspot") {
+    if (!isConnectedCrmProvider(connection.provider)) {
       throw new Error(
-        "Only HubSpot provider proposals are enabled in this phase.",
+        "Only HubSpot and Salesforce provider proposals are enabled in this release.",
       );
     }
     if (!connection.workspaceConnectionId) {
@@ -160,13 +163,14 @@ export default defineAction({
 
     const scope = requireCrmScope(ctx);
     const now = new Date().toISOString();
+    const message = conditionalMutationMessage(connection.provider);
     const claim = await db
       .update(schema.crmMutations)
       .set({
         status: "rejected",
         approvedBy: scope.ownerEmail,
         approvedAt: now,
-        error: CONDITIONAL_MUTATION_MESSAGE,
+        error: message,
         updatedAt: now,
       })
       .where(
@@ -190,7 +194,7 @@ export default defineAction({
       proposalId: proposal.id,
       recordId: record.id,
       status: "rejected" as const,
-      message: CONDITIONAL_MUTATION_MESSAGE,
+      message,
       ownerEmail: record.ownerEmail,
       orgId: record.orgId,
       visibility: record.visibility,

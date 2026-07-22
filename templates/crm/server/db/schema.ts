@@ -1,3 +1,4 @@
+import { getDialect } from "@agent-native/core/db";
 import {
   createSharesTable,
   integer,
@@ -7,6 +8,25 @@ import {
   table,
   text,
 } from "@agent-native/core/db/schema";
+import { customType as pgCustomType } from "drizzle-orm/pg-core";
+import { integer as sqliteInteger } from "drizzle-orm/sqlite-core";
+
+const pgIntegerBoolean = pgCustomType<{
+  data: boolean;
+  driverData: number;
+}>({
+  dataType: () => "integer",
+  fromDriver: (value) => value !== 0,
+  toDriver: (value) => (value ? 1 : 0),
+});
+
+const sqliteBoolean = <TName extends string>(name: TName) =>
+  sqliteInteger(name, { mode: "boolean" });
+
+const portableBoolean: typeof sqliteBoolean = ((name: string) =>
+  getDialect() === "postgres"
+    ? pgIntegerBoolean(name)
+    : sqliteBoolean(name)) as unknown as typeof sqliteBoolean;
 
 export const crmConnections = table("crm_connections", {
   id: text("id").primaryKey(),
@@ -51,20 +71,12 @@ export const crmObjects = table("crm_objects", {
   }).notNull(),
   label: text("label").notNull(),
   pluralLabel: text("plural_label").notNull(),
-  custom: integer("custom", { mode: "boolean" }).notNull().default(false),
-  queryable: integer("queryable", { mode: "boolean" }).notNull().default(true),
-  searchable: integer("searchable", { mode: "boolean" })
-    .notNull()
-    .default(true),
-  createable: integer("createable", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  updateable: integer("updateable", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  deleteable: integer("deleteable", { mode: "boolean" })
-    .notNull()
-    .default(false),
+  custom: portableBoolean("custom").notNull().default(false),
+  queryable: portableBoolean("queryable").notNull().default(true),
+  searchable: portableBoolean("searchable").notNull().default(true),
+  createable: portableBoolean("createable").notNull().default(false),
+  updateable: portableBoolean("updateable").notNull().default(false),
+  deleteable: portableBoolean("deleteable").notNull().default(false),
   capabilitiesJson: text("capabilities_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -91,15 +103,11 @@ export const crmFieldPolicies = table("crm_field_policies", {
   })
     .notNull()
     .default("remote-only"),
-  sensitive: integer("sensitive", { mode: "boolean" }).notNull().default(false),
-  readable: integer("readable", { mode: "boolean" }).notNull().default(true),
-  createable: integer("createable", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  updateable: integer("updateable", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  required: integer("required", { mode: "boolean" }).notNull().default(false),
+  sensitive: portableBoolean("sensitive").notNull().default(false),
+  readable: portableBoolean("readable").notNull().default(true),
+  createable: portableBoolean("createable").notNull().default(false),
+  updateable: portableBoolean("updateable").notNull().default(false),
+  required: portableBoolean("required").notNull().default(false),
   metadataJson: text("metadata_json").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -138,7 +146,7 @@ export const crmRecords = table("crm_records", {
   lastSyncedAt: text("last_synced_at"),
   accessScopeKey: text("access_scope_key").notNull(),
   accessScopeJson: text("access_scope_json").notNull().default("{}"),
-  tombstone: integer("tombstone", { mode: "boolean" }).notNull().default(false),
+  tombstone: portableBoolean("tombstone").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -157,7 +165,7 @@ export const crmRecordFields = table("crm_record_fields", {
   }).notNull(),
   stringValue: text("string_value"),
   numberValue: real("number_value"),
-  booleanValue: integer("boolean_value", { mode: "boolean" }),
+  booleanValue: portableBoolean("boolean_value"),
   jsonValue: text("json_value"),
   provenanceJson: text("provenance_json").notNull().default("[]"),
   accessScopeKey: text("access_scope_key").notNull().default("unverified"),
@@ -183,7 +191,7 @@ export const crmRelationships = table("crm_relationships", {
   sourceField: text("source_field"),
   remoteRelationshipId: text("remote_relationship_id"),
   remoteRevision: text("remote_revision"),
-  tombstone: integer("tombstone", { mode: "boolean" }).notNull().default(false),
+  tombstone: portableBoolean("tombstone").notNull().default(false),
   lastSyncedAt: text("last_synced_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
@@ -209,9 +217,7 @@ export const crmInteractions = table("crm_interactions", {
   title: text("title").notNull(),
   summary: text("summary").notNull().default(""),
   occurredAt: text("occurred_at").notNull(),
-  meaningful: integer("meaningful", { mode: "boolean" })
-    .notNull()
-    .default(true),
+  meaningful: portableBoolean("meaningful").notNull().default(true),
   providerObjectType: text("provider_object_type"),
   providerRemoteId: text("provider_remote_id"),
   sourceApp: text("source_app"),
@@ -247,6 +253,79 @@ export const crmCallEvidenceShares = createSharesTable(
   "crm_call_evidence_shares",
 );
 
+export const crmSignalTrackers = table("crm_signal_trackers", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  kind: text("kind", { enum: ["keyword", "smart"] }).notNull(),
+  keywordsJson: text("keywords_json").notNull().default("[]"),
+  classifierPrompt: text("classifier_prompt").notNull().default(""),
+  enabled: portableBoolean("enabled").notNull().default(true),
+  isDefault: portableBoolean("is_default").notNull().default(false),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const crmSignalTrackerShares = createSharesTable(
+  "crm_signal_tracker_shares",
+);
+
+export const crmSignalRuns = table("crm_signal_runs", {
+  id: text("id").primaryKey(),
+  trackerId: text("tracker_id"),
+  recordId: text("record_id").notNull(),
+  kind: text("kind", { enum: ["keyword", "smart", "summary"] }).notNull(),
+  status: text("status", {
+    enum: ["queued", "running", "completed", "failed"],
+  })
+    .notNull()
+    .default("queued"),
+  evidenceCount: integer("evidence_count").notNull().default(0),
+  model: text("model"),
+  modelVersion: text("model_version"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  error: text("error"),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  completedAt: text("completed_at"),
+  ...ownableColumns(),
+});
+
+export const crmSignalRunShares = createSharesTable("crm_signal_run_shares");
+
+export const crmSignals = table("crm_signals", {
+  id: text("id").primaryKey(),
+  runId: text("run_id"),
+  trackerId: text("tracker_id"),
+  recordId: text("record_id").notNull(),
+  evidenceId: text("evidence_id").notNull(),
+  kind: text("kind", {
+    enum: ["moment", "call-summary", "next-step"],
+  }).notNull(),
+  label: text("label").notNull(),
+  quote: text("quote").notNull().default(""),
+  speaker: text("speaker"),
+  startSeconds: real("start_seconds"),
+  endSeconds: real("end_seconds"),
+  summary: text("summary").notNull().default(""),
+  confidence: real("confidence").notNull().default(0),
+  detector: text("detector", { enum: ["keyword", "agent"] }).notNull(),
+  model: text("model"),
+  modelVersion: text("model_version"),
+  reviewStatus: text("review_status", {
+    enum: ["unreviewed", "confirmed", "dismissed"],
+  })
+    .notNull()
+    .default("unreviewed"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const crmSignalShares = createSharesTable("crm_signal_shares");
+
 export const crmTasks = table("crm_tasks", {
   id: text("id").primaryKey(),
   recordId: text("record_id"),
@@ -281,7 +360,7 @@ export const crmSavedViews = table("crm_saved_views", {
   columnsJson: text("columns_json").notNull().default("[]"),
   sortJson: text("sort_json").notNull().default("[]"),
   dataProgramId: text("data_program_id"),
-  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+  pinned: portableBoolean("pinned").notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),

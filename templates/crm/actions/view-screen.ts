@@ -4,7 +4,11 @@ import { accessFilter } from "@agent-native/core/sharing";
 import { desc } from "drizzle-orm";
 import { z } from "zod";
 
-import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
+import {
+  createConnectedCrmAdapter,
+  isConnectedCrmProvider,
+} from "../server/crm/adapter.js";
+import { createNativeCrmAdapter } from "../server/crm/native-adapter.js";
 import { loadVerifiedReadThroughRecord } from "../server/crm/read-through.js";
 import {
   getCrmOverview,
@@ -14,6 +18,7 @@ import {
   listCrmProposals,
   listCrmRecords,
   listCrmSavedViews,
+  listCrmSignals,
   listCrmTasks,
 } from "../server/db/crm-store.js";
 import { getDb, schema } from "../server/db/index.js";
@@ -49,9 +54,15 @@ export default defineAction({
 
     switch (navigation?.view) {
       case "record":
-        screen.record = navigation.recordId
-          ? await readVisibleRecord(navigation.recordId, ctx)
-          : null;
+        if (navigation.recordId) {
+          [screen.record, screen.signals] = await Promise.all([
+            readVisibleRecord(navigation.recordId, ctx),
+            listCrmSignals({ recordId: navigation.recordId, limit: 50 }),
+          ]);
+        } else {
+          screen.record = null;
+          screen.signals = [];
+        }
         break;
       case "account":
       case "person":
@@ -94,18 +105,20 @@ export default defineAction({
 
 async function readVisibleRecord(recordId: string, ctx?: ActionRunContext) {
   const context = await getCrmRecordReadContext(recordId);
-  if (
-    !context ||
-    context.provider !== "hubspot" ||
-    !context.workspaceConnectionId
-  ) {
-    return null;
-  }
-  const adapter = await createHubSpotCrmAdapter({
-    connectionId: context.workspaceConnectionId,
-    ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
-    ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
-  });
+  if (!context) return null;
+  const adapter =
+    context.provider === "native"
+      ? await createNativeCrmAdapter({ connectionId: context.connectionId })
+      : isConnectedCrmProvider(context.provider) &&
+          context.workspaceConnectionId
+        ? await createConnectedCrmAdapter({
+            provider: context.provider,
+            connectionId: context.workspaceConnectionId,
+            ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+            ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
+          })
+        : null;
+  if (!adapter) return null;
   let readThrough;
   try {
     readThrough = await loadVerifiedReadThroughRecord({ adapter, context });

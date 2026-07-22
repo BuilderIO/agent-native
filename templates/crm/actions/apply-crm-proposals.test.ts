@@ -5,7 +5,6 @@ const state = vi.hoisted(() => ({
   updates: [] as unknown[],
   updateResults: [] as unknown[],
 }));
-const hubspot = vi.hoisted(() => ({ createAdapter: vi.fn() }));
 
 function query(rows: unknown[]) {
   return Object.assign(rows, { limit: vi.fn().mockResolvedValue(rows) });
@@ -16,8 +15,9 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("../server/crm/hubspot-adapter.js", () => ({
-  createHubSpotCrmAdapter: hubspot.createAdapter,
+vi.mock("../server/crm/adapter.js", () => ({
+  isConnectedCrmProvider: (provider: string) =>
+    provider === "hubspot" || provider === "salesforce",
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -96,7 +96,6 @@ describe("apply-crm-proposals", () => {
     state.selectRows = [];
     state.updates = [];
     state.updateResults = [];
-    hubspot.createAdapter.mockReset();
   });
 
   it("requires an explicit approval before provider execution", () => {
@@ -118,17 +117,35 @@ describe("apply-crm-proposals", () => {
 
     expect(result).toMatchObject({
       status: "rejected",
-      message: expect.stringContaining("cannot apply the expected revision"),
+      message: expect.stringContaining("atomic expected-revision write path"),
     });
     expect(state.updates).toEqual([
       expect.objectContaining({
         status: "rejected",
         approvedBy: record.ownerEmail,
         approvedAt: expect.any(String),
-        error: expect.stringContaining("cannot apply the expected revision"),
+        error: expect.stringContaining("atomic expected-revision write path"),
       }),
     ]);
-    expect(hubspot.createAdapter).not.toHaveBeenCalled();
+  });
+
+  it("reviews Salesforce proposals with the same fail-closed boundary", async () => {
+    state.selectRows = [
+      [proposal({ StageName: "Closed Won" })],
+      [{ ...record, objectType: "Opportunity", remoteId: "opportunity-1" }],
+      [{ ...connection, provider: "salesforce" }],
+    ];
+    state.updateResults = [{ rowsAffected: 1 }];
+
+    await expect(
+      action.run(
+        { proposalId: "proposal-1" },
+        { caller: "tool", userEmail: record.ownerEmail, orgId: record.orgId },
+      ),
+    ).resolves.toMatchObject({
+      status: "rejected",
+      message: expect.stringContaining("Salesforce did not apply"),
+    });
   });
 
   it("lets only one concurrent approval transition the pending proposal", async () => {

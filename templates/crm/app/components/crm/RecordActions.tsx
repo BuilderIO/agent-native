@@ -36,8 +36,11 @@ export function RecordActions({ record }: { record: CrmRecordDetail }) {
 }
 
 function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
+  const isNative = record.provider === "native";
   const [open, setOpen] = useState(false);
-  const [target, setTarget] = useState<"local" | "provider">("provider");
+  const [target, setTarget] = useState<"local" | "provider">(
+    isNative ? "local" : "provider",
+  );
   const [field, setField] = useState("");
   const [value, setValue] = useState("");
   const [valueType, setValueType] = useState<"string" | "number" | "boolean">(
@@ -73,7 +76,7 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
         recordId: record.id,
         target,
         fields: { [field.trim()]: nextValue },
-        ...(target === "provider" && record.remoteRevision
+        ...((isNative || target === "provider") && record.remoteRevision
           ? { expectedRemoteRevision: record.remoteRevision }
           : {}),
       });
@@ -103,8 +106,13 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
     }
   }
 
+  function setDialogOpen(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (nextOpen && isNative) setTarget("local");
+  }
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5">
           <IconPencil className="size-4" /> Edit field
@@ -114,33 +122,43 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
         <DialogHeader>
           <DialogTitle>Edit CRM field</DialogTitle>
           <DialogDescription>
-            Provider edits become reviewable proposals because HubSpot cannot
-            apply an expected revision atomically. Local changes are limited to
-            local-authoritative fields.
+            {isNative
+              ? "Native SQL records are local-authoritative, so changes save directly to this workspace."
+              : "Provider edits become reviewable proposals and remain fail-closed unless the connected CRM proves an atomic expected-revision write. Local changes are limited to local-authoritative fields."}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
-          <FormField label="Authority" htmlFor="field-target">
-            <Select
-              value={target}
-              onValueChange={(next) => setTarget(next as "local" | "provider")}
-            >
-              <SelectTrigger id="field-target">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="provider">Connected CRM proposal</SelectItem>
-                <SelectItem value="local">Local CRM field</SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
+          {isNative ? null : (
+            <FormField label="Authority" htmlFor="field-target">
+              <Select
+                value={target}
+                onValueChange={(next) =>
+                  setTarget(next as "local" | "provider")
+                }
+              >
+                <SelectTrigger id="field-target">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="provider">
+                    Connected CRM proposal
+                  </SelectItem>
+                  <SelectItem value="local">Local CRM field</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
           <FormField label="Field name" htmlFor="field-name">
             <Input
               id="field-name"
               value={field}
               maxLength={120}
               placeholder={
-                target === "local" ? "desiredCadenceDays" : "lifecyclestage"
+                isNative || target === "local"
+                  ? "desiredCadenceDays"
+                  : record.provider === "salesforce"
+                    ? "StageName"
+                    : "lifecyclestage"
               }
               onChange={(event) => setField(event.target.value)}
             />
@@ -189,9 +207,11 @@ function EditFieldDialog({ record }: { record: CrmRecordDetail }) {
             }
             onClick={() => void submit()}
           >
-            {target === "provider"
-              ? "Prepare HubSpot change"
-              : "Update locally"}
+            {isNative
+              ? "Save field"
+              : target === "provider"
+                ? `Prepare ${record.provider === "salesforce" ? "Salesforce" : "HubSpot"} change`
+                : "Update locally"}
           </Button>
         </DialogFooter>
       </DialogContent>

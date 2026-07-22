@@ -1,7 +1,11 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
+import {
+  createConnectedCrmAdapter,
+  isConnectedCrmProvider,
+} from "../server/crm/adapter.js";
+import { createNativeCrmAdapter } from "../server/crm/native-adapter.js";
 import { loadVerifiedReadThroughRecord } from "../server/crm/read-through.js";
 import {
   getCrmRecord,
@@ -26,16 +30,21 @@ export default defineAction({
       error.statusCode = 404;
       throw error;
     }
-    if (context.provider !== "hubspot" || !context.workspaceConnectionId) {
-      throw new Error(
-        "CRM provider access cannot be verified for this record.",
-      );
+    const adapter =
+      context.provider === "native"
+        ? await createNativeCrmAdapter({ connectionId: context.connectionId })
+        : isConnectedCrmProvider(context.provider) &&
+            context.workspaceConnectionId
+          ? await createConnectedCrmAdapter({
+              provider: context.provider,
+              connectionId: context.workspaceConnectionId,
+              ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
+              ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
+            })
+          : null;
+    if (!adapter) {
+      throw new Error("CRM access cannot be verified for this record.");
     }
-    const adapter = await createHubSpotCrmAdapter({
-      connectionId: context.workspaceConnectionId,
-      ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
-      ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),
-    });
     const readThrough = await loadVerifiedReadThroughRecord({
       adapter,
       context,

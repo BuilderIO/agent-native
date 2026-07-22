@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   MAX_READ_THROUGH_RELATIONSHIPS,
+  loadVerifiedReadThroughRecord,
   readThroughFieldNames,
   relatedSummaries,
   scopesAreCompatible,
@@ -50,6 +51,95 @@ describe("CRM read-through boundaries", () => {
         },
       ]),
     ).toEqual(["name"]);
+  });
+
+  it("awaits an async provider scope before reading through a record", async () => {
+    const getRecord = vi.fn().mockResolvedValue({
+      ref: {
+        connectionId: "salesforce-connection",
+        provider: "salesforce",
+        objectType: "Contact",
+        kind: "person",
+        remoteId: "003example",
+      },
+      displayName: "Ada Lovelace",
+      fields: { Email: "ada@example.test" },
+      deleted: false,
+      accessScope: scope,
+      provenance: [],
+    });
+    const adapter = {
+      connection: {
+        connectionId: "salesforce-connection",
+        provider: "salesforce",
+      },
+      getAccessScope: vi.fn().mockResolvedValue(scope),
+      getRecord,
+      listRelationships: vi
+        .fn()
+        .mockResolvedValue({ relationships: [], complete: true }),
+    };
+
+    await expect(
+      loadVerifiedReadThroughRecord({
+        adapter: adapter as never,
+        context: {
+          id: "record-1",
+          objectType: "Contact",
+          kind: "person",
+          remoteId: "003example",
+          accessScopeJson: JSON.stringify(scope),
+          fieldPolicies: [
+            {
+              fieldName: "Email",
+              storagePolicy: "mirrored",
+              readable: true,
+              sensitive: false,
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({ remote: { displayName: "Ada Lovelace" } });
+    expect(getRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ fields: ["Email"] }),
+    );
+  });
+
+  it("fails closed before a read-through when Salesforce FLS changes", async () => {
+    const storedScope = {
+      ...scope,
+      key: "salesforce-connection:grant",
+      fieldPermissionsHash: "sf-fp-before",
+      sharingFingerprint: "sf-share",
+    };
+    const getRecord = vi.fn();
+    const adapter = {
+      connection: {
+        connectionId: "salesforce-connection",
+        provider: "salesforce",
+      },
+      getAccessScope: vi.fn().mockResolvedValue({
+        ...storedScope,
+        fieldPermissionsHash: "sf-fp-after",
+      }),
+      getRecord,
+      listRelationships: vi.fn(),
+    };
+
+    await expect(
+      loadVerifiedReadThroughRecord({
+        adapter: adapter as never,
+        context: {
+          id: "record-1",
+          objectType: "Contact",
+          kind: "person",
+          remoteId: "003example",
+          accessScopeJson: JSON.stringify(storedScope),
+          fieldPolicies: [],
+        },
+      }),
+    ).rejects.toThrow("CRM provider access changed");
+    expect(getRecord).not.toHaveBeenCalled();
   });
 
   it("returns only locally accessible related summaries and caps the provider edge set", () => {

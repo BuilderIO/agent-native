@@ -62,7 +62,7 @@ export default defineAction({
       if (!task) throw new Error("CRM task was not found.");
       if (task.authority !== "local") {
         throw new Error(
-          "This is a mirrored HubSpot task. Provider task writeback is not available in phase 1.",
+          "This is a mirrored provider task. Provider task writeback is not available in the initial release; create a CRM proposal or complete it upstream.",
         );
       }
       if (args.recordId && args.recordId !== task.recordId) {

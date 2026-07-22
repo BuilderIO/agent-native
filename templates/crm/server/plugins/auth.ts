@@ -4,11 +4,11 @@ export default createAuthPlugin({
   marketing: {
     appName: "CRM",
     tagline:
-      "A connected CRM companion that keeps customer work grounded in its source system.",
+      "A complete Native SQL CRM or a connected companion grounded in its source system.",
     features: [
-      "Review scoped HubSpot accounts, people, opportunities, and tasks",
-      "Keep a thin, field-policy-aware local mirror for fast CRM work",
-      "Preview agent-proposed provider changes before they are applied",
+      "Run accounts, people, opportunities, tasks, and cadence on Native SQL",
+      "Connect scoped HubSpot or Salesforce records without copying credentials",
+      "Work with the same safe actions from the UI or your CRM agent",
     ],
   },
 });

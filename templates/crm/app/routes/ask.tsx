@@ -37,13 +37,13 @@ export default function AskCrmRoute() {
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Ask about your connected CRM"
+        composerPlaceholder="Ask about your CRM"
         composerSlot={
           <div className="crm-chat-intro">
             <h1>Ask CRM</h1>
             <p>
               Explore permitted account context, follow-up work, and evidence
-              from connected records.
+              across Native SQL and connected records.
             </p>
           </div>
         }

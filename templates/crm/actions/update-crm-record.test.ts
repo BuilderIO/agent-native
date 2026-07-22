@@ -3,6 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   selectRows: [] as unknown[][],
   inserted: [] as unknown[],
+  nativeMutations: [] as unknown[],
+  nativeResult: {
+    status: "applied" as "applied" | "conflict" | "rejected",
+    remoteRevision: "revision-2",
+    message: undefined as string | undefined,
+  },
 }));
 
 function query(rows: unknown[]) {
@@ -62,6 +68,15 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
+vi.mock("../server/crm/native-adapter.js", () => ({
+  createNativeCrmAdapter: vi.fn(async () => ({
+    applyMutation: vi.fn(async (mutation) => {
+      state.nativeMutations.push(mutation);
+      return state.nativeResult;
+    }),
+  })),
+}));
+
 import { decideCrmWritePolicy } from "../shared/crm-contract.js";
 import action, { fieldPatchSchema } from "./update-crm-record.js";
 
@@ -72,6 +87,8 @@ const record = {
   objectType: "deals",
   remoteId: "deal-1",
   remoteRevision: "revision-1",
+  provider: "hubspot",
+  kind: "opportunity",
   accessScopeKey: "scope-1",
   accessScopeJson: "{}",
   ownerEmail: "owner@example.test",
@@ -93,6 +110,12 @@ describe("update-crm-record", () => {
   beforeEach(() => {
     state.selectRows = [];
     state.inserted = [];
+    state.nativeMutations = [];
+    state.nativeResult = {
+      status: "applied",
+      remoteRevision: "revision-2",
+      message: undefined,
+    };
   });
 
   it("keeps automation writes denied by the shared policy matrix", () => {
@@ -123,6 +146,78 @@ describe("update-crm-record", () => {
 
     expect(result).toMatchObject({ recordId: record.id, status: "applied" });
     expect(state.inserted).toHaveLength(2);
+  });
+
+  it("applies a revision-checked Native SQL update through the native adapter", async () => {
+    const nativeRecord = {
+      ...record,
+      provider: "native",
+      objectType: "opportunities",
+      remoteId: "native-opportunity-1",
+    };
+    const appliedMutation = {
+      id: "native-mutation-1",
+      recordId: nativeRecord.id,
+      target: "local",
+      patchJson: JSON.stringify({ fields: { customField: "value" } }),
+      expectedRemoteRevision: "revision-1",
+      status: "applied",
+      policyDecision: "execute",
+    };
+    state.selectRows = [
+      [nativeRecord],
+      [policy("local-authoritative")],
+      [],
+      [appliedMutation],
+    ];
+
+    const result = await action.run(
+      {
+        recordId: nativeRecord.id,
+        target: "local",
+        fields: { customField: "value" },
+        expectedRemoteRevision: "revision-1",
+        idempotencyKey: "native-update",
+      },
+      { caller: "frontend", userEmail: record.ownerEmail, orgId: record.orgId },
+    );
+
+    expect(result).toMatchObject({
+      mutationId: "native-mutation-1",
+      status: "applied",
+      revision: "revision-2",
+    });
+    expect(state.nativeMutations).toHaveLength(1);
+    expect(state.nativeMutations[0]).toMatchObject({
+      operation: "update",
+      expectedRemoteRevision: "revision-1",
+      record: { provider: "native", localId: nativeRecord.id },
+    });
+    expect(state.inserted).toEqual([]);
+  });
+
+  it("requires a revision for Native SQL updates", async () => {
+    state.selectRows = [
+      [{ ...record, provider: "native", objectType: "opportunities" }],
+      [policy("local-authoritative")],
+      [],
+    ];
+
+    await expect(
+      action.run(
+        {
+          recordId: record.id,
+          target: "local",
+          fields: { customField: "value" },
+        },
+        {
+          caller: "frontend",
+          userEmail: record.ownerEmail,
+          orgId: record.orgId,
+        },
+      ),
+    ).rejects.toThrow("require the current record revision");
+    expect(state.nativeMutations).toEqual([]);
   });
 
   it("queues provider fields as a proposal and replays an identical idempotency key", async () => {

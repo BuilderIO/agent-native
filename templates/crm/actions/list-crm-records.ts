@@ -1,7 +1,11 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
+import {
+  createConnectedCrmAdapter,
+  isConnectedCrmProvider,
+} from "../server/crm/adapter.js";
+import { resolveNativeCrmAccessScope } from "../server/crm/native-adapter.js";
 import { listCrmRecords } from "../server/db/crm-store.js";
 
 const kinds = [
@@ -51,10 +55,20 @@ export default defineAction({
   run: (input, ctx?: ActionRunContext) =>
     listCrmRecords(input, {
       resolveScope: async (target) => {
-        if (target.provider !== "hubspot" || !target.workspaceConnectionId) {
+        if (target.provider === "native") {
+          return resolveNativeCrmAccessScope({
+            connectionId: target.connectionId,
+            objectType: target.objectType,
+          });
+        }
+        if (
+          !isConnectedCrmProvider(target.provider) ||
+          !target.workspaceConnectionId
+        ) {
           return null;
         }
-        const adapter = await createHubSpotCrmAdapter({
+        const adapter = await createConnectedCrmAdapter({
+          provider: target.provider,
           connectionId: target.workspaceConnectionId,
           ...(ctx?.userEmail ? { userEmail: ctx.userEmail } : {}),
           ...(ctx?.orgId !== undefined ? { orgId: ctx.orgId } : {}),

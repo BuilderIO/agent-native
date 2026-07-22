@@ -14,7 +14,7 @@ const BooleanFromQuerySchema = z.preprocess(
 
 export default createProviderApiDocsAction(getCrmProviderApiRuntime(), {
   description:
-    "Inspect HubSpot API documentation before an exact provider-api-request when the endpoint, object schema, property, filter operator, association, or pagination contract is uncertain.",
+    "Inspect HubSpot or Salesforce API documentation before an exact provider-api-request when the endpoint, object schema, field, filter operator, relationship, or pagination contract is uncertain.",
   schema: z.object({
     provider: ProviderSchema.describe("Provider whose API docs to inspect."),
     url: z
@@ -22,7 +22,7 @@ export default createProviderApiDocsAction(getCrmProviderApiRuntime(), {
       .url()
       .optional()
       .describe(
-        "Optional public HubSpot docs/spec URL. The provider catalog returns curated starting URLs.",
+        "Optional public provider docs/spec URL. The provider catalog returns curated starting URLs.",
       ),
     maxBytes: z.coerce
       .number()

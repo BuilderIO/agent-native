@@ -1,6 +1,10 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
-import { IconArrowUpRight, IconDatabaseOff } from "@tabler/icons-react";
+import {
+  IconArrowUpRight,
+  IconDatabase,
+  IconDatabaseOff,
+} from "@tabler/icons-react";
 import { Link } from "react-router";
 
 export function PageHeader({
@@ -47,8 +51,8 @@ export function LoadingRows({ rows = 5 }: { rows?: number }) {
 }
 
 export function SetupEmptyState({
-  title = "Connect a CRM to begin",
-  description = "CRM works from the workspace connections you authorize. No credentials are stored in this app.",
+  title = "Start a CRM to begin",
+  description = "Start with the built-in SQL CRM, or connect a scoped workspace CRM. No provider credentials are stored in this app.",
   onSync,
   isSyncing = false,
 }: {
@@ -68,8 +72,13 @@ export function SetupEmptyState({
           {description}
         </p>
         <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <Button asChild className="gap-2">
+            <Link to="/setup">
+              <IconDatabase className="size-4" /> Start with Native SQL
+            </Link>
+          </Button>
           <Button asChild variant="outline" className="gap-2">
-            <Link to="/settings#connections">
+            <Link to="/settings/connections">
               Open shared connections <IconArrowUpRight className="size-4" />
             </Link>
           </Button>

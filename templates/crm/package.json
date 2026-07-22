@@ -2,7 +2,7 @@
   "name": "crm",
   "displayName": "CRM",
   "private": true,
-  "description": "HubSpot-connected agent-native CRM companion",
+  "description": "Native SQL CRM and HubSpot or Salesforce agent-native companion",
   "type": "module",
   "scripts": {
     "dev": "agent-native dev --open",

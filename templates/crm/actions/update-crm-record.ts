@@ -3,6 +3,7 @@ import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { createNativeCrmAdapter } from "../server/crm/native-adapter.js";
 import { getDb, schema } from "../server/db/index.js";
 import { decideCrmWritePolicy, type CrmValue } from "../shared/crm-contract.js";
 import {
@@ -195,7 +196,7 @@ async function updateLocalFields(input: {
 
 export default defineAction({
   description:
-    "Submit a revision-aware CRM record update. Phase 1 always saves provider updates as proposals, including human-initiated routine updates, because HubSpot does not offer an atomic conditional update. Local-authoritative fields may be applied after the applicable approval policy is satisfied.",
+    "Submit a revision-aware CRM record update. The initial release always saves HubSpot and Salesforce provider updates as proposals and fails closed unless an atomic expected-revision write path is proven. Local-authoritative fields may be applied after the applicable approval policy is satisfied.",
   schema: z.object({
     recordId: z.string().trim().min(1).max(128),
     target: z.enum(["local", "provider"]).default("provider"),
@@ -364,6 +365,51 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const mutationId = crypto.randomUUID();
+    if (args.target === "local" && record.provider === "native") {
+      if (!args.expectedRemoteRevision) {
+        throw new Error(
+          "Native SQL CRM updates require the current record revision. Refresh the record and retry.",
+        );
+      }
+      const adapter = await createNativeCrmAdapter({
+        connectionId: record.connectionId,
+        initiatedBy,
+      });
+      const result = await adapter.applyMutation({
+        operation: "update",
+        record: {
+          connectionId: record.connectionId,
+          provider: "native",
+          objectType: record.objectType,
+          kind: record.kind,
+          remoteId: record.remoteId,
+          localId: record.id,
+        },
+        fields,
+        expectedRemoteRevision: args.expectedRemoteRevision,
+        idempotencyKey,
+      });
+      if (result.status !== "applied") {
+        throw new Error(
+          result.message ?? `Native SQL CRM update ${result.status}.`,
+        );
+      }
+      const applied = await findExisting();
+      if (!applied) {
+        throw new Error(
+          "Native SQL CRM update succeeded but its audit mutation could not be verified.",
+        );
+      }
+      return {
+        mutationId: applied.id,
+        recordId: record.id,
+        status: "applied" as const,
+        revision: result.remoteRevision,
+        ownerEmail: record.ownerEmail,
+        orgId: record.orgId,
+        visibility: record.visibility,
+      };
+    }
     if (args.target === "local") {
       try {
         await db.transaction(async (tx) => {

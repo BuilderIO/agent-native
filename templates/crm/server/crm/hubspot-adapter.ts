@@ -33,6 +33,7 @@ const MAX_PAGE_SIZE = 100;
 const MAX_RETRY_ATTEMPTS = 3;
 const MAX_RETRY_DELAY_MS = 1_500;
 const MAX_SINGLE_RETRY_DELAY_MS = 1_000;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 type HubSpotObjectType = (typeof CORE_OBJECT_TYPES)[number] | string;
 
@@ -539,6 +540,7 @@ class FetchHubSpotTransport implements HubSpotTransport {
   ): Promise<HubSpotTransportResponse> {
     const response = await fetch(`${HUBSPOT_API_BASE}${input.path}`, {
       method: input.method ?? "GET",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       headers: {
         Authorization: `Bearer ${this.token}`,
         ...(input.body === undefined

@@ -33,4 +33,26 @@ describe("attach-call-evidence firewall", () => {
       ).toBe(false);
     }
   });
+
+  it("accepts one bounded multi-record linkage and rejects ambiguous targets", () => {
+    expect(
+      action.schema.safeParse({
+        ...baseEvidence,
+        recordId: undefined,
+        recordIds: ["account-1", "opportunity-1", "person-1"],
+      }).success,
+    ).toBe(true);
+    expect(
+      action.schema.safeParse({
+        ...baseEvidence,
+        recordIds: ["opportunity-1"],
+      }).success,
+    ).toBe(false);
+    expect(
+      action.schema.safeParse({
+        artifactId: "clip-1",
+        sourceUrl: baseEvidence.sourceUrl,
+      }).success,
+    ).toBe(false);
+  });
 });

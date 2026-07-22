@@ -1,16 +1,17 @@
 # CRM kernel contract
 
-This contract is the boundary for the HubSpot companion implementation. It is
-intentionally valid for Salesforce before Salesforce transport is built, so
-HubSpot-specific assumptions do not become the product model.
+This contract is the boundary for the Native SQL CRM and the HubSpot and
+Salesforce companion implementations. It prevents either connected provider's
+object model or permission semantics from becoming the product model.
 
 ## Canonical vocabulary
 
 - **Connection**: an authorized workspace integration grant and provider
   account. Tokens remain in workspace connections; CRM stores only the
-  connection id and non-secret account metadata.
-- **Object definition**: provider schema for one object type, including field
-  types and effective capabilities for the connection actor.
+  connection id and non-secret account metadata. Native SQL uses a CRM-owned
+  native connection identity and never has an integration token.
+- **Object definition**: a provider or CRM-owned schema for one object type,
+  including field types and effective capabilities for its authority.
 - **Record**: one provider or native object instance. Canonical kinds are
   `account`, `person`, `opportunity`, `activity`, `task`, and `custom`.
 - **Relationship**: a directed edge between records. It preserves a provider
@@ -19,6 +20,9 @@ HubSpot-specific assumptions do not become the product model.
   email, or note. Rich media remains in its source app/provider.
 - **Evidence**: a URL/id plus bounded quote, timestamp, speaker, and source
   metadata supporting a CRM claim. Evidence is not a transcript or media blob.
+- **Signal**: a first-class, reviewable moment, call summary, or next step with
+  a bounded quote/summary, timestamp, confidence, detector/model metadata, and
+  an evidence reference. Signals never contain transcript bodies.
 - **Cadence**: desired contact interval, last meaningful interaction, and next
   contact date for an account or person.
 - **Mirror**: a scoped local projection for fast lists, monitoring, joins, and
@@ -33,11 +37,12 @@ The TypeScript source of truth is
 
 ## Identity and provenance
 
-Provider identity is the tuple:
+Connected-provider identity is the tuple:
 
 `connection_id + provider + object_type + remote_id`
 
-Local ids are opaque and never sent upstream. Email and domain are matching
+Native SQL record ids are opaque CRM-local identifiers with `provider: native`;
+they are never sent upstream. Email and domain are matching
 signals, not identity keys. Every mirrored field keeps field-level provenance:
 provider, connection, object type, remote id, optional field name, observed
 revision/time, and optional evidence reference.
@@ -59,10 +64,22 @@ Every mirrored record stores the remote revision, sync cursor/time, tombstone,
 connection identity, and access-scope key. Upstream is authoritative in
 Connected mode. In Hybrid mode, upstream remains authoritative for remote
 fields while CRM is authoritative for `derived-local` and
-`local-authoritative` fields. Native mode is out of scope for this run.
+`local-authoritative` fields. In Native SQL mode, CRM is authoritative for the
+record and all CRM-owned fields; no remote revision, provider token, or sync
+cursor is invented.
 
 No raw provider response, audio, video, transcript, screenshot, base64 body, or
 file payload is stored in CRM SQL.
+
+## Call intelligence boundary
+
+CRM may link one Clips artifact to several CRM records through separate scoped
+evidence rows. Deterministic keyword detectors operate only on the bounded
+stored excerpts. Smart detectors and summaries are delegated to agent chat;
+server actions do not call a model. Delegated results are accepted only when
+the run, record, tracker, and evidence scopes agree and every quote/timestamp
+is grounded to the stored evidence excerpt. Clips retains recording,
+transcript, consent, recovery, and media ownership.
 
 ## Field storage policy
 
@@ -85,13 +102,14 @@ to `remote-only`. An admin must explicitly allow-list a field as `mirrored`.
 `ownableColumns()` and framework access checks provide the local privacy
 boundary. Provider access remains a second, non-substitutable boundary.
 
-Each record and field projection carries the connection actor, grant id,
+Connected records and field projections carry the connection actor, grant id,
 record-visibility mode, object CRUD capabilities, and hashes/fingerprints for
 effective field and sharing access. A service-account mirror must not be shown
 as though it inherited a human user's Salesforce sharing or field-level
 permissions. Reads fail closed when the current access scope cannot be proven
 compatible. Scope changes invalidate or quarantine affected mirror rows until
-they are refreshed.
+they are refreshed. Native SQL uses its CRM ownership/share scope and does not
+claim or emulate an upstream provider permission.
 
 ## Write policy matrix
 
@@ -120,18 +138,18 @@ contract.
 
 ## Provider-model validation
 
-| Contract concern              | HubSpot                                       | Salesforce                                                  | Contract consequence                                          |
-| ----------------------------- | --------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
-| Object names                  | Built-ins plus numeric/custom object type ids | Standard and `__c` API names                                | `objectType` is an opaque case-preserving string              |
-| Record ids                    | String ids                                    | 15/18-character string ids                                  | `remoteId` is an opaque string                                |
-| Schema discovery              | Properties and CRM schemas APIs               | sObject/Object Info describe                                | Adapter returns object and field capabilities                 |
-| Accounts/people/opportunities | Companies/contacts/deals                      | Account/Contact/Opportunity                                 | Canonical kind is separate from provider object type          |
-| Relationships                 | Directional association type ids and labels   | Reference fields and child relationships                    | Directed edge preserves type, label, and source field         |
-| Custom objects                | Schema-discovered                             | `__c` and describe-discovered                               | V1 generic discover/search/display/link/write support         |
-| Remote revision               | `updatedAt`                                   | `LastModifiedDate` or `SystemModstamp`                      | Revision is an opaque string with observed timestamp          |
-| Deletion                      | Archived records                              | Deleted records/query-all semantics                         | Tombstone is first-class and sync-capability gated            |
-| Permissions                   | OAuth scopes, object/property sensitivity     | CRUD, FLS, record sharing                                   | Access scope is stored and checked independently of local ACL |
-| Conditional write             | Provider-specific conflict strategy           | `If-Unmodified-Since`/revision-aware update where available | Adapter reports capability and never invents success          |
+| Contract concern              | Native SQL                                      | HubSpot                                       | Salesforce                                                  | Contract consequence                                          |
+| ----------------------------- | ----------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| Object names                  | Canonical CRM and generic custom object names   | Built-ins plus numeric/custom object type ids | Standard and `__c` API names                                | `objectType` is an opaque case-preserving string              |
+| Record ids                    | CRM-local opaque id                             | String ids                                    | 15/18-character string ids                                  | Record refs preserve provider and opaque identity             |
+| Schema discovery              | CRM-owned canonical schema                      | Properties and CRM schemas APIs               | sObject/Object Info describe                                | Adapter returns object and field capabilities                 |
+| Accounts/people/opportunities | Account/person/opportunity                      | Companies/contacts/deals                      | Account/Contact/Opportunity                                 | Canonical kind is separate from provider object type          |
+| Relationships                 | CRM-directed edge                               | Directional association type ids and labels   | Reference fields and child relationships                    | Directed edge preserves type, label, and source field         |
+| Custom objects                | Generic display/link/write, no object authoring | Schema-discovered                             | `__c` and describe-discovered                               | V1 generic discover/search/display/link/write support         |
+| Remote revision               | Local mutation version                          | `updatedAt`                                   | `LastModifiedDate` or `SystemModstamp`                      | Revision is opaque; Native never claims a remote revision     |
+| Deletion                      | CRM tombstone/archive policy                    | Archived records                              | Deleted records/query-all semantics                         | Tombstone is first-class and sync-capability gated            |
+| Permissions                   | CRM ownership and sharing scope                 | OAuth scopes, object/property sensitivity     | CRUD, FLS, record sharing                                   | Access scope is stored and checked independently of local ACL |
+| Conditional write             | Local version check                             | Provider-specific conflict strategy           | `If-Unmodified-Since`/revision-aware update where available | Adapter reports capability and never invents success          |
 
 Reference checks used for this validation:
 
@@ -141,9 +159,11 @@ Reference checks used for this validation:
 - [Salesforce record queries and effective permissions](https://developer.salesforce.com/docs/platform/graphql/guide/query-record-objects.html)
 - [Salesforce revision-aware record updates](https://developer.salesforce.com/docs/platform/lwc/guide/reference-update-record.html)
 
-## Phase boundary
+## Initial-scope boundary
 
-This run builds HubSpot Connected/Hybrid companion behavior only. Salesforce
-is a contract acceptance target, not an implementation target. Native storage,
-provider migration, object authoring, a page builder, and a Salesforce
-transport require a later green light.
+This run builds Native SQL plus HubSpot and Salesforce Connected/Hybrid
+companion behavior. Native SQL is the portable, local-authoritative replacement
+path; it does not depend on or synchronize to HubSpot or Salesforce. Provider
+migration, a full object-authoring engine, and a page builder remain out of
+scope. Provider writes stay proposal-first until an adapter can prove the
+required revision, access-scope, and approval guarantees.

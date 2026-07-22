@@ -13,18 +13,23 @@ const httpBoolean = z.preprocess((value) => {
 
 export default defineAction({
   description:
-    "List safe metadata for HubSpot workspace connections currently granted to CRM. Provider credentials and credential references are never returned.",
+    "List safe metadata for HubSpot and Salesforce workspace connections currently granted to CRM. Provider credentials and credential references are never returned.",
   schema: z.object({
     includeDisabled: httpBoolean.default(false),
   }),
   http: { method: "GET" },
   readOnly: true,
   run: async ({ includeDisabled }) => {
-    const connections = await listWorkspaceConnectionsForApp({
-      appId: CRM_APP_ID,
-      provider: "hubspot",
-      includeDisabled,
-    });
+    const connectionGroups = await Promise.all(
+      (["hubspot", "salesforce"] as const).map((provider) =>
+        listWorkspaceConnectionsForApp({
+          appId: CRM_APP_ID,
+          provider,
+          includeDisabled,
+        }),
+      ),
+    );
+    const connections = connectionGroups.flat();
     return {
       connections: connections.map((connection) => ({
         id: connection.id,

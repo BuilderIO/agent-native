@@ -66,6 +66,27 @@ const registrations = [
     "artifactId",
     "/records",
   ],
+  [
+    "crm-signal-tracker",
+    schema.crmSignalTrackers,
+    schema.crmSignalTrackerShares,
+    "name",
+    "/settings/intelligence",
+  ],
+  [
+    "crm-signal-run",
+    schema.crmSignalRuns,
+    schema.crmSignalRunShares,
+    "id",
+    "/records",
+  ],
+  [
+    "crm-signal",
+    schema.crmSignals,
+    schema.crmSignalShares,
+    "label",
+    "/records",
+  ],
   ["crm-task", schema.crmTasks, schema.crmTaskShares, "title", "/work"],
   [
     "crm-saved-view",

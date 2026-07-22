@@ -3,7 +3,7 @@ import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { createHubSpotCrmAdapter } from "../server/crm/hubspot-adapter.js";
+import { createConnectedCrmAdapter } from "../server/crm/adapter.js";
 import { getDb, schema } from "../server/db/index.js";
 import { requireCrmScope, toJson } from "./_crm-action-utils.js";
 
@@ -11,17 +11,18 @@ const idList = z.array(z.string().trim().min(1).max(160)).max(50).default([]);
 
 export default defineAction({
   description:
-    "Register an authorized HubSpot workspace Connection as a scoped CRM companion connection. Provider credentials remain in workspace Connections.",
+    "Register an authorized HubSpot or Salesforce workspace Connection as a scoped CRM companion connection. Provider credentials remain in workspace Connections.",
   schema: z.object({
+    provider: z.enum(["hubspot", "salesforce"]).default("hubspot"),
     workspaceConnectionId: z.string().trim().min(1).max(160).optional(),
-    label: z.string().trim().min(1).max(160).default("HubSpot"),
+    label: z.string().trim().min(1).max(160).optional(),
     mode: z.enum(["connected", "hybrid"]).default("connected"),
     selectedPipelineIds: idList,
     selectedObjectTypes: z
       .array(z.string().trim().min(1).max(120))
       .min(1)
       .max(50)
-      .default(["companies", "contacts", "deals"]),
+      .optional(),
   }),
   audit: {
     target: (_args, result) => {
@@ -45,7 +46,8 @@ export default defineAction({
   },
   run: async (args, ctx?: ActionRunContext) => {
     const scope = requireCrmScope(ctx);
-    const adapter = await createHubSpotCrmAdapter({
+    const adapter = await createConnectedCrmAdapter({
+      provider: args.provider,
       connectionId: args.workspaceConnectionId,
       userEmail: scope.ownerEmail,
       orgId: scope.orgId,
@@ -63,16 +65,22 @@ export default defineAction({
       )
       .limit(1);
     const now = new Date().toISOString();
+    const selectedObjectTypes =
+      args.selectedObjectTypes ??
+      (args.provider === "hubspot"
+        ? ["companies", "contacts", "deals"]
+        : ["Account", "Contact", "Opportunity"]);
     const accessScopeKey = `workspace:${id}:${adapter.connection.actorId ?? scope.ownerEmail}`;
     const values = {
-      provider: "hubspot" as const,
+      provider: args.provider,
       workspaceConnectionId: id,
-      label: args.label,
+      label:
+        args.label ?? (args.provider === "hubspot" ? "HubSpot" : "Salesforce"),
       accountId: adapter.connection.accountId ?? null,
       mode: args.mode,
       status: "connected" as const,
       selectedPipelinesJson: toJson(args.selectedPipelineIds, 8_000),
-      selectedObjectTypesJson: toJson(args.selectedObjectTypes, 8_000),
+      selectedObjectTypesJson: toJson(selectedObjectTypes, 8_000),
       accessScopeKey,
       accessScopeJson: toJson(
         {
@@ -113,6 +121,6 @@ export default defineAction({
       });
     }
 
-    return { id: localId, ...scope, provider: "hubspot" as const };
+    return { id: localId, ...scope, provider: args.provider };
   },
 });

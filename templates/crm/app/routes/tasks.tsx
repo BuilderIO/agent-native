@@ -59,8 +59,8 @@ export default function TasksRoute() {
       const message =
         error instanceof Error ? error.message : "Task update failed.";
       toast.error(
-        message.includes("mirrored HubSpot task")
-          ? "This is a mirrored HubSpot task. Provider task writeback is not available yet."
+        message.includes("mirrored provider task")
+          ? "This is a mirrored provider task. Create a CRM proposal or complete it upstream."
           : message,
       );
     } finally {

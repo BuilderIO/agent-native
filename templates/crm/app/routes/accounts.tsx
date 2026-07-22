@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useSearchParams } from "react-router";
 
+import { CreateCrmRecordDialog } from "@/components/crm/CreateCrmRecordDialog";
 import { RecordGrid } from "@/components/crm/RecordGrid";
 import { SavedViewDataProgram } from "@/components/crm/SavedViewDataProgram";
 import { PageHeader } from "@/components/crm/Surface";
@@ -24,15 +25,16 @@ export default function AccountsRoute() {
         description={
           viewId
             ? "Accounts matching this saved view."
-            : "Connected accounts in the active CRM mirror."
+            : "Accounts from your Native SQL workspace and connected CRM mirrors."
         }
+        actions={<CreateCrmRecordDialog kind="account" />}
       />
       <SavedViewDataProgram data={query.data} />
       <RecordGrid
         kind="account"
         records={normalizeRecords(query.data, "account")}
         isLoading={query.isLoading}
-        emptyTitle="No connected accounts yet"
+        emptyTitle="No accounts yet"
       />
     </>
   );

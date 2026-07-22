@@ -12,10 +12,12 @@ import {
   IconFileSearch,
   IconHistory,
   IconNotes,
+  IconSparkles,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { Link } from "react-router";
 
+import { CrmSignalsPanel } from "@/components/crm/CrmSignalsPanel";
 import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
 import {
   asText,
@@ -51,7 +53,7 @@ export function RecordWorkspace({
     return (
       <SetupEmptyState
         title="This CRM record is unavailable"
-        description="It may no longer be included in your connection’s mirrored scope."
+        description="It may have been archived, removed from a connected scope, or no longer shared with you."
       />
     );
 
@@ -101,6 +103,10 @@ export function RecordWorkspace({
             <IconFileSearch className="size-3.5" />
             Evidence
           </TabsTrigger>
+          <TabsTrigger value="signals" className="gap-1.5">
+            <IconSparkles className="size-3.5" />
+            Signals
+          </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
             <IconHistory className="size-3.5" />
             Activity
@@ -113,7 +119,7 @@ export function RecordWorkspace({
         <TabsContent value="details" className="mt-5 max-w-3xl">
           <SectionTitle
             title="Details"
-            description="Fields mirrored from the connected CRM."
+            description="Permitted fields owned locally or mirrored from a connected CRM."
           />
           <dl className="mt-4 divide-y divide-border rounded-lg border border-border/70 bg-card">
             {details.length ? (
@@ -135,7 +141,7 @@ export function RecordWorkspace({
           <div className="mt-6">
             <SectionTitle
               title="Related records"
-              description="Permitted records linked by the connected CRM."
+              description="Permitted records linked in this CRM workspace."
             />
             <div className="mt-4 divide-y divide-border rounded-lg border border-border/70 bg-card">
               {record.relatedRecords?.length ? (
@@ -225,6 +231,12 @@ export function RecordWorkspace({
               <EmptyCopy text="No evidence references are available yet." />
             )}
           </div>
+        </TabsContent>
+        <TabsContent value="signals" className="mt-5">
+          <CrmSignalsPanel
+            recordId={record.id}
+            evidence={record.evidence ?? []}
+          />
         </TabsContent>
         <TabsContent value="activity" className="mt-5 max-w-3xl">
           <SectionTitle

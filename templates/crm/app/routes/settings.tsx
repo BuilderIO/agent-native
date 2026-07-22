@@ -26,9 +26,10 @@ export default function SettingsRoute() {
         <div className="mx-auto w-full max-w-2xl space-y-3">
           <h1 className="text-xl font-semibold tracking-tight">CRM settings</h1>
           <p className="text-sm leading-6 text-muted-foreground">
-            CRM uses workspace Connections for provider authorization. The local
-            mirror stores only allow-listed fields, scoped metadata, and bounded
-            evidence references.
+            Native SQL keeps CRM-owned records local and portable. HubSpot and
+            Salesforce use workspace Connections; their mirrors store only
+            allow-listed fields, scoped metadata, and bounded evidence
+            references.
           </p>
         </div>
       }

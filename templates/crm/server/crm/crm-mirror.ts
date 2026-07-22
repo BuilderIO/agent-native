@@ -13,15 +13,38 @@ import type {
 import { getDb, schema } from "../db/index.js";
 
 export const CORE_HUBSPOT_OBJECTS = ["companies", "contacts", "deals"] as const;
+export const CORE_SALESFORCE_OBJECTS = [
+  "Account",
+  "Contact",
+  "Opportunity",
+] as const;
 export const MAX_SYNC_PAGE_SIZE = 50;
 export const MAX_SYNC_PAGES = 5;
 
-const DEFAULT_FIELDS: Record<(typeof CORE_HUBSPOT_OBJECTS)[number], string[]> =
-  {
-    companies: ["name", "domain", "industry", "city", "state", "country"],
-    contacts: ["firstname", "lastname", "email", "jobtitle", "company"],
-    deals: ["dealname", "amount", "dealstage", "pipeline", "closedate"],
-  };
+const DEFAULT_FIELDS: Record<string, string[]> = {
+  companies: ["name", "domain", "industry", "city", "state", "country"],
+  contacts: ["firstname", "lastname", "email", "jobtitle", "company"],
+  deals: ["dealname", "amount", "dealstage", "pipeline", "closedate"],
+  Account: [
+    "Name",
+    "Website",
+    "Industry",
+    "BillingCity",
+    "BillingState",
+    "BillingCountry",
+    "OwnerId",
+  ],
+  Contact: ["FirstName", "LastName", "Email", "Title", "AccountId", "OwnerId"],
+  Opportunity: [
+    "Name",
+    "Amount",
+    "StageName",
+    "CloseDate",
+    "AccountId",
+    "OwnerId",
+    "Type",
+  ],
+};
 
 const BINARY_OR_TRANSCRIPT_FIELD =
   /(?:attachment|audio|base64|binary|file|image|media|recording|transcript|video)/i;
@@ -97,18 +120,17 @@ export function resolveMirrorFields(input: {
       .filter((field) => field.readable)
       .map((field) => [field.name, field]),
   );
-  const custom = isCustomHubSpotObject(input.object.objectType);
+  const custom = input.object.custom;
   const requested =
     input.requested?.map((field) => field.trim()).filter(Boolean) ?? [];
   if (custom && (!input.allowCustomObject || requested.length === 0)) {
     throw new Error(
-      "Custom HubSpot objects require allowCustomObject and an explicit field allow-list.",
+      "Custom CRM objects require allowCustomObject and an explicit field allow-list.",
     );
   }
   const candidates = requested.length
     ? requested
-    : (DEFAULT_FIELDS[input.object.objectType as keyof typeof DEFAULT_FIELDS] ??
-      []);
+    : (DEFAULT_FIELDS[input.object.objectType] ?? []);
   return Array.from(new Set(candidates)).filter((fieldName) => {
     const field = available.get(fieldName);
     return Boolean(
@@ -197,25 +219,40 @@ function fieldColumns(value: CrmValue) {
   };
 }
 
-function recordColumns(record: CrmRecord) {
+export function crmRecordIdentityColumns(record: CrmRecord) {
+  return {
+    provider: record.ref.provider,
+    objectType: record.ref.objectType,
+    kind: record.ref.kind,
+  };
+}
+
+export function crmRecordSummaryColumns(record: CrmRecord) {
   const fields = record.fields;
-  const string = (name: string) =>
-    typeof fields[name] === "string" ? fields[name] : null;
-  const numeric = (name: string) => {
-    const value = fields[name];
-    if (typeof value === "number") return value;
-    if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value))
-      return Number(value);
+  const string = (...names: string[]) => {
+    for (const name of names) {
+      if (typeof fields[name] === "string") return fields[name];
+    }
+    return null;
+  };
+  const numeric = (...names: string[]) => {
+    for (const name of names) {
+      const value = fields[name];
+      if (typeof value === "number") return value;
+      if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value))
+        return Number(value);
+    }
     return null;
   };
   return {
     displayName: record.displayName.slice(0, 500),
-    primaryEmail: string("email"),
-    domain: string("domain"),
-    stage: string("dealstage"),
-    pipelineId: string("pipeline"),
-    amount: numeric("amount"),
-    closeDate: string("closedate"),
+    primaryEmail: string("email", "Email"),
+    domain: string("domain", "Website"),
+    stage: string("dealstage", "StageName"),
+    pipelineId: string("pipeline", "RecordTypeId"),
+    ownerRemoteId: string("hubspot_owner_id", "OwnerId"),
+    amount: numeric("amount", "Amount"),
+    closeDate: string("closedate", "CloseDate"),
     remoteRevision: record.remoteRevision ?? null,
     remoteUpdatedAt: record.remoteUpdatedAt ?? null,
     lastSyncedAt: new Date().toISOString(),
@@ -247,7 +284,7 @@ async function persistSchema(input: {
     .limit(1);
   const now = new Date().toISOString();
   const objectValues = {
-    provider: "hubspot",
+    provider: input.object.provider,
     objectType: input.object.objectType,
     kind: input.object.kind,
     label: input.object.label.slice(0, 500),
@@ -368,6 +405,8 @@ async function persistSchema(input: {
 
 async function persistPage(input: {
   connectionId: string;
+  provider: string;
+  objectType: string;
   page: Awaited<ReturnType<CrmAdapter["syncPage"]>>;
   fields: Map<string, CrmFieldDefinition>;
   fieldPolicyIds: Map<string, string>;
@@ -391,6 +430,8 @@ async function persistPage(input: {
       .where(
         and(
           eq(schema.crmRecords.connectionId, input.connectionId),
+          eq(schema.crmRecords.provider, input.provider),
+          eq(schema.crmRecords.objectType, input.objectType),
           inArray(schema.crmRecords.remoteId, remoteIds),
           accessFilter(schema.crmRecords, schema.crmRecordShares),
         ),
@@ -426,7 +467,8 @@ async function persistPage(input: {
     let rejectedFields = 0;
     for (const remoteRecord of input.page.records) {
       const existing = recordsByRemoteId.get(remoteRecord.ref.remoteId);
-      const values = recordColumns(remoteRecord);
+      const values = crmRecordSummaryColumns(remoteRecord);
+      const identity = crmRecordIdentityColumns(remoteRecord);
       const recordId = existing?.id ?? crypto.randomUUID();
       const ownership = existing
         ? {
@@ -438,7 +480,10 @@ async function persistPage(input: {
       if (existing) {
         await tx
           .update(schema.crmRecords)
-          .set(values)
+          .set({
+            ...values,
+            ...identity,
+          })
           .where(
             and(
               eq(schema.crmRecords.id, existing.id),
@@ -454,9 +499,7 @@ async function persistPage(input: {
         await tx.insert(schema.crmRecords).values({
           id: recordId,
           connectionId: input.connectionId,
-          provider: "hubspot",
-          objectType: remoteRecord.ref.objectType,
-          kind: remoteRecord.ref.kind,
+          ...identity,
           remoteId: remoteRecord.ref.remoteId,
           ...values,
           ...ownership,
@@ -586,6 +629,8 @@ export async function syncCrmMirror(input: MirrorSyncInput) {
       });
       const result = await persistPage({
         connectionId: input.connectionId,
+        provider: object.provider,
+        objectType: object.objectType,
         page,
         fields: new Map(object.fields.map((field) => [field.name, field])),
         fieldPolicyIds,

@@ -227,25 +227,29 @@ extension content:
 { "name": "My Dashboard", "contentFromAttachment": "latest" }
 ```
 
-`update-extension` accepts the same `contentFromAttachment` for full-body
-replacement, but full-body replacement requires `allowFullReplacement: true`.
-Inline `content` still works for everything you author yourself — use
-`contentFromAttachment` only to avoid regurgitating something the user already
-pasted.
+`update-extension` accepts the same `contentFromAttachment` inside its compact
+`payloadJson` string for a full-body replacement. Use `operation: "replace"`;
+that explicit operation is the safety acknowledgement for a broad rewrite.
+Inline `content` still works inside `payloadJson` for everything you author
+yourself — use `contentFromAttachment` only to avoid regurgitating something
+the user already pasted.
 
 ## Editing an extension
 
-Use the `update-extension` action. Prefer granular `edits` for surgical
-changes instead of regenerating the full HTML. For medium/large extensions,
-add stable section comments around major blocks so future agents can target
-them without touching unrelated indentation:
+Use the `update-extension` action with exactly `id`, `operation`, and
+`payloadJson`. The payload is encoded as a JSON string so model gateways cannot
+fill every optional field with empty placeholders. Prefer `operation: "edit"`
+with granular `edits` inside `payloadJson` for surgical changes instead of
+regenerating the full HTML. For medium/large extensions, add stable section
+comments around major blocks so future agents can target them without touching
+unrelated indentation:
 
 For data-only repairs, preserve the existing layout, CSS, copy, and
 interactions. Do not reconstruct and submit the entire body. The action and
-store reject full-body replacement unless `allowFullReplacement: true` is
-explicitly supplied for a user-requested visual rewrite or complete replacement
-body. If a focused edit fails, inspect the current body and adjust its target;
-do not retry unchanged arguments.
+store reject implicit full-body replacement; choose `operation: "replace"`
+only for a user-requested visual rewrite or complete replacement body. If a
+focused edit fails, inspect the current body and adjust its target; do not retry
+unchanged arguments.
 
 ```html
 <!-- agent-native:section npm-daily-chart -->
@@ -258,8 +262,8 @@ Then update just that section:
 ```json
 {
   "id": "EXTENSION_ID",
-  "edits": "[{\"op\":\"replace-section\",\"section\":\"npm-daily-chart\",\"content\":\"<section>...</section>\"}]",
-  "format": true
+  "operation": "edit",
+  "payloadJson": "{\"edits\":[{\"op\":\"replace-section\",\"section\":\"npm-daily-chart\",\"content\":\"<section>...</section>\"}],\"format\":true}"
 }
 ```
 
@@ -278,9 +282,8 @@ Supported `edits` operations:
 
 Use `expectedMatches` when ambiguity would be dangerous. Missing required
 targets fail instead of silently doing nothing. Pass `format: true` to run
-Prettier on the final HTML after the patch. Full `content` replacement is
-still available for broad rewrites when `allowFullReplacement: true` is
-supplied.
+Prettier on the final HTML after the patch. Full `content` replacement remains
+available for broad rewrites through `operation: "replace"`.
 
 Legacy `patches` still work for simple literal replacements:
 
@@ -302,6 +305,16 @@ To replace the full content instead:
 ```
 PUT /_agent-native/extensions/:id
 { "content": "full new HTML", "allowFullReplacement": true }
+```
+
+For the agent action, use the compact form instead:
+
+```json
+{
+  "id": "EXTENSION_ID",
+  "operation": "replace",
+  "payloadJson": "{\"content\":\"full new HTML\"}"
+}
 ```
 
 ## History and rollback

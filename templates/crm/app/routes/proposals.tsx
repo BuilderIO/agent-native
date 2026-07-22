@@ -30,6 +30,7 @@ interface ProposalPreview {
   id: string;
   recordId?: string;
   recordName?: string;
+  provider?: string;
   operation: string;
   status: string;
   risk?: string;
@@ -57,7 +58,7 @@ export default function ProposalsRoute() {
       const result = await apply.mutateAsync({ proposalId });
       toast.info(
         result.message ||
-          "Proposal reviewed. Complete the approved change in HubSpot.",
+          "Proposal reviewed. Complete the approved change in the connected CRM.",
       );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Proposal failed.");
@@ -75,7 +76,7 @@ export default function ProposalsRoute() {
       <PageHeader
         eyebrow="Review"
         title="Proposals"
-        description="Review the exact record and field scope before completing HubSpot changes upstream."
+        description="Review the exact record and field scope before completing provider changes upstream."
       />
       {query.isLoading ? (
         <LoadingRows rows={6} />
@@ -173,10 +174,11 @@ function ApprovalButton({
         <AlertDialogHeader>
           <AlertDialogTitle>Review this provider change</AlertDialogTitle>
           <AlertDialogDescription>
-            HubSpot cannot apply this expected revision atomically. Review
+            This connection has not proved an atomic expected-revision write.
+            Review
             {proposal.recordName ? ` ${proposal.recordName}` : " this record"}
             {fieldNames ? ` in ${fieldNames}` : ""}, then make the change in
-            HubSpot.
+            {proposal.provider === "salesforce" ? " Salesforce" : " HubSpot"}.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ProposalFields fields={proposal.fields} />
@@ -234,6 +236,7 @@ function normalizeProposals(data: unknown): ProposalPreview[] {
         recordId: typeof row.recordId === "string" ? row.recordId : undefined,
         recordName:
           typeof row.recordName === "string" ? row.recordName : undefined,
+        provider: typeof row.provider === "string" ? row.provider : undefined,
         operation: typeof row.operation === "string" ? row.operation : "update",
         status: typeof row.status === "string" ? row.status : "pending",
         risk: typeof row.risk === "string" ? row.risk : undefined,

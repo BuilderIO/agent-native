@@ -211,17 +211,17 @@ membership id when its native update status reports `update-available`.
   it as an extension instead and tell the user why.
 - For an existing extension-backed dashboard or migrated surface such as Risk
   Meeting, separate data repair from visual redesign. Inspect the dashboard and
-  extension first, then use `update-extension` `patches`/`edits` that touch only
-  the data-loading seam. Preserve the existing layout, CSS, copy, and
-  interactions; never reconstruct the full HTML body for a data-only fix.
-  `update-extension` blocks full-body replacement unless
-  `allowFullReplacement: true` is explicit, and that flag is reserved for a
-  user-requested broad rewrite or a complete replacement body supplied by the
-  user. A request that combines a visual rewrite (for example compacting,
-  removing sections, renaming, or changing padding) with a data repair is still
-  a broad rewrite; after inspecting the current extension, set
-  `allowFullReplacement: true` for the complete replacement. If a focused edit
-  fails, do not retry unchanged arguments.
+  extension first, then call `update-extension` with exactly `id`,
+  `operation: "edit"`, and a `payloadJson` string containing focused
+  `patches`/`edits` that touch only the data-loading seam. Never send empty
+  placeholder fields. Preserve the existing layout, CSS, copy, and interactions;
+  never reconstruct the full HTML body for a data-only fix. A request that
+  combines a visual rewrite (for example compacting, removing sections,
+  renaming, or changing padding) with a data repair is still a broad rewrite;
+  after inspecting the current extension, use `operation: "replace"` with the
+  complete replacement body inside `payloadJson`. Use
+  `set-resource-visibility` for sharing changes. If a focused edit fails, do not
+  retry unchanged arguments.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the

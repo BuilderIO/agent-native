@@ -7,10 +7,14 @@ import type {
   CrmValue,
 } from "../../shared/crm-contract.js";
 import {
+  createConnectedCrmAdapter,
+  isConnectedCrmProvider,
+} from "../crm/adapter.js";
+import {
   isBoundedCrmValue,
   isSafeCrmMutationFieldName,
 } from "../crm/crm-field-firewall.js";
-import { createHubSpotCrmAdapter } from "../crm/hubspot-adapter.js";
+import { resolveNativeCrmAccessScope } from "../crm/native-adapter.js";
 import {
   parseCrmAccessScope,
   relatedSummaries,
@@ -269,7 +273,11 @@ function fieldEqualsCondition(fieldName: string, value: Primitive) {
         and(
           eq(schema.crmRecordFields.recordId, schema.crmRecords.id),
           eq(schema.crmRecordFields.fieldName, fieldName),
-          eq(schema.crmRecordFields.storagePolicy, "mirrored"),
+          inArray(schema.crmRecordFields.storagePolicy, [
+            "mirrored",
+            "derived-local",
+            "local-authoritative",
+          ]),
           accessFilter(schema.crmRecordFields, schema.crmRecordFieldShares),
           scalarCondition,
         ),
@@ -298,9 +306,16 @@ function orderForSavedView(view: SavedViewConfig | undefined) {
 async function defaultScopeResolver(
   target: ScopeValidationTarget,
 ): Promise<CrmAccessScope | null> {
-  if (target.provider !== "hubspot" || !target.workspaceConnectionId)
+  if (target.provider === "native") {
+    return resolveNativeCrmAccessScope({
+      connectionId: target.connectionId,
+      objectType: target.objectType,
+    });
+  }
+  if (!isConnectedCrmProvider(target.provider) || !target.workspaceConnectionId)
     return null;
-  const adapter = await createHubSpotCrmAdapter({
+  const adapter = await createConnectedCrmAdapter({
+    provider: target.provider,
     connectionId: target.workspaceConnectionId,
   });
   return adapter.getAccessScope(target.objectType);
@@ -729,6 +744,7 @@ export async function getCrmRecord(
   const [record] = await db
     .select({
       id: schema.crmRecords.id,
+      provider: schema.crmRecords.provider,
       displayName: schema.crmRecords.displayName,
       kind: schema.crmRecords.kind,
       primaryEmail: schema.crmRecords.primaryEmail,
@@ -830,6 +846,7 @@ export async function getCrmRecord(
 
   return {
     ...toRecordSummary(record),
+    provider: record.provider,
     ...(readThrough?.displayName
       ? { displayName: readThrough.displayName }
       : {}),
@@ -954,6 +971,32 @@ export async function listCrmSavedViews(input: { limit: number }) {
   };
 }
 
+export async function listCrmSignals(input: {
+  recordId: string;
+  limit: number;
+}) {
+  return getDb()
+    .select({
+      id: schema.crmSignals.id,
+      label: schema.crmSignals.label,
+      kind: schema.crmSignals.kind,
+      confidence: schema.crmSignals.confidence,
+      reviewStatus: schema.crmSignals.reviewStatus,
+      evidenceId: schema.crmSignals.evidenceId,
+      startSeconds: schema.crmSignals.startSeconds,
+      createdAt: schema.crmSignals.createdAt,
+    })
+    .from(schema.crmSignals)
+    .where(
+      and(
+        eq(schema.crmSignals.recordId, input.recordId),
+        accessFilter(schema.crmSignals, schema.crmSignalShares),
+      ),
+    )
+    .orderBy(desc(schema.crmSignals.createdAt))
+    .limit(Math.min(Math.max(input.limit, 1), 100));
+}
+
 export function safeProposalValues(value: string): Record<string, Primitive> {
   const parsed = parseJsonObject(value);
   const fields = parsed?.fields;
@@ -1029,6 +1072,7 @@ export async function listCrmProposals(input: {
         .select({
           id: schema.crmRecords.id,
           displayName: schema.crmRecords.displayName,
+          provider: schema.crmRecords.provider,
         })
         .from(schema.crmRecords)
         .where(
@@ -1040,6 +1084,9 @@ export async function listCrmProposals(input: {
     : [];
   const displayNameByRecordId = new Map(
     records.map((record) => [record.id, record.displayName]),
+  );
+  const providerByRecordId = new Map(
+    records.map((record) => [record.id, record.provider]),
   );
 
   return {
@@ -1059,6 +1106,9 @@ export async function listCrmProposals(input: {
         recordId: proposal.recordId,
         ...(proposal.recordId && displayNameByRecordId.get(proposal.recordId)
           ? { recordName: displayNameByRecordId.get(proposal.recordId) }
+          : {}),
+        ...(proposal.recordId && providerByRecordId.get(proposal.recordId)
+          ? { provider: providerByRecordId.get(proposal.recordId) }
           : {}),
         operation: proposal.operation,
         initiatedBy: proposal.initiatedBy,

@@ -32,7 +32,7 @@ export function WorkOverview({
             <div>
               <h2 className="text-sm font-semibold">Today’s work</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                A focused queue from your connected CRM.
+                A focused queue across your CRM workspace.
               </p>
             </div>
             <Button
@@ -122,7 +122,7 @@ export function WorkOverview({
                 </Link>
               ))
             ) : (
-              <QuietEmpty text="Recent activity will appear after the first sync." />
+              <QuietEmpty text="Recent activity will appear as CRM records are added or synced." />
             )}
           </div>
         </section>
@@ -153,8 +153,8 @@ export function WorkOverview({
             ))
           ) : (
             <p className="text-sm leading-6 text-muted-foreground">
-              CRM will surface follow-up signals as connected records become
-              available.
+              CRM will surface follow-up signals as records and interactions
+              become available.
             </p>
           )}
         </div>

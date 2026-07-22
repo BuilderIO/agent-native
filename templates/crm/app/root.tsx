@@ -50,7 +50,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{ __html: getLocaleInitScript() }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
-        <meta name="theme-color" content="#18181b" />
+        <meta name="theme-color" content="#71717A" />
         <link rel="icon" type="image/svg+xml" href={appPath("/favicon.svg")} />
         <link rel="apple-touch-icon" href={appPath("/icon-180.svg")} />
         <Meta />

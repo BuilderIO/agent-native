@@ -42,7 +42,7 @@ export type VerifiedReadThroughRecord = {
 };
 
 type ReadThroughAdapter = CrmAdapter & {
-  getAccessScope(objectType: string): CrmAccessScope;
+  getAccessScope(objectType: string): CrmAccessScope | Promise<CrmAccessScope>;
 };
 
 export function parseCrmAccessScope(value: string): CrmAccessScope | null {
@@ -104,7 +104,9 @@ export async function loadVerifiedReadThroughRecord(input: {
   adapter: ReadThroughAdapter;
   context: ReadThroughRecordContext;
 }): Promise<VerifiedReadThroughRecord> {
-  const currentScope = input.adapter.getAccessScope(input.context.objectType);
+  const currentScope = await input.adapter.getAccessScope(
+    input.context.objectType,
+  );
   const storedScope = parseCrmAccessScope(input.context.accessScopeJson);
   if (!scopesAreCompatible(storedScope, currentScope)) {
     throw new Error(
@@ -143,10 +145,15 @@ export async function loadVerifiedReadThroughRecord(input: {
     currentScope,
     relationships: relationshipPage.relationships,
     currentScopes: new Map(
-      targetObjectTypes.map((objectType) => [
-        objectType,
-        input.adapter.getAccessScope(objectType),
-      ]),
+      await Promise.all(
+        targetObjectTypes.map(
+          async (objectType) =>
+            [
+              objectType,
+              await input.adapter.getAccessScope(objectType),
+            ] as const,
+        ),
+      ),
     ),
   };
 }

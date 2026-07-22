@@ -1,6 +1,7 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useSearchParams } from "react-router";
 
+import { CreateCrmRecordDialog } from "@/components/crm/CreateCrmRecordDialog";
 import { RecordGrid } from "@/components/crm/RecordGrid";
 import { SavedViewDataProgram } from "@/components/crm/SavedViewDataProgram";
 import { PageHeader } from "@/components/crm/Surface";
@@ -24,15 +25,16 @@ export default function PeopleRoute() {
         description={
           viewId
             ? "People matching this saved view."
-            : "Contacts permitted through your connected CRM."
+            : "People in your Native SQL workspace and connected CRM mirrors."
         }
+        actions={<CreateCrmRecordDialog kind="person" />}
       />
       <SavedViewDataProgram data={query.data} />
       <RecordGrid
         kind="person"
         records={normalizeRecords(query.data, "person")}
         isLoading={query.isLoading}
-        emptyTitle="No connected people yet"
+        emptyTitle="No people yet"
       />
     </>
   );

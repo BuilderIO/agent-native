@@ -14,6 +14,7 @@ export interface CrmRecordSummary {
 }
 
 export interface CrmRecordDetail extends CrmRecordSummary {
+  provider?: "hubspot" | "salesforce" | string;
   description?: string;
   remoteRevision?: string;
   activity?: Array<{
