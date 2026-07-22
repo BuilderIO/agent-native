@@ -147,7 +147,6 @@ pub fn run() {
             native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
-            native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_stop_and_save,
             native_screen::native_fullscreen_recording_cancel,
