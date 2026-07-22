@@ -467,10 +467,6 @@ function renderConnectPage(params: {
   });
   const safeMcpUrl = escapeHtml(mcpUrl);
   const connectTemplateValues = { appName, appUrl, mcpUrl, serverId };
-  const brandMarkSvg = agentNativeMarkSvg(
-    "brand-mark",
-    "agent-native-connect-brand-gradient",
-  );
   const flowMarkSvg = agentNativeMarkSvg(
     "flow-mark",
     "agent-native-connect-flow-gradient",
@@ -561,21 +557,6 @@ function renderConnectPage(params: {
       0 30px 90px rgba(0,0,0,0.5);
     padding: 1.25rem;
   }
-  .topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 0.75rem; margin-bottom: 1.75rem;
-  }
-  .brand-lockup {
-    display: flex; align-items: center; gap: 0.55rem;
-    color: var(--muted); font-size: 0.78rem; font-weight: 600;
-  }
-  .brand-mark { width: 18px; height: auto; display: block; }
-  .app-pill {
-    max-width: 50%; border: 1px solid var(--border);
-    border-radius: 999px; padding: 0.28rem 0.55rem;
-    color: var(--subtle); font-size: 0.72rem; line-height: 1;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
   .hero { padding: 0 0.75rem; text-align: center; }
   .flow {
     display: flex; align-items: center; justify-content: center;
@@ -596,11 +577,6 @@ function renderConnectPage(params: {
     width: 30px; height: 1px; flex-shrink: 0;
     background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
     background-position: center;
-  }
-  .eyebrow {
-    text-align: center; font-size: 0.72rem; font-weight: 600;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--subtle); margin-bottom: 0.55rem;
   }
   h1 {
     text-align: center; font-size: 1.45rem; font-weight: 680;
@@ -714,8 +690,7 @@ function renderConnectPage(params: {
   .connections-title { font-weight: 600; color: var(--muted); }
   .connections-state {
     margin-left: auto; color: var(--subtle); font-size: 0.73rem;
-    border: 1px solid var(--border); border-radius: 999px;
-    padding: 0.18rem 0.45rem; line-height: 1;
+    line-height: 1;
   }
   .connections .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
@@ -738,8 +713,16 @@ function renderConnectPage(params: {
     margin-bottom: 0.9rem; display: none; line-height: 1.4; }
   .msg.err { display: block; color: var(--error); background: var(--error-bg);
     border: 1px solid rgba(252,165,165,0.16); }
-  .msg.ok { display: block; color: var(--ok); background: var(--ok-bg);
+  .msg.ok { display: block; background: var(--ok-bg);
     border: 1px solid var(--ok-border); }
+  .msg-title {
+    display: block; color: var(--ok); font-size: 0.95rem;
+    font-weight: 700; line-height: 1.25;
+  }
+  .msg-copy {
+    display: block; color: rgba(134,239,172,0.72); font-size: 0.78rem;
+    line-height: 1.4; margin-top: 0.2rem;
+  }
   .result-panel { padding-top: 0.15rem; }
   .result-title {
     color: var(--text); font-size: 0.95rem; font-weight: 650;
@@ -757,9 +740,7 @@ function renderConnectPage(params: {
     body { align-items: flex-start; padding: 0.75rem; }
     .card { padding: 1rem; }
     .hero { padding: 0; }
-    .topbar { margin-bottom: 1.35rem; }
     h1 { font-size: 1.3rem; }
-    .app-pill { max-width: 46%; }
     pre { font-size: 0.72rem; }
   }
   /* MCP URL display + per-host tabs (the non-dev path). */
@@ -861,9 +842,6 @@ function renderConnectPage(params: {
     border-color: var(--ok-border) !important;
   }
   .static-token-mint .static-token-body { padding-top: 0.5rem; }
-  .static-token-mint > summary .connections-state {
-    font-style: normal;
-  }
   @media (min-width: 560px) {
     .card { max-width: 580px; }
   }
@@ -872,17 +850,8 @@ function renderConnectPage(params: {
 </head>
 <body>
 <div class="card">
-  <div class="topbar">
-    <div class="brand-lockup">
-      ${brandMarkSvg}
-      <span>Agent Native</span>
-    </div>
-    <div class="app-pill" title="${safeApp}">${safeApp}</div>
-  </div>
-
   <div class="hero">
-    <!-- "Connect an external agent" is kept as the accessible consent label. -->
-    <div class="flow" role="img" aria-label="Connect an external agent to ${safeApp}">
+    <div class="flow" role="img" aria-label="Authorize ${safeApp}">
       <span class="tile" aria-hidden="true">
         ${flowMarkSvg}
       </span>
@@ -892,7 +861,6 @@ function renderConnectPage(params: {
       </span>
     </div>
 
-    <div class="eyebrow">Connect an external agent</div>
     <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Use ${safeApp} from your AI assistant`}</h1>
     <p class="identity">
       <span>Signed in as <strong>${safeEmail}</strong></span>
@@ -909,7 +877,6 @@ function renderConnectPage(params: {
   <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
     <summary>
       <span class="connections-title">${safeUserCode ? "Authorize this device" : MCP_STATIC_TOKEN_FALLBACK.title}</span>
-      <span class="connections-state">${safeUserCode ? "From your terminal" : MCP_STATIC_TOKEN_FALLBACK.state}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
@@ -939,7 +906,7 @@ function renderConnectPage(params: {
   <details id="connections" class="connections">
     <summary>
       <span class="connections-title">Existing connections</span>
-      <span id="connectionsState" class="connections-state">Checking</span>
+      <span id="connectionsState" class="connections-state hidden" aria-live="polite"></span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div id="tokenList" class="token-list"><div class="empty-state">Checking connections...</div></div>
@@ -990,8 +957,20 @@ function renderConnectPage(params: {
       }, 1400);
     });
   });
-  function showMsg(text, kind) {
-    msgEl.textContent = text;
+  function showMsg(text, kind, title) {
+    msgEl.textContent = "";
+    if (title) {
+      var titleEl = document.createElement("strong");
+      titleEl.className = "msg-title";
+      titleEl.textContent = title;
+      msgEl.appendChild(titleEl);
+      var copyEl = document.createElement("span");
+      copyEl.className = "msg-copy";
+      copyEl.textContent = text;
+      msgEl.appendChild(copyEl);
+    } else {
+      msgEl.textContent = text;
+    }
     msgEl.className = "msg " + (kind || "err");
   }
   function clearMsg() { msgEl.className = "msg"; msgEl.textContent = ""; }
@@ -1039,19 +1018,22 @@ function renderConnectPage(params: {
       var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
       if (!res.ok) {
         connectionsStateEl.textContent = "Unavailable";
+        connectionsStateEl.classList.remove("hidden");
         listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
         return;
       }
       var data = await res.json();
       var tokens = (data && data.tokens) || [];
       if (!tokens.length) {
-        connectionsStateEl.textContent = "None";
+        connectionsStateEl.textContent = "";
+        connectionsStateEl.classList.add("hidden");
         connectionsEl.open = false;
         listEl.innerHTML = '<div class="empty-state">Created connections will appear here for revoking later.</div>';
         return;
       }
       var activeCount = tokens.filter(function (t) { return !t.revokedAt; }).length;
-      connectionsStateEl.textContent = activeCount === 1 ? "1 active" : activeCount + " active";
+      connectionsStateEl.textContent = activeCount ? String(activeCount) : "";
+      connectionsStateEl.classList.toggle("hidden", activeCount === 0);
       listEl.innerHTML = "";
       tokens.forEach(function (t) {
         var div = document.createElement("div");
@@ -1082,6 +1064,7 @@ function renderConnectPage(params: {
       });
     } catch (e) {
       connectionsStateEl.textContent = "Unavailable";
+      connectionsStateEl.classList.remove("hidden");
       listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
     }
   }
@@ -1098,7 +1081,7 @@ function renderConnectPage(params: {
           showMsg((a.data && a.data.error) || "Could not authorize this device code.");
           return;
         }
-        showMsg("Device authorized — finishing connection… you can return to your terminal.", "ok");
+        showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized");
         btn.classList.add("hidden");
         document.getElementById("mintForm").classList.add("hidden");
         var cc = document.getElementById("codeCallout");
@@ -1133,7 +1116,7 @@ function renderConnectPage(params: {
               });
               if (fresh.length > 0) {
                 clearInterval(iv);
-                showMsg("Connected. This device can now act as you — manage or revoke it below.", "ok");
+                showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected");
                 loadTokens();
                 return;
               }

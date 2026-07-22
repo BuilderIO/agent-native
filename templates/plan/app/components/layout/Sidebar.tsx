@@ -1,5 +1,4 @@
 import {
-  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   sendToAgentChat,
@@ -317,7 +316,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
       signInForPlanCreate();
       return;
     }
-    if (location.pathname === "/" && isAgentChatHomeHandoffActive("plans")) {
+    if (location.pathname === "/") {
       markAgentChatHomeHandoff("plans");
     }
     navigateWithAgentChatViewTransition(navigate, "/plans?create=1");
@@ -325,7 +324,7 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
 
   const openPlanPath = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
     event.preventDefault();
-    if (location.pathname === "/" && isAgentChatHomeHandoffActive("plans")) {
+    if (location.pathname === "/") {
       markAgentChatHomeHandoff("plans");
     }
     navigateWithAgentChatViewTransition(navigate, path);
@@ -617,11 +616,7 @@ export function Sidebar({
             <Link
               to={item.href}
               onClick={() => {
-                if (
-                  item.href !== "/" &&
-                  location.pathname === "/" &&
-                  isAgentChatHomeHandoffActive("plans")
-                ) {
+                if (item.href !== "/" && location.pathname === "/") {
                   markAgentChatHomeHandoff("plans");
                 }
               }}

@@ -103,6 +103,12 @@ function persistedActiveThreadId() {
   }
 }
 
+function persistActiveThreadId(threadId: string) {
+  try {
+    localStorage.setItem(CHAT_ACTIVE_THREAD_KEY, threadId);
+  } catch {}
+}
+
 function threadIdFromPath(pathname: string) {
   const match = pathname.match(/^\/chat\/([^/]+)/);
   if (!match) return null;
@@ -183,6 +189,7 @@ function ChatThreadsSection() {
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
+    persistActiveThreadId(threadId);
     navigateWithAgentChatViewTransition(
       navigate,
       options?.isNew ? "/" : chatThreadPath(threadId),
