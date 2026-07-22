@@ -579,18 +579,13 @@ export default function ShareRoute() {
 
   usePlayerShortcuts({ playerRef });
 
-  const trackedVideoRef = useMemo(
-    () => ({
-      get current() {
-        return playerRef.current?.video ?? null;
-      },
-    }),
-    [],
-  ) as React.RefObject<HTMLVideoElement | null>;
+  const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(
+    null,
+  );
 
   const tracking = useViewTracking({
     recordingId: shareId ?? "",
-    videoRef: trackedVideoRef,
+    videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
     trackOpenWithoutVideo: isLoomEmbedBacked,
   });
@@ -966,6 +961,7 @@ export default function ShareRoute() {
           <div className="aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
             <VideoPlayer
               ref={playerRef}
+              onVideoElementChange={setTrackedVideoEl}
               recordingId={recording.id}
               videoUrl={recording.videoUrl}
               videoFormat={recording.videoFormat}

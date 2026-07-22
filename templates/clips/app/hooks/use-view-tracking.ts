@@ -34,7 +34,14 @@ function createViewSessionId(recordingId: string): string {
 
 export interface UseViewTrackingOpts {
   recordingId: string;
-  videoRef: React.RefObject<HTMLVideoElement | null>;
+  /**
+   * The live `<video>` DOM node, or `null` when there is none (e.g. a Loom
+   * iframe embed). Pass the actual element — not a ref wrapper — so this
+   * hook's effect can depend on it directly and React's own dependency
+   * comparison decides when to reattach, instead of hand-rolled identity
+   * bookkeeping.
+   */
+  videoEl: HTMLVideoElement | null;
   durationMs: number;
   /** Disable tracking entirely (e.g. for the recording's owner viewing their own clip). */
   disabled?: boolean;
@@ -47,17 +54,22 @@ export interface UseViewTrackingOpts {
  * on mount, then throttled "watch-progress" every 5s while playing, plus
  * seek/pause/resume events and a final flush on unmount.
  *
- * Runs on every render (no dependency array) but only re-attaches listeners
- * when the video element, recordingId, or trackOpenWithoutVideo actually
- * change — e.g. an edit-mode toggle unmounts/remounts the player, or a
- * route reuses the same player instance for a different recording. Reading
- * the latest opts through a ref keeps long-lived listener closures (which
- * may outlive several renders) from ever using stale values like
- * `durationMs`.
+ * The effect depends on `[recordingId, videoEl, trackOpenWithoutVideo,
+ * disabled]`, so React naturally creates a fresh closure — and runs the
+ * previous one's cleanup — exactly when any of those actually change (a
+ * different video element, a different recording, or the no-video/embed
+ * mode flipping). Each closure captures its own `recordingId` and `videoEl`,
+ * so a cleanup's final flush always describes the session it belonged to,
+ * never a session that has since replaced it.
+ *
+ * `durationMs` is intentionally excluded from the dependency array — it can
+ * load asynchronously after the video/recording is already attached, and
+ * reattaching just for that would be wasted work. It's kept in a ref that's
+ * synced every render and read fresh inside `post()`.
  */
 export function useViewTracking(opts: UseViewTrackingOpts) {
-  const optsRef = useRef(opts);
-  optsRef.current = opts;
+  const { recordingId, videoEl, durationMs, disabled, trackOpenWithoutVideo } =
+    opts;
 
   const watchMsRef = useRef(0);
   const lastTickRef = useRef<number | null>(null);
@@ -66,58 +78,17 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
   const lastSentProgressRef = useRef(0);
   const maxPctRef = useRef(0);
   const viewSessionRef = useRef<string | null>(null);
-  const attachedVideoRef = useRef<HTMLVideoElement | null>(null);
-  const attachedRecordingIdRef = useRef<string | null>(null);
-  const attachedTrackOpenRef = useRef(false);
-  const hasAttachedRef = useRef(false);
-  const cleanupRef = useRef<() => void>(() => {});
-  const durationMsRef = useRef(opts.durationMs);
+  const durationMsRef = useRef(durationMs);
+  const recordingIdRef = useRef(recordingId);
+
+  durationMsRef.current = durationMs;
+  recordingIdRef.current = recordingId;
 
   useEffect(() => {
-    const {
-      recordingId,
-      videoRef,
-      disabled,
-      trackOpenWithoutVideo,
-      durationMs,
-    } = optsRef.current;
+    if (disabled) return;
 
-    if (disabled) {
-      cleanupRef.current();
-      cleanupRef.current = () => {};
-      hasAttachedRef.current = true;
-      attachedVideoRef.current = null;
-      attachedRecordingIdRef.current = recordingId;
-      attachedTrackOpenRef.current = !!trackOpenWithoutVideo;
-      return;
-    }
-
-    const video = videoRef.current;
-    const unchanged =
-      hasAttachedRef.current &&
-      video === attachedVideoRef.current &&
-      recordingId === attachedRecordingIdRef.current &&
-      !!trackOpenWithoutVideo === attachedTrackOpenRef.current;
-    if (unchanged) {
-      // Still the same session — keep the duration in sync so an
-      // async-loaded duration is reflected without a full reattach. Do
-      // this before any potential teardown below so a genuine session
-      // change never mutates the ref before the old session's final flush.
-      durationMsRef.current = durationMs;
-      return;
-    }
-
-    // Tear down the previous session's listeners while durationMsRef still
-    // holds its duration, so its final flush computes completion correctly.
-    cleanupRef.current();
-    durationMsRef.current = durationMs;
-    hasAttachedRef.current = true;
-    attachedVideoRef.current = video;
-    attachedRecordingIdRef.current = recordingId;
-    attachedTrackOpenRef.current = !!trackOpenWithoutVideo;
-
-    // A different video element, recording, or embed mode starts a fresh
-    // tracking session — last session's counters must not carry over.
+    // Reset per-session counters — this effect only reruns when the video
+    // element, recording, or embed mode actually change.
     watchMsRef.current = 0;
     lastTickRef.current = null;
     startedRef.current = false;
@@ -125,15 +96,18 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
     maxPctRef.current = 0;
     viewSessionRef.current = null;
 
-    if (!video) {
+    if (!videoEl) {
       if (
         !trackOpenWithoutVideo ||
         !recordingId ||
         openTrackedRecordingRef.current === recordingId
       ) {
-        cleanupRef.current = () => {};
         return;
       }
+      // Persists for the hook's lifetime (never reset on cleanup): this is
+      // what stops a React StrictMode dev mount->cleanup->remount cycle
+      // from double-posting the same iframe-open view-start, since — unlike
+      // the with-video path below — there's no native DOM event gating it.
       openTrackedRecordingRef.current = recordingId;
       viewSessionRef.current = createViewSessionId(recordingId);
       fetch(`${appBasePath()}/api/view-event`, {
@@ -152,10 +126,10 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
           payload: { source: "iframe-open" },
         }),
       }).catch(() => {});
-      cleanupRef.current = () => {};
       return;
     }
 
+    const video = videoEl;
     const sessionId = getSessionId();
     viewSessionRef.current = createViewSessionId(recordingId);
     let progressTimer: ReturnType<typeof setInterval> | null = null;
@@ -171,9 +145,6 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         | "reaction",
       extra?: Record<string, unknown>,
     ) {
-      const { videoRef } = optsRef.current;
-      const v = videoRef.current;
-      if (!v) return;
       const durationMs = durationMsRef.current;
       const completedPct =
         durationMs > 0 ? (watchMsRef.current / durationMs) * 100 : 0;
@@ -188,12 +159,13 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         body: JSON.stringify({
           recordingId,
           kind,
-          timestampMs: Math.floor(v.currentTime * 1000),
+          timestampMs: Math.floor(video.currentTime * 1000),
           sessionId,
           viewSessionId: viewSessionRef.current,
           totalWatchMs: Math.floor(watchMsRef.current),
           completedPct: Math.floor(maxPctRef.current),
-          scrubbedToEnd: v.duration > 0 && v.currentTime >= v.duration - 0.5,
+          scrubbedToEnd:
+            video.duration > 0 && video.currentTime >= video.duration - 0.5,
           payload: extra,
         }),
       }).catch(() => {});
@@ -248,33 +220,19 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
     video.addEventListener("seeked", onSeek);
     video.addEventListener("ended", onEnded);
 
-    cleanupRef.current = () => {
+    return () => {
       video.removeEventListener("play", onPlay);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("seeked", onSeek);
       video.removeEventListener("ended", onEnded);
       if (progressTimer) clearInterval(progressTimer);
-      // Flush final progress.
+      // Flush final progress, still scoped to this closure's own video and
+      // recordingId — never one a later render has since moved on to.
       if (startedRef.current) post("watch-progress");
     };
-  });
-
-  useEffect(() => {
-    return () => {
-      cleanupRef.current();
-      cleanupRef.current = () => {};
-      // Reset attachment identity so a StrictMode dev remount (or any real
-      // remount that reuses the same video/recording) re-attaches instead
-      // of seeing "unchanged" and silently skipping setup. Also reset the
-      // iframe-open dedup guard so a later reopen of the same no-video
-      // (e.g. Loom-backed) recording fires its view-start again.
-      hasAttachedRef.current = false;
-      attachedVideoRef.current = null;
-      attachedRecordingIdRef.current = null;
-      attachedTrackOpenRef.current = false;
-      openTrackedRecordingRef.current = null;
-    };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- durationMs is
+    // deliberately excluded; it's read live from durationMsRef inside post().
+  }, [recordingId, videoEl, trackOpenWithoutVideo, disabled]);
 
   return {
     reportCtaClick: () => {
@@ -283,7 +241,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recordingId: optsRef.current.recordingId,
+          recordingId: recordingIdRef.current,
           kind: "cta-click",
           sessionId: getSessionId(),
         }),
@@ -295,7 +253,7 @@ export function useViewTracking(opts: UseViewTrackingOpts) {
         keepalive: true,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          recordingId: optsRef.current.recordingId,
+          recordingId: recordingIdRef.current,
           kind: "reaction",
           sessionId: getSessionId(),
           payload: { emoji },
