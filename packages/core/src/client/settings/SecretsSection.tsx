@@ -216,6 +216,8 @@ function KeysHeader({
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
+            intent="neutral"
+            emphasis="outline"
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
           >
             <IconPlus size={11} />
@@ -396,6 +398,8 @@ function SecretCard({
     <div className="border-b border-border last:border-b-0">
       <Button
         type="button"
+        intent="neutral"
+        emphasis="ghost"
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
         className="flex w-full items-center gap-2 px-2.5 py-2 text-start transition-colors hover:bg-accent/30"
@@ -475,6 +479,8 @@ function SecretCard({
                 />
                 <Button
                   type="button"
+                  intent="primary"
+                  emphasis="solid"
                   onClick={handleSave}
                   disabled={!value.trim() || busy !== null}
                   className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
@@ -497,6 +503,8 @@ function SecretCard({
                   <>
                     <Button
                       type="button"
+                      intent="neutral"
+                      emphasis="outline"
                       onClick={handleTest}
                       disabled={busy !== null}
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
@@ -509,6 +517,8 @@ function SecretCard({
                     </Button>
                     <Button
                       type="button"
+                      intent="danger"
+                      emphasis="outline"
                       onClick={() => setConfirmDelete(true)}
                       disabled={busy !== null}
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-red-500 disabled:opacity-40"
@@ -537,6 +547,8 @@ function SecretCard({
                   </span>
                   <Button
                     type="button"
+                    intent="danger"
+                    emphasis="solid"
                     onClick={handleDelete}
                     disabled={busy !== null}
                     className="inline-flex items-center gap-1 rounded border border-red-500/40 px-1.5 py-0.5 font-medium disabled:opacity-40"
@@ -549,6 +561,8 @@ function SecretCard({
                   </Button>
                   <Button
                     type="button"
+                    intent="neutral"
+                    emphasis="outline"
                     onClick={() => setConfirmDelete(false)}
                     disabled={busy !== null}
                     className="rounded border border-border px-1.5 py-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
@@ -782,6 +796,8 @@ function AdHocKeysSection({
             <div className="ms-auto flex items-center gap-1.5">
               <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={resetForm}
                 className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
               >
@@ -789,6 +805,8 @@ function AdHocKeysSection({
               </Button>
               <Button
                 type="button"
+                intent="primary"
+                emphasis="solid"
                 onClick={handleAdd}
                 disabled={!formName.trim() || !formValue.trim() || formBusy}
                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
@@ -855,6 +873,8 @@ function AdHocKeysSection({
                     <div className="flex items-center gap-1">
                       <Button
                         type="button"
+                        intent="danger"
+                        emphasis="solid"
                         onClick={() => handleDelete(key.name)}
                         disabled={deletingName === key.name}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40"
@@ -867,6 +887,8 @@ function AdHocKeysSection({
                       </Button>
                       <Button
                         type="button"
+                        intent="neutral"
+                        emphasis="solid"
                         onClick={() => setConfirmDeleteName(null)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
                       >
@@ -878,6 +900,8 @@ function AdHocKeysSection({
                       <TooltipTrigger asChild>
                         <Button
                           type="button"
+                          intent="danger"
+                          emphasis="ghost"
                           onClick={() => setConfirmDeleteName(key.name)}
                           className="text-muted-foreground hover:text-red-500"
                         >

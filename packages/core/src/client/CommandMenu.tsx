@@ -444,21 +444,11 @@ export function CommandMenu({
             transition: "none",
           }}
           className={cn(
-            "fixed left-1/2 top-[15vh] -translate-x-1/2 w-full max-w-lg",
+            "fixed left-1/2 top-[15vh] !z-50 !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
             "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
             className,
           )}
           style={{
-            top: "15vh",
-            zIndex: 50,
-            maxHeight: "none",
-            width: "100%",
-            maxWidth: "32rem",
-            transform: "translateX(-50%)",
-            gap: 0,
-            padding: 0,
-            backgroundColor: "hsl(var(--popover))",
-            color: "hsl(var(--popover-foreground))",
             animation: "none",
             transition: "none",
           }}

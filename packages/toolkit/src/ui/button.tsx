@@ -7,6 +7,10 @@ import {
   useDesignSystem,
 } from "../design-system/context.js";
 import { DesignSystemErrorBoundary } from "../design-system/error-boundary.js";
+import type {
+  DesignSystemEmphasis,
+  DesignSystemIntent,
+} from "../design-system/types.js";
 import { useToolkitComponent } from "../provider.js";
 import { cn } from "../utils.js";
 
@@ -44,10 +48,25 @@ export interface ButtonProps
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /** Semantic meaning forwarded to a registered design-system ActionButton. */
+  intent?: DesignSystemIntent;
+  /** Semantic prominence forwarded independently of the default visual variant. */
+  emphasis?: DesignSystemEmphasis;
 }
 
 const ButtonBase = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      size,
+      asChild = false,
+      intent: _intent,
+      emphasis: _emphasis,
+      ...props
+    },
+    ref,
+  ) => {
     const Comp = asChild ? Slot : "button";
     return (
       <Comp
@@ -63,7 +82,7 @@ ButtonBase.displayName = "ButtonBase";
 const ButtonOverrideRenderContext = React.createContext(false);
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant, size, asChild = false, ...props }, ref) => {
+  ({ variant, size, asChild = false, intent, emphasis, ...props }, ref) => {
     const DesignSystemActionButton =
       useDesignSystem()?.components?.ActionButton;
     const Override = useToolkitComponent("Button");
@@ -79,18 +98,20 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       />
     );
     if (DesignSystemActionButton && !asChild && !isRenderingLegacyButton) {
-      const intent =
-        variant === "destructive"
+      const semanticIntent =
+        intent ??
+        (variant === "destructive"
           ? "danger"
           : variant === "default"
             ? "primary"
-            : "neutral";
-      const emphasis =
-        variant === "outline"
+            : "neutral");
+      const semanticEmphasis =
+        emphasis ??
+        (variant === "outline"
           ? "outline"
           : variant === "ghost" || variant === "link"
             ? "ghost"
-            : "solid";
+            : "solid");
       const semanticSize =
         size === "sm" ? "compact" : size === "lg" ? "large" : "default";
       return (
@@ -106,8 +127,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             elementRef={ref}
             type={props.type}
             disabled={props.disabled}
-            intent={intent}
-            emphasis={emphasis}
+            intent={semanticIntent}
+            emphasis={semanticEmphasis}
             size={semanticSize}
             onPress={(event) =>
               props.onClick?.(
@@ -130,6 +151,8 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
               variant={variant}
               size={size}
               asChild={asChild}
+              intent={intent}
+              emphasis={emphasis}
               {...props}
             />
           </ButtonOverrideRenderContext.Provider>

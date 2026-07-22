@@ -380,6 +380,8 @@ function DisconnectBuilderButton() {
       <>
         <Button
           type="button"
+          intent="danger"
+          emphasis="solid"
           onClick={handleDisconnectClick}
           className="inline-flex items-center gap-1 rounded border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive hover:bg-destructive/20"
         >
@@ -387,6 +389,8 @@ function DisconnectBuilderButton() {
         </Button>
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={handleCancel}
           className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
         >
@@ -400,6 +404,8 @@ function DisconnectBuilderButton() {
     <>
       <Button
         type="button"
+        intent="danger"
+        emphasis="outline"
         onClick={handleDisconnectClick}
         disabled={phase === "busy"}
         className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40 disabled:opacity-60 disabled:cursor-wait"
@@ -490,6 +496,8 @@ function UseBuilderCard({
             {connectUrl && (
               <Button
                 type="button"
+                intent="neutral"
+                emphasis="ghost"
                 onClick={() =>
                   builderFlow.start({ trackingSource, trackingFlow })
                 }
@@ -1256,6 +1264,8 @@ function LLMSectionInner({
                         {envVar && envConfigured && endpointChanged && (
                           <Button
                             type="button"
+                            intent="neutral"
+                            emphasis="solid"
                             onClick={handleSave}
                             disabled={saving}
                             className="rounded bg-accent px-2.5 py-1 text-[10px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40"
@@ -1298,6 +1308,8 @@ function LLMSectionInner({
                       style={isPage ? CONTROL_STYLE_PAGE : undefined}
                     />
                     <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={handleSave}
                       disabled={!providerSettingsChanged || saving}
                       className={pillButtonClass(isPage, "solid")}
@@ -1318,6 +1330,8 @@ function LLMSectionInner({
 
                 <div className="flex items-center gap-2">
                   <Button
+                    intent="neutral"
+                    emphasis="outline"
                     onClick={handleTest}
                     disabled={testing}
                     className={pillButtonClass(isPage, "outline")}
@@ -1336,6 +1350,8 @@ function LLMSectionInner({
                   </Button>
                   {engineChanged && (
                     <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={handleApply}
                       className={pillButtonClass(isPage, "solid")}
                     >
@@ -1346,6 +1362,8 @@ function LLMSectionInner({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
+                          intent="danger"
+                          emphasis="outline"
                           onClick={handleDisconnect}
                           className={cn(
                             pillButtonClass(isPage, "outline"),
@@ -1668,6 +1686,8 @@ function AppModelDefaultsSectionInner({
               <div className="flex items-center gap-1.5">
                 <Button
                   type="button"
+                  intent="primary"
+                  emphasis="solid"
                   onClick={save}
                   disabled={!hasPendingChange || saving}
                   className={pillButtonClass(isPage, "solid")}
@@ -1685,6 +1705,8 @@ function AppModelDefaultsSectionInner({
                 </Button>
                 <Button
                   type="button"
+                  intent="neutral"
+                  emphasis="outline"
                   onClick={reset}
                   disabled={!settings.canUpdate || !hasAppDefault || saving}
                   className={pillButtonClass(isPage, "outline")}
@@ -1899,6 +1921,8 @@ function EmailSectionInner({
                     className={emailInputCls}
                   />
                   <Button
+                    intent="primary"
+                    emphasis="solid"
                     onClick={saveResend}
                     disabled={!resendKey.trim() || saving}
                     className={emailBtnCls}
@@ -1937,6 +1961,8 @@ function EmailSectionInner({
                   />
                   {!resendConfigured ? null : (
                     <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={saveResend}
                       disabled={!fromAddr.trim() || saving}
                       className={emailBtnCls}
@@ -1982,6 +2008,8 @@ function EmailSectionInner({
                     className={emailInputCls}
                   />
                   <Button
+                    intent="primary"
+                    emphasis="solid"
                     onClick={saveSendgrid}
                     disabled={!sendgridKey.trim() || saving}
                     className={emailBtnCls}
@@ -2020,6 +2048,8 @@ function EmailSectionInner({
                   />
                   {!sendgridConfigured ? null : (
                     <Button
+                      intent="primary"
+                      emphasis="solid"
                       onClick={saveSendgrid}
                       disabled={!fromAddr.trim() || saving}
                       className={emailBtnCls}
@@ -2257,6 +2287,8 @@ function AgentLimitsSectionInner({
               />
               <Button
                 type="button"
+                intent="primary"
+                emphasis="solid"
                 onClick={save}
                 disabled={!hasPendingChange || saving}
                 className={pillButtonClass(isPage, "solid")}
@@ -2274,6 +2306,8 @@ function AgentLimitsSectionInner({
               </Button>
               <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={reset}
                 disabled={
                   !settings.canUpdate ||
@@ -2452,6 +2486,8 @@ function CapabilityStatusStrip({
             ) : (
               <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={onOpenLlm}
                 className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
               >
@@ -2601,6 +2637,8 @@ function AccountSectionInner({
         />
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           disabled={!email || uploading}
           onClick={() => fileInputRef.current?.click()}
           className={cn(
@@ -2657,6 +2695,8 @@ function AccountSectionInner({
           </div>
           <Button
             type="submit"
+            intent="primary"
+            emphasis="solid"
             disabled={
               !email ||
               profileQuery.isLoading ||

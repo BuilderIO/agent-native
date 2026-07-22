@@ -94,6 +94,28 @@ describe("design-system contract", () => {
     expect(warning).toHaveBeenCalledOnce();
   });
 
+  it("forwards semantic intent independently from the legacy visual variant", () => {
+    const received = vi.fn();
+    const CustomActionButton = (props: ComponentProps<typeof ActionButton>) => {
+      received(props.intent, props.emphasis);
+      return <button>{props.children}</button>;
+    };
+
+    act(() => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{ components: { ActionButton: CustomActionButton } }}
+        >
+          <Button variant="ghost" intent="danger" emphasis="outline">
+            Remove
+          </Button>
+        </ToolkitProvider>,
+      );
+    });
+
+    expect(received).toHaveBeenCalledWith("danger", "outline");
+  });
+
   it("uses legacy Button as the lowest-precedence ActionButton adapter", () => {
     const LegacyButton = (props: ComponentProps<"button">) => (
       <button {...props} data-adapter="legacy" />

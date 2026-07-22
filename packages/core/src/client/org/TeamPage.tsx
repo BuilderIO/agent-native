@@ -156,6 +156,8 @@ function PendingInvitationsCard() {
           </div>
           <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             onClick={() => acceptInvitation.mutate(inv.id)}
             disabled={acceptInvitation.isPending}
             className="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-700 disabled:opacity-50"
@@ -200,6 +202,8 @@ function JoinByDomainCard({ matches }: { matches: DomainMatchOrg[] }) {
             </div>
             <Button
               type="button"
+              intent="primary"
+              emphasis="solid"
               disabled={joinByDomain.isPending && pendingId === m.orgId}
               onClick={() => {
                 setPendingId(m.orgId);
@@ -238,6 +242,8 @@ function CreateOrgCard({ description }: { description?: string }) {
       {!showForm ? (
         <Button
           type="button"
+          intent="primary"
+          emphasis="solid"
           onClick={() => setShowForm(true)}
           className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
         >
@@ -256,6 +262,8 @@ function CreateOrgCard({ description }: { description?: string }) {
           <div className="flex gap-2">
             <Button
               type="button"
+              intent="primary"
+              emphasis="solid"
               disabled={!name.trim() || createOrg.isPending}
               onClick={() =>
                 createOrg.mutate(name.trim(), {
@@ -275,6 +283,8 @@ function CreateOrgCard({ description }: { description?: string }) {
             </Button>
             <Button
               type="button"
+              intent="neutral"
+              emphasis="outline"
               onClick={() => {
                 setShowForm(false);
                 setName("");
@@ -461,6 +471,8 @@ function MembersTableCard({
         {canInvite && !showInviteForm && (
           <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             onClick={() => setShowInviteForm(true)}
             className="inline-flex items-center justify-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
           >
@@ -613,6 +625,7 @@ function MemberRow({
           <div className="flex shrink-0 items-center justify-end gap-1">
             {editing ? (
               <Select
+                defaultOpen
                 value={role}
                 onOpenChange={(open) => {
                   if (!open) setEditing(false);
@@ -659,6 +672,8 @@ function MemberRow({
               <div className="flex items-center gap-1">
                 <Button
                   type="button"
+                  intent="neutral"
+                  emphasis="ghost"
                   onClick={() => setConfirmingRemove(false)}
                   className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
                 >
@@ -666,6 +681,8 @@ function MemberRow({
                 </Button>
                 <Button
                   type="button"
+                  intent="danger"
+                  emphasis="solid"
                   disabled={removeMember.isPending}
                   onClick={() =>
                     removeMember.mutate(email, {
@@ -682,6 +699,8 @@ function MemberRow({
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
+                    intent="danger"
+                    emphasis="ghost"
                     disabled={removeMember.isPending}
                     onClick={() => setConfirmingRemove(true)}
                     className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
@@ -896,6 +915,8 @@ function BulkInviteForm({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() =>
             setDrafts((prev) => [...prev, { email: "", role: "member" }])
           }
@@ -906,6 +927,8 @@ function BulkInviteForm({
         </Button>
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() => setPasteOpen((v) => !v)}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
@@ -914,6 +937,8 @@ function BulkInviteForm({
         </Button>
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() => fileRef.current?.click()}
           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
@@ -964,6 +989,8 @@ function BulkInviteForm({
             </Select>
             <Button
               type="button"
+              intent="primary"
+              emphasis="solid"
               onClick={() => {
                 appendEmails(parseEmailList(pasteValue), pasteRole);
                 setPasteValue("");
@@ -976,6 +1003,8 @@ function BulkInviteForm({
             </Button>
             <Button
               type="button"
+              intent="neutral"
+              emphasis="outline"
               onClick={() => {
                 setPasteValue("");
                 setPasteOpen(false);
@@ -991,6 +1020,8 @@ function BulkInviteForm({
       <div className="flex items-center gap-2">
         <Button
           type="button"
+          intent="primary"
+          emphasis="solid"
           disabled={validDrafts.length === 0 || bulkInvite.isPending}
           onClick={submit}
           className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
@@ -1007,6 +1038,8 @@ function BulkInviteForm({
         </Button>
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={onClose}
           className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
@@ -1110,6 +1143,8 @@ function DomainSettingsSection({
                 <TooltipTrigger asChild>
                   <Button
                     type="button"
+                    intent="danger"
+                    emphasis="ghost"
                     disabled={setOrgDomain.isPending}
                     onClick={() => setOrgDomain.mutate(null)}
                     className="text-muted-foreground hover:text-red-500 disabled:opacity-50"
@@ -1123,6 +1158,8 @@ function DomainSettingsSection({
           ) : (
             <Button
               type="button"
+              intent="neutral"
+              emphasis="outline"
               onClick={() => {
                 setDraft(ownDomain);
                 setEditing(true);
@@ -1150,6 +1187,8 @@ function DomainSettingsSection({
           />
           <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             disabled={setOrgDomain.isPending}
             onClick={save}
             className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
@@ -1162,6 +1201,8 @@ function DomainSettingsSection({
           </Button>
           <Button
             type="button"
+            intent="neutral"
+            emphasis="outline"
             onClick={() => setEditing(false)}
             className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
@@ -1306,6 +1347,8 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
           <TooltipTrigger asChild>
             <Button
               type="button"
+              intent="danger"
+              emphasis="outline"
               onClick={regenerate}
               disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
               className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
@@ -1327,6 +1370,8 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
             <TooltipTrigger asChild>
               <Button
                 type="button"
+                intent="neutral"
+                emphasis="outline"
                 onClick={() => syncToApps()}
                 disabled={setA2ASecret.isPending || syncA2ASecret.isPending}
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50 disabled:opacity-50"
@@ -1376,6 +1421,8 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
       {!pasteMode ? (
         <Button
           type="button"
+          intent="neutral"
+          emphasis="outline"
           onClick={() => setPasteMode(true)}
           className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent/50"
         >
@@ -1401,6 +1448,8 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
           />
           <Button
             type="button"
+            intent="primary"
+            emphasis="solid"
             disabled={!pasteValue.trim() || setA2ASecret.isPending}
             onClick={saveSecret}
             className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
@@ -1413,6 +1462,8 @@ function A2ASecretSection({ secret }: { secret: string | null | undefined }) {
           </Button>
           <Button
             type="button"
+            intent="neutral"
+            emphasis="outline"
             onClick={() => {
               setPasteMode(false);
               setPasteValue("");
