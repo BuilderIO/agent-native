@@ -3,7 +3,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconRefresh } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -11,6 +10,7 @@ import { toast } from "sonner";
 
 import { CrmDashboardPanel } from "@/components/crm/CrmDashboardPanel";
 import { PageHeader, SetupEmptyState } from "@/components/crm/Surface";
+import { Button } from "@/components/ui/button";
 import { crmDashboardMetaTitle } from "@/i18n/en-US";
 import { dashboardDataPanelId } from "@/lib/dashboard";
 import type { CrmDashboard } from "@/lib/types";

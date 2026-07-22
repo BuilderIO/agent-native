@@ -19,50 +19,6 @@ import { describe, expect, it } from "vitest";
 
 // Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
-  // calendar.tsx — DayPicker v9 class-name API split across templates.
-  // The majority (7 templates) use the older v9 API (caption, nav_button, …).
-  // Forms/mail are ahead with the newest shadcn API:
-  // getDefaultClassNames + DayButton + captionLayout.
-  // Unifying these requires a coordinated DayPicker API migration; defer until
-  // the 7-template group catches up.
-  [
-    "calendar.tsx",
-    "forms",
-    "newest shadcn: getDefaultClassNames + DayButton + captionLayout",
-  ],
-  [
-    "calendar.tsx",
-    "mail",
-    "newest shadcn: getDefaultClassNames + DayButton + captionLayout",
-  ],
-
-  // chart.tsx — analytics adds the useChartTooltipFlip hook (which only exists
-  // in the analytics template's hooks/ dir) and uses `[_, config]`
-  // destructuring. The canonical template has no analytics-specific hook.
-  [
-    "chart.tsx",
-    "analytics",
-    "analytics-specific: useChartTooltipFlip hook (only exists in analytics hooks/)",
-  ],
-
-  // command.tsx — forms/mail still carry the local cmdk dialog wrapper while
-  // the canonical templates re-export the toolkit primitive.
-  ["command.tsx", "forms", "local cmdk dialog wrapper pending toolkit sync"],
-  ["command.tsx", "mail", "local cmdk dialog wrapper pending toolkit sync"],
-
-  // context-menu.tsx — forms/mail still carry the local Radix implementation
-  // while the canonical group re-exports the toolkit primitive.
-  [
-    "context-menu.tsx",
-    "forms",
-    "local Radix context-menu implementation pending toolkit sync",
-  ],
-  [
-    "context-menu.tsx",
-    "mail",
-    "local Radix context-menu implementation pending toolkit sync",
-  ],
-
   // popover.tsx — forms keeps a wider collision boundary so form-editor
   // controls remain within the viewport on narrow screens.
   [
@@ -88,9 +44,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   ["card.tsx", "macros", "custom macros visual system"],
   ["dialog.tsx", "macros", "custom macros visual system"],
   ["input.tsx", "macros", "custom macros visual system"],
-  // menubar.tsx — macros uses a different trigger style.
-  ["menubar.tsx", "macros", "custom-themed trigger style"],
-  ["progress.tsx", "macros", "custom macros visual system"],
   ["tabs.tsx", "macros", "custom macros visual system"],
 
   // scroll-area.tsx — content keeps the local horizontal scrollbar and
@@ -100,9 +53,6 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "content",
     "content editor needs horizontal scrollbar and viewport block override",
   ],
-
-  // sonner.tsx — calendar uses responsive wide toast layout classes.
-  ["sonner.tsx", "calendar", "responsive wide toast layout classes"],
 
   // sonner.tsx — mail has heavily custom-styled toasts (bg-card, rounded-lg,
   // text-13px, custom action/cancel button styles).
@@ -133,6 +83,47 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   ["textarea.tsx", "mail", "minor whitespace/style difference from canonical"],
 ];
 
+// Local implementations are exceptional. Most app-level UI files should be
+// stable adapters that re-export the Toolkit primitive so ToolkitProvider can
+// route framework-owned surfaces through the app's design system. Keep this
+// list limited to primitives with app-specific behavior or intentionally
+// distinct visuals; copied shadcn implementations pending migration belong in
+// the test failure output, not here.
+const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
+  [template: string, primitive: string, reason: string]
+> = [
+  ["assets", "textarea.tsx", "adds auto-grow behavior for asset forms"],
+  [
+    "brain",
+    "dropdown-menu.tsx",
+    "uses the newer shadcn data-slot implementation",
+  ],
+  [
+    "content",
+    "scroll-area.tsx",
+    "supports the editor's horizontal scrollbar and viewport override",
+  ],
+  [
+    "forms",
+    "popover.tsx",
+    "uses wider collision padding for form-editor controls",
+  ],
+  ["macros", "button.tsx", "part of the custom Macros visual system"],
+  ["macros", "card.tsx", "part of the custom Macros visual system"],
+  ["macros", "dialog.tsx", "part of the custom Macros visual system"],
+  ["macros", "input.tsx", "part of the custom Macros visual system"],
+  ["macros", "tabs.tsx", "part of the custom Macros visual system"],
+  ["macros", "textarea.tsx", "part of the custom Macros visual system"],
+  ["mail", "input.tsx", "uses compact sizing for Mail's dense interface"],
+  ["mail", "sonner.tsx", "uses Mail-specific toast visuals and actions"],
+  ["mail", "textarea.tsx", "preserves Mail's compact local field styling"],
+  [
+    "plan",
+    "tabs.tsx",
+    "adds a transparent border to preserve Plan trigger layout",
+  ],
+];
+
 function workspaceRoot(): string {
   let current = process.cwd();
   while (current !== path.dirname(current)) {
@@ -145,6 +136,24 @@ function workspaceRoot(): string {
 }
 
 const ROOT = workspaceRoot();
+const EXPECTED_ACTIVE_TEMPLATES = [
+  "analytics",
+  "assets",
+  "brain",
+  "calendar",
+  "chat",
+  "clips",
+  "content",
+  "crm",
+  "design",
+  "dispatch",
+  "forms",
+  "macros",
+  "mail",
+  "plan",
+  "slides",
+  "tasks",
+] as const;
 
 function md5(content: string): string {
   return crypto.createHash("md5").update(content).digest("hex");
@@ -165,12 +174,221 @@ function getTemplates(): string[] {
     );
 }
 
+function getActiveSourceTemplates(): string[] {
+  return fs
+    .readdirSync(path.join(ROOT, "templates"))
+    .filter((template) => {
+      const templateRoot = path.join(ROOT, "templates", template);
+      return (
+        !template.startsWith(".") &&
+        fs.existsSync(path.join(templateRoot, "package.json")) &&
+        fs.existsSync(path.join(templateRoot, "app", "root.tsx"))
+      );
+    })
+    .sort();
+}
+
+function walkTypeScriptFiles(directory: string): string[] {
+  if (!fs.existsSync(directory)) return [];
+
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) return walkTypeScriptFiles(entryPath);
+    return /\.tsx?$/.test(entry.name) ? [entryPath] : [];
+  });
+}
+
+function isToolkitPrimitiveReExport(content: string): boolean {
+  return /^export\s+\*\s+from\s+["']@agent-native\/toolkit\/ui\/[^"']+["'];?\s*$/.test(
+    content.trim(),
+  );
+}
+
 function getPrimitives(template: string): string[] {
   const dir = path.join(ROOT, "templates", template, "app", "components", "ui");
   return fs.readdirSync(dir).filter((f) => f.endsWith(".tsx"));
 }
 
 describe("ui-primitives sync guard", () => {
+  it("tracks every active source template explicitly", () => {
+    expect(getActiveSourceTemplates()).toEqual(EXPECTED_ACTIVE_TEMPLATES);
+  });
+
+  it("keeps the design-system seam wired in every active source template", () => {
+    const violations: string[] = [];
+
+    for (const template of getActiveSourceTemplates()) {
+      const appRoot = path.join(ROOT, "templates", template, "app");
+      const designSystemPath = path.join(appRoot, "design-system.ts");
+      const providerPath = path.join(
+        appRoot,
+        "components",
+        "ui",
+        "toolkit-provider.tsx",
+      );
+      const rootPath = path.join(appRoot, "root.tsx");
+      const packagePath = path.join(
+        ROOT,
+        "templates",
+        template,
+        "package.json",
+      );
+
+      if (!fs.existsSync(designSystemPath)) {
+        violations.push(`${template}: missing app/design-system.ts`);
+      }
+      if (!fs.existsSync(providerPath)) {
+        violations.push(
+          `${template}: missing app/components/ui/toolkit-provider.tsx`,
+        );
+      }
+
+      if (fs.existsSync(designSystemPath)) {
+        const designSystem = fs.readFileSync(designSystemPath, "utf-8");
+        if (!designSystem.includes("defineDesignSystem")) {
+          violations.push(
+            `${template}: app/design-system.ts does not define the design system`,
+          );
+        }
+      }
+      if (fs.existsSync(providerPath)) {
+        const provider = fs.readFileSync(providerPath, "utf-8");
+        if (!provider.includes("designSystem={designSystem}")) {
+          violations.push(
+            `${template}: toolkit-provider does not register designSystem`,
+          );
+        }
+      }
+
+      const packageJson = JSON.parse(fs.readFileSync(packagePath, "utf-8"));
+      if (!packageJson.dependencies?.["@agent-native/toolkit"]) {
+        violations.push(
+          `${template}: missing @agent-native/toolkit dependency`,
+        );
+      }
+
+      const root = fs.readFileSync(rootPath, "utf-8");
+      if (!/from\s+["'][^"']*components\/ui\/toolkit-provider["']/.test(root)) {
+        violations.push(
+          `${template}: root.tsx does not import toolkit-provider`,
+        );
+      }
+      if (!/<AppToolkitProvider(?:\s|>)/.test(root)) {
+        violations.push(
+          `${template}: root.tsx does not render AppToolkitProvider`,
+        );
+      }
+    }
+
+    expect(
+      violations,
+      [
+        "Active source templates must expose the app design-system seam.",
+        ...violations,
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("routes app UI imports through local adapters", () => {
+    const violations: string[] = [];
+
+    for (const template of getActiveSourceTemplates()) {
+      const appRoot = path.join(ROOT, "templates", template, "app");
+      const uiRoot = path.join(appRoot, "components", "ui");
+
+      for (const file of walkTypeScriptFiles(appRoot)) {
+        if (file.startsWith(`${uiRoot}${path.sep}`)) continue;
+        const content = fs.readFileSync(file, "utf-8");
+        if (!content.includes("@agent-native/toolkit/ui/")) continue;
+        violations.push(path.relative(ROOT, file));
+      }
+    }
+
+    expect(
+      violations,
+      [
+        "App code must import UI through app/components/ui adapters.",
+        "Direct @agent-native/toolkit/ui imports found in:",
+        ...violations,
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("keeps local primitive implementations explicit and documented", () => {
+    const allowed = new Map(
+      LOCAL_IMPLEMENTATION_ALLOW_LIST.map(([template, primitive, reason]) => [
+        `${template}:${primitive}`,
+        reason,
+      ]),
+    );
+    const violations: string[] = [];
+
+    for (const template of getActiveSourceTemplates()) {
+      const uiRoot = path.join(
+        ROOT,
+        "templates",
+        template,
+        "app",
+        "components",
+        "ui",
+      );
+      if (!fs.existsSync(uiRoot)) continue;
+
+      for (const primitive of fs
+        .readdirSync(uiRoot)
+        .filter(
+          (file) => file.endsWith(".tsx") && file !== "toolkit-provider.tsx",
+        )) {
+        const content = fs.readFileSync(path.join(uiRoot, primitive), "utf-8");
+        if (isToolkitPrimitiveReExport(content)) continue;
+        if (allowed.has(`${template}:${primitive}`)) continue;
+        violations.push(
+          `${template}/${primitive}: use a Toolkit re-export or document the app-specific behavior`,
+        );
+      }
+    }
+
+    expect(
+      violations,
+      [
+        "Undocumented local UI implementations bypass the shared adapter path.",
+        ...violations,
+      ].join("\n"),
+    ).toEqual([]);
+  });
+
+  it("keeps local-implementation allow-list entries valid", () => {
+    for (const [
+      template,
+      primitive,
+      reason,
+    ] of LOCAL_IMPLEMENTATION_ALLOW_LIST) {
+      const file = path.join(
+        ROOT,
+        "templates",
+        template,
+        "app",
+        "components",
+        "ui",
+        primitive,
+      );
+      expect(
+        reason,
+        `LOCAL_IMPLEMENTATION_ALLOW_LIST entry ${template}:${primitive} has no reason`,
+      ).toBeTruthy();
+      expect(
+        fs.existsSync(file),
+        `LOCAL_IMPLEMENTATION_ALLOW_LIST entry ${template}:${primitive} does not exist`,
+      ).toBe(true);
+      if (fs.existsSync(file)) {
+        expect(
+          isToolkitPrimitiveReExport(fs.readFileSync(file, "utf-8")),
+          `LOCAL_IMPLEMENTATION_ALLOW_LIST entry ${template}:${primitive} is now a Toolkit re-export; remove it`,
+        ).toBe(false);
+      }
+    }
+  });
+
   it("keeps shared ui primitives byte-identical across templates, except documented allow-list", () => {
     const templates = getTemplates();
 

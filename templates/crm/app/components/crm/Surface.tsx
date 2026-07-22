@@ -1,11 +1,12 @@
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   IconArrowUpRight,
   IconDatabase,
   IconDatabaseOff,
 } from "@tabler/icons-react";
 import { Link } from "react-router";
+
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function PageHeader({
   eyebrow,

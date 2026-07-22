@@ -1,5 +1,11 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
-import { Button } from "@agent-native/toolkit/ui/button";
+import { IconPlus } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -8,15 +14,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@agent-native/toolkit/ui/dialog";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
-import { IconPlus } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { useNavigate } from "react-router";
-import { toast } from "sonner";
-
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { CrmKind } from "@/lib/types";
 
 import type { CrmValue } from "../../../shared/crm-contract";

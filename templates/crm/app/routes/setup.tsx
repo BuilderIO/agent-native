@@ -2,21 +2,21 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { Input } from "@agent-native/toolkit/ui/input";
-import { Label } from "@agent-native/toolkit/ui/label";
+import { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { PageHeader } from "@/components/crm/Surface";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@agent-native/toolkit/ui/select";
-import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { toast } from "sonner";
-
-import { PageHeader } from "@/components/crm/Surface";
+} from "@/components/ui/select";
 
 interface WorkspaceConnection {
   id: string;

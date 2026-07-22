@@ -3672,6 +3672,9 @@ importers:
       '@agent-native/dispatch':
         specifier: workspace:*
         version: link:../../packages/dispatch
+      '@agent-native/toolkit':
+        specifier: workspace:*
+        version: link:../../packages/toolkit
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
