@@ -2352,7 +2352,7 @@ export function createCoreRoutesPlugin(
               timestamp: getHeader(event, BUILDER_RELAY_TIMESTAMP_HEADER),
               flowId: getHeader(event, BUILDER_RELAY_FLOW_HEADER),
               signature: getHeader(event, BUILDER_RELAY_SIGNATURE_HEADER),
-              requestOrigin: getFrameworkRouteRequestUrl(event).origin,
+              requestOrigin:  getBuilderBrowserOriginForEvent(event),
               requestBasePath: getAppBasePath(),
             },
             {
