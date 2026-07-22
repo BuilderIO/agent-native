@@ -1325,18 +1325,20 @@ function LLMSectionInner({
                       "Test"
                     )}
                   </Button>
-                  <a
-                    href={PROVIDER_DOCS[selectedEngine]}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={cn(
-                      pillButtonClass(isPage, "outline"),
-                      "no-underline",
-                    )}
-                  >
-                    Get an API key
-                    <IconExternalLink size={isPage ? 14 : 10} />
-                  </a>
+                  {PROVIDER_DOCS[selectedEngine] ? (
+                    <a
+                      href={PROVIDER_DOCS[selectedEngine]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        pillButtonClass(isPage, "outline"),
+                        "no-underline",
+                      )}
+                    >
+                      Get an API key
+                      <IconExternalLink size={isPage ? 14 : 10} />
+                    </a>
+                  ) : null}
                   {engineChanged && (
                     <Button
                       intent="primary"
