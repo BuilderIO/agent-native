@@ -2034,6 +2034,8 @@ export function createCoreRoutesPlugin(
           const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(
             event,
           ).replace(/\/+$/, "");
+          console.log(`shomix - previewOrigin - ${previewOrigin}`);
+          console.log(`shomix - callbackOrigin - ${callbackOrigin}`);
           let relay:
             | { state: string; payload: BuilderPreviewRelayState }
             | undefined;
