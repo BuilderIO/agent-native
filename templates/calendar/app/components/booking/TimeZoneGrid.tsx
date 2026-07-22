@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconPlus, IconX } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   getTimezoneCity,
@@ -49,14 +49,28 @@ export function TimeZoneGrid({
   const t = useT();
   const [extraTimezones, setExtraTimezones] = useState<string[]>([]);
   const [addingTimezone, setAddingTimezone] = useState(false);
+  // Resolved after mount only — the browser's timezone can differ from the
+  // server's, so computing it during render would cause a hydration mismatch.
+  const [browserTimezone, setBrowserTimezone] = useState<string | null>(null);
 
-  const browserTimezone =
-    typeof Intl !== "undefined"
-      ? Intl.DateTimeFormat().resolvedOptions().timeZone
-      : "UTC";
+  useEffect(() => {
+    try {
+      setBrowserTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    } catch {
+      setBrowserTimezone("UTC");
+    }
+  }, []);
 
   const rows: TimeZoneGridHost[] = [
-    { id: "you", label: t("bookingLinks.youLabel"), timezone: browserTimezone },
+    ...(browserTimezone
+      ? [
+          {
+            id: "you",
+            label: t("bookingLinks.youLabel"),
+            timezone: browserTimezone,
+          },
+        ]
+      : []),
     ...hosts,
     ...extraTimezones.map((timezone) => ({
       id: timezone,
