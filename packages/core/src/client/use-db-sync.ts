@@ -358,13 +358,29 @@ class SyncTransport {
     if (this.tokenMintInFlight) return this.tokenMintInFlight;
     const mintUrl = this.gateway.tokenMintUrl;
     this.tokenMintInFlight = (async () => {
+      // Bound the mint like fetchPollJson bounds polls: a black-holed request
+      // must resolve as a transient failure, not hang tokenMintInFlight forever
+      // (poll() awaits this while holding inFlight, so a hung mint would stall
+      // the whole transport with no timer pending).
+      const controller =
+        typeof AbortController === "undefined" ? null : new AbortController();
+      const timeout = controller
+        ? setTimeout(() => controller.abort(), POLL_ABORT_MIN_MS)
+        : null;
       try {
-        const res = await fetch(mintUrl, { credentials: "same-origin" });
+        const res = await fetch(mintUrl, {
+          credentials: "same-origin",
+          ...(controller ? { signal: controller.signal } : {}),
+        });
         if (res.ok) {
           const data = (await res.json()) as { token?: unknown };
           if (typeof data?.token === "string" && data.token) {
             this.token = data.token;
-            this.consecutiveFailures = 0;
+            // Deliberately NOT resetting consecutiveFailures here: minting
+            // succeeds via the app origin even when the GATEWAY is down, so a
+            // reset would let a mint-ok -> stream-fail loop run forever below
+            // the unhealthy threshold. Only real gateway connectivity (stream
+            // onopen / poll success) clears the count.
             return true;
           }
           // 2xx without a token is a terminal misconfiguration.
@@ -381,6 +397,7 @@ class SyncTransport {
         this.onGatewayTransientFailure();
         return false;
       } finally {
+        if (timeout) clearTimeout(timeout);
         this.tokenMintInFlight = null;
       }
     })();
@@ -407,6 +424,11 @@ class SyncTransport {
     if (this.mode === "local") return;
     this.mode = "local";
     this.token = null;
+    // The local in-process SSE path sends no handshake, so hosted capabilities
+    // (e.g. no-awareness) must not survive the fallback — stale caps would keep
+    // collab on its fast presence cadence against the local stream. Subscribers
+    // are re-notified via the close/connect cycle below.
+    this.capabilities = [];
     if (this.gatewayReconnectTimer) {
       clearTimeout(this.gatewayReconnectTimer);
       this.gatewayReconnectTimer = null;
@@ -604,7 +626,16 @@ class SyncTransport {
     // string (see activeSseUrl). Mint first, then connect.
     if (this.mode === "hosted" && this.gateway && !this.token) {
       void this.mintToken().then((ok) => {
-        if (ok && !this.stopped && !this.eventSource) this.connectEvents();
+        if (this.stopped) return;
+        if (ok && !this.eventSource) {
+          this.connectEvents();
+        } else if (!ok && this.mode === "hosted") {
+          // Transient mint failure (terminal ones already reverted to local,
+          // flipping mode). Without a retry timer nothing would ever reopen
+          // SSE — connectEvents is only reachable from focus/visibility/run
+          // events — leaving the tab poll-only at the idle cadence.
+          this.scheduleGatewayReconnect();
+        }
       });
       return;
     }
@@ -616,7 +647,12 @@ class SyncTransport {
     this.eventSource = source;
     source.onopen = () => {
       this.setSseConnected(true);
-      this.consecutiveFailures = 0;
+      if (this.mode === "hosted") {
+        // A live gateway stream is the real health signal: clear failure
+        // counts accumulated by mint/stream retries. Local mode keeps main's
+        // semantics (only a successful poll resets the poll backoff).
+        this.consecutiveFailures = 0;
+      }
       this.schedulePoll();
     };
     source.onerror = () => {
@@ -631,9 +667,14 @@ class SyncTransport {
         if (this.mode === "hosted" && this.gateway) {
           // A closed gateway stream is most likely an expired token or a
           // request-timeout/deploy cycle. Re-mint and reconnect with jitter;
-          // this is NOT the poll-401 cooldown path.
+          // this is NOT the poll-401 cooldown path. Each closed stream counts
+          // toward the unhealthy threshold so a hard-down gateway (or one
+          // rejecting our tokens) health-gates to local instead of looping
+          // mint+connect forever; a successful reconnect resets the count in
+          // onopen above.
           this.token = null;
-          this.scheduleGatewayReconnect();
+          this.onGatewayTransientFailure();
+          if (this.mode === "hosted") this.scheduleGatewayReconnect();
           return;
         }
       }

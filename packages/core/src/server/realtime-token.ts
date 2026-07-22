@@ -25,6 +25,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "./auth.js";
 import { resolveBuilderBranchProjectId } from "./builder-browser.js";
+import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
 import { signRealtimeSubscribeToken } from "./short-lived-token.js";
 
@@ -63,33 +64,43 @@ export function createRealtimeTokenHandler() {
       return { error: "Authentication required" };
     }
 
-    // Resolve the project id via the async resolver so hosted apps whose id
-    // lives in a request-scoped app/org/workspace secret (not an env var) also
-    // work — the sync env-only lookup would 404 them and silently drop the
-    // gateway.
-    const projectId = await resolveBuilderBranchProjectId();
-    const secret = getRealtimeSigningSecret();
-    if (!projectId || !secret) {
-      // Hosted realtime isn't provisioned for this app. 404 lets the client
-      // fall back to the app's own /_agent-native/poll without treating it as
-      // an auth failure.
-      setResponseStatus(event, 404);
-      return { error: "Realtime gateway not configured" };
-    }
-
     const orgCtx = await getOrgContext(event).catch(() => null);
-    const token = signRealtimeSubscribeToken(
-      {
-        projectId,
-        owner: session.email,
-        orgId: orgCtx?.orgId ?? session.orgId,
-        ttlSeconds: REALTIME_TOKEN_TTL_SECONDS,
-      },
-      secret,
-    );
-    const expiresAt = new Date(
-      Date.now() + REALTIME_TOKEN_TTL_SECONDS * 1000,
-    ).toISOString();
-    return { token, expiresAt, ttlSeconds: REALTIME_TOKEN_TTL_SECONDS };
+    const requestContext = {
+      userEmail: session.email,
+      orgId: orgCtx?.orgId ?? session.orgId,
+    };
+
+    // The scoped-secret fallback inside resolveBuilderBranchProjectId reads the
+    // request-context ALS (resolveSecret -> getRequestUserEmail); without it the
+    // user/org/workspace scopes silently no-op and only env vars resolve. Wrap
+    // the resolution like google-realtime-session.ts does.
+    return runWithRequestContext(requestContext, async () => {
+      // Async resolver so hosted apps whose project id lives in a
+      // request-scoped app/org/workspace secret (not an env var) also work —
+      // the sync env-only lookup would 404 them and silently drop the gateway.
+      const projectId = await resolveBuilderBranchProjectId();
+      const secret = getRealtimeSigningSecret();
+      if (!projectId || !secret) {
+        // Hosted realtime isn't provisioned for this app. 404 lets the client
+        // fall back to the app's own /_agent-native/poll without treating it
+        // as an auth failure.
+        setResponseStatus(event, 404);
+        return { error: "Realtime gateway not configured" };
+      }
+
+      const token = signRealtimeSubscribeToken(
+        {
+          projectId,
+          owner: session.email,
+          orgId: requestContext.orgId,
+          ttlSeconds: REALTIME_TOKEN_TTL_SECONDS,
+        },
+        secret,
+      );
+      const expiresAt = new Date(
+        Date.now() + REALTIME_TOKEN_TTL_SECONDS * 1000,
+      ).toISOString();
+      return { token, expiresAt, ttlSeconds: REALTIME_TOKEN_TTL_SECONDS };
+    });
   });
 }

@@ -499,23 +499,28 @@ export class AppSyncState {
         if (this.isPg()) {
           // Run DDL against THIS app's DB, not the process-global one — the
           // gateway injects a per-app getDb, and ddl-guard otherwise probes/
-          // creates via the global exec.
-          const injectedClient = client;
-          await ensureTableExists("sync_events", createSql, { injectedClient });
+          // creates via the global exec. The dialect override matters for the
+          // same reason: ddl-guard's own isPostgres() reads the process-global
+          // DB config, which in a gateway process is not this app's dialect.
+          const guardOptions = {
+            injectedClient: client,
+            dialectIsPostgres: true,
+          };
+          await ensureTableExists("sync_events", createSql, guardOptions);
           await ensureIndexExists(
             "sync_events_version_idx",
             "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-            { injectedClient },
+            guardOptions,
           );
           await ensureIndexExists(
             "sync_events_owner_version_idx",
             "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-            { injectedClient },
+            guardOptions,
           );
           await ensureIndexExists(
             "sync_events_org_version_idx",
             "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-            { injectedClient },
+            guardOptions,
           );
           return true;
         }
