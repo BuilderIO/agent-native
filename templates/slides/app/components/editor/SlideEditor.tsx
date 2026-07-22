@@ -1235,6 +1235,7 @@ export default function SlideEditor({
       ((editingEl.tagName === "UL" || editingEl.tagName === "OL") &&
         isSmartGroup(editingEl));
     const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof Node && !editingEl.contains(e.target)) return;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -1765,18 +1766,8 @@ export default function SlideEditor({
 
       showImageOverlay(target);
 
-      // A single click directly on text enters edit mode immediately —
-      // matches the double-click behavior so highlighting text and using
-      // formatting shortcuts works without an extra click first.
-      if (!readOnly && isHtmlSlide && slideContent) {
-        const block = findSmartBlock(target, slideContent);
-        if (block) {
-          enterInlineEdit(block);
-          return;
-        }
-      }
-
-      // Send style-editing postMessage with a unique selector for the clicked element
+      // Select the clicked element for styling first so the style dock
+      // (font size, color, weight, …) targets what was clicked.
       const selectableEl = slideContent
         ? findSelectableElement(target, slideContent)
         : null;
@@ -1784,6 +1775,14 @@ export default function SlideEditor({
       if (selector && selectableEl) {
         selectElementForStyling(selectableEl, selector);
         enterSelectionMode("agentNative.enterStyleEditing", { selector });
+      }
+
+      // Then, for text blocks, also enter inline edit on a single click so
+      // highlighting text, the formatting bubble menu, and shortcuts like
+      // Cmd+B work immediately — matching the double-click behavior.
+      if (!readOnly && isHtmlSlide && slideContent) {
+        const block = findSmartBlock(target, slideContent);
+        if (block) enterInlineEdit(block);
       }
     },
     [
