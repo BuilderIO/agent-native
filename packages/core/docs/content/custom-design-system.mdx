@@ -1,0 +1,371 @@
+---
+title: "Custom Design Systems"
+description: "Use your company’s React design system across Agent Native apps and shared Toolkit experiences without replacing Agent Native behavior."
+---
+
+# Custom Design Systems
+
+Agent Native can render app-owned screens and shared Toolkit experiences with
+your company’s React components. Register an explicit, typed adapter once; the
+same feature controllers continue to own actions, state, accessibility
+requirements, and agent-visible behavior.
+
+The adapter contract does not require Tailwind, shadcn, Radix, `className`, or
+any particular styling runtime. A component may use a theme provider,
+CSS-in-JS, CSS Modules, React Aria, or ordinary CSS. `className` and `style` are
+optional interoperability hooks, not styling requirements.
+
+## Choose the smallest customization tier
+
+| Tier                    | Use it for                                                                                  | What remains shared                                           |
+| ----------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| **Theme tokens**        | Fast brand alignment across default and not-yet-adapted surfaces                            | Toolkit components, controllers, and behavior                 |
+| **Semantic components** | Company controls such as buttons, fields, pickers, dialogs, menus, and surfaces             | Feature controllers and product contracts                     |
+| **Product slots**       | A company-specific layout for one feature, such as the connection card or chat-history rail | The feature’s controller and actions                          |
+| **Eject**               | Product behavior or structure that cannot be expressed by a supported slot                  | Core runtime contracts; the ejected feature becomes app-owned |
+
+Start with tokens, add semantic components where your system has an equivalent,
+use a product slot for feature-level composition, and eject only the smallest
+unit that still needs ownership.
+
+## Register an adapter
+
+Customer adapters are ordinary npm packages. Import one explicitly in
+`app/design-system.ts`; Agent Native never scans dependencies, auto-detects a
+library, or loads components from JSON.
+
+Keep the build-time theme in a dependency-light module so Vite does not need to
+evaluate the customer React package while loading its config:
+
+```ts filename="app/design-system-theme.ts"
+import { defineTheme } from "@agent-native/toolkit/design-system";
+
+export const acmeTheme = defineTheme({
+  colors: {
+    light: {
+      background: "#ffffff",
+      foreground: "oklch(24% 0.03 255)",
+      primary: "rgb(33 82 255)",
+      "primary-foreground": "white",
+      border: "hsl(218 20% 88%)",
+    },
+    dark: {
+      background: "#11131a",
+      foreground: "#f7f8fb",
+      primary: "oklch(72% 0.17 259)",
+      "primary-foreground": "#07102f",
+    },
+  },
+  radius: "0.625rem",
+  typography: { fontFamily: "Acme Sans, sans-serif" },
+});
+```
+
+```tsx filename="app/design-system.ts"
+import { defineDesignSystem } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+import { acmeTheme } from "@/design-system-theme";
+
+export const designSystem = defineDesignSystem({
+  name: "Acme",
+  theme: acmeTheme,
+  components: acmeComponents,
+});
+```
+
+Wire the definition through the app’s provider seam:
+
+```tsx filename="app/components/ui/toolkit-provider.tsx"
+import { ToolkitProvider } from "@agent-native/toolkit/provider";
+
+import { designSystem } from "@/design-system";
+
+export function AppToolkitProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <ToolkitProvider designSystem={designSystem}>{children}</ToolkitProvider>
+  );
+}
+```
+
+Partial adapters are supported. Any component you omit uses Agent Native’s
+default adapter. If one custom component throws while rendering, a
+per-component error boundary logs the failure and renders the default component
+for that control; the rest of the custom system stays active.
+
+The older `components={{ Button }}` provider API remains compatible and is
+treated as the lowest-precedence `ActionButton` adapter. If both are supplied,
+`designSystem.components.ActionButton` wins and development builds log a
+warning.
+
+## Build-time theme tokens
+
+`defineTheme` accepts standard CSS colors, including hex, `rgb()`, `hsl()`, and
+OKLCH. The Core Vite plugin validates and normalizes them to Agent Native’s
+existing semantic variables. Dark colors fall back token-by-token to the light
+palette; Agent Native does not derive a dark palette automatically.
+
+Pass the theme to the Vite plugin:
+
+```tsx filename="vite.config.ts"
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+import { acmeTheme } from "./app/design-system-theme";
+
+export default defineConfig({
+  plugins: [...agentNative({ designSystemTheme: acmeTheme })],
+});
+```
+
+The plugin generates the virtual theme CSS and injects it into the public
+cacheable shell at build time. Version 1 does not choose a theme per request or
+per organization.
+
+## The 17 semantic contracts
+
+The contract is deliberately about meaning and behavior, not DOM shape or
+visual implementation. Values and open state are controlled wherever product
+state must remain portable.
+
+### Leaf contracts
+
+| Component      | Required contract                     | Important optional semantics                                                     |
+| -------------- | ------------------------------------- | -------------------------------------------------------------------------------- |
+| `ActionButton` | `children` and `onPress` as needed    | `intent`, `emphasis`, `size`, `pending`, icons, disabled state, button type, ref |
+| `IconButton`   | accessible `label`, `icon`            | button semantics matching `ActionButton`                                         |
+| `TextField`    | controlled string `value`, `onChange` | label, description, error, input type/mode, validation, adornments, events, ref  |
+| `TextArea`     | controlled string `value`, `onChange` | label, description, error, rows, validation, events, ref                         |
+| `Spinner`      | progress indicator                    | accessible label and semantic size                                               |
+| `Skeleton`     | non-interactive placeholder           | width, height, line/rectangle/circle shape                                       |
+| `Status`       | `children`                            | neutral/info/success/warning/danger tone, icon, size                             |
+| `Surface`      | `children`                            | semantic element, elevation, padding, interactive press behavior                 |
+| `Avatar`       | accessible `name`                     | image source, fallback, size, presence status, image ref                         |
+
+### Behavior contracts
+
+| Component  | Required contract                                  | Behavior the adapter owns                                                        |
+| ---------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `Tooltip`  | trigger and content                                | controlled/uncontrolled open state, delay, placement, portal behavior            |
+| `Menu`     | trigger, items/sections, `onAction`                | keyboard navigation, nested items, selection, dismissal, portal behavior         |
+| `Popover`  | trigger and children                               | controlled/uncontrolled open state, dismissal, focus, modality, portal behavior  |
+| `Dialog`   | controlled `open`, `onOpenChange`, title, children | dialog semantics, dismissal, initial/restore focus, portal and stacking behavior |
+| `Picker`   | `mode`, options, controlled `value`, `onChange`    | select/combobox semantics, search/open state, validation, loading/empty state    |
+| `Checkbox` | controlled `checked`, `onChange`                   | checkbox semantics, indeterminate/required/invalid state                         |
+| `Switch`   | controlled `checked`, `onChange`                   | switch semantics and disabled state                                              |
+| `Tabs`     | items, controlled `value`, `onChange`              | tab semantics, orientation, automatic/manual activation                          |
+
+`intent` is `primary`, `neutral`, or `danger`; `emphasis` is `solid`,
+`outline`, or `ghost`; and size is `compact`, `default`, or `large`. These
+values describe purpose, not a class or variant name from the default UI.
+
+`Picker` covers select and combobox behavior only. Date picking is not part of
+the version 1 semantic contract.
+
+## Overlays, portals, and focus
+
+Behavior components may use your design system’s overlay and focus
+implementation wholesale. They do not need to wrap Radix. They must honor the
+semantic contract, including controlled state, accessible roles, and the
+provided `portalContainer`, `initialFocusRef`, and `restoreFocusRef` seams.
+
+This matters when a native design-system dialog opens from a Radix-hosted
+Toolkit surface. The adapter owns its overlay stack, while the seams let both
+systems agree on the portal layer, z-index order, initial focus, and focus
+restoration. Test nested and adjacent overlays in the real app, not only in an
+isolated component explorer.
+
+## Headless feature controllers and product slots
+
+Semantic components are the shared vocabulary. Feature controllers are the
+behavior boundary. A controller owns state transitions, actions, tracking, and
+the view model; both the default view and a product slot consume that same
+controller.
+
+```tsx
+<BuilderConnectCard
+  className="connection-card"
+  render={({ viewModel, className }) => (
+    <AcmeConnectionPanel
+      className={className}
+      title={viewModel.title}
+      status={viewModel.status}
+      pending={viewModel.action?.pending ?? false}
+      onConnect={viewModel.action?.onPress}
+    />
+  )}
+/>
+```
+
+This is feature-level headless UI, not a second set of low-level hooks for every
+widget. `BuilderConnectCard` and `ChatHistoryRail` are the first proving slices;
+settings and sharing follow the same controller/default-view/custom-view
+invariant.
+
+If a slot cannot express the required product change, inspect and eject the
+smallest published unit:
+
+```bash
+agent-native eject --list
+agent-native eject inspect toolkit/design-system
+agent-native eject toolkit/design-system --app my-app --apply
+```
+
+Ejection transfers ownership; it does not fork Core auth, actions, persistence,
+access checks, chat transport, or agent execution.
+
+## Run the conformance kit
+
+Export a complete component map from the customer package and run the shipped
+test kit in a browser-like test environment:
+
+```tsx filename="design-system.conformance.spec.tsx"
+import { describe, it } from "vitest";
+import { assertDesignSystemConformance } from "@agent-native/toolkit/conformance";
+import { DESIGN_SYSTEM_CONTRACT_VERSION } from "@agent-native/toolkit/design-system";
+import { acmeComponents } from "@acme/agent-native-design-system";
+
+describe("Acme Agent Native adapter", () => {
+  it("conforms", async () => {
+    await assertDesignSystemConformance({
+      adapterName: "Acme",
+      components: acmeComponents,
+      contractVersion: DESIGN_SYSTEM_CONTRACT_VERSION,
+    });
+  });
+});
+```
+
+The suite checks all 17 exports, controlled values and open state, accessible
+roles, keyboard interaction, selection, portal targeting, z-index
+interoperability, initial focus, and focus restoration. Run it in the adapter
+package’s CI and retain a small app-level overlay test for provider-specific
+composition.
+
+Contract evolution follows semantic versioning:
+
+- New components and optional props are a compatible minor change.
+- New required props, removed components/props, or behavioral contract changes
+  require a new contract major.
+- The conformance kit fails when the adapter’s contract major and Toolkit’s
+  contract major differ.
+
+## Adapter recipes
+
+### MUI-style theme-provider systems
+
+Keep the company theme provider above `AppToolkitProvider`, and adapt semantic
+props at the package boundary. Map `intent`, `emphasis`, and `size` to your
+system’s own vocabulary inside the adapter—not in Agent Native feature code.
+For overlays, forward `portalContainer` to the design system’s container or
+portal prop and implement `initialFocusRef`/`restoreFocusRef` using its focus
+manager.
+
+```tsx
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  onPress,
+  children,
+  ...props
+}) => (
+  <CompanyButton
+    {...props}
+    color={intent === "danger" ? "error" : intent}
+    variant={emphasis === "solid" ? "contained" : emphasis}
+    loading={pending}
+    onClick={onPress}
+  >
+    {children}
+  </CompanyButton>
+);
+```
+
+Do not copy a feature’s theme provider into each adapter component. Install it
+once at the app boundary so portals and overlays inherit the same context.
+
+### React Aria-based systems
+
+Use React Aria components or hooks to implement the semantics directly. Preserve
+controlled `value`/`open` props and forward their change callbacks rather than
+creating a second state store. For behavior contracts, use your overlay provider
+and focus scope, set its portal root from `portalContainer`, and connect
+initial/restore refs to the focus-management API. The conformance suite is the
+minimum behavior check; your design system remains responsible for its full
+keyboard and screen-reader test matrix.
+
+```tsx
+export const Checkbox: DesignSystemComponents["Checkbox"] = ({
+  checked,
+  onChange,
+  label,
+  ...props
+}) => (
+  <AriaCheckbox {...props} isSelected={checked} onChange={onChange}>
+    {label}
+  </AriaCheckbox>
+);
+```
+
+### CSS Modules and plain React
+
+The adapter can be ordinary React and CSS Modules. Ignore `className` entirely
+when it would bypass your component’s style contract; it is optional. Keep DOM
+roles, accessible names, keyboard behavior, and controlled state explicit.
+
+```tsx
+import styles from "./action-button.module.css";
+
+export const ActionButton: DesignSystemComponents["ActionButton"] = ({
+  intent = "neutral",
+  emphasis = "solid",
+  pending,
+  disabled,
+  onPress,
+  children,
+  elementRef,
+}) => (
+  <button
+    ref={elementRef}
+    className={styles[`${intent}-${emphasis}`]}
+    disabled={disabled || pending}
+    aria-busy={pending || undefined}
+    onClick={onPress}
+  >
+    {children}
+  </button>
+);
+```
+
+## Version 1 boundaries
+
+The semantic bridge does not replace every third-party UI ecosystem in version
+
+1. These surfaces receive theme tokens and feature slots where available, but
+   their internal widgets are not semantic-adapter contracts yet:
+
+- `@assistant-ui/react` chat and composer internals
+- Tiptap editor kits
+- `cmdk`, `vaul`, Recharts, and `react-day-picker`
+- date-picker components (the `Picker` contract is select/combobox only)
+- Dispatch’s independent primitive fork
+- Pinpoint’s Solid.js and Shadow DOM UI
+
+These boundaries are explicit so an adapter package can make accurate support
+claims. Propose a new semantic component only when the same meaning and behavior
+is useful across more than one feature; use product slots or eject for
+one-feature differences.
+
+## What’s next
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — local adapters, provider
+  wiring, and shared primitive imports.
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — reusable feature
+  ownership and package boundaries.
+- [**Settings Kit**](/docs/toolkit-settings) and [**Sharing Kit**](/docs/toolkit-sharing)
+  — shared feature controllers that preserve app actions and access contracts.
