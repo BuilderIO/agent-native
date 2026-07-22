@@ -73,14 +73,12 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   // textarea.tsx — two intentional variants beyond the canonical version:
   //   • assets: adds autoGrow behavior for asset prompt/editing forms
   //   • macros: adds transition-all hover:border-ring/50 custom visual polish
-  //   • mail: minor whitespace/style difference; same functional behaviour
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
     "textarea.tsx",
     "macros",
     "custom: transition-all hover:border-ring/50 animation",
   ],
-  ["textarea.tsx", "mail", "minor whitespace/style difference from canonical"],
 ];
 
 // Local implementations are exceptional. Most app-level UI files should be
@@ -116,7 +114,6 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   ["macros", "textarea.tsx", "part of the custom Macros visual system"],
   ["mail", "input.tsx", "uses compact sizing for Mail's dense interface"],
   ["mail", "sonner.tsx", "uses Mail-specific toast visuals and actions"],
-  ["mail", "textarea.tsx", "preserves Mail's compact local field styling"],
   [
     "plan",
     "tabs.tsx",
