@@ -18,15 +18,14 @@ import {
 import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
-  AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
+  BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
   NON_ANALYTICS_REQUEST_GUIDANCE,
   realDataFinalGuard,
-  SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE,
 } from "./agent-chat";
 
 type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
@@ -51,8 +50,7 @@ describe("Analytics agent Plan mode policy", () => {
     const guidance = analyticsSourceGuidanceOpening();
 
     expect(guidance).toContain("<data-source-guidance>");
-    expect(guidance).toContain(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE);
-    expect(guidance).toContain(SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE);
+    expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
@@ -69,18 +67,18 @@ describe("Analytics agent Plan mode policy", () => {
     );
   });
 
-  it("routes Agent-Native signups through the canonical one-query dashboard path", () => {
-    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
-      "`total-signups`",
+  it("keeps ordinary structured lookups on one authoritative source", () => {
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "single most directly authoritative available source",
     );
-    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
-      "Call `query-agent-native-analytics` exactly once",
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "make one bounded query",
     );
-    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
-      "do not call `list-data-dictionary`, BigQuery",
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "do not by themselves make it a corpus investigation",
     );
-    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
-      "lower(coalesce(user_id, '')) NOT LIKE '%@builder.io'",
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "Never repeat an identical invalid or failed tool call",
     );
   });
 
@@ -118,6 +116,8 @@ describe("Analytics agent Plan mode policy", () => {
     expect(context).toContain("available on demand");
     expect(context).toContain("`list-data-dictionary`");
     expect(context).toContain("focused `search` or `department` filter");
+    expect(context).toContain("only when the metric definition");
+    expect(context).toContain("Do not use the dictionary as a mandatory preflight");
     expect(context).toContain("approved entries as canonical");
     expect(context.length).toBeLessThan(1_000);
   });

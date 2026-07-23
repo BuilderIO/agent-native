@@ -46,11 +46,8 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
   to: "/data-sources",
 });
 
-export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
-  "SIMPLE TIME-BOUNDED METRIC FAST PATH — When the data dictionary or a known canonical source identifies the metric, run one bounded aggregate. Once it returns a valid result, answer the explicit question immediately with the source, time window, row count, and only necessary caveats. Do not schema-discover, retry, enrich, cross-check, or add breakdowns after that successful result unless the query failed or the result conflicts with the known metric definition. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
-
-export const AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE =
-  "AGENT-NATIVE SIGNUPS FAST PATH — For Agent-Native signup counts, the canonical first-party Agent Native dashboard panel is `total-signups`. Call `query-agent-native-analytics` exactly once with a bounded `COUNT(*) AS signups` over `analytics_events`, `event_name = 'signup'`, explicit half-open `timestamp` bounds in the requested timezone, and the dashboard's exclude-Builder filter `lower(coalesce(user_id, '')) NOT LIKE '%@builder.io'`, which retains anonymous signups. Answer from that result immediately. This pre-approved metric overrides the generic data-dictionary lookup: do not call `list-data-dictionary`, BigQuery, provider tools, `data-source-status`, or cross-check another source unless the user explicitly asks for an external source or the first-party query fails. ";
+export const BOUNDED_STRUCTURED_LOOKUP_GUIDANCE =
+  "BOUNDED STRUCTURED LOOKUP FAST PATH — For an ordinary count, aggregate, grouped metric, trend, or record lookup over one source, choose the single most directly authoritative available source and make one bounded query. A named source wins; otherwise use the current dashboard/source context or an already-known approved definition. Do not call data-source status, the data dictionary, schema discovery, provider catalogs, corpus tools, or a second source when the source and schema are already known. Once the query succeeds, answer immediately with its source, time window, filters, row count, and only necessary caveats. Do not enrich, cross-check, retry, or add breakdowns unless the user requested them, the first query failed, or its result conflicts with the known definition. The words `all`, `total`, or `exact` in a structured aggregate do not by themselves make it a corpus investigation. Never repeat an identical invalid or failed tool call; correct its arguments once or surface the error. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
 export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
   "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. For Builder/product signups, page views, app/template usage, conversions, and LLM observability, use `query-agent-native-analytics` over `analytics_events` (or `session_recordings` for replay summaries) when the event lives in first-party Analytics. When the user names an external provider, or the data dictionary identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the first-party query returns no rows, report that grounded result with its scope and time window. ";
@@ -78,8 +75,7 @@ export function analyticsSourceGuidanceOpening(): string {
     "<data-source-guidance>\n" +
     "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
     NON_ANALYTICS_REQUEST_GUIDANCE +
-    AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE +
-    SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE +
+    BOUNDED_STRUCTURED_LOOKUP_GUIDANCE +
     BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
     ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
     `DATA-SOURCE SETUP UX — Chat remains available when no external data source is connected. For a live-data request that needs an unavailable external provider, explain what is missing in the context of the user's question and guide them naturally to [Connect data sources](${ANALYTICS_DATA_SOURCES_LINK}). Use that real link from the app; do not emit a generic canned no-data sentence. For general conversation, conceptual questions, and questions the built-in first-party source can answer, continue helping normally. ` +
@@ -89,7 +85,7 @@ export function analyticsSourceGuidanceOpening(): string {
 
 export function analyticsDataDictionaryRoutingContext(): string {
   return `<data-dictionary-routing>
-Data-dictionary definitions are available on demand instead of being embedded in every chat request. Before writing SQL or making a metric-definition claim, call \`list-data-dictionary\` with a focused \`search\` or \`department\` filter. If the user asks what definitions exist and no useful filter is available, call it without filters. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. If no matching definition exists, inspect the configured source schema or ask the user instead of guessing.
+Data-dictionary definitions are available on demand instead of being embedded in every chat request. Call \`list-data-dictionary\` only when the metric definition, source, table, or fields are not already established by the user's named source, the current dashboard/source context, or a known action schema. Do not use the dictionary as a mandatory preflight for ordinary bounded lookups. When needed, use a focused \`search\` or \`department\` filter; call it without filters only when the user asks what definitions exist. Treat approved entries as canonical, verify unreviewed human entries when stakes are high, and treat AI-generated unapproved entries as suggestions only. After the dictionary identifies one source and query shape, query that source once and stop on success. If no matching definition exists, inspect only the chosen source schema or ask the user instead of fanning out across providers.
 </data-dictionary-routing>`;
 }
 
@@ -679,6 +675,7 @@ export default createAgentChatPlugin({
     loadActionsFromStaticRegistry(actionsRegistry),
   ),
   initialToolNames: INITIAL_TOOL_NAMES,
+  corpusTools: "lazy",
   finalResponseGuard: realDataFinalGuard,
   // Enable sandboxed JavaScript execution for analytics data processing.
   // Code runs in an isolated Node.js child process with no access to app

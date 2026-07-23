@@ -26,23 +26,26 @@ membership id when its native update status reports `update-available`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Data integrity comes first. Do not invent numbers, dimensions, filters, or
   source semantics. State uncertainty and inspect the source when needed.
-- Catalog-first: before querying, consult known data sources (data-source
-  status) and call `list-data-dictionary` with a focused search to learn what
-  exists and which table/columns/join paths to use. Don't fan out blind queries
-  when the catalog already answers where a fact lives.
+- Source-first: use the source named by the user. Otherwise use the current
+  dashboard/source context or an already-known approved definition. Call
+  `list-data-dictionary` only when the metric definition, source, table, or
+  fields are genuinely unknown, and call `data-source-status` only when source
+  availability is unknown. Never make either one a mandatory preflight.
 - `data-source-status` always includes the built-in first-party Analytics source
   and returns `hasConnectedExternalDataSources`,
   `dataSourcesSetupLink` (a real deep link to `/data-sources`). Chat stays
   available when no external provider is connected; for a request that needs
   one, explain the missing source in context and include that returned link so
   the user can connect it. Do not replace this with a generic canned response.
-- Simple time-bounded metric fast path: when the data dictionary or a known
-  canonical source already identifies the metric, run one bounded aggregate.
-  Once that query returns a valid result, answer immediately with the source,
-  time window, row count, and only necessary caveats. Do not schema-discover,
-  retry, enrich, or add breakdowns unless the query fails or its result
-  conflicts with the known metric definition. This never waives the real-data
-  requirement: do not answer from a guess, stale value, or unverified result.
+- Bounded structured lookup fast path: for an ordinary count, aggregate,
+  grouped metric, trend, or record lookup over one source, choose the single
+  most directly authoritative available source and make one bounded query.
+  That source may be first-party Analytics, BigQuery, HubSpot, Gong, or another
+  connected provider. Once it succeeds, answer immediately. Do not
+  schema-discover, cross-check, enrich, retry, or add breakdowns unless the
+  user requested them, the first query failed, or its result conflicts with
+  the known definition. `all`, `total`, and `exact` in a structured aggregate
+  do not by themselves require a corpus workflow.
 - Clarify-first for ambiguous ad-hoc work: when the metric definition, date
   range, or grain is ambiguous and a wrong guess would change the numbers, use
   the `ask-question` clarifying tool (multiple-choice) before computing. Ask at
