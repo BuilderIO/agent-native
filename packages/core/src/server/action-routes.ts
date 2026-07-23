@@ -145,23 +145,6 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-function getPublicRequestOrigin(event: any): string {
-  const forwardedHost = getHeader(event, "x-forwarded-host")
-    ?.split(",")[0]
-    ?.trim();
-  const forwardedProto = getHeader(event, "x-forwarded-proto")
-    ?.split(",")[0]
-    ?.trim();
-  if (forwardedHost) {
-    const proto =
-      forwardedProto ||
-      (/^(localhost|127\.0\.0\.1|\[::1\])(?::|$)/i.test(forwardedHost)
-        ? "http"
-        : "https");
-    return `${proto}://${forwardedHost}`;
-  }
-  return getRequestURL(event).origin;
-}
 
 /**
  * True when the request originated from the browser action client
@@ -512,7 +495,7 @@ export function mountActionRoutes(
             userName,
             orgId,
             timezone,
-            requestOrigin: getPublicRequestOrigin(event),
+            requestOrigin: getRequestURL(event).origin,
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a

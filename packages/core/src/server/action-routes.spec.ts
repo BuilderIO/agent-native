@@ -155,40 +155,6 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
-  it("uses the forwarded public origin in action request context", async () => {
-    const { mountActionRoutes } = await import("./action-routes.js");
-    const { getRequestOrigin } = await import("./request-context.js");
-    const mounted: Array<{ path: string; handler: any }> = [];
-    const run = vi.fn(async () => ({ origin: getRequestOrigin() }));
-    const nitroApp = {
-      use: vi.fn((path: string, handler: any) =>
-        mounted.push({ path, handler }),
-      ),
-    };
-
-    mountActionRoutes(nitroApp, {
-      test: {
-        run,
-        requiresAuth: false,
-      } as any,
-    });
-    const event = {
-      _method: "POST",
-      _headers: {
-        host: "127.0.0.1:8080",
-        "x-forwarded-host": "clips.example.com",
-        "x-forwarded-proto": "https",
-      },
-      req: {
-        url: "http://127.0.0.1:8080/_agent-native/actions/test",
-        json: async () => ({}),
-      },
-    };
-
-    await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
-      origin: "https://clips.example.com",
-    });
-  });
 
   it("mounts package actions registered through another core module instance", async () => {
     const packageCore = await import("./action-discovery.js");
