@@ -512,13 +512,13 @@ Siehe [MCP Apps](/docs/mcp-apps) für die vollständigen Bridge-Details – Tran
 
 Zusätzlich zu den Tools pro Aktion stellt der MCP-Server einen stabilen Verbsatz bereit, sodass ein externer Agent eine vorhersehbare Oberfläche hat, ohne die Aktionsnamen pro App erraten zu müssen:
 
-| Werkzeug                                           | Nebenwirkungen  | Retouren                                                                                                                                                                                         |
-| -------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `list_apps`                                        | keine           | Workspace-Apps + ihre URLs/Ausführungsstatus                                                                                                                                                     |
-| `open_app({ app, view?, path?, params?, embed? })` | keine           | ein Deep Link oder eine Route mit demselben Ursprung; `embed: true` rendert die vollständige App inline, sofern dies unterstützt wird                                                            |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | Agentenschleife | leitet eine Aufgabe in natürlicher Sprache an den In-App-Agenten dieser App weiter; bei länger laufender Arbeit wird eine dauerhafte `taskId` für das Polling mit `ask_app_status` zurückgegeben |
-| `create_workspace_app({ name, template })`         | Gerüste         | Eine neue App, die über den Workspace-Pfad gestartet wurde, plus die Ausführung von URL + Deep Link                                                                                              |
-| `list_templates`                                   | keine           | Nur die auf der Zulassungsliste aufgeführten Vorlagen                                                                                                                                            |
+| Werkzeug                                           | Nebenwirkungen  | Retouren                                                                                                                                                                                                                           |
+| -------------------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | keine           | Workspace-Apps + ihre URLs/Ausführungsstatus                                                                                                                                                                                       |
+| `open_app({ app, view?, path?, params?, embed? })` | keine           | ein Deep Link oder eine Route mit demselben Ursprung; `embed: true` rendert die vollständige App inline, sofern dies unterstützt wird                                                                                              |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | Agentenschleife | leitet eine Aufgabe in natürlicher Sprache an den In-App-Agenten dieser App weiter; bei länger laufender Arbeit werden ein dauerhaftes `taskHandle` und eine veraltete `taskId` für das Polling mit `ask_app_status` zurückgegeben |
+| `create_workspace_app({ name, template })`         | Gerüste         | Eine neue App, die über den Workspace-Pfad gestartet wurde, plus die Ausführung von URL + Deep Link                                                                                                                                |
+| `list_templates`                                   | keine           | Nur die auf der Zulassungsliste aufgeführten Vorlagen                                                                                                                                                                              |
 
 `create_workspace_app` lehnt alle nicht auf der Zulassungsliste aufgeführten Vorlagen ab – die öffentliche Zulassungsliste für Vorlagen in `packages/shared-app-config/templates.ts` ist maßgeblich und CI-geschützt; ein externer Agent kann es nicht erweitern. Eine gleichnamige Vorlagenaktion überschreibt eine integrierte Aktion (Vorrang der Vorlage vor dem Kern). Deaktivieren Sie das gesamte Set mit `MCPConfig.builtinCrossAppTools: false`.
 
@@ -533,15 +533,16 @@ Wert unverändert an `ask_app_status`. Er bewahrt die ursprüngliche Task-Route,
 auch wenn sich die App-Erkennung zwischen Aufrufen ändert. Die älteren Argumente
 `app` und `taskId` bleiben während der Migration gültig.
 
-MCP-Hosts und -Gateways teilen sich kein einheitliches Zeitlimit für Tool-Aufrufe; manche erzwingen eine Obergrenze von fünf Minuten, andere sind konfigurierbar. Planen Sie eine externe Agentenintegration nicht um einen zehnminütigen, blockierenden `tools/call` herum. `ask-agent` und `ask_app` bestätigen gehostete Arbeit schnell und geben dann eine dauerhafte `taskId` zurück, sobald die Inline-Wartezeit abläuft. Fragen Sie mit `ask_app_status` unter Verwendung der zurückgegebenen `app` und `taskId` ab; das Ergebnis enthält `pollAfterMs` als host-freundliches Intervall. Die Aufgabe muss erstellt werden, bevor die erste Antwort in ein Timeout laufen kann – eine Polling-URL, die erst nach einem langen Aufruf zurückgegeben wird, ist kein zuverlässiger Recovery-Vertrag.
+MCP-Hosts und -Gateways teilen sich kein einheitliches Zeitlimit für Tool-Aufrufe; manche erzwingen eine Obergrenze von fünf Minuten, andere sind konfigurierbar. Planen Sie eine externe Agentenintegration nicht um einen zehnminütigen, blockierenden `tools/call` herum. `ask-agent` und `ask_app` bestätigen gehostete Arbeit schnell und geben dann ein dauerhaftes `taskHandle` sowie eine veraltete `taskId` zurück, sobald die Inline-Wartezeit abläuft. Fragen Sie mit `ask_app_status` ab, indem Sie die zurückgegebenen `poll.arguments`, insbesondere das `taskHandle`, unverändert wiederverwenden; das Ergebnis enthält `pollAfterMs` als host-freundliches Intervall. Die Aufgabe muss erstellt werden, bevor die erste Antwort in ein Timeout laufen kann – eine Polling-URL, die erst nach einem langen Aufruf zurückgegeben wird, ist kein zuverlässiger Recovery-Vertrag.
 
 Ist ein begrenzter, vorübergehender Statusabruf nicht verfügbar, kann
 `ask_app_status` `status: "unknown"`, `statusRead: "unavailable"` und
 `retryable: true` sowie das ursprüngliche `app`, `taskId` und `pollAfterMs` /
 `poll` zurückgeben. Das bedeutet, dass der Statusabruf nicht verfügbar ist –
 nicht, dass die dauerhafte Aufgabe fehlgeschlagen ist. Wiederholen Sie
-`ask_app_status` mit genau demselben `app` und `taskId`; reichen Sie zur
-Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
+`ask_app_status` mit genau den zurückgegebenen `poll.arguments`, einschließlich
+`taskHandle`, wenn vorhanden. Ältere Ergebnisse ohne Handle müssen dasselbe `app`
+und dieselbe `taskId` wiederverwenden. Reichen Sie zur Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
 Dauerhafte Authentifizierungs-, Nicht-gefunden- und Protokollfehler bleiben Fehler.
 
 ### Tour pro App {#tour}
