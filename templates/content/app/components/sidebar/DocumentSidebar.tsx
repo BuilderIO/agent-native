@@ -121,6 +121,7 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import { markDocumentCreationPending } from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
@@ -774,7 +775,7 @@ export function DocumentSidebar({
 
       const id = optimisticId ?? nanoid();
       const now = new Date().toISOString();
-      const tempDoc: Document = {
+      const tempDoc = markDocumentCreationPending({
         id,
         parentId: parentId ?? null,
         title: "",
@@ -789,7 +790,7 @@ export function DocumentSidebar({
         canManage: true,
         createdAt: now,
         updatedAt: now,
-      };
+      });
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -824,14 +825,14 @@ export function DocumentSidebar({
           spaceId: parentId ? undefined : rootSpaceId,
         });
         const nextId = created?.id || id;
+        queryClient.setQueryData(
+          ["action", "get-document", { id: nextId }],
+          created,
+        );
         if (nextId !== id) {
           queryClient.removeQueries({
             queryKey: ["action", "get-document", { id }],
           });
-          queryClient.setQueryData(
-            ["action", "get-document", { id: nextId }],
-            created,
-          );
           navigateToDocument(nextId);
         }
         // Replace optimistic doc with real server doc + clear any 404 error
