@@ -507,13 +507,13 @@ CSP 和沙箱权限等安全元数据存在于资源中
 
 在每个操作工具之上，MCP 服务器公开了一个稳定的动词集，因此外部代理具有可预测的表面，而无需猜测每个应用操作名称：
 
-| 工具                                               | 副作用   | 退货                                                                                                        |
-| -------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | 无       | 工作区应用+其 URL/运行状态                                                                                  |
-| `open_app({ app, view?, path?, params?, embed? })` | 无       | 深层链接或同源路由； `embed: true` 在支持的情况下内联渲染完整的应用程序                                     |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | 代理循环 | 将自然语言任务路由到该应用的应用内代理；长时间运行的任务会返回一个持久的 `taskId`，供 `ask_app_status` 轮询 |
-| `create_workspace_app({ name, template })`         | 脚手架   | 通过工作区路径启动的新应用程序，及其正在运行的 URL + 深层链接                                               |
-| `list_templates`                                   | 无       | 仅限允许列出的模板                                                                                          |
+| 工具                                               | 副作用   | 退货                                                                                                                            |
+| -------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | 无       | 工作区应用+其 URL/运行状态                                                                                                      |
+| `open_app({ app, view?, path?, params?, embed? })` | 无       | 深层链接或同源路由； `embed: true` 在支持的情况下内联渲染完整的应用程序                                                         |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | 代理循环 | 将自然语言任务路由到该应用的应用内代理；长时间运行的任务会返回一个持久的 `taskHandle` 和旧版 `taskId`，供 `ask_app_status` 轮询 |
+| `create_workspace_app({ name, template })`         | 脚手架   | 通过工作区路径启动的新应用程序，及其正在运行的 URL + 深层链接                                                                   |
+| `list_templates`                                   | 无       | 仅限允许列出的模板                                                                                                              |
 
 `create_workspace_app` 拒绝任何非允许列表模板 - `packages/shared-app-config/templates.ts` 中的公共模板允许列表是权威且受 CI 保护的；外部代理无法扩大它。同名的模板操作会覆盖内置操作（模板优先于核心优先级）。使用 `MCPConfig.builtinCrossAppTools: false` 禁用整个设置。
 
@@ -527,12 +527,13 @@ CSP 和沙箱权限等安全元数据存在于资源中
 `ask_app_status`；即使两次调用之间的应用发现结果发生变化，它也会保留原始任务路由。
 迁移期间仍接受旧的 `app` 和 `taskId` 参数。
 
-MCP 主机和网关并不共享同一个较长的工具调用超时时间；有些强制执行五分钟的上限，有些则可配置。不要围绕一个阻塞十分钟的 `tools/call` 来设计外部代理集成。`ask-agent` 和 `ask_app` 会快速确认托管工作已开始，然后在内联等待到期时返回一个持久的 `taskId`。使用返回的 `app` 和 `taskId` 通过 `ask_app_status` 进行轮询；结果中包含 `pollAfterMs`，作为对主机友好的轮询间隔。任务必须在第一次响应超时之前就已创建，因此仅在长时间调用之后才返回的轮询 URL 并不是可靠的恢复约定。
+MCP 主机和网关并不共享同一个较长的工具调用超时时间；有些强制执行五分钟的上限，有些则可配置。不要围绕一个阻塞十分钟的 `tools/call` 来设计外部代理集成。`ask-agent` 和 `ask_app` 会快速确认托管工作已开始，然后在内联等待到期时返回一个持久的 `taskHandle` 和旧版 `taskId`。请原样重用返回的 `poll.arguments`（尤其是 `taskHandle`）通过 `ask_app_status` 进行轮询；结果中包含 `pollAfterMs`，作为对主机友好的轮询间隔。任务必须在第一次响应超时之前就已创建，因此仅在长时间调用之后才返回的轮询 URL 并不是可靠的恢复约定。
 
 当有界的暂态状态读取不可用时，`ask_app_status` 可以返回
 `status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、原始的
 `app` 和 `taskId`，以及 `pollAfterMs` / `poll`。这表示状态读取不可用，并不表示
-持久任务失败。请使用完全相同的 `app` 和 `taskId` 重试 `ask_app_status`；切勿为恢复而
+持久任务失败。请使用完全相同的返回 `poll.arguments`（存在时包括 `taskHandle`）重试
+`ask_app_status`；没有句柄的旧版结果必须重用相同的 `app` 和 `taskId`。切勿为恢复而
 重新提交 `ask_app`，因为提交可能会重复工作。永久性的身份验证、未找到和协议错误仍然是错误。
 
 ### 每应用游览 {#tour}

@@ -512,13 +512,13 @@ Consulte [MCP Apps](/docs/mcp-apps) para obtener detalles completos del puente: 
 
 Además de las herramientas por acción, el servidor MCP expone un conjunto de verbos estables, por lo que un agente externo tiene una superficie predecible sin adivinar los nombres de acción por aplicación:
 
-| Herramienta                                        | Efectos secundarios | Devoluciones                                                                                                                                                               |
-| -------------------------------------------------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | ninguno             | aplicaciones de espacio de trabajo + sus URL/estado de ejecución                                                                                                           |
-| `open_app({ app, view?, path?, params?, embed? })` | ninguno             | un enlace profundo o una ruta del mismo origen; `embed: true` renderiza la aplicación completa en línea donde sea compatible                                               |
-| `ask_app({ app, message, async?, maxWaitMs? })`    | bucle de agente     | enruta una tarea en lenguaje natural al agente dentro de la aplicación de esa aplicación; el trabajo largo devuelve un `taskId` duradero para sondear con `ask_app_status` |
-| `create_workspace_app({ name, template })`         | andamios            | una nueva aplicación iniciada a través de la ruta del espacio de trabajo, además de su URL en ejecución + enlace profundo                                                  |
-| `list_templates`                                   | ninguno             | solo las plantillas incluidas en la lista permitida                                                                                                                        |
+| Herramienta                                        | Efectos secundarios | Devoluciones                                                                                                                                                                                          |
+| -------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | ninguno             | aplicaciones de espacio de trabajo + sus URL/estado de ejecución                                                                                                                                      |
+| `open_app({ app, view?, path?, params?, embed? })` | ninguno             | un enlace profundo o una ruta del mismo origen; `embed: true` renderiza la aplicación completa en línea donde sea compatible                                                                          |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | bucle de agente     | enruta una tarea en lenguaje natural al agente dentro de la aplicación de esa aplicación; el trabajo largo devuelve un `taskHandle` duradero y un `taskId` heredado para sondear con `ask_app_status` |
+| `create_workspace_app({ name, template })`         | andamios            | una nueva aplicación iniciada a través de la ruta del espacio de trabajo, además de su URL en ejecución + enlace profundo                                                                             |
+| `list_templates`                                   | ninguno             | solo las plantillas incluidas en la lista permitida                                                                                                                                                   |
 
 `create_workspace_app` rechaza cualquier plantilla no incluida en la lista de permitidos: la lista de plantillas públicas permitidas en `packages/shared-app-config/templates.ts` tiene autoridad y está protegida por CI; un agente externo no puede ampliarlo. Una acción de plantilla con el mismo nombre anula una acción incorporada (precedencia de plantilla sobre núcleo). Desactive todo el conjunto con `MCPConfig.builtinCrossAppTools: false`.
 
@@ -537,9 +537,10 @@ Los hosts y gateways MCP no comparten un único tiempo de espera largo para las
 llamadas a herramientas; algunos aplican un límite de cinco minutos y otros lo
 hacen configurable. No diseñe una integración de agente externo alrededor de
 una `tools/call` bloqueante de diez minutos. `ask-agent` y `ask_app` confirman
-el trabajo alojado rápidamente y luego devuelven un `taskId` duradero cuando
-expira la espera en línea. Sondee con `ask_app_status` usando el `app` y el
-`taskId` devueltos; el resultado incluye `pollAfterMs` como un intervalo apto
+el trabajo alojado rápidamente y luego devuelven un `taskHandle` duradero y un
+`taskId` heredado cuando expira la espera en línea. Sondee con `ask_app_status`
+reutilizando sin cambios los `poll.arguments` devueltos, especialmente el
+`taskHandle`; el resultado incluye `pollAfterMs` como un intervalo apto
 para hosts. La tarea debe crearse antes de que la primera respuesta pueda
 agotar el tiempo de espera, por lo que una URL de sondeo devuelta solo después
 de una llamada larga no es un contrato de recuperación confiable.
@@ -549,7 +550,9 @@ Si no está disponible una lectura de estado transitoria y acotada,
 `statusRead: "unavailable"`, `retryable: true`, el `app` y `taskId` originales,
 y `pollAfterMs` / `poll`. Esto significa que la lectura de estado no está
 disponible, no que la tarea duradera haya fallado. Vuelva a intentar
-`ask_app_status` con exactamente el mismo `app` y `taskId`; nunca reenvíe
+`ask_app_status` con los mismos `poll.arguments`, incluido el `taskHandle` cuando
+esté presente. Los resultados heredados sin identificador deben reutilizar el mismo
+`app` y `taskId`; nunca reenvíe
 `ask_app` para recuperarse, porque el envío puede duplicar el trabajo. Los errores
 permanentes de autenticación, de no encontrado y de protocolo siguen siendo errores.
 
