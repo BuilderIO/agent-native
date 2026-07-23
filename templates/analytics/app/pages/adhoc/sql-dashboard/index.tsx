@@ -1,5 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -1387,6 +1387,11 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  const dashboardShareUrl = useMemo(() => {
+    if (!dashboardId || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/dashboards/" + dashboardId);
+  }, [dashboardId]);
+
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
       <div className="flex min-w-0 items-center gap-2">
@@ -1439,6 +1444,7 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            shareUrl={dashboardShareUrl}
             shareTabs={{
               tabs: [
                 {

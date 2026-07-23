@@ -1384,6 +1384,7 @@ export {
   getCoreDependencyVersion as _getCoreDependencyVersion,
   getDispatchDependencyVersion as _getDispatchDependencyVersion,
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
+  getCorePackageVersion as _getCorePackageVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   githubTarballUrl as _githubTarballUrl,
@@ -1753,18 +1754,22 @@ function getCoreDependencyVersion(): string {
     if (localCore) return localPackageTarball(localCore);
   }
 
-  // Published CLIs must keep the generated app on the same Core release that
-  // supplied the template. A package-manager policy such as pnpm's minimum
-  // release age can resolve `latest` to an older Core, whose Toolkit range may
-  // not match the exports used by the current template.
-  if (!findLocalPackage("core")) {
-    const version = getCorePackageVersion();
-    if (version && /^\d+\.\d+\.\d+(?:-.+)?$/.test(version)) return version;
-  }
-
-  // Local framework development intentionally remains portable by default;
-  // the explicit local-core flag above is available when linking is desired.
-  return "latest";
+  // Pin to the exact core version running this CLI rather than the npm
+  // `latest` dist-tag. `latest` can drift forward after `create` runs (a
+  // stale/cached CLI invocation, or simply time passing before `npm
+  // install`), installing a newer core release whose internal toolkit
+  // dependency no longer matches the toolkit range this CLI just wrote into
+  // the scaffold via getOwnPackageDependencyVersion() — reintroducing the
+  // exact duplicate/mismatched-toolkit class of bug this pinning exists to
+  // prevent. For the common case — `npx @agent-native/core@<version> create`
+  // against the public registry — this exact version is guaranteed
+  // installable, since npx just fetched it. Private/offline mirrors with a
+  // retention window narrower than "every historical version" are a known
+  // gap; `getCorePackageVersion()` returning undefined (e.g. malformed own
+  // package.json) falls back to `latest` rather than failing scaffolding
+  // outright. Local file deps stay opt-in so scaffolded repos remain
+  // portable by default.
+  return getCorePackageVersion() ?? "latest";
 }
 
 function getDispatchDependencyVersion(): string {
@@ -1773,6 +1778,9 @@ function getDispatchDependencyVersion(): string {
     if (localDispatch) return pathToFileURL(localDispatch).href;
   }
 
+  // Unlike toolkit, core's own package.json does not declare
+  // @agent-native/dispatch as a dependency, so there is no published
+  // compatible range to read here — "latest" is the best available signal.
   return "latest";
 }
 
@@ -1782,28 +1790,29 @@ function getToolkitDependencyVersion(): string {
     if (localToolkit) return localPackageTarball(localToolkit);
   }
 
-  // Keep the direct Toolkit dependency compatible with the published Core
-  // package that owns the generated template. Do not resolve it independently
-  // from `latest`, since package-manager release-age policies can otherwise
-  // select a stale Toolkit that lacks Core's imported exports.
-  if (!findLocalPackage("core")) {
-    try {
-      const packageRoot = path.resolve(__dirname, "../..");
-      const packageJson = JSON.parse(
-        fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
-      ) as { dependencies?: Record<string, unknown> };
-      const toolkit = packageJson.dependencies?.["@agent-native/toolkit"];
-      if (
-        typeof toolkit === "string" &&
-        toolkit.length > 0 &&
-        !toolkit.startsWith("workspace:")
-      ) {
-        return toolkit;
-      }
-    } catch {
-      // Fall back to the dist-tag when the package manifest is unavailable.
-    }
-  }
+  return getOwnPackageDependencyVersion("@agent-native/toolkit");
+}
+
+/**
+ * Toolkit is versioned and published independently of core, so its npm
+ * `latest` dist-tag can briefly point to an incompatible release relative to
+ * the core version currently running this CLI. The published core
+ * `package.json` already carries the exact compatible range changesets
+ * resolved at release time — read it from there instead of trusting
+ * `latest`, which is only safe for pinning `core` itself.
+ */
+function getOwnPackageDependencyVersion(depName: string): string {
+  try {
+    const ownPkgPath = path.join(__dirname, "../../package.json");
+    const ownPkg = JSON.parse(fs.readFileSync(ownPkgPath, "utf-8"));
+    const range = ownPkg.dependencies?.[depName];
+    const isPublishedRange =
+      typeof range === "string" &&
+      range.length > 0 &&
+      !range.startsWith("workspace:") &&
+      range !== "catalog:";
+    if (isPublishedRange) return range;
+  } catch {}
 
   return "latest";
 }
