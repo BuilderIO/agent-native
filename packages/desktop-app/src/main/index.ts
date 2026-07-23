@@ -9017,14 +9017,14 @@ app.on("web-contents-created", (_event, contents) => {
 // ---------- App lifecycle ----------
 
 function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
-  if (IS_DEV) {
+  const currentUpdateStatus = getCurrentUpdateStatus();
+
+  if (currentUpdateStatus.state === "unsupported") {
     return {
       label: "Check for Updates...",
       enabled: false,
     };
   }
-
-  const currentUpdateStatus = getCurrentUpdateStatus();
 
   if (currentUpdateStatus.state === "downloaded") {
     return {
