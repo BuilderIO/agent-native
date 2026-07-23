@@ -1099,7 +1099,11 @@ describe("VisualEditor markdown round-tripping", () => {
 
   it("only shows the Notion empty-line placeholder while the editor is focused", () => {
     const editor = createFullEditor();
-    document.body.appendChild(editor.view.dom);
+    let editorFocused = false;
+    Object.defineProperty(editor, "isFocused", {
+      configurable: true,
+      get: () => editorFocused,
+    });
 
     try {
       editor.commands.setTextSelection(1);
@@ -1107,14 +1111,15 @@ describe("VisualEditor markdown round-tripping", () => {
         editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
       ).toBe("");
 
-      editor.commands.focus();
+      editorFocused = true;
       editor.commands.setTextSelection(1);
 
       expect(
         editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
       ).toBe("Press ‘/’ for commands");
 
-      editor.commands.blur();
+      editorFocused = false;
+      editor.commands.setTextSelection(1);
       expect(
         editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
       ).toBe("");
@@ -1337,10 +1342,12 @@ describe("VisualEditor markdown round-tripping", () => {
         ],
       },
     });
-    document.body.appendChild(editor.view.dom);
+    Object.defineProperty(editor, "isFocused", {
+      configurable: true,
+      value: true,
+    });
 
     try {
-      editor.commands.focus();
       editor.commands.setTextSelection(2);
 
       expect(
