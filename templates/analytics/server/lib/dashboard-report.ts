@@ -56,10 +56,11 @@ const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
-// Reserve 90s under Netlify's 300s background-function limit for bounded
-// browser cleanup plus delivery to the capped recipient list.
-const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 210_000;
+// Reserve 120s under Netlify's 300s background-function limit for bounded
+// browser cleanup, provider delivery, and result persistence.
+const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 180_000;
 const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
+const DASHBOARD_REPORT_EMAIL_TIMEOUT_MS = 12_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 const MAX_DASHBOARD_REPORT_CHUNKS = 10;
 const MAX_DASHBOARD_REPORT_ATTACHMENT_BYTES = 14 * 1024 * 1024;
@@ -1166,6 +1167,7 @@ export async function sendDashboardReportSubscription(
               : [],
           )
         : undefined,
+      timeoutMs: DASHBOARD_REPORT_EMAIL_TIMEOUT_MS,
     });
   }
 
