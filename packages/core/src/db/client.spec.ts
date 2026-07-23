@@ -632,6 +632,38 @@ describe("withDbTimeout", () => {
   });
 });
 
+describe("dbExecQueryBudget", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("honors a caller's timeout and one-attempt read budget", async () => {
+    const { dbExecQueryBudget } = await import("./client.js");
+
+    expect(
+      dbExecQueryBudget({
+        sql: "SELECT 1",
+        timeoutMs: 30_000,
+        maxAttempts: 1,
+      }),
+    ).toEqual({ timeoutMs: 30_000, maxAttempts: 1 });
+  });
+
+  it("falls back to the normal timeout and retry budget for invalid values", async () => {
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "4321");
+    const { dbExecQueryBudget } = await import("./client.js");
+
+    expect(
+      dbExecQueryBudget({
+        sql: "SELECT 1",
+        timeoutMs: 0,
+        maxAttempts: 0,
+      }),
+    ).toEqual({ timeoutMs: 4321, maxAttempts: 3 });
+  });
+});
+
 describe("isTransientDatabaseError", () => {
   it("classifies Neon connection exhaustion as retryable", async () => {
     const { isConnectionError, isTransientDatabaseError } =

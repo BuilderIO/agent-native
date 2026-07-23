@@ -30,6 +30,7 @@ export interface AnalyticsQueryResult {
 
 const MAX_EVENTS_PER_REQUEST = 100;
 const MAX_QUERY_ROWS = 5_000;
+const FIRST_PARTY_QUERY_TIMEOUT_MS = 30_000;
 const FIRST_PARTY_QUERY_TABLES = new Set([
   "analytics_events",
   "session_recordings",
@@ -642,6 +643,8 @@ export async function queryFirstPartyAnalytics(
   const result = await exec.execute({
     sql: `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`,
     args: scoped.args,
+    timeoutMs: FIRST_PARTY_QUERY_TIMEOUT_MS,
+    maxAttempts: 1,
   });
   const rows = result.rows as Record<string, unknown>[];
   return { rows, schema: inferSchema(rows) };

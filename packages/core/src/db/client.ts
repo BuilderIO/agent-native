@@ -24,13 +24,28 @@ const loggedNeonPools = new WeakSet<object>();
 
 export type Dialect = "sqlite" | "postgres" | "d1";
 
+export interface DbExecQuery {
+  sql: string;
+  args?: unknown[];
+  /**
+   * Client-side wall-clock budget for this statement. Use only for idempotent
+   * reads unless the caller can safely tolerate a late write completing.
+   */
+  timeoutMs?: number;
+  /** Maximum connection-level attempts for this statement, including the first. */
+  maxAttempts?: number;
+}
+
+export type DbExecStatement = string | DbExecQuery;
+
 export interface DbExec {
-  execute(
-    sql: string | { sql: string; args?: unknown[] },
-  ): Promise<{ rows: any[]; rowsAffected: number }>;
+  execute(sql: DbExecStatement): Promise<{
+    rows: any[];
+    rowsAffected: number;
+  }>;
   transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
   atomicBatch?(
-    statements: readonly (string | { sql: string; args?: unknown[] })[],
+    statements: readonly DbExecStatement[],
   ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
   /**
    * Release the underlying connection/pool held by this exec.
@@ -613,13 +628,34 @@ export function sqliteToPostgresParams(sql: string): string {
   return out;
 }
 
-function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {
+function sqlAndArgs(sql: DbExecStatement): {
   rawSql: string;
   args: unknown[];
 } {
   return typeof sql === "string"
     ? { rawSql: sql, args: [] }
     : { rawSql: sql.sql, args: sql.args || [] };
+}
+
+export function dbExecQueryBudget(statement: DbExecStatement): {
+  timeoutMs: number;
+  maxAttempts: number;
+} {
+  if (typeof statement === "string") {
+    return { timeoutMs: dbOpTimeoutMs(), maxAttempts: 3 };
+  }
+  const timeoutMs = Number(statement.timeoutMs);
+  const maxAttempts = Number(statement.maxAttempts);
+  return {
+    timeoutMs:
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.floor(timeoutMs)
+        : dbOpTimeoutMs(),
+    maxAttempts:
+      Number.isFinite(maxAttempts) && maxAttempts > 0
+        ? Math.floor(maxAttempts)
+        : 3,
+  };
 }
 
 function explicitTransaction(
@@ -1175,6 +1211,7 @@ async function createDbExecInternal(
         sql: Parameters<DbExec["execute"]>[0],
       ) {
         const { rawSql, args } = sqlAndArgs(sql);
+        const { timeoutMs } = dbExecQueryBudget(sql);
         const pgSql = sqliteToPostgresParams(rawSql);
         const result = await withDbTimeout(
           "query",
@@ -1183,7 +1220,7 @@ async function createDbExecInternal(
               rows: unknown[];
               rowCount?: number;
             }>,
-          dbOpTimeoutMs(),
+          timeoutMs,
         );
         return {
           rows: result.rows,
@@ -1192,6 +1229,7 @@ async function createDbExecInternal(
       }
       return {
         async execute(sql) {
+          const { maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
             // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
             // persistent socket to stall. queryNeonClient calls pool.query(),
@@ -1199,7 +1237,7 @@ async function createDbExecInternal(
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() => queryNeonClient(pool, sql));
+            }>(() => queryNeonClient(pool, sql), maxAttempts);
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];
@@ -1242,7 +1280,7 @@ async function createDbExecInternal(
               releaseClient(isConnectionError(err) ? true : undefined);
               throw err;
             }
-          });
+          }, maxAttempts);
           return {
             rows: result.rows,
             rowsAffected: result.rowsAffected,
@@ -1310,6 +1348,7 @@ async function createDbExecInternal(
           try {
             const rawSql = typeof sql === "string" ? sql : sql.sql;
             const args = typeof sql === "string" ? [] : sql.args || [];
+            const { timeoutMs } = dbExecQueryBudget(sql);
             const pgSql = sqliteToPostgresParams(rawSql);
             const result = await withDbTimeout<
               ArrayLike<unknown> & { count?: number }
@@ -1319,7 +1358,7 @@ async function createDbExecInternal(
                 conn.unsafe(pgSql, args as any[]) as Promise<
                   ArrayLike<unknown> & { count?: number }
                 >,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => {
                 timedOut = true;
                 disposePostgresPoolEventually(conn, "timed-out worker query");
@@ -1351,6 +1390,7 @@ async function createDbExecInternal(
               const tx: DbExec = {
                 async execute(sql) {
                   const { rawSql, args } = sqlAndArgs(sql);
+                  const { timeoutMs } = dbExecQueryBudget(sql);
                   const pgSql = sqliteToPostgresParams(rawSql);
                   const result = await withDbTimeout<
                     ArrayLike<unknown> & { count?: number }
@@ -1360,7 +1400,7 @@ async function createDbExecInternal(
                       txSql.unsafe(pgSql, args as any[]) as Promise<
                         ArrayLike<unknown> & { count?: number }
                       >,
-                    dbOpTimeoutMs(),
+                    timeoutMs,
                   );
                   return {
                     rows: Array.from(result),
@@ -1402,6 +1442,7 @@ async function createDbExecInternal(
       return {
         async execute(sql) {
           const { rawSql, args } = sqlAndArgs(sql);
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           const pgSql = sqliteToPostgresParams(rawSql);
           const result = await retryOnConnectionError<
             ArrayLike<unknown> & { count?: number }
@@ -1411,10 +1452,10 @@ async function createDbExecInternal(
             return withDbTimeout(
               "query",
               () => query,
-              dbOpTimeoutMs(),
+              timeoutMs,
               () => recyclePool(queryPool),
             );
-          });
+          }, maxAttempts);
           return {
             rows: Array.from(result),
             rowsAffected: result.count ?? 0,
@@ -1425,6 +1466,7 @@ async function createDbExecInternal(
             const tx: DbExec = {
               async execute(sql) {
                 const { rawSql, args } = sqlAndArgs(sql);
+                const { timeoutMs } = dbExecQueryBudget(sql);
                 const pgSql = sqliteToPostgresParams(rawSql);
                 const result = await withDbTimeout<
                   ArrayLike<unknown> & { count?: number }
@@ -1434,7 +1476,7 @@ async function createDbExecInternal(
                     txSql.unsafe(pgSql, args as any[]) as Promise<
                       ArrayLike<unknown> & { count?: number }
                     >,
-                  dbOpTimeoutMs(),
+                  timeoutMs,
                 );
                 return {
                   rows: Array.from(result),
