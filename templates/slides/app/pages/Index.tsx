@@ -44,9 +44,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
+import { createDeckAgentMessage } from "@/lib/agent-visible-message";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
-const MAX_SOURCE_CONTEXT_CHARS = 60_000;
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 
@@ -82,26 +82,6 @@ function mergeUploadedFilesForRetry(
     seen.add(key);
     return true;
   });
-}
-
-function summarizePromptForChat(prompt: string): string {
-  const singleLine = prompt.trim().replace(/\s+/g, " ");
-  if (!singleLine) return "new deck";
-  if (singleLine.length <= 180) return singleLine;
-  return `${singleLine.slice(0, 177)}...`;
-}
-
-function truncateSourceForContext(prompt: string): {
-  text: string;
-  truncated: boolean;
-} {
-  if (prompt.length <= MAX_SOURCE_CONTEXT_CHARS) {
-    return { text: prompt, truncated: false };
-  }
-  return {
-    text: prompt.slice(0, MAX_SOURCE_CONTEXT_CHARS),
-    truncated: true,
-  };
 }
 
 interface DesignSystemGenerationContextResult {
@@ -386,7 +366,6 @@ export default function Index() {
         : "";
 
     const trimmedPrompt = prompt.trim();
-    const sourceForContext = truncateSourceForContext(trimmedPrompt);
     const hasImportedGoogleDocContext = trimmedPrompt.includes("<google-doc ");
     const googleDocUrls = hasImportedGoogleDocContext
       ? []
@@ -426,13 +405,7 @@ export default function Index() {
 
     const context = [
       `The user just created a new empty deck (id: "${deck.id}") and wants to create a presentation or standalone visual.`,
-      "The text below is the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
-      trimmedPrompt
-        ? `User request / source material:\n${sourceForContext.text}`
-        : "User request / source material: create a new deck.",
-      sourceForContext.truncated
-        ? `The pasted source was longer than ${MAX_SOURCE_CONTEXT_CHARS} characters, so only the first ${MAX_SOURCE_CONTEXT_CHARS} characters were included to keep the agent request reliable.`
-        : "",
+      "The visible user message above contains the user's request and/or pasted source material for the deck. Treat pasted memo content as source material even if the user did not explicitly say they are pasting it.",
       googleDocContext,
       fileContext,
       designSystemContext,
@@ -466,11 +439,10 @@ export default function Index() {
     clearPendingPromptForRetry();
     setNewDeckInitialPrompt(null);
     setNewDeckRetryFiles([]);
-    agentSubmit(
-      `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
-      context,
-      { newTab: true, openSidebar: true },
-    );
+    agentSubmit(createDeckAgentMessage(trimmedPrompt), context, {
+      newTab: true,
+      openSidebar: true,
+    });
     navigate(`/deck/${deck.id}?generating=1`);
   };
 

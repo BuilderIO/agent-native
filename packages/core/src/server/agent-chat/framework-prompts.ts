@@ -413,7 +413,9 @@ export function generateCorpusToolsPrompt(
 
 Available corpus-capable tools: ${available.join(", ")}.
 
-For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with durable corpus jobs, staged-dataset queries, or code execution.
+This workflow does not apply to ordinary structured lookups, bounded aggregates, or counts grouped over one known source. For those requests, use the single most directly authoritative source, run one bounded query, and answer as soon as it succeeds. Do not cross-check or expand into a corpus workflow unless the user asks for multiple sources, exhaustive unstructured-record coverage, or an absence claim.
+
+For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification over unstructured records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with durable corpus jobs, staged-dataset queries, or code execution.
 
 When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, prefer providerFetchAll() for short cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
 }

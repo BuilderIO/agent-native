@@ -85,6 +85,7 @@ import {
   type FormBuilderTab,
 } from "@/lib/form-builder-tabs";
 import { normalizeFields } from "@/lib/normalize-fields";
+import { getPublishedFormUrl } from "@/lib/public-form-link";
 import { cn } from "@/lib/utils";
 
 type Translator = ReturnType<typeof useT>;
@@ -175,8 +176,8 @@ export function FormBuilderPage() {
   const { isLocal } = useDbStatus();
   const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
   const publishedFormUrl =
-    form?.status === "published" && typeof window !== "undefined"
-      ? `${window.location.origin}${appPath(`/f/${form.slug}`)}`
+    form && typeof window !== "undefined"
+      ? getPublishedFormUrl(form, window.location.origin)
       : undefined;
   const [agentPopoverOpen, setAgentPopoverOpen] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState("");
@@ -533,16 +534,11 @@ export function FormBuilderPage() {
   }
 
   function copyShareLink() {
-    if (loadedForm.status !== "published") {
+    if (!publishedFormUrl) {
       toast.info(t("builder.publishBeforeCopyToast"));
       return;
     }
-    if (isLocal) {
-      setShowCloudUpgrade(true);
-      return;
-    }
-    const url = `${window.location.origin}${appPath(`/f/${loadedForm.slug}`)}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(publishedFormUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
     toast.success(t("builder.linkCopiedToast"));
@@ -611,11 +607,7 @@ export function FormBuilderPage() {
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   asChild
                 >
-                  <a
-                    href={appPath(`/f/${form.slug}`)}
-                    target="_blank"
-                    rel="noopener"
-                  >
+                  <a href={publishedFormUrl} target="_blank" rel="noopener">
                     <IconExternalLink className="h-4 w-4" />
                   </a>
                 </Button>

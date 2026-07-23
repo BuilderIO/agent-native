@@ -345,7 +345,54 @@ describe("ToolCallDisplay native renderers", () => {
         container.textContent?.match(
           /Still working\. Large updates can take a minute or two\./g,
         ),
-      ).toHaveLength(1);
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("omits the long-running hint from streamed delegated-agent tools", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="agent:Analytics"
+            args={{}}
+            isRunning={true}
+            structuredMeta={{
+              agentActivity: {
+                kind: "agent-native/agent-activity",
+                version: 1,
+                sequence: 2,
+                startedAt: 1,
+                updatedAt: 2,
+                durationMs: 1,
+                activePhase: "tool",
+                reasoning: [],
+                toolCalls: [
+                  {
+                    id: "tool-1",
+                    name: "query-warehouse",
+                    status: "running",
+                  },
+                ],
+              },
+            }}
+          />,
+        );
+      });
+
+      expect(container.textContent).toContain("Asking Analytics...");
+      expect(container.textContent).toContain("query warehouse");
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(container.textContent).not.toContain(
+        "Still working. Large updates can take a minute or two.",
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -418,6 +465,49 @@ describe("ToolCallDisplay native renderers", () => {
     expect(text.indexOf("query warehouse")).toBeLessThan(
       text.indexOf("Interpret the result"),
     );
+  });
+
+  it("keeps summary-only remote tool activity non-expandable", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "tool",
+              reasoning: [],
+              toolCalls: [
+                {
+                  id: "tool-1",
+                  name: "query-warehouse",
+                  status: "completed",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("query warehouse");
+    expect(
+      container.querySelector(
+        'button[aria-label="View query-warehouse output"]',
+      ),
+    ).toBeNull();
+    const expandableButtons = container.querySelectorAll(
+      "button[aria-expanded]",
+    );
+    expect(expandableButtons).toHaveLength(1);
+    expect(expandableButtons[0]?.textContent).toContain("Asking Analytics");
   });
 
   it("shows generic A2A progress until an activity snapshot arrives", () => {

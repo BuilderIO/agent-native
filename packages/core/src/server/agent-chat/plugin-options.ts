@@ -217,6 +217,15 @@ export interface AgentChatPluginOptions {
    */
   initialToolNames?: string[];
   /**
+   * Controls whether broad provider/corpus tools and their workflow prompt are
+   * loaded into the first model request. Use `"lazy"` for apps that can answer
+   * ordinary lookups from a compact curated tool set; corpus tools remain
+   * discoverable through tool-search and the full retry surface.
+   *
+   * @default "initial"
+   */
+  corpusTools?: "initial" | "lazy";
+  /**
    * Use a compact system prompt with on-demand context loading. The system
    * prompt includes essential behavioral rules and action signatures, but
    * defers verbose framework details, SQL schema, skills, learnings, and

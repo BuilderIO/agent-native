@@ -137,7 +137,9 @@ describe("interactive agent run options — wiring guards", () => {
     // interactive/production run start. Confirm it stays singular so the
     // adjacency assertion below can't silently start matching a different,
     // unrelated call site.
-    expect(source.match(/\n {4}startRun\(\n/g)).toHaveLength(1);
+    expect(source.match(/\n {4}const startedRun = startRun\(\n/g)).toHaveLength(
+      1,
+    );
 
     // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
     // (not hardcoded, not dropped) and live in the same options object as
@@ -146,6 +148,17 @@ describe("interactive agent run options — wiring guards", () => {
     expect(source).toMatch(
       /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
     );
+  });
+
+  it("keeps background workers alive through run-manager finalization", () => {
+    const source = readFileSync("src/agent/production-agent.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /if \(isBackgroundWorker\) \{\s*await startedRun\.finalized;\s*return \{ ok: true, runId \};\s*\}/,
+    );
+    expect(source).not.toContain("backgroundRunDone");
   });
 });
 

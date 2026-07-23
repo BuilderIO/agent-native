@@ -637,6 +637,81 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("resolves finalized only after the terminal event and status are durable", async () => {
+    let persistFinalStatus: ((updated: boolean) => void) | undefined;
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          persistFinalStatus = resolve;
+        }),
+    );
+    const onComplete = vi.fn(async () => {});
+    const run = startRun(
+      "run-finalization-boundary",
+      "thread-finalization-boundary",
+      async (send) => {
+        send({ type: "text", text: "Finished response" });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    let finalized = false;
+    void run.finalized.then(() => {
+      finalized = true;
+    });
+
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        "run-finalization-boundary",
+        "completed",
+      ),
+    );
+
+    expect(insertRunEvent).toHaveBeenCalledWith(
+      "run-finalization-boundary",
+      1,
+      JSON.stringify({ type: "done" }),
+    );
+    expect(finalized).toBe(false);
+
+    persistFinalStatus?.(true);
+    await run.finalized;
+
+    expect(setRunTerminalReason).toHaveBeenCalledWith(
+      "run-finalization-boundary",
+      "done",
+    );
+    expect(finalized).toBe(true);
+  });
+
+  it("rejects finalized when terminal event persistence cannot be established", async () => {
+    const terminalError = new Error("terminal event persistence failed");
+    vi.mocked(insertRunEvent).mockImplementation(
+      async (_runId, _seq, eventData) => {
+        if (JSON.parse(eventData).type === "done") throw terminalError;
+      },
+    );
+
+    const run = startRun(
+      "run-terminal-persistence-failed",
+      "thread-terminal-persistence-failed",
+      async (send) => {
+        send({ type: "done" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await expect(run.finalized).rejects.toThrow(
+      "terminal event persistence failed",
+    );
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      "run-terminal-persistence-failed",
+      "completed",
+    );
+  });
+
   it("persists missing credential terminal events as errored runs", async () => {
     const events: AgentChatEvent[] = [];
     const onComplete = vi.fn(async () => {});

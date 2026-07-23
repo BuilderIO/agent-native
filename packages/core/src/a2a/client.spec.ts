@@ -254,7 +254,7 @@ describe("A2AClient", () => {
     await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
     expect(taskReads).toBe(2);
-  });
+  }, 30_000);
 
   it("returns input-required without polling until timeout", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {

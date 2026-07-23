@@ -6,6 +6,7 @@ import type { Doc as YDoc } from "yjs";
 
 import { cn } from "../utils.js";
 import { BubbleToolbar, type BubbleToolbarItem } from "./BubbleToolbar.js";
+import { DragHandle } from "./DragHandle.js";
 import {
   createSharedEditorExtensions,
   type RichMarkdownDialect,
@@ -37,6 +38,8 @@ export interface SharedRichEditorProps {
   preset?: RichMarkdownEditorPreset;
   /** Toggle individual base extensions (tables/tasks/link/codeBlock/image). */
   features?: SharedEditorFeatures;
+  /** Show the Notion-style block grip and action menu. Defaults to `true`. */
+  dragHandle?: boolean;
   /**
    * Injectable image uploader for the shared image block. Used only when
    * `features.image` is on. Pass `uploadEditorImage` (the framework
@@ -141,6 +144,7 @@ export function SharedRichEditor({
   dialect = "gfm",
   preset = "plan",
   features,
+  dragHandle = true,
   onImageUpload = null,
   extraExtensions,
   placeholder = "Type '/' for commands...",
@@ -170,6 +174,23 @@ export function SharedRichEditor({
   onChangeRef.current = onChange;
   onBlurRef.current = onBlur;
 
+  const effectiveExtraExtensions = useMemo(() => {
+    const extras = extraExtensions ?? [];
+    if (
+      !dragHandle ||
+      extras.some((extension) => extension.name === "dragHandle")
+    ) {
+      return extras;
+    }
+
+    return [
+      DragHandle.configure({
+        wrapperSelector: ".an-rich-md-wrapper",
+      }),
+      ...extras,
+    ];
+  }, [dragHandle, extraExtensions]);
+
   const extensions = useMemo(
     () =>
       createSharedEditorExtensions({
@@ -177,7 +198,7 @@ export function SharedRichEditor({
         preset,
         placeholder,
         features,
-        extraExtensions,
+        extraExtensions: effectiveExtraExtensions,
         onImageUpload,
         collab: ydoc ? { ydoc, awareness, user } : null,
         disableHistory,
@@ -192,7 +213,7 @@ export function SharedRichEditor({
       placeholder,
       preset,
       features,
-      extraExtensions,
+      effectiveExtraExtensions,
       onImageUpload,
       ydoc,
       awareness,

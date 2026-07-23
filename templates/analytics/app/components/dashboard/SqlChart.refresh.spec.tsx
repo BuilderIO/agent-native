@@ -95,9 +95,11 @@ describe("SqlChart refresh feedback", () => {
       root.render(<SqlChart panel={panel} />);
     });
 
-    expect(
-      container.querySelector('[data-dashboard-report-loading="true"]'),
-    ).not.toBeNull();
+    const loadingSkeleton = container.querySelector(
+      '[data-dashboard-report-loading="true"]',
+    );
+    expect(loadingSkeleton).not.toBeNull();
+    expect(loadingSkeleton?.className).toContain("bg-muted-foreground/20");
     expect(container.textContent).not.toContain("42");
 
     mocks.query.isFetching = false;
