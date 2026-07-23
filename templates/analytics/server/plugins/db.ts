@@ -1268,6 +1268,8 @@ const runAnalyticsMigrations = runMigrations(
     {
       version: 121,
       name: "analytics-events-org-signed-in-session-status-idx",
+      timeoutMs: 120_000,
+      maxAttempts: 1,
       sql: {
         postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_signed_in_session_status_idx ON analytics_events (org_id, event_date, user_key) WHERE event_name = 'session status' AND signed_in = 'true' AND user_key IS NOT NULL AND user_key <> ''`,
         sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_signed_in_session_status_idx ON analytics_events (org_id, event_date, user_key) WHERE event_name = 'session status' AND signed_in = 'true' AND user_key IS NOT NULL AND user_key <> ''`,
@@ -1276,6 +1278,8 @@ const runAnalyticsMigrations = runMigrations(
     {
       version: 122,
       name: "analytics-events-owner-signed-in-session-status-idx",
+      timeoutMs: 120_000,
+      maxAttempts: 1,
       sql: {
         postgres: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_signed_in_session_status_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL AND event_name = 'session status' AND signed_in = 'true' AND user_key IS NOT NULL AND user_key <> ''`,
         sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_signed_in_session_status_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL AND event_name = 'session status' AND signed_in = 'true' AND user_key IS NOT NULL AND user_key <> ''`,

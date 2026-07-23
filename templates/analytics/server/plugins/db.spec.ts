@@ -185,5 +185,11 @@ describe("analytics db.ts wires ensureAdditiveColumns after runMigrations", () =
     expect(dbTsSource).toMatch(
       /analytics_events_owner_signed_in_session_status_idx ON analytics_events \(owner_email, event_date, user_key\) WHERE org_id IS NULL AND event_name = 'session status' AND signed_in = 'true' AND user_key IS NOT NULL AND user_key <> ''/,
     );
+    expect(dbTsSource).toMatch(
+      /name: "analytics-events-org-signed-in-session-status-idx",\s*timeoutMs: 120_000,\s*maxAttempts: 1/,
+    );
+    expect(dbTsSource).toMatch(
+      /name: "analytics-events-owner-signed-in-session-status-idx",\s*timeoutMs: 120_000,\s*maxAttempts: 1/,
+    );
   });
 });
