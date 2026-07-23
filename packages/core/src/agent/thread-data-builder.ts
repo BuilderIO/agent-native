@@ -472,6 +472,41 @@ function messagesMatch(a: any, b: any): boolean {
   return messageIdentityKeys(a).some((key) => bKeys.has(key));
 }
 
+function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
+  const chosen = getStoredMessage(chosenEntry);
+  const other = getStoredMessage(otherEntry);
+  if (chosen?.role !== "assistant" || other?.role !== "assistant") {
+    return chosenEntry;
+  }
+
+  const chosenCustom =
+    chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
+      ? (chosen.metadata.custom as Record<string, unknown>)
+      : {};
+  if (assistantRunDurationMs(chosenCustom) != null) return chosenEntry;
+
+  const otherCustom =
+    other.metadata?.custom && typeof other.metadata.custom === "object"
+      ? (other.metadata.custom as Record<string, unknown>)
+      : {};
+  const durationMs = assistantRunDurationMs(otherCustom);
+  if (durationMs == null) return chosenEntry;
+
+  const nextMessage = {
+    ...chosen,
+    metadata: {
+      ...chosen.metadata,
+      custom: {
+        ...chosenCustom,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
+      },
+    },
+  };
+  return chosenEntry?.message === undefined
+    ? nextMessage
+    : { ...chosenEntry, message: nextMessage };
+}
+
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
@@ -489,12 +524,19 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   ) {
     const existingWeight = assistantContentWeight(existing.content);
     const incomingWeight = assistantContentWeight(incoming.content);
-    if (existingWeight > incomingWeight) return existingEntry;
-    if (incomingWeight > existingWeight) return incomingEntry;
-    return isTerminalAssistantStatus(existing?.status) &&
-      !isTerminalAssistantStatus(incoming?.status)
-      ? existingEntry
-      : incomingEntry;
+    const chosen =
+      existingWeight > incomingWeight
+        ? existingEntry
+        : incomingWeight > existingWeight
+          ? incomingEntry
+          : isTerminalAssistantStatus(existing?.status) &&
+              !isTerminalAssistantStatus(incoming?.status)
+            ? existingEntry
+            : incomingEntry;
+    return preserveAssistantRunDuration(
+      chosen,
+      chosen === existingEntry ? incomingEntry : existingEntry,
+    );
   }
   if (
     existing?.role === "assistant" &&
@@ -502,9 +544,9 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
     isTerminalAssistantStatus(existing?.status) &&
     !isTerminalAssistantStatus(incoming?.status)
   ) {
-    return existingEntry;
+    return preserveAssistantRunDuration(existingEntry, incomingEntry);
   }
-  return incomingEntry;
+  return preserveAssistantRunDuration(incomingEntry, existingEntry);
 }
 
 function normalizeMessageEntry(

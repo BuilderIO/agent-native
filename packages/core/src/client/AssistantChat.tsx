@@ -2851,6 +2851,18 @@ const AssistantChatInner = forwardRef<
       ),
     [exportCleanThreadRepo, lastChatRunDurationMs, showRunningInUI],
   );
+  useEffect(() => {
+    if (showRunningInUI || lastChatRunDurationMs == null) return;
+    const repo = exportCleanThreadRepo();
+    const persisted = withLastAssistantRunDuration(repo, lastChatRunDurationMs);
+    if (persisted === repo) return;
+    threadRuntime.import(ensureMessageMetadata(persisted));
+  }, [
+    exportCleanThreadRepo,
+    lastChatRunDurationMs,
+    showRunningInUI,
+    threadRuntime,
+  ]);
 
   const appendRealtimeVoiceTranscript = useCallback(
     (
