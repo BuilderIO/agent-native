@@ -3629,7 +3629,7 @@ export async function addAgentNativeSkill(
       const screenMemoryDir = resolveScreenMemoryStoreDir();
       if (!screenMemoryDir) {
         throw new Error(
-          "No local Clips Screen Memory store was found. Turn Rewind on in Clips, then run the setup again.",
+          "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.",
         );
       }
       registeredMcpClients = mcpClients.map((client) => {

@@ -170,7 +170,13 @@ describe("agent-native skills", () => {
           path.join(codexHome, "skills", "rewind", "SKILL.md"),
           "utf-8",
         ),
-      ).toContain("screen_memory_search_chapters");
+      ).toContain("ask permission\n   before opening or downloading anything");
+      expect(
+        fs.readFileSync(
+          path.join(codexHome, "skills", "rewind", "SKILL.md"),
+          "utf-8",
+        ),
+      ).toContain("https://clips.agent-native.com/download");
       const config = fs.readFileSync(
         path.join(codexHome, "config.toml"),
         "utf-8",
@@ -225,6 +231,46 @@ describe("agent-native skills", () => {
     }
   });
 
+  it("directs missing-store installs to Clips without claiming native setup", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    fs.mkdirSync(home, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+    const previousLegacyStore = process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+    process.env.HOME = home;
+    delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+    delete process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+
+    try {
+      await expect(
+        addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            "rewind",
+            "--client",
+            "codex",
+            "--scope",
+            "user",
+            "--yes",
+          ]),
+          { baseDir: root },
+        ),
+      ).rejects.toThrow(
+        /https:\/\/clips\.agent-native\.com\/download.*was not installed or enabled automatically/,
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousStore === undefined)
+        delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+      else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+      if (previousLegacyStore === undefined)
+        delete process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+      else process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR = previousLegacyStore;
+    }
+  });
+
   it("installs Rewind into the shared user skill directory for Cursor", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
@@ -258,6 +304,49 @@ describe("agent-native skills", () => {
       ).toBe(true);
       expect(
         fs.readFileSync(path.join(home, ".cursor", "mcp.json"), "utf-8"),
+      ).toContain("clips-screen-memory");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousStore === undefined)
+        delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+      else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+    }
+  });
+
+  it("installs Rewind instructions and local MCP config for Claude Code", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const store = path.join(root, "screen-memory");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(store, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+    process.env.HOME = home;
+    process.env.CLIPS_SCREEN_MEMORY_DIR = store;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "rewind",
+          "--client",
+          "claude-code",
+          "--scope",
+          "user",
+          "--yes",
+        ]),
+        { baseDir: root },
+      );
+
+      expect(result.mcpClients).toEqual(["claude-code"]);
+      expect(
+        fs.existsSync(
+          path.join(home, ".claude", "skills", "rewind", "SKILL.md"),
+        ),
+      ).toBe(true);
+      expect(
+        fs.readFileSync(path.join(home, ".claude.json"), "utf-8"),
       ).toContain("clips-screen-memory");
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
