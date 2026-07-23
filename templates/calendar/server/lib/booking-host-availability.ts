@@ -12,7 +12,12 @@ export interface EligibleHostAvailability {
   displayName?: string;
   /** Present only when the host has saved a working-hours schedule. */
   weeklySchedule?: AvailabilityConfig["weeklySchedule"];
-  /** Present only when the host has a resolvable time zone. */
+  /**
+   * Resolved from calendar-availability.timezone, falling back to
+   * calendar-settings.timezone. Present only when one of those is a
+   * resolvable IANA time zone — never defaulted, since guessing a peer's
+   * zone would be misleading.
+   */
   timezone?: string;
 }
 
@@ -49,17 +54,26 @@ export async function getEligibleHostAvailability(
 
   return Promise.all(
     eligibleEmails.map(async (email) => {
-      const config = (await getUserSetting(
-        email,
-        "calendar-availability",
-      )) as AvailabilityConfig | null;
+      const [config, calendarSettings] = await Promise.all([
+        getUserSetting(
+          email,
+          "calendar-availability",
+        ) as Promise<AvailabilityConfig | null>,
+        getUserSetting(email, "calendar-settings") as Promise<{
+          timezone?: string;
+        } | null>,
+      ]);
+      const timezone =
+        safeBookingTimeZone(config?.timezone) ||
+        safeBookingTimeZone(calendarSettings?.timezone);
+
       if (!config?.weeklySchedule) {
-        return { email };
+        return { email, timezone };
       }
       return {
         email,
         weeklySchedule: config.weeklySchedule,
-        timezone: safeBookingTimeZone(config.timezone),
+        timezone,
       };
     }),
   );

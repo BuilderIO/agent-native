@@ -106,6 +106,65 @@ describe("getEligibleHostAvailability", () => {
     ).resolves.toEqual([{ email: "peer@example.com" }]);
   });
 
+  it("falls back to calendar-settings.timezone when no schedule saved", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return null;
+        }
+        if (email === "peer@example.com" && key === "calendar-settings") {
+          return { timezone: "Europe/Berlin" };
+        }
+        return null;
+      },
+    );
+
+    await expect(
+      getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      { email: "peer@example.com", timezone: "Europe/Berlin" },
+    ]);
+  });
+
+  it("prefers calendar-availability.timezone over calendar-settings.timezone", async () => {
+    getUserSettingMock.mockImplementation(
+      async (email: string, key: string) => {
+        if (
+          email === "owner@example.com" &&
+          key === "calendar-overlay-people"
+        ) {
+          return { people: [{ email: "peer@example.com", color: "#fff" }] };
+        }
+        if (email === "peer@example.com" && key === "calendar-availability") {
+          return {
+            timezone: "America/Chicago",
+            weeklySchedule: WEEKLY_SCHEDULE,
+          };
+        }
+        if (email === "peer@example.com" && key === "calendar-settings") {
+          return { timezone: "Europe/Berlin" };
+        }
+        return null;
+      },
+    );
+
+    await expect(
+      getEligibleHostAvailability("owner@example.com", ["peer@example.com"]),
+    ).resolves.toEqual([
+      {
+        email: "peer@example.com",
+        weeklySchedule: WEEKLY_SCHEDULE,
+        timezone: "America/Chicago",
+      },
+    ]);
+  });
+
   it("never treats the owner as their own eligible host", async () => {
     getUserSettingMock.mockImplementation(
       async (email: string, key: string) => {
