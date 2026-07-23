@@ -40,14 +40,14 @@ jobs:
         run: |
           gh api repos/BuilderIO/skills/dispatches \
             --method POST \
-            -f event_type=agent-native-public-skills-updated \
+            -f event_type=agent-native-plan-skills-updated \
             -f "client_payload[sourceRepository]=${{ github.repository }}" \
             -f "client_payload[sourceSha]=${{ github.sha }}" \
             -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           gh api repos/BuilderIO/skills/dispatches \
             --method POST \
-            -f event_type=agent-native-plan-skills-updated \
+            -f event_type=agent-native-public-skills-updated \
             -f "client_payload[sourceRepository]=${{ github.repository }}" \
             -f "client_payload[sourceSha]=${{ github.sha }}" \
             -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
