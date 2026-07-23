@@ -341,26 +341,44 @@ export async function searchAnalyticsQueryCatalog(args: {
   orgId: string | null;
   limit: number;
 }): Promise<AnalyticsQueryCatalogCandidate[]> {
-  const [savedDashboards, dictionaryEntries] = await Promise.all([
+  const [savedDashboardsResult, dictionaryEntriesResult] =
+    await Promise.allSettled([
     listDashboards(
       { email: args.email, orgId: args.orgId },
       { kind: "sql", archived: "active", hidden: "visible" },
     ),
     listDictionaryEntries({ email: args.email, orgId: args.orgId }),
   ]);
+  const savedDashboards =
+    savedDashboardsResult.status === "fulfilled"
+      ? savedDashboardsResult.value
+      : [];
+  const dictionaryEntries =
+    dictionaryEntriesResult.status === "fulfilled"
+      ? dictionaryEntriesResult.value
+      : [];
 
   const savedIds = new Set(savedDashboards.map((dashboard) => dashboard.id));
   const templateDashboards = dashboardCatalogEntries
     .filter((entry) => !savedIds.has(entry.defaultDashboardId))
-    .map((entry) => {
-      const config = entry.buildConfig() as unknown as Record<string, unknown>;
-      return {
-        id: entry.defaultDashboardId,
-        title: text(config.name) || entry.name,
-        description: text(config.description) || entry.description,
-        config,
-        origin: "dashboard-template" as const,
-      };
+    .flatMap((entry) => {
+      try {
+        const config = entry.buildConfig() as unknown as Record<
+          string,
+          unknown
+        >;
+        return [
+          {
+            id: entry.defaultDashboardId,
+            title: text(config.name) || entry.name,
+            description: text(config.description) || entry.description,
+            config,
+            origin: "dashboard-template" as const,
+          },
+        ];
+      } catch {
+        return [];
+      }
     });
 
   return rankAnalyticsQueryCatalog({
