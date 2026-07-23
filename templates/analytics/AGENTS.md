@@ -1,8 +1,9 @@
 # Analytics — Agent Guide
 
 Analytics is an agent-native BI workspace. The agent manages data sources,
-queries, dashboards, charts, analyses, and connected warehouse integrations
-through actions and SQL-backed state.
+queries, dashboards, charts, and connected warehouse integrations through
+actions and SQL-backed state. Dashboards are the canonical user-facing
+analytics artifact; legacy analyses remain readable only for compatibility.
 
 Keep this file essential. Querying, dashboard, warehouse, and implementation
 details live in `.agents/skills/`.
@@ -214,11 +215,13 @@ membership id when its native update status reports `update-available`.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
   summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
   proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
-- Native dashboards and saved analyses are constrained artifacts. If a requested
-  dashboard, analysis surface, visualization, interaction model, custom layout,
-  or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
-  config/components or saved-analysis markdown/chart format, automatically build
-  it as an extension instead and tell the user why.
+- Native dashboards are constrained artifacts. If a requested dashboard,
+  analysis/report surface, visualization, interaction model, custom layout, or
+  bespoke workflow cannot be done faithfully with the built-in dashboard JSON
+  config/components, automatically create an extension and embed it as one or
+  more `chartType: "extension"` panels using `config.extensionId`. Never leave
+  the extension standalone or direct the user to an Extensions page from
+  Analytics.
 - For an existing extension-backed dashboard or migrated surface such as Risk
   Meeting, separate data repair from visual redesign. Inspect the dashboard and
   extension first, then call `update-extension` with exactly `id`,
