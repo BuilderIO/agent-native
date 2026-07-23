@@ -114,8 +114,7 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!isAgentEnginePackageInstalled(entry)) {
     return `Error: Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
   }
-  const preserveCustomModels =
-    await resolveEnginePreservesCustomModels(entry);
+  const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const normalizedModel = normalizeModelForEngine(entry, model, {
     preserveCustomModels,
   });

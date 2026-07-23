@@ -59,8 +59,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   // flag, so resolve the OpenAI-compatible-endpoint capability here and pass it
   // through — otherwise a gateway model (e.g. an Ollama id) is rewritten to the
   // engine default on save.
-  const preserveCustomModels =
-    await resolveEnginePreservesCustomModels(entry);
+  const preserveCustomModels = await resolveEnginePreservesCustomModels(entry);
   const resolvedModel = normalizeModelForEngine(entry, requestedModel, {
     preserveCustomModels,
   });
