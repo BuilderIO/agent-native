@@ -418,8 +418,16 @@ export function useCollabReconcile({
       if (cancelled || editor.isDestroyed) return;
       // In collab mode, defer all reconcile until the shared doc is seeded so we
       // never setContent over an unseeded fragment.
-      if (collab && (!collabSynced || !seededRef.current)) {
+      if (collab && !collabSynced) {
         retry = setTimeout(() => apply(deferred), 300);
+        return;
+      }
+      // The seed decision itself is deferred one task so Collaboration can
+      // project persisted Y.Doc state before we inspect it. Poll that short
+      // handoff promptly: waiting the full provider cadence here makes a newer
+      // canonical SQL snapshot visibly stale after reload.
+      if (collab && !seededRef.current) {
+        retry = setTimeout(() => apply(deferred), 25);
         return;
       }
       if (collab && emptySnapshotDecisionPendingRef.current) {
