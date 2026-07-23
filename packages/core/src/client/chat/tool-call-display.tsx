@@ -43,8 +43,12 @@ import {
   WriteCell,
   FilesChangedSummary,
 } from "../tool-cells/index.js";
-import { humanizeToolName } from "../tool-display.js";
+import {
+  humanizeToolName,
+  isCallAgentToolCallShadowed,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
+import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
@@ -130,11 +134,10 @@ export function ToolActivityPresentation({
         animateEntry && "agent-tool-call--entering",
       )}
       data-running={isRunning ? "true" : undefined}
-      data-active-tail={isActiveTail ? "true" : undefined}
     >
       {children}
       {isRunning && showLongRunningHint && (
-        <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
           Still working. Large updates can take a minute or two.
         </div>
       )}
@@ -756,7 +759,16 @@ function ToolCallDisplayGeneric({
       (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
       resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
-    return <NativeToolRenderer context={nativeToolContext} />;
+    return (
+      <ActionChatUiSurface
+        context={nativeToolContext}
+        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
+          nativeToolContext,
+        )}
+      >
+        <NativeToolRenderer context={nativeToolContext} />
+      </ActionChatUiSurface>
+    );
   }
 
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
@@ -951,13 +963,16 @@ export function ReconnectStreamMessage({
     content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
   const latestActiveToolIndex = content.reduce(
     (latestIndex, part, index) =>
-      part.type === "tool-call" && (chatRunning || part.activity === true)
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      (chatRunning || part.activity === true)
         ? index
         : latestIndex,
     -1,
   );
 
   const renderPart = (part: ContentPart, i: number) => {
+    if (isCallAgentToolCallShadowed(content, i)) return null;
     if (part.type === "text") {
       const partStreaming = chatRunning && i === streamingTextPartIndex;
       return (
@@ -1023,6 +1038,7 @@ export function ReconnectStreamMessage({
 
   for (let i = 0; i < content.length; i++) {
     const part = content[i]!;
+    if (isCallAgentToolCallShadowed(content, i)) continue;
     const isOlderToolWork =
       toolSummary.startIndex >= 0 &&
       i < toolSummary.startIndex &&
@@ -1048,7 +1064,11 @@ export function ReconnectStreamMessage({
 
 function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
   const toolCallIndices = content.reduce<number[]>((indices, part, index) => {
-    if (part.type === "tool-call" && isReconnectSummarizablePart(part)) {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      isReconnectSummarizablePart(part)
+    ) {
       indices.push(index);
     }
     return indices;
@@ -1067,7 +1087,10 @@ function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
 function isReconnectSummarizablePart(part: ContentPart): boolean {
   return (
     part.type === "reasoning" ||
-    (part.type === "tool-call" && part.toolName !== "connect-builder")
+    (part.type === "tool-call" &&
+      part.toolName !== "connect-builder" &&
+      part.chatUI === undefined &&
+      part.mcpApp === undefined)
   );
 }
 
@@ -1077,11 +1100,17 @@ function isReconnectToolSummaryPart(
   startIndex: number,
 ): boolean {
   if (startIndex < 0 || index >= startIndex) return false;
-  if (!isReconnectSummarizablePart(content[index]!)) return false;
+  if (
+    isCallAgentToolCallShadowed(content, index) ||
+    !isReconnectSummarizablePart(content[index]!)
+  ) {
+    return false;
+  }
 
   let segmentStart = index;
   while (
     segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(content, segmentStart - 1) &&
     isReconnectSummarizablePart(content[segmentStart - 1]!)
   ) {
     segmentStart--;
@@ -1090,6 +1119,7 @@ function isReconnectToolSummaryPart(
   let segmentEnd = index + 1;
   while (
     segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(content, segmentEnd) &&
     isReconnectSummarizablePart(content[segmentEnd]!)
   ) {
     segmentEnd++;
@@ -1231,22 +1261,28 @@ export function formatWorkedDuration(ms: number): string {
 
 export function WorkedForSummary({
   durationMs,
+  defaultOpen = false,
   autoCollapse = false,
   children,
 }: {
   durationMs?: number | null;
+  /** Keep completed work visible when the turn contains interactive UI. */
+  defaultOpen?: boolean;
   /** When true, close the summary after a run has completed. */
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
-  // Start closed so a remounted completed message never flashes its work
-  // details open while auto-collapse settles. If the summary was already
-  // open when autoCollapse changes, AnimatedCollapse still animates it shut.
-  const [open, setOpen] = useState(false);
+  // Ordinary completed work starts closed so a remount never flashes details
+  // while auto-collapse settles. Interactive UI opts into an open summary.
+  const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    if (autoCollapse) setOpen(false);
-  }, [autoCollapse]);
+    if (defaultOpen) {
+      setOpen(true);
+    } else if (autoCollapse) {
+      setOpen(false);
+    }
+  }, [autoCollapse, defaultOpen]);
 
   const label =
     durationMs != null && durationMs >= 1000

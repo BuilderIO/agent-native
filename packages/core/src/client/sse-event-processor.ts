@@ -974,6 +974,27 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
   return `The agent completed ${label}, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.`;
 }
 
+function hasCompletedCustomUi(content: ContentPart[]): boolean {
+  const lastTextIndex = lastAssistantTextIndex(content);
+  let lastCompletedToolIsCustomUi = false;
+  let hasCompletedTool = false;
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part?.type !== "tool-call" ||
+      part.activity === true ||
+      part.result === undefined ||
+      part.isError === true
+    ) {
+      continue;
+    }
+    hasCompletedTool = true;
+    lastCompletedToolIsCustomUi =
+      part.chatUI !== undefined || part.mcpApp !== undefined;
+  }
+  return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
 export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
@@ -997,6 +1018,7 @@ export function appendMissingFinalResponseWarning(
       materializedToolNames.add(part.toolName);
     }
   }
+  if (hasCompletedCustomUi(content)) return null;
   if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
     return null;
   }
@@ -1350,6 +1372,7 @@ export function processEvent(
         toolName: `agent:${agentName}`,
         argsText: "",
         args: {},
+        activity: true,
       });
     } else if (ev.status === "done" || ev.status === "error") {
       for (let i = content.length - 1; i >= 0; i--) {

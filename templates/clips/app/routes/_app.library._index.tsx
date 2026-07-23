@@ -1,10 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { Button } from "@agent-native/toolkit/ui/button";
 import { IconPlayerRecord } from "@tabler/icons-react";
 import { NavLink } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { usePageHeaderLayout } from "@/components/library/page-header";
+import { Button } from "@/components/ui/button";
 
 const SEO_TITLE = "Agent-Native Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =

@@ -13,11 +13,180 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _nitroModuleGraphSignature,
+  _nitroStartupGate,
+  _nitroStartupRecovery,
   agentNative,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+
+describe("Nitro dev startup recovery", () => {
+  it("waits for Nitro's module graph to become stable", () => {
+    const dependency = {
+      id: "/app/server.ts",
+      transformResult: null,
+    };
+    const entry = {
+      id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
+      transformResult: { code: "entry" },
+    };
+    const environment = {
+      moduleGraph: {
+        idToModuleMap: new Map([
+          [entry.id, entry],
+          [dependency.id, dependency],
+        ]),
+      },
+    };
+
+    expect(_nitroModuleGraphSignature(environment)).toBe("2:1:0");
+    dependency.transformResult = { code: "server" };
+    expect(_nitroModuleGraphSignature(environment)).toBe("2:2:0");
+
+    let time = 0;
+    let middleware:
+      | ((req: unknown, res: unknown, next: () => void) => void)
+      | undefined;
+    _nitroStartupGate({ now: () => time, settleMs: 100 }).configureServer?.({
+      environments: { nitro: environment },
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+    const request = { headers: { accept: "text/html" }, method: "GET" };
+    const firstResponse = {
+      end: vi.fn(),
+      setHeader: vi.fn(),
+      statusCode: 200,
+    };
+    const next = vi.fn();
+
+    middleware?.(request, firstResponse, next);
+    expect(firstResponse.statusCode).toBe(503);
+    expect(next).not.toHaveBeenCalled();
+
+    time = 50;
+    middleware?.(
+      request,
+      { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+      next,
+    );
+    expect(next).not.toHaveBeenCalled();
+
+    time = 150;
+    middleware?.(
+      request,
+      { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+      next,
+    );
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("turns a transient document error into a quiet retry page", () => {
+    let middleware:
+      | ((
+          error: unknown,
+          req: unknown,
+          res: unknown,
+          next: (error?: unknown) => void,
+        ) => void)
+      | undefined;
+    const plugin = _nitroStartupRecovery();
+    plugin.configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const error = Object.assign(
+      new Error('Vite environment "nitro" is unavailable'),
+      { name: "NitroViteError", status: 503 },
+    );
+    const res = {
+      end: vi.fn(),
+      headersSent: false,
+      setHeader: vi.fn(),
+      statusCode: 200,
+    };
+    const next = vi.fn();
+    middleware?.(
+      error,
+      { headers: { accept: "text/html" }, method: "GET" },
+      res,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(503);
+    expect(res.setHeader).toHaveBeenCalledWith("retry-after", "1");
+    expect(res.end).toHaveBeenCalledWith(expect.stringContaining("refresh"));
+  });
+
+  it("preserves genuine Nitro errors and non-document requests", () => {
+    let middleware:
+      | ((
+          error: unknown,
+          req: unknown,
+          res: unknown,
+          next: (error?: unknown) => void,
+        ) => void)
+      | undefined;
+    _nitroStartupRecovery().configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const error = Object.assign(
+      new Error('Vite environment "nitro" is unavailable'),
+      { name: "NitroViteError", status: 503 },
+    );
+    const next = vi.fn();
+    middleware?.(
+      error,
+      { headers: { accept: "application/json" }, method: "GET" },
+      { headersSent: false },
+      next,
+    );
+    expect(next).toHaveBeenCalledWith(error);
+
+    const importError = new Error("broken import");
+    middleware?.(
+      importError,
+      { headers: { accept: "text/html" }, method: "GET" },
+      { headersSent: false },
+      next,
+    );
+    expect(next).toHaveBeenLastCalledWith(importError);
+  });
+
+  it("registers the startup gate before Nitro and recovery after it", () => {
+    const plugins = flatPlugins(defineConfig().plugins);
+    const startupGateIndex = plugins.findIndex(
+      (plugin) => plugin.name === "agent-native-nitro-startup-gate",
+    );
+    const recoveryIndex = plugins.findIndex(
+      (plugin) => plugin.name === "agent-native-nitro-startup-recovery",
+    );
+    const nitroIndex = plugins.findIndex(
+      (plugin) => plugin.name === "nitro:main",
+    );
+
+    expect(startupGateIndex).toBeGreaterThanOrEqual(0);
+    expect(startupGateIndex).toBeLessThan(nitroIndex);
+    expect(plugins[startupGateIndex]?.enforce).toBe("pre");
+    expect(recoveryIndex).toBeGreaterThan(nitroIndex);
+    expect(plugins[recoveryIndex]?.enforce).toBeUndefined();
+  });
+});
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
@@ -31,6 +200,46 @@ function findPlugin(name: string) {
 function flatPlugins(plugins: any[] | undefined): any[] {
   return (plugins ?? []).flat().filter(Boolean) as any[];
 }
+
+describe("design system theme plugin", () => {
+  it("emits normalized build-time CSS from a virtual module", async () => {
+    const plugins = flatPlugins(
+      defineConfig({
+        designSystemTheme: {
+          colors: {
+            light: { primary: "oklch(60% 0.2 250)", background: "white" },
+            dark: { background: "#101010" },
+          },
+        },
+      }).plugins,
+    );
+    const plugin = plugins.find(
+      (candidate) => candidate.name === "agent-native-design-system-theme",
+    );
+
+    expect(plugin).toBeDefined();
+    const resolved = await plugin.resolveId("virtual:agent-native-theme.css");
+    const css = await plugin.load(resolved);
+    expect(css).toContain("--primary:");
+    expect(css).toContain("--background: 0 0% 6.275%");
+    expect(await plugin.transformIndexHtml()).toEqual([
+      expect.objectContaining({
+        tag: "style",
+        children: css,
+        injectTo: "head",
+      }),
+    ]);
+  });
+
+  it("does not add theme CSS when a theme is not configured", () => {
+    const plugins = flatPlugins(defineConfig().plugins);
+    expect(
+      plugins.some(
+        (candidate) => candidate.name === "agent-native-design-system-theme",
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("dev server mounted path helpers", () => {
   const previousSecret = process.env.OAUTH_STATE_SECRET;
@@ -1488,6 +1697,47 @@ describe("local-core dev aliases and router dedupe", () => {
     );
 
     expect(_findCorePackageRoot(tmpDir)).toBe(coreRoot);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not treat a published core package with source files as a local checkout", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-published-core-"),
+    );
+    const installedCore = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    fs.mkdirSync(path.join(installedCore, "src"), { recursive: true });
+    fs.writeFileSync(path.join(installedCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(
+      path.join(installedCore, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        devDependencies: {
+          "@excalidraw/excalidraw": "0.18.1",
+          mermaid: "11.15.0",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "@agent-native/core": "^0.118.0" },
+      }),
+    );
+
+    expect(_findCorePackageRoot(tmpDir)).toBeNull();
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain("@agent-native/core");
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/core > @excalidraw/excalidraw",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/core > mermaid",
+    );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

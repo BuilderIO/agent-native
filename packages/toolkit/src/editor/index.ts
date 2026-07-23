@@ -25,8 +25,10 @@ export {
   SlashCommandMenu,
   DEFAULT_SLASH_COMMANDS,
   createImageSlashCommand,
+  filterSlashCommandItems,
   type SlashCommandItem,
   type SlashCommandMenuProps,
+  type SlashCommandFeatureFlags,
 } from "./SlashCommandMenu.js";
 export {
   SharedImage,
