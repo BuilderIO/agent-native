@@ -87,6 +87,15 @@ const messages = {
     addOption: "विकल्प जोड़ें",
     min: "मिन",
     max: "अधिकतम",
+    conditionalVisibility: "सशर्त दृश्यता",
+    conditionalVisibilityDescription: "यह फ़ील्ड तभी दिखाएँ जब पिछला उत्तर मेल खाए।",
+    conditionField: "पिछला उत्तर",
+    conditionOperator: "शर्त",
+    conditionEquals: "है",
+    conditionNotEquals: "नहीं है",
+    conditionContains: "में शामिल है",
+    conditionValue: "उत्तर",
+    conditionValuePlaceholder: "उत्तर दर्ज करें...",
     fieldTypes: {
       text: "लघु पाठ",
       email: "ईमेल",
@@ -209,7 +218,8 @@ const messages = {
         "प्रतिक्रिया डेटा के साथ JSON POST भेजता है। Zapier, Make, n8n आदि के साथ काम करता है।",
       googleSheetsBlurb:
         "हर प्रतिक्रिया को ऐसी spreadsheet में मिरर करें जिसे आपकी टीम साझा कर सके।",
-      googleSheetsHelp: "POST डेटा प्राप्त करने वाला Apps Script web app deploy करें",
+      googleSheetsHelp:
+        "तैनात किया हुआ Apps Script /exec URL इस्तेमाल करें जो e.postData.contents से JSON पढ़कर पंक्ति जोड़ता है।",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",

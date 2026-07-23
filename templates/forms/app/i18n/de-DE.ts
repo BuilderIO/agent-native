@@ -88,6 +88,16 @@ const messages = {
     addOption: "Option hinzufügen",
     min: "Min",
     max: "Max",
+    conditionalVisibility: "Bedingte Sichtbarkeit",
+    conditionalVisibilityDescription:
+      "Dieses Feld nur anzeigen, wenn eine frühere Antwort passt.",
+    conditionField: "Frühere Antwort",
+    conditionOperator: "Bedingung",
+    conditionEquals: "ist",
+    conditionNotEquals: "ist nicht",
+    conditionContains: "enthält",
+    conditionValue: "Antwort",
+    conditionValuePlaceholder: "Antwort eingeben...",
     fieldTypes: {
       text: "Kurzer Text",
       email: "E-Mail",
@@ -216,7 +226,7 @@ const messages = {
       googleSheetsBlurb:
         "Jede Antwort in eine Tabelle spiegeln, die dein Team teilen kann.",
       googleSheetsHelp:
-        "Stelle eine Apps Script-Web-App bereit, die POST-Daten empfängt",
+        "Verwende eine bereitgestellte Apps-Script-/exec-URL, die JSON aus e.postData.contents liest und Zeilen anhängt.",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",

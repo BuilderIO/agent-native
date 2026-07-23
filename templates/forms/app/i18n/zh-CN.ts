@@ -84,6 +84,15 @@ const messages = {
     addOption: "添加选项",
     min: "最小",
     max: "最大限度",
+    conditionalVisibility: "条件显示",
+    conditionalVisibilityDescription: "仅当之前的答案匹配时显示此字段。",
+    conditionField: "之前的答案",
+    conditionOperator: "条件",
+    conditionEquals: "是",
+    conditionNotEquals: "不是",
+    conditionContains: "包含",
+    conditionValue: "答案",
+    conditionValuePlaceholder: "输入答案...",
     fieldTypes: {
       text: "短文本",
       email: "电子邮件",
@@ -196,7 +205,8 @@ const messages = {
       webhookHelp:
         "发送包含提交数据的 JSON POST。适用于 Zapier、Make、n8n 等。",
       googleSheetsBlurb: "将每条回复镜像到团队可共享的电子表格。",
-      googleSheetsHelp: "部署可接收 POST 数据的 Apps Script Web 应用",
+      googleSheetsHelp:
+        "使用已部署的 Apps Script /exec URL，从 e.postData.contents 读取 JSON 并追加行。",
       googleSheetsLabel: "Google 表格",
       webhookLabel: "Webhook",
       discordLabel: "Discord",

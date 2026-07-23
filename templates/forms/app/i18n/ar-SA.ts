@@ -87,6 +87,16 @@ const messages = {
     addOption: "إضافة خيار",
     min: "دقيقة",
     max: "الأعلى",
+    conditionalVisibility: "الظهور المشروط",
+    conditionalVisibilityDescription:
+      "أظهر هذا الحقل فقط عندما تتطابق إجابة سابقة.",
+    conditionField: "الإجابة السابقة",
+    conditionOperator: "الشرط",
+    conditionEquals: "تساوي",
+    conditionNotEquals: "لا تساوي",
+    conditionContains: "تتضمن",
+    conditionValue: "الإجابة",
+    conditionValuePlaceholder: "أدخل إجابة...",
     fieldTypes: {
       text: "نص قصير",
       email: "بريد إلكتروني",
@@ -213,7 +223,8 @@ const messages = {
       webhookHelp:
         "يرسل POST بصيغة JSON مع بيانات الرد. يعمل مع Zapier وMake وn8n وغيرها.",
       googleSheetsBlurb: "انسخ كل رد إلى جدول بيانات يمكن لفريقك مشاركته.",
-      googleSheetsHelp: "انشر تطبيق ويب Apps Script يستقبل بيانات POST",
+      googleSheetsHelp:
+        "استخدم عنوان Apps Script /exec منشورًا يقرأ JSON من e.postData.contents ويضيف الصف.",
       googleSheetsLabel: "جداول بيانات Google",
       webhookLabel: "Webhook",
       discordLabel: "Discord",

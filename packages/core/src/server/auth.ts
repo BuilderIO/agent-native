@@ -98,6 +98,7 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { isValidWorkspaceAppIdFormat } from "../shared/workspace-app-id.js";
+import { injectAnalyticsIntoHtml } from "./analytics.js";
 import { signupAttributionFromCookieHeader } from "./attribution.js";
 import { getBetterAuth, getBetterAuthSync } from "./better-auth-instance.js";
 import type { BetterAuthConfig } from "./better-auth-instance.js";
@@ -1646,20 +1647,23 @@ function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
 }
 
 function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
-  return new Response(injectLoginSocialImageMeta(loginHtml, event), {
-    status: 200,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      // The sign-in document is part of the public server shell. Keep it on the
-      // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
-      // template roots do not invoke origin just to render anonymous login UI.
-      // The login HTML is env-INDEPENDENT (a Google-only app always renders a
-      // working button), so a cached copy is never "wrong" — never downgrade
-      // this to private/no-store.
-      ...DEFAULT_SSR_CACHE_HEADERS,
-      "X-Robots-Tag": "noindex, nofollow",
+  return new Response(
+    injectAnalyticsIntoHtml(injectLoginSocialImageMeta(loginHtml, event)),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        // The sign-in document is part of the public server shell. Keep it on the
+        // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
+        // template roots do not invoke origin just to render anonymous login UI.
+        // The login markup is env-INDEPENDENT (a Google-only app always renders
+        // a working button); the analytics script is public build configuration,
+        // not user/session state. Never downgrade this to private/no-store.
+        ...DEFAULT_SSR_CACHE_HEADERS,
+        "X-Robots-Tag": "noindex, nofollow",
+      },
     },
-  });
+  );
 }
 
 function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
