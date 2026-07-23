@@ -1,6 +1,7 @@
 import {
   FeatureNotConfiguredError,
   getSession,
+  runWithRequestContext,
   startBuilderDesignSystemIndex,
 } from "@agent-native/core/server";
 import {
@@ -90,27 +91,32 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         .trim() || "Imported brand";
 
     try {
-      const result = await startBuilderDesignSystemIndex({
-        projectName: suggestedTitle,
-        files: [
-          {
-            name: filename,
-            data: part.data,
-            mimeType: "application/octet-stream",
-          },
-        ],
-      });
-      const proxy = await upsertBuilderProxyDesignSystem({
-        result,
-        ownerEmail: session.email,
-        orgId: session.orgId ?? null,
-        projectName: suggestedTitle,
-      });
-      return {
-        ...result,
-        ...proxy,
-        uploadedFileCount: 1,
-      };
+      return await runWithRequestContext(
+        { userEmail: session.email, orgId: session.orgId },
+        async () => {
+          const result = await startBuilderDesignSystemIndex({
+            projectName: suggestedTitle,
+            files: [
+              {
+                name: filename,
+                data: part.data,
+                mimeType: "application/octet-stream",
+              },
+            ],
+          });
+          const proxy = await upsertBuilderProxyDesignSystem({
+            result,
+            ownerEmail: session.email,
+            orgId: session.orgId ?? null,
+            projectName: suggestedTitle,
+          });
+          return {
+            ...result,
+            ...proxy,
+            uploadedFileCount: 1,
+          };
+        },
+      );
     } catch (err) {
       if (err instanceof FeatureNotConfiguredError) {
         setResponseStatus(event, 412);

@@ -7,12 +7,14 @@ const mocks = vi.hoisted(() => ({
   setResponseStatus: vi.fn(),
   startBuilderDesignSystemIndex: vi.fn(),
   upsertBuilderProxyDesignSystem: vi.fn(),
+  runWithRequestContext: vi.fn((_ctx, fn) => fn()),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   FeatureNotConfiguredError: class FeatureNotConfiguredError extends Error {},
   getSession: mocks.getSession,
   startBuilderDesignSystemIndex: mocks.startBuilderDesignSystemIndex,
+  runWithRequestContext: mocks.runWithRequestContext,
 }));
 
 vi.mock("h3", () => ({

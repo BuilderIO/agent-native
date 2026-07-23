@@ -11,6 +11,7 @@ import {
 } from "h3";
 
 import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
+import { withSlidesRequestContext } from "./request-auth-context.js";
 
 const MAX_FIG_BYTES = 200 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
@@ -72,27 +73,33 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         .trim() || "Imported brand";
 
     try {
-      const result = await startBuilderDesignSystemIndex({
-        projectName: suggestedTitle,
-        files: [
-          {
-            name: part.filename || "brand.fig",
-            data: part.data,
-            mimeType: "application/octet-stream",
-          },
-        ],
-      });
-      const proxy = await upsertBuilderProxyDesignSystem({
-        result,
-        ownerEmail: session.email,
-        orgId: session.orgId ?? null,
-        projectName: suggestedTitle,
-      });
-      return {
-        ...result,
-        ...proxy,
-        uploadedFileCount: 1,
-      };
+      return await withSlidesRequestContext(
+        event,
+        async ({ orgId }) => {
+          const result = await startBuilderDesignSystemIndex({
+            projectName: suggestedTitle,
+            files: [
+              {
+                name: part.filename || "brand.fig",
+                data: part.data,
+                mimeType: "application/octet-stream",
+              },
+            ],
+          });
+          const proxy = await upsertBuilderProxyDesignSystem({
+            result,
+            ownerEmail: session.email,
+            orgId: orgId ?? null,
+            projectName: suggestedTitle,
+          });
+          return {
+            ...result,
+            ...proxy,
+            uploadedFileCount: 1,
+          };
+        },
+        { email: session.email, orgId: session.orgId ?? undefined },
+      );
     } catch (err) {
       if (err instanceof FeatureNotConfiguredError) {
         setResponseStatus(event, 412);

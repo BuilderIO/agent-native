@@ -39,6 +39,14 @@ vi.mock("../lib/builder-design-system-proxy.js", () => ({
     mockUpsertBuilderProxyDesignSystem(...args),
 }));
 
+vi.mock("./request-auth-context.js", () => ({
+  withSlidesRequestContext: (
+    _event: unknown,
+    fn: (ctx: { email?: string; orgId?: string }) => unknown,
+    preResolvedContext: { email?: string; orgId?: string },
+  ) => fn(preResolvedContext),
+}));
+
 import { indexDesignSystemWithBuilder } from "./index-design-system-with-builder";
 
 describe("indexDesignSystemWithBuilder", () => {
