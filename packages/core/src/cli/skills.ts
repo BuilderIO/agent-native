@@ -3376,6 +3376,11 @@ export async function addAgentNativeSkill(
   const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
   const installsScreenMemoryMcp = isScreenMemoryMcpBuiltInSkill(knownBuiltIn);
   const baseDir = options.baseDir ?? process.cwd();
+  if (installsScreenMemoryMcp && !parsed.mcp) {
+    throw new Error(
+      "Rewind requires the local Clips Screen Memory MCP and cannot be installed with --no-mcp.",
+    );
+  }
   if (installsScreenMemoryMcp && parsed.mcpUrl) {
     throw new Error(
       "Rewind uses the local Clips Screen Memory MCP and does not accept --mcp-url.",

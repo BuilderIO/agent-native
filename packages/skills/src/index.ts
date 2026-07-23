@@ -385,7 +385,13 @@ function shouldLoadPublicCatalog(parsed: ParsedArgs): boolean {
   if (parsed.command !== "add") return false;
   if (parsed.copySource && parsed.source) return true;
   if (parsed.skillNames.length === 0) return true;
-  return parsed.skillNames.some((name) => !resolveAppForSkill(name));
+  return parsed.skillNames.some((name) => !isCoreDelegatedSkill(name));
+}
+
+function isCoreDelegatedSkill(skillName: string): boolean {
+  // Rewind uses Core's local Screen Memory installer, not the standalone
+  // package's hosted MCP descriptor path.
+  return skillName === "rewind" || Boolean(resolveAppForSkill(skillName));
 }
 
 const HIDDEN_STANDALONE_BUILT_INS = [

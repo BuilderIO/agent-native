@@ -191,7 +191,7 @@ describe("agent-native skills", () => {
     }
   });
 
-  it("can install only the Rewind instructions without touching MCP config", async () => {
+  it("rejects Rewind installs that disable the local Screen Memory MCP", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(codexHome, { recursive: true });
@@ -199,24 +199,25 @@ describe("agent-native skills", () => {
     process.env.CODEX_HOME = codexHome;
 
     try {
-      const result = await addAgentNativeSkill(
-        parseSkillsArgs([
-          "add",
-          "rewind",
-          "--client",
-          "codex",
-          "--scope",
-          "user",
-          "--no-mcp",
-          "--yes",
-        ]),
-        { baseDir: root },
-      );
+      await expect(
+        addAgentNativeSkill(
+          parseSkillsArgs([
+            "add",
+            "rewind",
+            "--client",
+            "codex",
+            "--scope",
+            "user",
+            "--no-mcp",
+            "--yes",
+          ]),
+          { baseDir: root },
+        ),
+      ).rejects.toThrow("cannot be installed with --no-mcp");
 
-      expect(result.mcpClients).toEqual([]);
       expect(
         fs.existsSync(path.join(codexHome, "skills", "rewind", "SKILL.md")),
-      ).toBe(true);
+      ).toBe(false);
       expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;

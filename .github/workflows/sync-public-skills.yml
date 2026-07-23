@@ -10,6 +10,7 @@ on:
       - "templates/plan/.agents/skills/visual-plan/**"
       - "templates/plan/.agents/skills/visual-recap/**"
       - "packages/core/src/cli/skills.ts"
+      - "packages/core/src/cli/skills-content/rewind-skill.ts"
       - ".github/workflows/sync-public-skills.yml"
   workflow_dispatch:
 
@@ -21,7 +22,7 @@ concurrency:
 
 jobs:
   dispatch:
-    name: Ask BuilderIO/skills to sync visual skills
+    name: Ask BuilderIO/skills to sync exported skills
     runs-on: ubuntu-latest
     steps:
       - name: Generate app token
@@ -39,7 +40,7 @@ jobs:
         run: |
           gh api repos/BuilderIO/skills/dispatches \
             --method POST \
-            -f event_type=agent-native-plan-skills-updated \
+            -f event_type=agent-native-public-skills-updated \
             -f "client_payload[sourceRepository]=${{ github.repository }}" \
             -f "client_payload[sourceSha]=${{ github.sha }}" \
             -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
