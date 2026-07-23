@@ -32,6 +32,7 @@ describe("notifyActionChange", () => {
     await notifyActionChange({
       actionName: "create-project",
       owner: "owner@example.com",
+      requestSource: "tab-1",
     });
 
     expect(mockRecordChange).toHaveBeenCalledWith({
@@ -39,6 +40,7 @@ describe("notifyActionChange", () => {
       type: "change",
       key: "create-project",
       owner: "owner@example.com",
+      requestSource: "tab-1",
     });
     expect(mockAppStatePut).toHaveBeenCalledWith(
       "owner@example.com",
@@ -47,6 +49,7 @@ describe("notifyActionChange", () => {
         source: "action",
         actionName: "create-project",
         owner: "owner@example.com",
+        requestSource: "tab-1",
       }),
       { requestSource: "agent" },
     );

@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  getBrowserTabId,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import type {
   ConfigureDocumentPropertyRequest,
   ContentDatabaseResponse,
@@ -60,6 +64,8 @@ export function useSetDocumentProperty(
     DocumentPropertiesResponse,
     SetDocumentPropertyRequest
   >("set-document-property", {
+    requestSource: getBrowserTabId(),
+    skipActionQueryInvalidation: true,
     onMutate: async (variables) => {
       await queryClient.cancelQueries(
         contentDatabaseQueryFilter(databaseDocumentId),

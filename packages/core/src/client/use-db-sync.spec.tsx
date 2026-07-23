@@ -38,6 +38,7 @@ function SyncProbe({
   queryClient,
   actionInvalidatePredicate,
   suppressActionInvalidationFor,
+  ignoreSource,
   onEvent,
 }: {
   queryClient: QueryClientProbe;
@@ -45,6 +46,7 @@ function SyncProbe({
     queryKey: readonly unknown[];
   }) => boolean;
   suppressActionInvalidationFor?: string[];
+  ignoreSource?: string;
   onEvent?: (data: any) => void;
 }) {
   useDbSync({
@@ -54,6 +56,7 @@ function SyncProbe({
     pauseWhenHidden: false,
     actionInvalidatePredicate,
     suppressActionInvalidationFor,
+    ignoreSource,
     onEvent,
   });
   return null;
@@ -450,6 +453,51 @@ describe("useDbSync", () => {
 
     expect(queryClient.calls).toContainEqual(undefined);
     expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("ignores an originating tab's tagged action event without hiding it from other tabs", async () => {
+    const event = {
+      version: 1,
+      source: "action",
+      type: "change",
+      key: "set-document-property",
+      requestSource: "content-tab-1",
+    };
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [event] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const originatingClient = new QueryClientProbe();
+    const otherClient = new QueryClientProbe();
+    const originContainer = document.createElement("div");
+    const otherContainer = document.createElement("div");
+    document.body.append(originContainer, otherContainer);
+    const originRoot = createRoot(originContainer);
+    const otherRoot = createRoot(otherContainer);
+    roots.push(originRoot, otherRoot);
+    containers.push(originContainer, otherContainer);
+
+    await act(async () => {
+      originRoot.render(
+        <SyncProbe
+          queryClient={originatingClient}
+          ignoreSource="content-tab-1"
+        />,
+      );
+      otherRoot.render(
+        <SyncProbe queryClient={otherClient} ignoreSource="content-tab-2" />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    });
+
+    expect(originatingClient.calls).toHaveLength(0);
+    expect(otherClient.calls).toContainEqual(undefined);
+    expect(otherClient.calls).toContainEqual({ queryKey: ["action"] });
   });
 
   it("backs off polling after repeated failures and resets on success", async () => {

@@ -90,6 +90,37 @@ describe("mountActionRoutes", () => {
     expect(JSON.parse(result)).toBe("Archived 1 email(s) successfully");
   });
 
+  it("preserves a valid browser request source on mutating action events", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "set-document-property": {
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions, {
+      getOwnerFromEvent: async () => "owner@example.com",
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-request-source": "content-tab-1" },
+      req: { json: async () => ({}) },
+    });
+
+    expect(mockNotifyActionChange).toHaveBeenCalledWith({
+      actionName: "set-document-property",
+      owner: "owner@example.com",
+      requestSource: "content-tab-1",
+    });
+  });
+
   it("isolates request context without mutating process.env", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const { getRequestOrgId, getRequestTimezone, getRequestUserEmail } =

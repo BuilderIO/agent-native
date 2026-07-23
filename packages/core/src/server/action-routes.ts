@@ -91,6 +91,17 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
+function readRequestSourceHeader(event: any): string | undefined {
+  try {
+    const raw = getHeader(event, "x-request-source");
+    if (!raw || typeof raw !== "string") return undefined;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 && trimmed.length <= 96 ? trimmed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * True when the request originated from the browser action client
  * (`useActionQuery` / `useActionMutation` / `callAction`), which tags every
@@ -368,9 +379,11 @@ export function mountActionRoutes(
                   : method === "GET";
               if (!isReadOnly) {
                 try {
+                  const requestSource = readRequestSourceHeader(event);
                   await notifyActionChange({
                     actionName: name,
                     ...(userEmail ? { owner: userEmail } : {}),
+                    ...(requestSource ? { requestSource } : {}),
                   });
                 } catch {
                   // ignore

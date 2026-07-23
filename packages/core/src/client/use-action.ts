@@ -157,6 +157,12 @@ export interface ClientActionCallOptions {
   signal?: AbortSignal;
   /** Override the default 60s fetch timeout for long-running actions. */
   timeoutMs?: number;
+  /**
+   * Optional browser-tab/source identifier forwarded to the action change
+   * event. Pair with `useDbSync({ ignoreSource })` when the originating tab
+   * performs its own surgical cache reconciliation.
+   */
+  requestSource?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -212,6 +218,8 @@ export interface ActionFetchOptions {
   signal?: AbortSignal;
   /** Per-call override for the fetch timeout. */
   timeoutMs?: number;
+  /** Source identifier preserved on the server's action change event. */
+  requestSource?: string;
 }
 
 async function actionFetch<T>(
@@ -233,6 +241,9 @@ async function actionFetch<T>(
   };
   const tz = resolveUserTimezone();
   if (tz) headers["x-user-timezone"] = tz;
+  if (options?.requestSource) {
+    headers["X-Request-Source"] = options.requestSource;
+  }
   const init: RequestInit = {
     method,
     headers,
@@ -391,6 +402,7 @@ export function callAction<
   return actionFetch<R>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
     timeoutMs: options.timeoutMs,
+    requestSource: options.requestSource,
   });
 }
 
@@ -469,6 +481,7 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    requestSource?: string;
   },
 ) {
   const queryClient = useQueryClient();
@@ -476,6 +489,7 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    requestSource,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -486,7 +500,9 @@ export function useActionMutation<
   return useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: (params) =>
-      actionFetch<D>(actionName, method, params as Record<string, any>),
+      actionFetch<D>(actionName, method, params as Record<string, any>, {
+        requestSource,
+      }),
     onSuccess: (...args: [any, any, any]) => {
       // Most mutations change app data broadly. High-volume background
       // mutations can opt out and perform narrower invalidation in onSuccess.

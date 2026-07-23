@@ -368,6 +368,7 @@ describe("poll handler", () => {
           source: "action",
           actionName: "create-project",
           owner: "test@example.com",
+          requestSource: "content-tab-1",
         }),
         updated_at: 2_000,
       },
@@ -381,6 +382,7 @@ describe("poll handler", () => {
         type: "change",
         key: "create-project",
         owner: "test@example.com",
+        requestSource: "content-tab-1",
       }),
     ]);
     expect(next.events).not.toEqual(

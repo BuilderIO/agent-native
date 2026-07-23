@@ -63,6 +63,26 @@ describe("callAction", () => {
     );
   });
 
+  it("forwards an optional request source for origin-tab sync suppression", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction(
+      "set-document-property",
+      { documentId: "doc-1" },
+      { requestSource: "content-tab-1" },
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/set-document-property",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Request-Source": "content-tab-1",
+        }),
+      }),
+    );
+  });
+
   it("serializes GET params for imperative reads", async () => {
     const fetchMock = vi
       .fn()
