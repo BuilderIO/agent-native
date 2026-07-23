@@ -830,6 +830,7 @@ describe("RealtimeVoiceMode", () => {
   });
 
   it("changes glow speed without restarting or jumping its rotation", () => {
+    vi.useFakeTimers();
     render(
       <RealtimeVoiceModeDock
         state="listening"
@@ -873,7 +874,11 @@ describe("RealtimeVoiceMode", () => {
 
     expect(animate).toHaveBeenCalledTimes(1);
     expect(cancelGlowAnimation).not.toHaveBeenCalled();
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(2.4);
+
+    act(() => vi.advanceTimersByTime(800));
     expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(1);
+    vi.useRealTimers();
   });
 
   it.each(["connecting", "error", "ending"] as const)(

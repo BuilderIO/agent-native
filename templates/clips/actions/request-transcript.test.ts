@@ -31,7 +31,6 @@ const mockDb = vi.hoisted(() => ({
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockGetSetting = vi.hoisted(() => vi.fn());
 const mockGetUserSetting = vi.hoisted(() => vi.fn());
-const mockReadAppSecret = vi.hoisted(() => vi.fn());
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockExportToBrainRun = vi.hoisted(() => vi.fn());
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
@@ -67,10 +66,6 @@ vi.mock("@agent-native/core/credentials", () => ({
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
-}));
-
-vi.mock("@agent-native/core/secrets", () => ({
-  readAppSecret: (...args: unknown[]) => mockReadAppSecret(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -190,7 +185,6 @@ const existingSegments = JSON.stringify([
 
 afterEach(() => {
   vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
 });
 
 describe("builderTranscriptionTimeoutMs", () => {
@@ -290,7 +284,6 @@ describe("requestTranscript regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
-    mockReadAppSecret.mockResolvedValue(null);
     mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
     mockSsrfSafeFetch.mockResolvedValue(
@@ -531,43 +524,30 @@ describe("requestTranscript regeneration", () => {
     expect(mockUpdateSet).not.toHaveBeenCalled();
   });
 
-  it("falls back to Groq when Builder returns an empty transcript", async () => {
-    mockReadAppSecret.mockResolvedValue({ value: "groq-test-key" });
+  it("falls back to Builder when native transcription is unavailable", async () => {
     mockTranscribeWithBuilder.mockResolvedValue({
-      text: "",
+      text: "Recovered from the spoken recording.",
       language: "en",
-      segments: [],
+      segments: [
+        {
+          startMs: 0,
+          endMs: 1200,
+          text: "Recovered from the spoken recording.",
+        },
+      ],
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            text: "Recovered from the spoken recording.",
-            language: "en",
-            segments: [
-              {
-                start: 0,
-                end: 1.2,
-                text: "Recovered from the spoken recording.",
-              },
-            ],
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-      ),
-    );
     mockSelectRows.queue = [
       [
         {
-          status: "ready",
-          fullText: "Original transcript.",
-          segmentsJson: existingSegments,
+          status: "failed",
+          fullText: "",
+          segmentsJson: "[]",
           updatedAt: "2026-07-09T00:00:00.000Z",
           language: "en",
           retryCount: 0,
         },
       ],
+      [{ recordingId: "rec_empty" }],
       [
         {
           videoUrl: "https://cdn.example.com/recording.webm",
@@ -577,15 +557,7 @@ describe("requestTranscript regeneration", () => {
           title: "Human title",
         },
       ],
-      [
-        {
-          videoUrl: "https://cdn.example.com/recording.webm",
-          videoFormat: "webm",
-          hasAudio: true,
-          durationMs: 1200,
-          title: "Human title",
-        },
-      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
       [{ recordingId: "rec_empty" }],
       [{ title: "Human title", titleSource: "manual", description: "Saved" }],
     ];
@@ -593,25 +565,19 @@ describe("requestTranscript regeneration", () => {
     const result = await requestTranscript.run({
       recordingId: "rec_empty",
       force: true,
-      regenerate: true,
     });
 
     expect(result).toMatchObject({
       recordingId: "rec_empty",
       status: "ready",
-      provider: "groq",
+      provider: "builder",
     });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "ready",
         fullText: "Recovered from the spoken recording.",
         failureReason: null,
-      }),
-    );
-    expect(mockWriteAppState).toHaveBeenCalledWith(
-      "transcript-cleanup-rec_empty",
-      expect.objectContaining({
-        status: "builder-transcription-empty",
       }),
     );
   });

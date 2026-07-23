@@ -402,9 +402,14 @@ export interface RealtimeVoiceModeInlineSettings {
 const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
 const WAVEFORM_WEIGHTS = [0.55, 0.82, 1, 0.82, 0.55];
 const AUDIO_ACTIVITY_THRESHOLD = 0.1;
+const WORKING_GLOW_HOLD_MS = 800;
 
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
+  );
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -717,6 +722,7 @@ export function RealtimeVoiceModeDock({
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workingGlowHeld, setWorkingGlowHeld] = useState(state === "working");
   const glowRef = useRef<HTMLSpanElement>(null);
   const glowAnimationRef = useRef<Animation | null>(null);
   const selectInteractionRef = useRef(false);
@@ -746,6 +752,20 @@ export function RealtimeVoiceModeDock({
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const controlsVisible = controlsOpen || settingsOpen;
   const chatPanelTranslation = useChatPanelTranslation(chatVisible);
+  const workingGlowActive = state === "working" || workingGlowHeld;
+
+  useEffect(() => {
+    if (state === "working") {
+      setWorkingGlowHeld(true);
+      return;
+    }
+    if (!workingGlowHeld) return;
+    const timer = window.setTimeout(
+      () => setWorkingGlowHeld(false),
+      WORKING_GLOW_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state, workingGlowHeld]);
 
   useEffect(() => {
     if (!connected || reducedMotion || !glowRef.current) {
@@ -775,13 +795,13 @@ export function RealtimeVoiceModeDock({
   useEffect(() => {
     const animation = glowAnimationRef.current;
     if (!animation) return;
-    const playbackRate = state === "working" ? 2.4 : 1;
+    const playbackRate = workingGlowActive ? 2.4 : 1;
     if (typeof animation.updatePlaybackRate === "function") {
       animation.updatePlaybackRate(playbackRate);
     } else {
       animation.playbackRate = playbackRate;
     }
-  }, [state]);
+  }, [workingGlowActive]);
 
   const handleSelectOpenChange = useCallback((open: boolean) => {
     if (selectInteractionFrameRef.current !== null) {
@@ -967,7 +987,7 @@ export function RealtimeVoiceModeDock({
                   data-realtime-voice-glow="true"
                   className={cn(
                     "agent-realtime-voice-glow",
-                    state === "working" && "agent-realtime-voice-working",
+                    workingGlowActive && "agent-realtime-voice-working",
                   )}
                 />
               ) : null}

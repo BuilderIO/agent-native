@@ -70,8 +70,11 @@
 .agent-realtime-voice-glow::before {
   inset: -1px;
   opacity: var(--agent-realtime-voice-halo-opacity);
-  padding: 4px;
-  filter: blur(8px);
+  padding: 2px;
+  filter: blur(1px) drop-shadow(0 0 2px oklch(0.9 0.07 215 / 0.95))
+    drop-shadow(0 0 6px oklch(0.78 0.15 236 / 0.82))
+    drop-shadow(0 0 14px oklch(0.67 0.2 258 / 0.48))
+    drop-shadow(0 0 28px oklch(0.62 0.18 276 / 0.26));
   mix-blend-mode: plus-lighter;
 }
 

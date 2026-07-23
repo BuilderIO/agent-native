@@ -565,6 +565,26 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
     ]);
   });
 
+  it("accepts a completed function output item as a provider fallback", () => {
+    expect(
+      extractRealtimeVoiceFunctionCalls({
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          name: "navigate",
+          call_id: "call-output-item",
+          arguments: '{"path":"/todos"}',
+        },
+      }),
+    ).toEqual([
+      {
+        name: "navigate",
+        callId: "call-output-item",
+        argumentsText: '{"path":"/todos"}',
+      },
+    ]);
+  });
+
   it("ignores function items from failed or cancelled responses", () => {
     const output = [
       {
