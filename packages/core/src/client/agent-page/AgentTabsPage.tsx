@@ -691,6 +691,7 @@ export function AgentTabsPage({
   value,
   onValueChange,
 }: AgentTabsPageProps) {
+  const t = useT();
   const { data: org } = useOrg();
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
