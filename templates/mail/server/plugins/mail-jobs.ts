@@ -48,7 +48,7 @@ async function processJobs(): Promise<void> {
   const due = await getDuePendingJobs(now);
 
   for (const job of due) {
-    await markJobProcessing(job.id);
+    if (!(await markJobProcessing(job.id))) continue;
 
     try {
       const ownerEmail = job.ownerEmail || job.accountEmail;

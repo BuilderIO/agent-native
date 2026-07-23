@@ -722,7 +722,7 @@ export async function sendScheduledJobNowForOwner(
     throw new Error(`Scheduled email is already ${job.status}`);
   }
 
-  await db
+  const claim = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
     .where(
@@ -732,6 +732,9 @@ export async function sendScheduledJobNowForOwner(
         eq(schema.scheduledJobs.status, "pending"),
       ),
     );
+  if (claim.rowsAffected === 0) {
+    throw new Error("Scheduled email is already processing");
+  }
 
   try {
     await sendScheduledEmail(
@@ -769,11 +772,12 @@ export async function markJobDone(id: string): Promise<void> {
     .where(eq(schema.scheduledJobs.id, id));
 }
 
-export async function markJobProcessing(id: string): Promise<void> {
-  await db
+export async function markJobProcessing(id: string): Promise<boolean> {
+  const result = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
     .where(eq(schema.scheduledJobs.id, id));
+  return result.rowsAffected > 0;
 }
 
 export async function getDuePendingJobs(
