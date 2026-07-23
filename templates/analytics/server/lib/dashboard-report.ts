@@ -442,13 +442,13 @@ async function waitForDashboardReportReady(
         };
       })()`)
       .catch(() => null);
+    const captureDiagnostics = { consoleErrors, failedRequests };
     const message = detail
       ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify({
           ...detail,
-          consoleErrors,
-          failedRequests,
+          ...captureDiagnostics,
         })}`
-      : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
+      : `${err?.message ?? String(err)}; dashboard page was not inspectable; capture diagnostics: ${JSON.stringify(captureDiagnostics)}`;
     throw new Error(message);
   }
 }
