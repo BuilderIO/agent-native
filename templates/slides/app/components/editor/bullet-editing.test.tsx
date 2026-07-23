@@ -83,6 +83,66 @@ describe("styled bullet editing", () => {
     expect(newRow.children[1].textContent).toBe(" point");
   });
 
+  it("preserves inline formatting when the tail moves to the new bullet", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div style="font-size:22px;"><span style="font-size:8px;">\u25CF</span><span>Hello <strong>bold tail</strong></span></div>' +
+      '<div style="font-size:22px;"><span style="font-size:8px;">\u25CF</span><span>Second</span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const textSpan = list.children[0].children[1] as HTMLElement;
+    const leadingText = textSpan.firstChild as Text;
+    placeCaret(leadingText, leadingText.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    expect(list.children.length).toBe(3);
+
+    expect(textSpan.textContent).toBe("Hello ");
+    const newRow = list.children[1] as HTMLElement;
+    const newText = newRow.children[1] as HTMLElement;
+    expect(newText.querySelector("strong")).not.toBeNull();
+    expect(newText.querySelector("strong")?.textContent).toBe("bold tail");
+  });
+
+  it("preserves formatting when splitting inside a formatted run", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +
+      '<div style="font-size:22px;"><span style="font-size:8px;">\u25CF</span><span><strong>bold tail</strong></span></div>' +
+      "</div></div>";
+    const list = document.querySelector(".bullets") as HTMLElement;
+    const strong = list.children[0].children[1].firstChild as HTMLElement;
+    const strongText = strong.firstChild as Text;
+    placeCaret(strongText, "bold".length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    expect(list.children.length).toBe(2);
+
+    const headStrong = list.children[0].children[1].querySelector("strong");
+    expect(headStrong?.textContent).toBe("bold");
+    const tailStrong = list.children[1].children[1].querySelector("strong");
+    expect(tailStrong?.textContent).toBe(" tail");
+  });
+
+  it("does not blank the marker when the caret is inside the marker glyph", () => {
+    const { list } = setup();
+    const firstRow = list.children[0] as HTMLElement;
+    const markerText = firstRow.children[0].firstChild as Text;
+    placeCaret(markerText, 0);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    expect(list.children.length).toBe(4);
+
+    expect(firstRow.children[0].textContent).toBe("\u25CF");
+    expect(firstRow.children[1].textContent).toBe("First point");
+    expect(isBulletRow(firstRow)).toBe(true);
+
+    const newRow = list.children[1] as HTMLElement;
+    expect(isBulletRow(newRow)).toBe(true);
+    expect((newRow.children[1].textContent ?? "").replace(/\u200B/g, "")).toBe(
+      "",
+    );
+  });
+
   it("recognizes a list when a row's text is a bare text node", () => {
     document.body.innerHTML =
       '<div class="slide-content"><div class="bullets" style="display:flex;flex-direction:column;">' +

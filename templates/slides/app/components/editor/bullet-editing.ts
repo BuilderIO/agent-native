@@ -84,48 +84,66 @@ export function findEnclosingList(
   return null;
 }
 
+/** The non-marker text container of a row: a dedicated text <span> if present,
+ * otherwise the row itself (rows whose text is a bare node). */
+function rowTextContainer(
+  row: HTMLElement,
+  marker: HTMLElement | null,
+): HTMLElement {
+  const textSpan = Array.from(row.children).find(
+    (c) => c.tagName === "SPAN" && c !== marker && !isBulletMarker(c),
+  ) as HTMLElement | undefined;
+  return textSpan ?? row;
+}
+
 /**
- * Seed a freshly-inserted row with the given tail text and place the caret at
- * the start of its editable text. The text is written into a real text node
- * inside the row's non-marker text span so typed characters inherit the row's
- * font size (an empty inline span would drop the caret to the container).
+ * Seed a freshly-inserted row with the caret's trailing content and place the
+ * caret at the start of its editable text. `tail` is a DOM fragment (not a
+ * string) so inline formatting such as <strong>/<em> carried over from the
+ * split point is preserved. When there is no tail, a zero-width space text node
+ * keeps the caret inside the font-carrying text span rather than dropping it to
+ * the container.
  */
-function primeNewRow(row: HTMLElement, tail: string): void {
+function primeNewRow(row: HTMLElement, tail: DocumentFragment | null): void {
   const marker =
     row.firstElementChild && isBulletMarker(row.firstElementChild)
       ? (row.firstElementChild as HTMLElement)
       : null;
-  const textSpan = Array.from(row.children).find(
-    (c) => c.tagName === "SPAN" && c !== marker && !isBulletMarker(c),
-  ) as HTMLElement | undefined;
+  const container = rowTextContainer(row, marker);
 
-  const initial = tail.length > 0 ? tail : ZERO_WIDTH_SPACE;
-  const textNode = document.createTextNode(initial);
-
-  if (textSpan) {
-    // Reset only the text span; the marker span is a sibling and is preserved.
-    textSpan.replaceChildren(textNode);
+  // Clear existing text content, preserving the marker glyph.
+  if (container !== row) {
+    container.replaceChildren();
   } else {
-    // No dedicated text span (text is a bare node): keep the marker, drop
-    // everything after it, then append the fresh text so it inherits the row.
     while (marker?.nextSibling) marker.nextSibling.remove();
     if (!marker) row.replaceChildren();
-    row.appendChild(textNode);
   }
+
+  const firstTailNode = tail?.firstChild ?? null;
+  if (tail && firstTailNode) container.appendChild(tail);
 
   const sel = window.getSelection();
   if (!sel) return;
   const range = document.createRange();
-  range.setStart(textNode, tail.length > 0 ? 0 : ZERO_WIDTH_SPACE.length);
+  if (firstTailNode) {
+    // Caret at the very start of the moved tail (before the marker is not
+    // possible: setStartBefore anchors relative to the tail's first node).
+    range.setStartBefore(firstTailNode);
+  } else {
+    const zws = document.createTextNode(ZERO_WIDTH_SPACE);
+    container.appendChild(zws);
+    range.setStart(zws, ZERO_WIDTH_SPACE.length);
+  }
   range.collapse(true);
   sel.removeAllRanges();
   sel.addRange(range);
 }
 
 /**
- * Insert a new list item after the caret's current row. Text after the caret
- * moves into the new row; the marker glyph is preserved. Returns false when
- * the caret isn't inside a direct row of the list so the caller can fall back.
+ * Insert a new list item after the caret's current row. Content after the caret
+ * moves into the new row (with inline formatting preserved); the marker glyph is
+ * preserved on both rows. Returns false when the caret isn't inside a direct row
+ * of the list so the caller can fall back.
  */
 export function insertBulletAfterCaret(list: HTMLElement): boolean {
   const sel = window.getSelection();
@@ -144,12 +162,27 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
   }
   if (!row) return false;
 
-  let tail = "";
-  const caretNode = range.endContainer;
-  if (caretNode.nodeType === Node.TEXT_NODE) {
-    const full = caretNode.textContent ?? "";
-    tail = full.slice(range.endOffset);
-    caretNode.textContent = full.slice(0, range.endOffset);
+  const marker =
+    row.firstElementChild && isBulletMarker(row.firstElementChild)
+      ? (row.firstElementChild as HTMLElement)
+      : null;
+
+  // Never split inside the marker glyph itself: a caret at offset 0 of the "●"
+  // text node (e.g. clicking the marker's leading edge) would otherwise blank
+  // the marker and un-bullet the row. In that case add an empty bullet instead.
+  const caretInMarker = !!marker && marker.contains(range.endContainer);
+
+  const container = rowTextContainer(row, marker);
+  let tail: DocumentFragment | null = null;
+  if (!caretInMarker && container.contains(range.endContainer)) {
+    const tailRange = document.createRange();
+    tailRange.setStart(range.endContainer, range.endOffset);
+    const lastChild = container.lastChild;
+    if (lastChild) tailRange.setEndAfter(lastChild);
+    else tailRange.setEnd(container, container.childNodes.length);
+    // extractContents() moves the trailing DOM subtree (preserving <strong>/
+    // <em>) out of the original row so it can be reparented into the new one.
+    tail = tailRange.extractContents();
   }
 
   const newRow = row.cloneNode(true) as HTMLElement;
