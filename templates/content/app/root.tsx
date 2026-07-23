@@ -26,7 +26,7 @@ import type { ListContentDatabasesResponse } from "@shared/api";
 import {
   IconDatabase,
   IconDeviceDesktop,
-  IconBrain,
+  IconHierarchy2,
   IconFileText,
   IconFolderOpen,
   IconLoader2,
@@ -539,7 +539,7 @@ function ContentCommandMenu({
     >
       <CommandMenu.Group heading={t("root.commandContent")}>
         <CommandMenu.Item onSelect={() => navigate("/agent")}>
-          <IconBrain size={16} />
+          <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>

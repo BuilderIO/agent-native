@@ -35,9 +35,12 @@ describe("agent model config catalog", () => {
     );
   });
 
-  it("keeps the builder default in sync with the anthropic default", () => {
+  it("uses Luna for Builder/OpenAI defaults and Sonnet for Anthropic", () => {
     expect(DEFAULT_MODEL).toBe(BUILDER_MODEL_CONFIG.defaultModel);
-    expect(DEFAULT_MODEL).toBe(DEFAULT_ANTHROPIC_MODEL);
+    expect(DEFAULT_MODEL).toBe("gpt-5-6-luna");
+    expect(DEFAULT_OPENAI_MODEL).toBe("gpt-5.6-luna");
+    expect(DEFAULT_MODEL).not.toBe(DEFAULT_ANTHROPIC_MODEL);
+    expect(DEFAULT_ANTHROPIC_MODEL).toBe("claude-sonnet-5");
     expect(ANTHROPIC_MODEL_CONFIG.defaultModel).toBe(DEFAULT_ANTHROPIC_MODEL);
   });
 
@@ -137,21 +140,33 @@ describe("agent model config catalog", () => {
       (BUILDER_MODEL_CONFIG.supportedModels as readonly string[]).filter(
         (model) => model.startsWith("gpt-"),
       ),
-    ).toEqual(["gpt-5-6-sol", "gpt-5-6-terra", "gpt-5-6-luna"]);
+    ).toEqual(["gpt-5-6-luna", "gpt-5-6-terra", "gpt-5-6-sol"]);
     expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual([
-      "gpt-5.6-sol",
-      "gpt-5.6-terra",
       "gpt-5.6-luna",
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
     ]);
     expect(
       (
         AI_SDK_MODEL_CONFIG.openrouter.supportedModels as readonly string[]
       ).filter((model) => model.startsWith("openai/gpt-")),
     ).toEqual([
-      "openai/gpt-5.6-sol",
-      "openai/gpt-5.6-terra",
       "openai/gpt-5.6-luna",
+      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-sol",
     ]);
+  });
+
+  it("orders Anthropic catalogs from cheapest to most expensive", () => {
+    expect(ANTHROPIC_MODEL_CONFIG.supportedModels).toEqual([
+      "claude-haiku-4-5-20251001",
+      "claude-sonnet-5",
+      "claude-opus-4-8",
+      "claude-fable-5",
+    ]);
+    expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).toEqual(
+      ANTHROPIC_MODEL_CONFIG.supportedModels,
+    );
   });
 
   it("does not contain decommissioned Groq models", () => {

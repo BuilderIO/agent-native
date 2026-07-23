@@ -487,6 +487,7 @@ const messages = {
     makePublicAndCopy: "공개로 전환하고 복사",
     copy: "복사",
     addPeopleByEmail: "이메일로 사람 추가",
+    invite: "초대",
     notifyPeople: "사람들에게 알림",
     peopleWithAccess: "액세스 권한이 있는 사람",
     ownerRole: "소유자",

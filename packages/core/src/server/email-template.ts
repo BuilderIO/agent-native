@@ -18,6 +18,10 @@
  *   });
  */
 
+import { getAppName } from "./app-name.js";
+
+export const AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID = "agent-native-logo";
+
 export interface EmailCta {
   label: string;
   url: string;
@@ -48,6 +52,8 @@ export interface RenderEmailArgs {
   tagline?: string;
   /** Muted text under the CTA (e.g. expiry note). */
   footer?: string;
+  /** Optional app name shown beside the framework logo. */
+  brandName?: string;
   /**
    * Optional brand hex color for the CTA button and inline links. Defaults to
    * a monochrome near-white button with dark text.
@@ -90,6 +96,7 @@ const SECONDARY_TEXT_STYLE = "font-size:16px; line-height:1.6; color:#d4d4d8;";
 export function renderEmail(args: RenderEmailArgs): RenderedEmail {
   const preheader = args.preheader || "";
   const brand = sanitizeHexColor(args.brandColor);
+  const brandName = args.brandName?.trim() || getAppName() || "Agent Native";
 
   // Monochrome default: near-white button with dark text. Brand override:
   // colored button with white text.
@@ -188,6 +195,16 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
     ? `<p style="margin:16px 0 0 0; ${SECONDARY_TEXT_STYLE}">${escapeHtml(args.footer)}</p>`
     : "";
 
+  const brandHeaderHtml = `
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 28px 0; padding:0 0 24px 0; border-bottom:1px solid #27272a;">
+                  <tr>
+                    <td align="center">
+                      <img src="cid:${AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID}" alt="${escapeAttr(brandName)}" width="28" height="28" style="display:inline-block; vertical-align:middle; width:28px; height:28px; margin:0 8px 0 0; border:0;" />
+                      <span style="font-size:18px; line-height:28px; font-weight:600; color:#fafafa; vertical-align:middle;">${escapeHtml(brandName)}</span>
+                    </td>
+                  </tr>
+                </table>`;
+
   const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
@@ -213,7 +230,7 @@ export function renderEmail(args: RenderEmailArgs): RenderedEmail {
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:560px;">
             <tr>
               <td style="background-color:#141417; border:1px solid #27272a; border-radius:16px; padding:36px 36px 32px 36px;">
-                ${logoHtml}
+                ${args.logoUrl ? logoHtml : brandHeaderHtml}
                 ${imageHtml}
                 <h1 style="margin:0 0 20px 0; font-size:24px; line-height:1.3; font-weight:600; color:#fafafa; letter-spacing:-0.02em;">
                   ${escapeHtml(args.heading)}

@@ -92,7 +92,11 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !chatRoute,
   });
-  useAgentChatHomeHandoffLinks({ storageKey: "plans", chatPath: "/" });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "plans",
+    chatPath: "/",
+    requireActiveHandoff: true,
+  });
   const hideAppNavigation = planDetailRoute && planReaderImmersive;
   const effectiveSidebarCollapsed = chatRoute
     ? chatSidebarCollapsed
@@ -149,7 +153,7 @@ export function Layout({ children }: LayoutProps) {
 
   const pageContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden">
-      {ownsToolbar ? (
+      {chatRoute ? null : ownsToolbar ? (
         hideAppNavigation ? null : (
           <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">
             <button

@@ -17,6 +17,9 @@ describe("assessPlanPrompt", () => {
     expect(assessPlanPrompt("Wireframe the settings flow")).toEqual({
       kind: "ui",
     });
+    expect(assessPlanPrompt("Create polished wireframes for checkout")).toEqual(
+      { kind: "ui" },
+    );
   });
 
   it("keeps non-UI requests on the general visual path", () => {

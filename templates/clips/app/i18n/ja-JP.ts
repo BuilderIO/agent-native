@@ -494,6 +494,7 @@ const messages = {
     makePublicAndCopy: "公開してコピーする",
     copy: "コピー",
     addPeopleByEmail: "メールで人を追加",
+    invite: "招待",
     notifyPeople: "人々に通知する",
     peopleWithAccess: "アクセスできる人",
     ownerRole: "所有者",

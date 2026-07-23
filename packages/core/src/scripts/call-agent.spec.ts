@@ -329,16 +329,31 @@ describe("call-agent action", () => {
       }),
     );
     expect(callAgentMock).not.toHaveBeenCalled();
-    expect(send).toHaveBeenCalledWith({
-      type: "agent_call",
-      agent: "Slides",
-      status: "start",
-    });
-    expect(send).toHaveBeenCalledWith({
-      type: "agent_call",
-      agent: "Slides",
-      status: "done",
-    });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call_text",
+        agent: "Slides",
+        text: '{"total":13}',
+        agentCallId: expect.any(String),
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        agent: "Slides",
+        status: "start",
+        agentCallId: expect.any(String),
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call",
+        agent: "Slides",
+        status: "done",
+        agentCallId: expect.any(String),
+        durationMs: expect.any(Number),
+      }),
+    );
   });
 
   it("tells the model to keep polling the same task after a bounded wait", async () => {
@@ -464,16 +479,23 @@ describe("call-agent action", () => {
 
   describe("poll-driven progress", () => {
     // Minimal A2A Task shaped like what callAgent()'s poll passes to onUpdate.
-    const makeTask = (state: string, detailText?: string): any => ({
+    const makeTask = (
+      state: string,
+      detailText?: string,
+      parts: unknown[] = [],
+    ): any => ({
       id: "task-1",
       status: {
         state,
         timestamp: "",
-        ...(detailText
+        ...(detailText || parts.length
           ? {
               message: {
                 role: "agent",
-                parts: [{ type: "text", text: detailText }],
+                parts: [
+                  ...parts,
+                  ...(detailText ? [{ type: "text", text: detailText }] : []),
+                ],
               },
             }
           : {}),
@@ -548,6 +570,45 @@ describe("call-agent action", () => {
           state: "working",
           detail: "Generating slides…",
         });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("treats a claimed processing task as active remote progress", async () => {
+      vi.useFakeTimers();
+      try {
+        let onUpdate: ((task: any) => void) | undefined;
+        let resolveCall: ((value: string) => void) | undefined;
+        callAgentMock.mockImplementation((_url, _msg, opts) => {
+          onUpdate = opts.onUpdate;
+          return new Promise<string>((resolve) => {
+            resolveCall = resolve;
+          });
+        });
+
+        const { run } = await import("./call-agent.js");
+        const send = vi.fn();
+        const pending = run({ agent: "slides", message: "long claimed task" }, {
+          send,
+        } as any);
+        while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        onUpdate!(makeTask("processing", "Rendering the deck…"));
+        resolveCall!("final answer");
+        await pending;
+
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "agent_call_progress",
+            agent: "Slides",
+            state: "processing",
+            elapsedSeconds: 30,
+            detail: "Rendering the deck…",
+            agentCallId: expect.any(String),
+          }),
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -631,6 +692,52 @@ describe("call-agent action", () => {
       );
     });
 
+    it("emits each newer remote activity snapshot once", async () => {
+      let onUpdate: ((task: any) => void) | undefined;
+      let resolveCall: ((value: string) => void) | undefined;
+      callAgentMock.mockImplementation((_url, _msg, opts) => {
+        onUpdate = opts.onUpdate;
+        return new Promise<string>((resolve) => {
+          resolveCall = resolve;
+        });
+      });
+
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+      const pending = run({ agent: "slides", message: "build the deck" }, {
+        send,
+      } as any);
+      while (!onUpdate) await Promise.resolve();
+
+      const activityPart = (sequence: number) => ({
+        type: "data",
+        data: {
+          kind: "agent-native/agent-activity",
+          version: 1,
+          sequence,
+          startedAt: 1_000,
+          updatedAt: 1_000 + sequence,
+          durationMs: sequence,
+          activePhase: "tool",
+          reasoning: [],
+          toolCalls: [{ id: "search-1", name: "search", status: "running" }],
+        },
+      });
+
+      onUpdate!(makeTask("working", undefined, [activityPart(1)]));
+      onUpdate!(makeTask("working", undefined, [activityPart(1)]));
+      onUpdate!(makeTask("working", undefined, [activityPart(2)]));
+      resolveCall!("finished");
+      await pending;
+
+      const activityEvents = send.mock.calls
+        .map(([event]) => event)
+        .filter((event: any) => event.type === "agent_call_activity");
+      expect(
+        activityEvents.map((event: any) => event.snapshot.sequence),
+      ).toEqual([1, 2]);
+    });
+
     it("emits NOTHING when the remote poll throws (getTask rejects)", async () => {
       callAgentMock.mockRejectedValueOnce(new Error("fetch failed"));
       const { run } = await import("./call-agent.js");
@@ -672,6 +779,84 @@ describe("call-agent action", () => {
           .map(([e]) => e)
           .filter((e: any) => e.type === "agent_call_progress");
         expect(progress).toHaveLength(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("allows a terminal poll update without message parts to complete", async () => {
+      callAgentMock.mockImplementation(async (_url, _message, opts) => {
+        opts.onUpdate({
+          id: "task-1",
+          status: {
+            state: "completed",
+            timestamp: "",
+            message: { role: "agent" },
+          },
+        });
+        return "terminal answer";
+      });
+
+      const { run } = await import("./call-agent.js");
+      const send = vi.fn();
+
+      const result = await run({ agent: "slides", message: "x" }, {
+        send,
+      } as any);
+
+      expect(result).toBe("terminal answer");
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "agent_call",
+          agent: "Slides",
+          status: "done",
+        }),
+      );
+    });
+
+    it("allows a working poll update with non-array message parts", async () => {
+      vi.useFakeTimers();
+      try {
+        let onUpdate: ((task: any) => void) | undefined;
+        let resolveCall: ((value: string) => void) | undefined;
+        callAgentMock.mockImplementation((_url, _message, opts) => {
+          onUpdate = opts.onUpdate;
+          return new Promise<string>((resolve) => {
+            resolveCall = resolve;
+          });
+        });
+
+        const { run } = await import("./call-agent.js");
+        const send = vi.fn();
+        const pending = run({ agent: "slides", message: "x" }, {
+          send,
+        } as any);
+        while (!onUpdate) await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(40_000);
+
+        expect(() =>
+          onUpdate!({
+            id: "task-1",
+            status: {
+              state: "working",
+              timestamp: "",
+              message: { role: "agent", parts: {} },
+            },
+          }),
+        ).not.toThrow();
+        resolveCall!("terminal answer");
+        await pending;
+
+        expect(
+          send.mock.calls
+            .map(([event]) => event)
+            .find((event: any) => event.type === "agent_call_progress"),
+        ).toEqual(
+          expect.objectContaining({
+            type: "agent_call_progress",
+            state: "working",
+          }),
+        );
       } finally {
         vi.useRealTimers();
       }

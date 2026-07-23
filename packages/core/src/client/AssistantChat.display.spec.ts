@@ -1604,6 +1604,47 @@ describe("shouldShowGlobalRunningStatus", () => {
     ).toBe(false);
   });
 
+  it("lets a resolved final tool carry the active state without duplicate Thinking", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checked the schema." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "db-query",
+              argsText: "{}",
+              args: {},
+              result: "done",
+            },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(false);
+  });
+
+  it("shows Thinking after completed reasoning when no tool carries the active state", () => {
+    expect(
+      shouldShowGlobalRunningStatus({
+        showRunningInUI: true,
+        runningActivityLabel: null,
+        latestMessage: {
+          role: "assistant",
+          content: [
+            { type: "reasoning", text: "Checked the schema." },
+            { type: "text", text: "Interim update." },
+          ],
+        },
+        reconnectContent: [],
+      }),
+    ).toBe(true);
+  });
+
   it("keeps a specific activity status when only a different tool card is visible", () => {
     expect(
       shouldShowGlobalRunningStatus({
@@ -1687,7 +1728,7 @@ describe("chat submit and stop hardening", () => {
     );
   });
 
-  it("does not block chat composer submit on the async readiness hook", () => {
+  it("keeps chat composer readiness passive and eager", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -1695,20 +1736,22 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain(
       "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
     );
+    expect(source).not.toContain("fetchAgentEngineConfiguredState(");
+    expect(source).not.toContain("ensureAgentEngineReadyForSubmit");
     expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+    expect(source).not.toContain("isProviderStatusChecking");
+    expect(source).not.toContain("checkingAiConnection");
   });
 
-  it("keeps the chat composer editable while provider readiness is loading", () => {
+  it("makes the chat composer retryable when provider readiness is unavailable", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
     expect(source).toContain(
-      "const isComposerDisabled = missingApiKey || composerDisabled;",
+      "missingApiKey || isProviderStatusUnavailable || composerDisabled",
     );
-    expect(source).not.toContain(
-      "missingApiKey || isProviderStatusChecking || composerDisabled",
-    );
+    expect(source).not.toContain("UNKNOWN_STATUS_RETRY_MS");
   });
 
   it("clears queued follow-ups and settles stopped tool calls by default", () => {
@@ -1939,6 +1982,7 @@ describe("waitForThreadRunToClear", () => {
       }),
     ]);
     expect(reconnectActivityFallbackContent("")).toEqual([]);
+    expect(reconnectActivityFallbackContent("call-agent")).toEqual([]);
   });
 
   it("rehydrates reconnect activity from active-run state", () => {

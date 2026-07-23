@@ -14,9 +14,9 @@ import {
   ComposerPrimitive,
   useMessagePartReasoning,
   useMessagePartRuntime,
+  useAuiState,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
-import { useAuiState } from "@assistant-ui/store";
 import {
   IconX,
   IconCheck,
@@ -64,6 +64,10 @@ import {
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
+import {
+  isCallAgentToolCallShadowed,
+  shadowedCallAgentToolCallIds,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
 import {
   MarkdownText,
@@ -71,6 +75,7 @@ import {
 } from "./markdown-renderer.js";
 import {
   ToolCallFallback,
+  ToolActivityPresentation,
   FilesChangedSummary,
   ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
@@ -116,6 +121,9 @@ interface FormattedMessageTimestamp {
   short: string;
   full: string;
 }
+
+const messageFooterFadeClassName =
+  "opacity-0 transition-[color,opacity] duration-150 group-hover:opacity-100 group-focus-within:opacity-100";
 
 function coerceMessageDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -788,7 +796,7 @@ export function UserMessage() {
           {timestamp && (
             <MessageTimestamp
               timestamp={timestamp}
-              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              className={messageFooterFadeClassName}
             />
           )}
         </div>
@@ -840,12 +848,33 @@ export function messageTextFromContent(content: unknown): string {
     .join("\n");
 }
 
-function latestUserMessageText(messages: readonly unknown[]): string {
+export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
     const record = message as { role?: unknown; content?: unknown };
-    if (record.role === "user") return messageTextFromContent(record.content);
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
+  }
+  return "";
+}
+
+export function userMessageTextBeforeAssistant(
+  messages: readonly unknown[],
+  assistantMessageId: string,
+): string {
+  const assistantIndex = messages.findIndex((message) => {
+    if (!message || typeof message !== "object") return false;
+    return (message as { id?: unknown }).id === assistantMessageId;
+  });
+  if (assistantIndex < 1) return "";
+
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
   }
   return "";
 }
@@ -859,19 +888,78 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   });
 }
 
+export function assistantMessageHasCompletedCustomUi(
+  content: unknown,
+): boolean {
+  if (!Array.isArray(content)) return false;
+  let lastTextIndex = -1;
+  for (let index = 0; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part &&
+      typeof part === "object" &&
+      (part as { type?: unknown }).type === "text"
+    ) {
+      lastTextIndex = index;
+    }
+  }
+  let hasCompletedTool = false;
+  let lastCompletedToolIsCustomUi = false;
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (!part || typeof part !== "object") continue;
+    const record = part as {
+      type?: unknown;
+      result?: unknown;
+      isError?: unknown;
+      activity?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    if (
+      record.type !== "tool-call" ||
+      record.activity === true ||
+      record.result === undefined ||
+      record.isError === true
+    ) {
+      continue;
+    }
+    hasCompletedTool = true;
+    lastCompletedToolIsCustomUi =
+      record.chatUI !== undefined || record.mcpApp !== undefined;
+  }
+  return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
+export function assistantMessageHasCustomUi(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as {
+      type?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    return (
+      record.type === "tool-call" &&
+      (record.chatUI !== undefined || record.mcpApp !== undefined)
+    );
+  });
+}
+
 // Only the last assistant message may shimmer as "the currently running
 // tool" — an older message's dangling unresolved tool-call must never
 // shimmer once a later run is active.
-export function computeLatestRunningToolCallId(
+export function computeActiveTailToolCallId(
   content: ContentPart[] | undefined,
   { chatRunning, isLast }: { chatRunning: boolean; isLast: boolean },
 ): string | null {
   if (!isLast) return null;
   return (
     content?.reduce(
-      (latestToolCallId, part) =>
+      (latestToolCallId, part, index) =>
         part.type === "tool-call" &&
-        part.result === undefined &&
+        !isCallAgentToolCallShadowed(content, index) &&
         (chatRunning || part.activity === true)
           ? part.toolCallId
           : latestToolCallId,
@@ -898,6 +986,25 @@ export function shouldShowAssistantMessageFooter({
   if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
   return statusIsTerminal;
+}
+
+export function shouldShowMissingFinalResponse({
+  statusIsTerminal,
+  hasAssistantText,
+  hasUnresolvedTool,
+  hasCompletedCustomUi,
+}: {
+  statusIsTerminal: boolean;
+  hasAssistantText: boolean;
+  hasUnresolvedTool: boolean;
+  hasCompletedCustomUi?: boolean;
+}): boolean {
+  return (
+    statusIsTerminal &&
+    !hasAssistantText &&
+    !hasUnresolvedTool &&
+    !hasCompletedCustomUi
+  );
 }
 
 export function shouldShowAssistantWorkSummary({
@@ -966,19 +1073,34 @@ const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
 export function isCollapsibleAssistantWorkPart(part: {
   type?: string;
   toolName?: string;
+  chatUI?: unknown;
+  mcpApp?: unknown;
 }): boolean {
   if (part.type === "reasoning") return true;
   return (
     part.type === "tool-call" &&
-    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "")
+    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
+    part.chatUI === undefined &&
+    part.mcpApp === undefined
   );
 }
 
 export function getAssistantToolSummaryInfo(
-  parts: readonly { type?: string; toolName?: string }[],
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
 ): { startIndex: number; hiddenToolCount: number } {
   const toolCallIndices = parts.reduce<number[]>((indices, part, index) => {
-    if (part.type === "tool-call" && isCollapsibleAssistantWorkPart(part)) {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(parts, index) &&
+      isCollapsibleAssistantWorkPart(part)
+    ) {
       indices.push(index);
     }
     return indices;
@@ -1001,11 +1123,23 @@ export function getAssistantToolSummaryInfo(
 function groupAssistantWorkParts(
   part: {
     type?: string;
+    toolCallId?: string;
     toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
   },
   index: number,
-  parts: readonly { type?: string; toolName?: string }[],
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
 ): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  if (isCallAgentToolCallShadowed(parts, index)) return null;
   if (isCollapsibleAssistantWorkPart(part)) {
     const { startIndex } = getAssistantToolSummaryInfo(parts);
     if (isAssistantToolSummaryPart(parts, index, startIndex)) {
@@ -1017,16 +1151,29 @@ function groupAssistantWorkParts(
 }
 
 function isAssistantToolSummaryPart(
-  parts: readonly { type?: string; toolName?: string }[],
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
   index: number,
   startIndex: number,
 ): boolean {
   if (startIndex < 0 || index >= startIndex) return false;
-  if (!isCollapsibleAssistantWorkPart(parts[index]!)) return false;
+  if (
+    isCallAgentToolCallShadowed(parts, index) ||
+    !isCollapsibleAssistantWorkPart(parts[index]!)
+  ) {
+    return false;
+  }
 
   let segmentStart = index;
   while (
     segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(parts, segmentStart - 1) &&
     isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
   ) {
     segmentStart--;
@@ -1035,6 +1182,7 @@ function isAssistantToolSummaryPart(
   let segmentEnd = index + 1;
   while (
     segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(parts, segmentEnd) &&
     isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
   ) {
     segmentEnd++;
@@ -1061,12 +1209,26 @@ export function AssistantMessage() {
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
   const responseConnectionText = messageTextFromContent(msg.content);
-  const responseConnectionContext = latestUserMessageText(thread.messages);
+  const statusIsTerminal = assistantMessageStatusIsTerminal(msg);
+  const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
+    msg.content,
+  );
+  const hasCustomUi = assistantMessageHasCustomUi(msg.content);
+  const showMissingFinalResponse = shouldShowMissingFinalResponse({
+    statusIsTerminal,
+    hasAssistantText: responseConnectionText.trim().length > 0,
+    hasUnresolvedTool,
+    hasCompletedCustomUi,
+  });
+  const responseConnectionContext = userMessageTextBeforeAssistant(
+    thread.messages,
+    msg.id,
+  );
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
     hasRenderableContent,
-    statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+    statusIsTerminal,
     hasUnresolvedTool,
   });
   const cpCtx = React.useContext(CheckpointContext);
@@ -1174,11 +1336,15 @@ export function AssistantMessage() {
   const hasCollapsibleWork =
     Array.isArray(msgContent) &&
     msgContent.some(
-      (p) =>
+      (p, index) =>
+        !isCallAgentToolCallShadowed(msgContent, index) &&
         (p.type !== "tool-call" || p.activity !== true) &&
         isCollapsibleAssistantWorkPart(p),
     );
-  const latestRunningToolCallId = computeLatestRunningToolCallId(msgContent, {
+  const shadowedToolCallIds = Array.isArray(msgContent)
+    ? shadowedCallAgentToolCallIds(msgContent)
+    : new Set<string>();
+  const activeTailToolCallId = computeActiveTailToolCallId(msgContent, {
     chatRunning,
     isLast,
   });
@@ -1205,7 +1371,8 @@ export function AssistantMessage() {
                 return (
                   <WorkedForSummary
                     durationMs={capturedDurationMs}
-                    autoCollapse={animateCollapse}
+                    defaultOpen={hasCustomUi}
+                    autoCollapse={animateCollapse && !hasCustomUi}
                   >
                     {children}
                   </WorkedForSummary>
@@ -1226,25 +1393,36 @@ export function AssistantMessage() {
               case "reasoning":
                 return <ReasoningMessagePart />;
               case "tool-call":
-                return (
-                  part.toolUI ?? (
-                    <ToolCallFallback
-                      {...part}
-                      isLatestRunning={
-                        part.toolCallId === latestRunningToolCallId
-                      }
-                    />
-                  )
+                if (shadowedToolCallIds.has(part.toolCallId)) return null;
+                return part.toolUI ? (
+                  <ToolActivityPresentation
+                    toolName={part.toolName}
+                    isRunning={part.status?.type === "running"}
+                    isActiveTail={part.toolCallId === activeTailToolCallId}
+                  >
+                    {part.toolUI}
+                  </ToolActivityPresentation>
+                ) : (
+                  <ToolCallFallback
+                    {...part}
+                    isActiveTail={part.toolCallId === activeTailToolCallId}
+                  />
                 );
               default:
                 return null;
             }
           }}
         </MessagePrimitive.GroupedParts>
+        {showMissingFinalResponse && (
+          <p role="status" className="text-muted-foreground">
+            The agent stopped without sending a final message. Ask it to
+            continue or retry.
+          </p>
+        )}
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}
-        {isComplete && isLast && (
+        {isComplete && (
           <McpConnectionSuggestion
             text={responseConnectionText}
             contextText={responseConnectionContext}
@@ -1271,7 +1449,7 @@ export function AssistantMessage() {
                       <button
                         type="button"
                         aria-label="Regenerate response"
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         <IconRefresh className="h-3.5 w-3.5" />
                       </button>
@@ -1287,7 +1465,7 @@ export function AssistantMessage() {
             {timestamp && (
               <MessageTimestamp
                 timestamp={timestamp}
-                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                className={messageFooterFadeClassName}
               />
             )}
           </div>

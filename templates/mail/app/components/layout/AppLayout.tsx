@@ -13,7 +13,7 @@ import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
   IconMenu2,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconSearch,
   IconCheck,
@@ -1748,7 +1748,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       <OrgSwitcher />
                     </div>
 
-                    <div className="flex items-center gap-1 px-2 py-2">
+                    <div className="flex items-center justify-end gap-1 px-2 py-2">
                       <DevDatabaseLink />
                       <FeedbackButton className="min-w-0 flex-1" />
                       <Tooltip>
@@ -1763,7 +1763,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                                 "bg-accent/60 text-foreground",
                             )}
                           >
-                            <IconBrain className="h-4 w-4" />
+                            <IconHierarchy2 className="h-4 w-4" />
                           </Link>
                         </TooltipTrigger>
                         <TooltipContent>
@@ -2120,7 +2120,7 @@ function StandardLayout({ children }: AppLayoutProps) {
               <OrgSwitcher />
             </div>
 
-            <div className="flex items-center gap-1 px-2 py-2">
+            <div className="flex items-center justify-end gap-1 px-2 py-2">
               <DevDatabaseLink />
               <FeedbackButton className="min-w-0 flex-1" />
               <div className="flex shrink-0 items-center gap-0.5">
@@ -2136,7 +2136,7 @@ function StandardLayout({ children }: AppLayoutProps) {
                           "bg-accent/60 text-foreground",
                       )}
                     >
-                      <IconBrain className="h-4 w-4" />
+                      <IconHierarchy2 className="h-4 w-4" />
                     </Link>
                   </TooltipTrigger>
                   <TooltipContent>

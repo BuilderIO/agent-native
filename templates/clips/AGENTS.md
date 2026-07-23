@@ -69,7 +69,15 @@ ladder.
   current-user recordings with ready transcripts in the active organization
   and reports exported, quarantined, skipped, and failed counts. Both
   `BRAIN_INGEST_URL` and `BRAIN_INGEST_TOKEN` must be available as scoped Clips
-  secrets.
+  secrets. Transcript completion persists a pending export before handing it to
+  the durable post-finalize worker; delivery receipts include the Brain capture
+  or sensitivity receipt id, while transient failures are swept and retried.
+  The sweep also discovers ready transcripts from the last seven days that
+  predate export-state tracking, in bounded batches, so recent recordings are
+  backfilled after the connection is configured.
+  Netlify builds emit a protected per-minute scheduled sweep because in-process
+  intervals are not durable there. Other serverless hosts must invoke
+  `runBrainExportSweepOnce` from their own scheduler.
 - The transcript embedded by `view-screen` is a bounded preview. If
   `previewTruncated` is true, it may end mid-sentence and does not show where
   transcription ended. Call `get-recording-player-data` before judging
@@ -88,14 +96,16 @@ ladder.
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are
   available.
-- Cloud transcription is fallback-only for Clips recordings and should use the
-  configured Builder/Gemini or Groq paths, not OpenAI.
+- Cloud transcription is fallback-only for Clips recordings. Preserve the
+  browser/macOS native transcript first, then use the configured Builder/Gemini
+  path against the original recording when native capture is unavailable.
 - AI setup must be visible and paid-account-backed: lead with Builder.io Connect
   for managed credits, object storage, uploads, and transcription. BYOK belongs
   in the agent sidebar's API Keys & Connections panel; template settings may
   signpost that panel but should not create a second credential vault.
   Anthropic/OpenAI power the agent chat; Gemini powers cleanup, titles, and
-  meeting notes; Groq powers backup speech-to-text.
+  meeting notes; any optional third-party speech provider is limited to
+  desktop voice dictation and is not used for recording transcripts.
 - Hosted/shared recording uploads require configured storage. Do not preserve
   video bytes in SQL as a production fallback; only local SQLite/dev flows may
   keep scratch chunks while a user connects Builder.io or S3-compatible storage.
@@ -140,9 +150,9 @@ ladder.
   recordings. Do not pivot straight to frames or tell the user there is no
   transcript until the retry budget is exhausted.
 - If transcription failed because Builder transcription credits are exhausted,
-  tell the user that clearly and point them to Builder.io credits/upgrade or a
-  Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
-  not transcribe Clips recordings.
+  tell the user that clearly and point them to Builder.io credits/upgrade.
+  Native browser/macOS capture remains the first transcript source; Builder
+  transcribes the original recording only when native capture is unavailable.
 - Use `get-builder-credit-status` when the user asks whether Builder.io credit
   limits are pausing backup transcription, transcript cleanup, summaries, or AI
   title generation. Treat an exhausted status as an FYI/upgrade path, not an app

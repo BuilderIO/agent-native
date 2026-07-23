@@ -22,7 +22,7 @@
   --muted-foreground: 0 0% 45%;
   --accent: 0 0% 95%;
   --accent-foreground: 0 0% 15%;
-  --destructive: 0 70% 48%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
@@ -53,7 +53,7 @@
   --muted-foreground: 0 0% 60%;
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --destructive: 0 62% 48%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -85,10 +85,6 @@
 }
 
 @container agent-native-main (min-width: 980px) {
-  .brain-settings-general-grid {
-    grid-template-columns: minmax(0, 1fr) 360px;
-  }
-
   .brain-source-card-grid {
     grid-template-columns: minmax(0, 1fr) minmax(20rem, auto) auto;
     align-items: center;
@@ -121,11 +117,6 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.4);
-}
-
-.brain-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
 .brain-chat-intro {

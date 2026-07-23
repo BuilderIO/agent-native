@@ -14,15 +14,27 @@ import {
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
 import { RealtimeVoiceModeEntry } from "./RealtimeVoiceMode.js";
+import type { RealtimeVoiceInputMode } from "./RealtimeVoiceMode.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 import {
   useRealtimeVoiceModeCopy,
   useRealtimeVoiceModeOptional,
 } from "./useRealtimeVoiceMode.js";
 import type { VoiceDictationApi } from "./useVoiceDictation.js";
+
+const VOICE_INPUT_PREFERENCE_KEY = "voice-input-preference";
+
+export function normalizeVoiceInputPreference(
+  value: unknown,
+): RealtimeVoiceInputMode | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const mode = (value as { mode?: unknown }).mode;
+  return mode === "realtime" || mode === "dictation" ? mode : null;
+}
 
 function openOpenAiKeySettings(): void {
   window.location.hash = "#secrets:OPENAI_API_KEY";
@@ -63,6 +75,41 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
     trackingFlow: "voice_transcription",
     onConnected: () => voiceProviders.refresh(),
   });
+  const [inputPreference, setInputPreference] = useState<{
+    ready: boolean;
+    mode: RealtimeVoiceInputMode | null;
+  }>({ ready: false, mode: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve(
+      adapters.voice!.readAppState!(VOICE_INPUT_PREFERENCE_KEY),
+    )
+      .then((value) => {
+        if (!cancelled) {
+          setInputPreference({
+            ready: true,
+            mode: normalizeVoiceInputPreference(value),
+          });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInputPreference({ ready: true, mode: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adapters]);
+
+  const rememberInputPreference = useCallback(
+    (mode: RealtimeVoiceInputMode) => {
+      setInputPreference({ ready: true, mode });
+      void Promise.resolve(
+        adapters.voice!.setAppState!(VOICE_INPUT_PREFERENCE_KEY, { mode }),
+      ).catch(() => undefined);
+    },
+    [adapters],
+  );
 
   if (!supported) return null;
 
@@ -90,6 +137,8 @@ export function VoiceButton({ voice, isMac, disabled }: VoiceButtonProps) {
         }}
         onStartVoiceMode={() => void realtimeVoice.start()}
         onKeepDictating={() => void start()}
+        preferredMode={inputPreference.ready ? inputPreference.mode : null}
+        onRememberPreference={rememberInputPreference}
       />
     );
   }

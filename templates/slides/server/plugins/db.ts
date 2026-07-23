@@ -3,6 +3,8 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { getH3App } from "@agent-native/core/server";
+import { setResponseHeader, setResponseStatus } from "h3";
 
 // Side-effect import: ensures registerShareableResource runs on server
 // startup so the deck / design-system share actions know where to dispatch.
@@ -221,25 +223,50 @@ const runSlidesMigrations = runMigrations(
  * adds missing columns — never drops, renames, or retypes anything — and any
  * failure here is logged and swallowed so it can never fail boot.
  */
-export default async (nitroApp: any): Promise<void> => {
-  await runSlidesMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
+export default (nitroApp: any): void => {
+  const init = (async () => {
+    await runSlidesMigrations(nitroApp);
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
+      // Never fail boot over the safety net itself — the authoritative
+      // migrations above already ran.
       console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
       );
     }
-  } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
+  })();
+
+  // Nitro does not await async plugin returns. Hold the first document/API
+  // requests until migrations finish so a fresh serverless instance cannot
+  // query a schema that is still being created.
+  const ready = init.then(
+    () => null,
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[db] Slides migrations failed:", message);
+      return message;
+    },
+  );
+  const waitForReady = async (event: any) => {
+    const error = await ready;
+    if (!error) return undefined;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "retry-after", "5");
+    return { error: "Slides database is temporarily unavailable" };
+  };
+  const app = getH3App(nitroApp);
+  for (const path of ["/", "/p", "/share", "/api"]) {
+    app.use(path, waitForReady);
   }
 };

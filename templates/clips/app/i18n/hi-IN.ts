@@ -482,6 +482,7 @@ const messages = {
     makePublicAndCopy: "सार्वजनिक करें और कॉपी करें",
     copy: "कॉपी करें",
     addPeopleByEmail: "ईमेल से लोगों को जोड़ें",
+    invite: "आमंत्रित करें",
     notifyPeople: "लोगों को सूचित करें",
     peopleWithAccess: "पहुंच वाले लोग",
     ownerRole: "स्वामी",

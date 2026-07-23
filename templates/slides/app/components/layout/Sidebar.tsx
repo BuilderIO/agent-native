@@ -6,7 +6,7 @@ import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconStack2,
-  IconBrain,
+  IconHierarchy2,
   IconPalette,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
@@ -28,7 +28,7 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
-  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -164,7 +164,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             <OrgSwitcher />
           </div>
 
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 empty:hidden">
             <DevDatabaseLink />
             <FeedbackButton />
           </div>

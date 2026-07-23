@@ -659,6 +659,14 @@ export async function mergeCoreSharingActions(
       () => import("../localization/actions/set-localization-preference.js"),
     ],
     [
+      "get-user-profile",
+      () => import("../user-profile/actions/get-user-profile.js"),
+    ],
+    [
+      "update-user-profile",
+      () => import("../user-profile/actions/update-user-profile.js"),
+    ],
+    [
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],

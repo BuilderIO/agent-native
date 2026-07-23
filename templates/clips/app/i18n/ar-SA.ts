@@ -489,6 +489,7 @@ const messages = {
     makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",
+    invite: "دعوة",
     notifyPeople: "إشعار الأشخاص",
     peopleWithAccess: "الأشخاص الذين لديهم وصول",
     ownerRole: "المالك",

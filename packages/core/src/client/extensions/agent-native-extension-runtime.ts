@@ -127,7 +127,7 @@ const defaultThemeCss = `
   --border: 217.2 32.6% 17.5%;
   --primary: 217.2 91.2% 59.8%;
   --primary-foreground: 222.2 47.4% 11.2%;
-  --destructive: 0 62.8% 30.6%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
 }
 html, body {

@@ -1,17 +1,19 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
+import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 import { addBytesProcessed } from "./cost-tracker";
 
+export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
+
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];
   error?: string;
   schema?: { name: string; type: string }[];
 }
-
-const MAX_CONCURRENT_SQL_QUERIES = 4;
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;
@@ -87,6 +89,7 @@ export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
+  options?: { reportScreenshot?: boolean },
 ): Promise<SqlQueryResult> {
   const release = await acquireSqlQuerySlot(signal);
   let data: DashboardPanelQueryResponse;
@@ -94,7 +97,12 @@ export async function executeSqlQuery(
     data = await callAction<DashboardPanelQueryResponse>(
       "query-dashboard-panel",
       { query: sql, source },
-      { signal },
+      {
+        signal,
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS }
+          : {}),
+      },
     );
   } finally {
     release();
@@ -129,12 +137,16 @@ export function useSqlQuery(
     refetchOnReconnect?: boolean | "always";
     refetchOnWindowFocus?: boolean | "always";
     retry?: boolean | number;
+    reportScreenshot?: boolean;
     staleTime?: number;
   },
 ) {
   return useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: ({ signal }) => executeSqlQuery(sql, source, signal),
+    queryFn: ({ signal }) =>
+      executeSqlQuery(sql, source, signal, {
+        reportScreenshot: options?.reportScreenshot,
+      }),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     refetchOnMount: options?.refetchOnMount ?? false,

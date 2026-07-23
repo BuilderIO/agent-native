@@ -500,6 +500,7 @@ const messages = {
     makePublicAndCopy: "Hacer público y copiar",
     copy: "Copiar",
     addPeopleByEmail: "Agregar personas por correo electrónico",
+    invite: "Invitar",
     notifyPeople: "Notificar a la gente",
     peopleWithAccess: "personas con acceso",
     ownerRole: "Dueño",

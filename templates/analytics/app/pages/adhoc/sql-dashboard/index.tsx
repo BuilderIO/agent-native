@@ -1,5 +1,5 @@
 import { generateTabId } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -248,6 +248,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor,
   editable,
   eagerLoad,
+  reportScreenshot,
   isDragSource,
   selectedForChat,
   selectPanelForChat,
@@ -261,6 +262,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
+  reportScreenshot: boolean;
   isDragSource: boolean;
   selectedForChat: boolean;
   selectPanelForChat: (
@@ -348,9 +350,12 @@ const PanelCell = memo(function PanelCell({
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
         editable={editable}
         eagerLoad={eagerLoad}
+        reportScreenshot={reportScreenshot}
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
+        dashboardId={String(dashboardExtensionContext.dashboardId ?? "")}
+        filters={vars}
         extensionContext={
           panel.chartType === "extension"
             ? {
@@ -1382,6 +1387,11 @@ export default function SqlDashboardPage() {
     [saveView],
   );
 
+  const dashboardShareUrl = useMemo(() => {
+    if (!dashboardId || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/dashboards/" + dashboardId);
+  }, [dashboardId]);
+
   useSetPageTitle(
     reportScreenshot ? null : dashboard ? (
       <div className="flex min-w-0 items-center gap-2">
@@ -1434,6 +1444,7 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            shareUrl={dashboardShareUrl}
             shareTabs={{
               tabs: [
                 {
@@ -1970,6 +1981,7 @@ export default function SqlDashboardPage() {
                                 }
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
+                                reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
                                 selectedForChat={selectedPanelId === panel.id}
                                 selectPanelForChat={selectPanelForChat}

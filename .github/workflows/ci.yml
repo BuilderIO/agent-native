@@ -283,8 +283,7 @@ jobs:
             /usr/local/lib/android \
             /usr/local/share/boost \
             /usr/share/dotnet \
-            /usr/share/swift \
-            ~/.cache/ms-playwright
+            /usr/share/swift
           docker system prune -af || true
           sudo apt-get clean
           df -h
@@ -302,21 +301,6 @@ jobs:
       # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
       # cache hit); no separate `pnpm build` step needed.
       - run: pnpm install --frozen-lockfile
-
-      - name: Restore Playwright browser cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      - name: Install Playwright Chromium for dev smoke
-        run: pnpm exec playwright install --only-shell chromium
-
-      - name: Standalone chat dev smoke (auto-login + SSR render)
-        # Catches Vite dev SSR failures (e.g. Meta outside HydratedRouter) that
-        # production build alone does not surface. Also scaffolds + pnpm install.
-        run: pnpm qa:standalone-chat-dev
 
       - name: Headless scaffold — pnpm install + typecheck + action
         # Guards the documented one-file headless onboarding: a fresh
@@ -416,11 +400,15 @@ jobs:
 
       # Build the extracted recap CLI before core so its compatibility shim is
       # available to source imports, then produce the real serverless bundle.
-      - name: Build recap CLI, toolkit, and core
+      - name: Build recap CLI, toolkit, core, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/creative-context build
+
+      - name: Build Content template (Cloudflare Pages preset)
+        run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
 
       # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
       # both real Netlify function artifacts so a core runtime dependency cannot

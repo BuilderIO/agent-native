@@ -11,8 +11,13 @@ import {
 import { requireRequestCredentialContext } from "./credentials-context";
 import { resolveAnalyticsProviderCredential } from "./provider-credentials";
 
-export const ANALYTICS_PROVIDER_API_IDS = listProviderApiIdsForTemplateUse(
-  "analytics",
+export const ANALYTICS_PROVIDER_API_IDS = Array.from(
+  new Set([
+    ...listProviderApiIdsForTemplateUse("analytics"),
+    // Google Sheets creation and writes use the existing Google Drive OAuth
+    // connection, whose consent is limited to drive.file.
+    "google_drive" as ProviderApiId,
+  ]),
 ) as [ProviderApiId, ...ProviderApiId[]];
 export type AnalyticsProviderApiId = ProviderApiId;
 export type { ProviderApiMethod, ProviderApiRequestArgs };

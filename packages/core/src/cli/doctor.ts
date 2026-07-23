@@ -4,7 +4,7 @@
  * itself via `scripts/guard-*.mjs` (see
  * `advisor-plans/reports/005-doctor-design.md` for the full design and
  * `advisor-plans/015-doctor-v1-implementation.md` for the implementation
- * plan). v1 ships 8 of those guards, ported to work against a single
+ * plan). v1 ships 9 of those guards, ported to work against a single
  * generated app root instead of this monorepo's multi-template layout —
  * see `../guards/index.ts`.
  *
@@ -28,6 +28,7 @@ import {
   scanDrizzlePush,
   scanEnvCredentials,
   scanEnvMutation,
+  scanExplicitCollabAccess,
   scanLocalhostFallback,
   scanUnscopedCredentials,
   scanUnscopedQueries,
@@ -47,6 +48,7 @@ export type GuardName =
   | "db-tool-scoping"
   | "no-env-mutation"
   | "no-localhost-fallback"
+  | "explicit-collab-access"
   | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
@@ -57,6 +59,7 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "db-tool-scoping",
   "no-env-mutation",
   "no-localhost-fallback",
+  "explicit-collab-access",
   "migration-manifest",
 ];
 
@@ -150,6 +153,8 @@ function runGuard(
       return scanEnvMutation({ root });
     case "no-localhost-fallback":
       return scanLocalhostFallback({ root, extraExemptPaths: [] });
+    case "explicit-collab-access":
+      return scanExplicitCollabAccess({ root });
     case "migration-manifest": {
       const imports = scanDeprecatedImports({
         root,

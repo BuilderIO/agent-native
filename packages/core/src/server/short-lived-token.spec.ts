@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
+  signRealtimeSubscribeToken,
   signShortLivedToken,
+  verifyRealtimeSubscribeToken,
   verifyShortLivedToken,
 } from "./short-lived-token.js";
 
@@ -104,5 +106,81 @@ describe("short-lived-token", () => {
       ok: false,
       reason: "bad_signature",
     });
+  });
+});
+
+describe("realtime subscribe token", () => {
+  const KEY_A = "project-a-hmac-secret";
+  const KEY_B = "project-b-hmac-secret";
+
+  afterEach(() => vi.useRealTimers());
+
+  it("verifies against the same project + key and returns identity claims", () => {
+    const token = signRealtimeSubscribeToken(
+      { projectId: "proj_a", owner: "alice@example.com", orgId: "org-1" },
+      KEY_A,
+    );
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toEqual({
+      ok: true,
+      projectId: "proj_a",
+      owner: "alice@example.com",
+      orgId: "org-1",
+      exp: expect.any(Number),
+    });
+  });
+
+  it("rejects a token for project A verified on project B's channel", () => {
+    const token = signRealtimeSubscribeToken(
+      { projectId: "proj_a", owner: "u@example.com" },
+      KEY_A,
+    );
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_b", key: KEY_A }),
+    ).toEqual({ ok: false, reason: "wrong_project" });
+  });
+
+  it("rejects a token signed with a different project's key", () => {
+    const token = signRealtimeSubscribeToken(
+      { projectId: "proj_a", owner: "u@example.com" },
+      KEY_A,
+    );
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_B }),
+    ).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("does not verify as (or accept) a media token — distinct type", () => {
+    const media = signShortLivedToken({ resourceId: "proj_a" });
+    expect(
+      verifyRealtimeSubscribeToken(media, { projectId: "proj_a", key: KEY_A }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("rejects an expired token", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000_000_000);
+    const token = signRealtimeSubscribeToken(
+      { projectId: "proj_a", owner: "u@example.com", ttlSeconds: 60 },
+      KEY_A,
+    );
+    vi.setSystemTime(1_000_000_000_000 + 61_000);
+    expect(
+      verifyRealtimeSubscribeToken(token, { projectId: "proj_a", key: KEY_A }),
+    ).toEqual({ ok: false, reason: "expired" });
+  });
+
+  it("refuses to sign a token with no owner/orgId identity", () => {
+    expect(() =>
+      signRealtimeSubscribeToken({ projectId: "proj_a" }, KEY_A),
+    ).toThrow(/owner or orgId/);
+    // orgId alone is sufficient.
+    expect(() =>
+      signRealtimeSubscribeToken(
+        { projectId: "proj_a", orgId: "org-1" },
+        KEY_A,
+      ),
+    ).not.toThrow();
   });
 });

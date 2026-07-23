@@ -91,11 +91,12 @@ describe("db/client dialect detection", () => {
 
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBe(1);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
@@ -113,7 +114,7 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBe(1);
   });
 
   it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
@@ -631,7 +632,97 @@ describe("withDbTimeout", () => {
   });
 });
 
+describe("dbExecQueryBudget", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("honors a caller's timeout and one-attempt read budget", async () => {
+    const { dbExecQueryBudget } = await import("./client.js");
+
+    expect(
+      dbExecQueryBudget({
+        sql: "SELECT 1",
+        timeoutMs: 30_000,
+        maxAttempts: 1,
+      }),
+    ).toEqual({ timeoutMs: 30_000, maxAttempts: 1 });
+  });
+
+  it("falls back to the normal timeout and retry budget for invalid values", async () => {
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "4321");
+    const { dbExecQueryBudget } = await import("./client.js");
+
+    expect(
+      dbExecQueryBudget({
+        sql: "SELECT 1",
+        timeoutMs: 0,
+        maxAttempts: 0,
+      }),
+    ).toEqual({ timeoutMs: 4321, maxAttempts: 3 });
+  });
+});
+
+describe("Neon foreground statement budgets", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.doUnmock("@neondatabase/serverless");
+    vi.resetModules();
+  });
+
+  it("uses the statement budget while acquiring a foreground connection", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "5");
+    const pool = {
+      connect: vi.fn(() => new Promise(() => {})),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      exec.execute({
+        sql: "SELECT 1",
+        timeoutMs: 25,
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow("DB connect timed out after 25ms");
+
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    expect(pool.connect).toHaveBeenCalledOnce();
+  });
+});
+
 describe("isTransientDatabaseError", () => {
+  it("classifies Neon connection exhaustion as retryable", async () => {
+    const { isConnectionError, isTransientDatabaseError } =
+      await import("./client.js");
+    const error = {
+      code: "EMAXCONN",
+      message: "(EMAXCONN) max client connections reached, limit: 200",
+      stack:
+        "Co: (EMAXCONN) max client connections reached\n at drizzle-orm/neon-serverless",
+    };
+
+    expect(isConnectionError(error)).toBe(true);
+    expect(isTransientDatabaseError(error)).toBe(true);
+    expect(isTransientDatabaseError({ code: "EMAXCONN" })).toBe(true);
+  });
+
   it("classifies statement timeouts without making them connection retries", async () => {
     const { isTransientDatabaseError, isConnectionError } =
       await import("./client.js");
