@@ -54,7 +54,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
-    expect(guidance).toContain("make one bounded query");
+    expect(guidance).toContain("run one bounded query");
     expect(guidance).toContain("Once the query succeeds");
     expect(guidance).toContain("does not waive the real-data requirement");
     expect(guidance).toContain(
@@ -69,10 +69,10 @@ describe("Analytics agent Plan mode policy", () => {
 
   it("keeps ordinary structured lookups on one authoritative source", () => {
     expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "single most directly authoritative available source",
+      "search-analytics-query-catalog",
     );
     expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
-      "make one bounded query",
+      "run one bounded query",
     );
     expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
       "do not by themselves make it a corpus investigation",
@@ -113,12 +113,10 @@ describe("Analytics agent Plan mode policy", () => {
   it("routes data-dictionary lookup on demand with compact guidance", () => {
     const context = analyticsDataDictionaryRoutingContext();
 
-    expect(context).toContain("available on demand");
+    expect(context).toContain("available through");
     expect(context).toContain("`list-data-dictionary`");
-    expect(context).toContain("focused `search` or `department` filter");
-    expect(context).toContain("only when the metric definition");
     expect(context).toContain(
-      "Do not use the dictionary as a mandatory preflight",
+      "Call `list-data-dictionary` separately only when the user asks",
     );
     expect(context).toContain("approved entries as canonical");
     expect(context.length).toBeLessThan(1_000);
