@@ -133,31 +133,26 @@ export default defineAction({
           reason: "Transcript already exists",
         };
       }
+      // An empty native result is only a diagnostic. Never let it replace a
+      // transcript attempt that is already pending or has a provider failure.
       if (current) {
-        await db
-          .update(schema.recordingTranscripts)
-          .set({
-            ownerEmail,
-            fullText: "",
-            segmentsJson: "[]",
-            status: "failed",
-            failureReason,
-            updatedAt: now,
-          })
-          .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-      } else {
-        await db.insert(schema.recordingTranscripts).values({
+        return {
           recordingId: args.recordingId,
-          ownerEmail,
-          language: "en",
-          segmentsJson: "[]",
-          fullText: "",
-          status: "failed",
-          failureReason,
-          createdAt: now,
-          updatedAt: now,
-        });
+          status: "skipped" as const,
+          reason: "Transcript attempt already exists",
+        };
       }
+      await db.insert(schema.recordingTranscripts).values({
+        recordingId: args.recordingId,
+        ownerEmail,
+        language: "en",
+        segmentsJson: "[]",
+        fullText: "",
+        status: "failed",
+        failureReason,
+        createdAt: now,
+        updatedAt: now,
+      });
       await writeAppState("refresh-signal", { ts: Date.now() });
       console.warn(
         `[clips] Native transcript failed for ${args.recordingId} via ${args.source ?? "web-speech"}: ${failureReason}`,
