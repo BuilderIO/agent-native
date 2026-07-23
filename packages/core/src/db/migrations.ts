@@ -228,7 +228,7 @@ export interface MigrationEntry {
    * number — see the `runMigrations` doc comment for the full rationale and
    * gating rules. Must be unique across the migration list; a duplicate name
    * throws at startup (programmer error, not a runtime data problem).
-  */
+   */
   name?: string;
   /**
    * Optional client-side statement budget for this migration's DDL. Use this
