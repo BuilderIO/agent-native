@@ -35,6 +35,11 @@ import { createPortal } from "react-dom";
 import { ExcalidrawSlide } from "@/components/deck/ExcalidrawSlide";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { SlideOverflowInfo } from "@/components/deck/SlideRenderer";
+import {
+  findEnclosingList,
+  insertBulletAfterCaret,
+  isBulletList,
+} from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -149,148 +154,6 @@ function isSmartGroup(el: HTMLElement): boolean {
     if (c.classList.contains("fmd-img-placeholder")) return false;
     if (!isTextLeaf(c) && !isSmartGroup(c)) return false;
   }
-  return true;
-}
-
-/** Single glyphs commonly used as bullet markers in styled (non-<ul>) lists. */
-const BULLET_GLYPHS = new Set([
-  "\u2022", // •
-  "\u25CF", // ●
-  "\u25E6", // ◦
-  "\u25AA", // ▪
-  "\u2023", // ‣
-  "\u00B7", // ·
-  "\u2043", // ⁃
-  "-",
-  "\u2013", // –
-  "\u2014", // —
-  "*",
-]);
-
-/** True if an element is just a bullet marker glyph (e.g. a leading ● span). */
-function isBulletMarker(el: Element): boolean {
-  const text = (el.textContent ?? "").trim();
-  return text.length > 0 && [...text].every((c) => BULLET_GLYPHS.has(c));
-}
-
-/**
- * A "bullet row" is a styled list item built from a marker glyph plus text
- * (e.g. `<div><span>●</span><span>Point</span></div>`) rather than a real
- * <li>. Its first element child is a marker glyph and it carries other text.
- */
-export function isBulletRow(el: HTMLElement): boolean {
-  if (el.tagName !== "DIV" && el.tagName !== "LI" && el.tagName !== "P") {
-    return false;
-  }
-  const kids = Array.from(el.children);
-  if (kids.length < 2) return false;
-  if (!isBulletMarker(kids[0])) return false;
-  const rest = kids
-    .slice(1)
-    .map((k) => k.textContent ?? "")
-    .join("")
-    .trim();
-  return rest.length > 0;
-}
-
-/** A container whose element children are all styled bullet rows. */
-export function isBulletList(el: HTMLElement): boolean {
-  const kids = Array.from(el.children);
-  if (kids.length === 0) return false;
-  return kids.every((k) => isBulletRow(k as HTMLElement));
-}
-
-/**
- * Walk up from a text leaf to the nearest enclosing list container — either a
- * native <ul>/<ol> or a styled bullet-row container — so Enter can add a new
- * item to the whole list instead of being trapped inside one item.
- */
-export function findEnclosingList(
-  el: HTMLElement,
-  root: HTMLElement,
-): HTMLElement | null {
-  let node: HTMLElement | null = el;
-  while (node && root.contains(node)) {
-    const parent = node.parentElement;
-    if (!parent) break;
-    if (
-      node.tagName === "LI" &&
-      (parent.tagName === "UL" || parent.tagName === "OL")
-    ) {
-      return parent;
-    }
-    if (isBulletRow(node) && isBulletList(parent)) return parent;
-    node = parent;
-  }
-  return null;
-}
-
-/** Zero-width space: keeps the caret inside an otherwise-empty text span so
- * typed characters inherit that span's font instead of the container's. */
-const ZERO_WIDTH_SPACE = "\u200B";
-
-/**
- * Seed a freshly-inserted row with the given tail text and place the caret at
- * the start of its editable text. The text is written into a real text node
- * inside the row's non-marker text span so typed characters inherit the row's
- * font size (an empty inline span would drop the caret to the container).
- */
-function primeNewRow(row: HTMLElement, tail: string): void {
-  const spans = Array.from(row.children).filter(
-    (c) => c.tagName === "SPAN",
-  ) as HTMLElement[];
-  const textSpan = spans.find((s) => !isBulletMarker(s));
-  const target: HTMLElement = textSpan ?? row;
-  const initial = tail.length > 0 ? tail : ZERO_WIDTH_SPACE;
-  const textNode = document.createTextNode(initial);
-  target.replaceChildren(textNode);
-
-  const sel = window.getSelection();
-  if (!sel) return;
-  const range = document.createRange();
-  range.setStart(textNode, tail.length > 0 ? 0 : ZERO_WIDTH_SPACE.length);
-  range.collapse(true);
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-
-/**
- * Insert a new list item after the caret's current row. Text after the caret
- * moves into the new row; the marker glyph is preserved. Returns false when
- * the caret isn't inside a direct row of the list so the caller can fall back.
- */
-export function insertBulletAfterCaret(list: HTMLElement): boolean {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return false;
-  const range = sel.getRangeAt(0);
-  if (!range.collapsed) range.deleteContents();
-
-  let row: HTMLElement | null = null;
-  let node: Node | null = range.endContainer;
-  while (node && node !== list) {
-    if (node.parentNode === list) {
-      row = node as HTMLElement;
-      break;
-    }
-    node = node.parentNode;
-  }
-  if (!row) return false;
-
-  let tail = "";
-  const caretNode = range.endContainer;
-  if (caretNode.nodeType === Node.TEXT_NODE) {
-    const full = caretNode.textContent ?? "";
-    tail = full.slice(range.endOffset);
-    caretNode.textContent = full.slice(0, range.endOffset);
-  }
-
-  const newRow = row.cloneNode(true) as HTMLElement;
-  for (const el of [newRow, ...Array.from(newRow.querySelectorAll("*"))]) {
-    el.removeAttribute("data-builder-id");
-    el.removeAttribute("data-fusion-element-id");
-  }
-  row.after(newRow);
-  primeNewRow(newRow, tail);
   return true;
 }
 
@@ -1916,8 +1779,27 @@ export default function SlideEditor({
 
       showImageOverlay(target);
 
-      // Select the clicked element for styling first so the style dock
-      // (font size, color, weight, …) targets what was clicked.
+      // For editable text, a single click edits the whole smart block (a text
+      // leaf, or an entire bullet list) — not the individual line — so typing,
+      // highlighting, shortcuts, and Enter-to-add-bullet all work, and the
+      // style dock targets the same block being edited.
+      if (!readOnly && isHtmlSlide && slideContent) {
+        const block = findSmartBlock(target, slideContent);
+        if (block) {
+          const blockSelector = getBuilderSelector(block);
+          if (blockSelector) {
+            selectElementForStyling(block, blockSelector);
+            enterSelectionMode("agentNative.enterStyleEditing", {
+              selector: blockSelector,
+            });
+          }
+          enterInlineEdit(block);
+          return;
+        }
+      }
+
+      // Non-text elements (images, shapes, …): select the clicked element for
+      // styling.
       const selectableEl = slideContent
         ? findSelectableElement(target, slideContent)
         : null;
@@ -1925,14 +1807,6 @@ export default function SlideEditor({
       if (selector && selectableEl) {
         selectElementForStyling(selectableEl, selector);
         enterSelectionMode("agentNative.enterStyleEditing", { selector });
-      }
-
-      // Then, for text blocks, also enter inline edit on a single click so
-      // highlighting text, the formatting bubble menu, and shortcuts like
-      // Cmd+B work immediately — matching the double-click behavior.
-      if (!readOnly && isHtmlSlide && slideContent) {
-        const block = findSmartBlock(target, slideContent);
-        if (block) enterInlineEdit(block);
       }
     },
     [
