@@ -11,6 +11,7 @@ import { renderEmail } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { getUserProfile } from "../../user-profile/store.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import {
   requireShareableResource,
@@ -122,24 +123,25 @@ export function isSyntheticQaEmail(email: string): boolean {
   );
 }
 
-const USER_PROFILE_LOOKUP_SQL =
-  'SELECT name, image FROM "user" WHERE lower(email) = ?';
-
-async function getUserProfileByEmail(
-  email: string,
-): Promise<{ name: string | null; image: string | null }> {
+/**
+ * Resolves the sharer's real display name, if they've set one. Goes through
+ * the same `getUserProfile()` the Settings > Account page reads/writes —
+ * that checks the settings-table override first, then the auth provider's
+ * `user.name` column — rather than querying the auth table directly, which
+ * misses names entered in Settings (stored as a settings override, not a
+ * `user` row column). Returns null when the profile has no name distinct
+ * from the raw email (i.e. nothing meaningful to show).
+ */
+async function getActorDisplayName(email: string): Promise<string | null> {
   try {
-    const { rows } = await getDbExec().execute({
-      sql: USER_PROFILE_LOOKUP_SQL,
-      args: [email.trim().toLowerCase()],
-    });
-    const row = rows[0] as { name?: string; image?: string } | undefined;
-    return {
-      name: row?.name?.trim() || null,
-      image: row?.image?.trim() || null,
-    };
+    const profile = await getUserProfile(email);
+    const name = profile.name?.trim();
+    if (!name || name.toLowerCase() === email.trim().toLowerCase()) {
+      return null;
+    }
+    return name;
   } catch {
-    return { name: null, image: null };
+    return null;
   }
 }
 
@@ -338,10 +340,10 @@ async function sendShareNotificationEmail(params: {
     );
     const appName =
       process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
-    const actorProfile = await getUserProfileByEmail(actor);
-    const actorDisplayName = actorProfile.name || actor;
-    const senderDisplayName = actorProfile.name
-      ? `${actorProfile.name} (via ${reg.logoLabel ?? appName})`
+    const actorRealName = await getActorDisplayName(actor);
+    const actorDisplayName = actorRealName || actor;
+    const senderDisplayName = actorRealName
+      ? `${actorRealName} (via ${reg.logoLabel ?? appName})`
       : reg.logoLabel
         ? `Agent-Native ${reg.logoLabel}`
         : appName;
