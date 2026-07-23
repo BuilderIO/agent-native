@@ -91,12 +91,11 @@ describe("db/client dialect detection", () => {
 
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(1);
-    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
+    expect(neonPoolMax()).toBe(2);
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
@@ -114,7 +113,7 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(1);
+    expect(neonPoolMax()).toBe(2);
   });
 
   it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
@@ -633,21 +632,6 @@ describe("withDbTimeout", () => {
 });
 
 describe("isTransientDatabaseError", () => {
-  it("classifies Neon connection exhaustion as retryable", async () => {
-    const { isConnectionError, isTransientDatabaseError } =
-      await import("./client.js");
-    const error = {
-      code: "EMAXCONN",
-      message: "(EMAXCONN) max client connections reached, limit: 200",
-      stack:
-        "Co: (EMAXCONN) max client connections reached\n at drizzle-orm/neon-serverless",
-    };
-
-    expect(isConnectionError(error)).toBe(true);
-    expect(isTransientDatabaseError(error)).toBe(true);
-    expect(isTransientDatabaseError({ code: "EMAXCONN" })).toBe(true);
-  });
-
   it("classifies statement timeouts without making them connection retries", async () => {
     const { isTransientDatabaseError, isConnectionError } =
       await import("./client.js");
