@@ -153,6 +153,18 @@ describe("comments sidebar layout", () => {
     expect(source).toContain("data-unanchored-comments");
   });
 
+  it("keeps the pending composer in normal flow on narrow sheets", () => {
+    const source = readFileSync("app/components/editor/CommentsSidebar.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("pendingComment && alignToAnchors");
+    expect(source).toContain(
+      '"relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"',
+    );
+    expect(source).toContain(": undefined");
+  });
+
   it("keeps card height estimates based on the thread reply count", () => {
     const thread = {
       comments: [{ id: "root" }, { id: "reply" }],

@@ -443,12 +443,10 @@ export function CommentsSidebar({
     if (!container || openThreads.length === 0) {
       setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setPendingOffset((prev) => {
-        const next = pendingComment
-          ? findPendingCommentOffset(
-              container,
-              alignToAnchors ? sidebarRef.current : null,
-            )
-          : null;
+        const next =
+          pendingComment && alignToAnchors
+            ? findPendingCommentOffset(container, sidebarRef.current)
+            : null;
         return prev === next ? prev : next;
       });
       return;
@@ -464,9 +462,10 @@ export function CommentsSidebar({
       );
       if (position) positions.set(thread.threadId, position);
     }
-    const nextPendingOffset = pendingComment
-      ? findPendingCommentOffset(container, layoutContainer)
-      : null;
+    const nextPendingOffset =
+      pendingComment && alignToAnchors
+        ? findPendingCommentOffset(container, layoutContainer)
+        : null;
     setThreadPositions((prev) => {
       if (
         prev.size === positions.size &&
@@ -594,8 +593,16 @@ export function CommentsSidebar({
       {/* Pending new comment — positioned at the selection Y offset */}
       {pendingComment && (
         <div
-          className="absolute left-2 right-4 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50 z-10"
-          style={{ top: pendingOffset ?? pendingComment.offsetTop }}
+          className={
+            alignToAnchors
+              ? "absolute left-2 right-4 z-10 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"
+              : "relative mx-2 mt-3 rounded-lg bg-popover p-3 shadow-md ring-1 ring-border/50"
+          }
+          style={
+            alignToAnchors
+              ? { top: pendingOffset ?? pendingComment.offsetTop }
+              : undefined
+          }
         >
           <CommentComposer
             ref={pendingInputRef}

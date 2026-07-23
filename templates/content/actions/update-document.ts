@@ -329,6 +329,10 @@ export default defineAction({
       .describe("Exact item versions that influenced this agent update."),
   }),
   audit: {
+    // Document bodies and personal favorite preferences are both sensitive.
+    // Keep actor/target/outcome attribution without copying mutation payloads
+    // into an owner-visible audit row.
+    recordInputs: false,
     target: (args, result) => {
       const favoriteOnly = isFavoriteOnlyUpdate(args);
       return {
@@ -353,11 +357,6 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
-    if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
-      throw new Error(
-        "isFavorite must be updated separately from document fields",
-      );
-    }
 
     // Only surface AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). The browser editor

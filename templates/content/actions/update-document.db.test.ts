@@ -348,7 +348,7 @@ describe("update-document compare-and-swap", () => {
     expect(ownerEvents).toHaveLength(0);
   });
 
-  it("rejects mixed document and personal favorite mutations", async () => {
+  it("preserves mixed updates without exposing their inputs to the owner", async () => {
     const documentId = await createDocument({ content: "owner body" });
     await getDb()
       .insert(schema.documentShares)
@@ -362,17 +362,37 @@ describe("update-document compare-and-swap", () => {
         createdAt: new Date().toISOString(),
       });
 
-    await expect(
-      runWithRequestContext({ userEmail: EDITOR }, () =>
-        updateDocumentAction.run({
+    await runWithRequestContext({ userEmail: EDITOR }, () =>
+      updateDocumentAction.run(
+        {
           id: documentId,
           content: "collaborator body",
           isFavorite: true,
-        }),
+        },
+        {
+          caller: "frontend",
+          actionName: "update-document",
+          userEmail: EDITOR,
+        },
       ),
-    ).rejects.toThrow(
-      "isFavorite must be updated separately from document fields",
     );
-    expect((await documentRow(documentId)).content).toBe("owner body");
+    const { queryAuditEvents } = await import("@agent-native/core/audit");
+    const ownerEvents = await queryAuditEvents(
+      { userEmail: OWNER },
+      {
+        action: "update-document",
+        targetType: "document",
+        targetId: documentId,
+      },
+    );
+
+    expect((await documentRow(documentId)).content).toBe("collaborator body");
+    expect(ownerEvents).toHaveLength(1);
+    expect(ownerEvents[0]).toMatchObject({
+      actorEmail: EDITOR,
+      ownerEmail: OWNER,
+      input: null,
+      status: "success",
+    });
   });
 });
