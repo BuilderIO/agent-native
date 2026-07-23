@@ -18,7 +18,6 @@ import {
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
   setPlainTextBlock,
-  shouldOpenGenerateOnSpace,
 } from "./SlashCommandMenu";
 
 function readSlashCommandMenuSource() {
@@ -50,25 +49,17 @@ describe("inline slash generate command parsing", () => {
   });
 });
 
-describe("space generate shortcut", () => {
-  it("opens only from an empty paragraph line", () => {
-    const editor = new Editor({
-      extensions: [StarterKit],
-      content: {
-        type: "doc",
-        content: [{ type: "paragraph" }],
-      },
-    });
+describe("generate command affordances", () => {
+  it("uses slash commands and the shared composer instead of a space shortcut", () => {
+    const source = readSlashCommandMenuSource();
 
-    try {
-      editor.commands.setTextSelection(1);
-      expect(shouldOpenGenerateOnSpace(editor as any)).toBe(true);
-
-      editor.commands.insertContent("Text");
-      expect(shouldOpenGenerateOnSpace(editor as any)).toBe(false);
-    } finally {
-      editor.destroy();
-    }
+    expect(source).toContain("import { PromptComposer }");
+    expect(source).toMatch(
+      /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
+    );
+    expect(source).toContain("icon: IconHierarchy2");
+    expect(source).not.toContain("shouldOpenGenerateOnSpace");
+    expect(source).not.toContain('e.code === "Space"');
   });
 });
 

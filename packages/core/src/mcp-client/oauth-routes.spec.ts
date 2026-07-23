@@ -1,9 +1,12 @@
-import type { H3Event } from "h3";
+import { mockEvent, type H3Event } from "h3";
 import { describe, expect, it } from "vitest";
 
 import {
+  clearMcpOAuthFlowCookies,
   isValidMcpOAuthFlow,
+  readMcpOAuthFlowCookie,
   redirectWithStagedCookies,
+  setMcpOAuthFlowCookie,
   type McpOAuthFlow,
 } from "./oauth-routes.js";
 
@@ -42,6 +45,85 @@ describe("MCP OAuth callback flow validation", () => {
     );
     expect(response.headers.get("set-cookie")).toContain(
       "an_mcp_oauth_flow=encrypted-flow",
+    );
+  });
+
+  it("round-trips large flow state in browser-safe cookie chunks", () => {
+    const flow = {
+      ...baseFlow,
+      discoveryState: {
+        authorizationServerUrl: "https://mcp-auth.example.com",
+        authorizationServerMetadata: {
+          issuer: "https://mcp-auth.example.com",
+          authorization_endpoint:
+            "https://mcp-auth.example.com/oauth2/authorize",
+          token_endpoint: "https://mcp-auth.example.com/oauth2/token",
+          registration_endpoint: "https://mcp-auth.example.com/oauth2/register",
+          scopes_supported: Array.from(
+            { length: 160 },
+            (_, index) => `scope-${index}`,
+          ),
+        },
+      },
+    } satisfies McpOAuthFlow;
+    const writeEvent = mockEvent(new Request("http://app.example.com"));
+
+    setMcpOAuthFlowCookie(writeEvent, flow, false);
+
+    const setCookies = writeEvent.res.headers.getSetCookie();
+    expect(setCookies.length).toBeGreaterThan(1);
+    expect(
+      setCookies.every((cookie) => Buffer.byteLength(cookie) < 4_096),
+    ).toBe(true);
+
+    const readEvent = eventWithCookies(setCookies);
+    expect(readMcpOAuthFlowCookie(readEvent)).toEqual(flow);
+  });
+
+  it("continues to read the legacy single-cookie flow format", () => {
+    const writeEvent = mockEvent(new Request("http://app.example.com"));
+    setMcpOAuthFlowCookie(writeEvent, baseFlow, false);
+    const setCookies = writeEvent.res.headers.getSetCookie();
+
+    expect(setCookies).toHaveLength(1);
+    expect(readMcpOAuthFlowCookie(eventWithCookies(setCookies))).toEqual(
+      baseFlow,
+    );
+  });
+
+  it("rejects flow state that exceeds the bounded chunk count", () => {
+    const event = mockEvent(new Request("http://app.example.com"));
+
+    expect(() =>
+      setMcpOAuthFlowCookie(
+        event,
+        { ...baseFlow, description: "x".repeat(12_000) },
+        false,
+      ),
+    ).toThrow("MCP OAuth flow state exceeds the cookie size limit.");
+    expect(event.res.headers.getSetCookie()).toHaveLength(0);
+  });
+
+  it("deletes the primary flow cookie and every bounded chunk", () => {
+    const event = mockEvent(new Request("http://app.example.com"));
+
+    clearMcpOAuthFlowCookies(event);
+
+    const deletedCookies = event.res.headers.getSetCookie();
+    expect(deletedCookies).toHaveLength(9);
+    expect(deletedCookies.map(cookieName)).toEqual([
+      "an_mcp_oauth_flow",
+      "an_mcp_oauth_flow.1",
+      "an_mcp_oauth_flow.2",
+      "an_mcp_oauth_flow.3",
+      "an_mcp_oauth_flow.4",
+      "an_mcp_oauth_flow.5",
+      "an_mcp_oauth_flow.6",
+      "an_mcp_oauth_flow.7",
+      "an_mcp_oauth_flow.8",
+    ]);
+    expect(deletedCookies.every((cookie) => cookie.includes("Max-Age=0"))).toBe(
+      true,
     );
   });
 
@@ -105,3 +187,18 @@ describe("MCP OAuth callback flow validation", () => {
     ).toBe(false);
   });
 });
+
+function eventWithCookies(setCookies: string[]): H3Event {
+  const cookieHeader = setCookies
+    .map((cookie) => cookie.split(";", 1)[0])
+    .join("; ");
+  return mockEvent(
+    new Request("http://app.example.com", {
+      headers: { cookie: cookieHeader },
+    }),
+  );
+}
+
+function cookieName(setCookie: string): string {
+  return setCookie.slice(0, setCookie.indexOf("="));
+}

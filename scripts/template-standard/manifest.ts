@@ -48,7 +48,7 @@ export const CORE_ROUTES_FINDING = `core-routes truth (investigated, not enforce
 Templates without it (e.g. assets, chat, clips, tasks) get "defaultCoreRoutesPlugin" auto-mounted by \
 packages/core/src/server/framework-request-handler.ts via getMissingDefaultPlugins() in \
 packages/core/src/deploy/route-discovery.ts. Templates with the file (analytics, brain, calendar, content, \
-crm, design, dispatch, forms, macros, mail, plan, slides) use it to pass custom resolveOpenPath/envKeys/\
+design, dispatch, forms, macros, mail, plan, slides) use it to pass custom resolveOpenPath/envKeys/\
 anonymousOwner/mcpConnectServerName/sseRoute/allowUnauthenticatedOpen options to createCoreRoutesPlugin. \
 No structural rule is encoded for this surface.`;
 

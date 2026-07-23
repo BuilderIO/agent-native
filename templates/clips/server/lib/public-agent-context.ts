@@ -497,13 +497,13 @@ export function transcriptStatusInstructions(
 
   if (status === "failed" && lowerReason.includes("credits exhausted")) {
     return [
-      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits, or configure a Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not transcribe Clips recordings.",
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits. Clips uses the browser/macOS native transcript first and Builder transcription on the original recording when native capture is unavailable.",
     ];
   }
 
   if (status === "failed" && failureReason) {
     return [
-      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying transcription or configuring the supported Builder.io/Groq transcription fallback.`,
+      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying native capture or the Builder transcription fallback.`,
     ];
   }
 

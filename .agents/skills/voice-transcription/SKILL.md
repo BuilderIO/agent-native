@@ -57,11 +57,13 @@ action before requesting microphone permission.
   controls contain only settings and the separate end-session action.
 - The orb's compact waveform stays visible for the full session and reflects
   actual microphone or assistant audio activity. At silence it rests at its
-  baseline instead of turning into a loading spinner. While connecting, show a
-  distinct compact spinner; when the session becomes live, the assistant gives
-  one brief spoken greeting so readiness is unambiguous. Do not apply a
-  text-sized `max_output_tokens` cap to that audio greeting because audio tokens
-  can truncate it mid-sentence.
+  baseline instead of turning into a loading spinner. Once connected, a soft,
+  slowly rotating blue glow marks the live session; brighten and speed up the
+  glow while the agent is working, and keep it static under reduced motion.
+  While connecting, show a distinct compact spinner; when the session becomes
+  live, the assistant gives one brief spoken greeting so readiness is
+  unambiguous. Do not apply a text-sized `max_output_tokens` cap to that audio
+  greeting because audio tokens can truncate it mid-sentence.
 - The orb settings cog opens in place without ending voice mode or navigating
   away. Nested pickers must not dismiss the settings popover. Language and
   intelligence update the active Realtime session; the microphone picker swaps

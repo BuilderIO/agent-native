@@ -203,12 +203,12 @@ function parseScaffoldArgs(argv: string[]): {
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
-    import("../tracking/registry.js").then((m) => {
-      m.track(event, { command, ...props });
-    });
-    import("../tracking/providers.js").then((m) =>
-      m.registerBuiltinProviders(),
-    );
+    void import("../tracking/registry.js")
+      .then((m) => m.track(event, { command, ...props }))
+      .catch(() => undefined);
+    void import("../tracking/providers.js")
+      .then((m) => m.registerBuiltinProviders())
+      .catch(() => undefined);
   } catch {}
 }
 
@@ -219,7 +219,9 @@ process.on("uncaughtException", (err) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
   Sentry.captureException(err);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 process.on("unhandledRejection", (reason: any) => {
@@ -228,7 +230,9 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: reason?.message ?? String(reason) });
   Sentry.captureException(reason);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 // Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
@@ -961,14 +965,18 @@ switch (command) {
   }
 
   case "setup-agents": {
-    import("./setup-agents.js").then((m) => m.runSetupAgents());
+    import("./setup-agents.js")
+      .then((m) => m.runSetupAgents())
+      .catch(handleScaffoldImportError);
     break;
   }
 
   case "info": {
     // Print read-only info about an installable package (e.g. @agent-native/scheduling).
     // Lists subpath exports, source paths in node_modules, and docs pointers.
-    import("./info.js").then((m) => m.runInfo(args[0]));
+    import("./info.js")
+      .then((m) => m.runInfo(args[0]))
+      .catch(handleScaffoldImportError);
     break;
   }
 

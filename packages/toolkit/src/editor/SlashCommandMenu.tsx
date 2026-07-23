@@ -22,7 +22,24 @@ export interface SlashCommandItem {
   searchText?: string;
   /** Short text glyph shown in the menu (T, H1, tbl, …). */
   icon: string;
+  /** Hide this command when the shared editor feature is disabled. */
+  requires?: "tables" | "tasks" | "codeBlock";
   action: (editor: Editor) => void;
+}
+
+export interface SlashCommandFeatureFlags {
+  tables?: boolean;
+  tasks?: boolean;
+  codeBlock?: boolean;
+}
+
+export function filterSlashCommandItems(
+  items: readonly SlashCommandItem[],
+  features?: SlashCommandFeatureFlags,
+): SlashCommandItem[] {
+  return items.filter(
+    (item) => !item.requires || features?.[item.requires] !== false,
+  );
 }
 
 /**
@@ -73,6 +90,7 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
     title: "To-do list",
     description: "Checklist items",
     icon: "[]",
+    requires: "tasks",
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
@@ -85,6 +103,7 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
     title: "Code block",
     description: "Code snippet",
     icon: "<>",
+    requires: "codeBlock",
     action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
@@ -97,6 +116,7 @@ export const DEFAULT_SLASH_COMMANDS: SlashCommandItem[] = [
     title: "Table",
     description: "Three by three table",
     icon: "tbl",
+    requires: "tables",
     action: (editor) =>
       editor
         .chain()

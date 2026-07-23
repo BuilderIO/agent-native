@@ -49,6 +49,7 @@ export interface DefaultMcpIntegration {
     templateUses?: readonly string[];
   };
   headerPlaceholder?: string;
+  brandAliases?: string[];
   aliases?: string[];
   keywords: string[];
 }
@@ -138,16 +139,6 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("granola"),
     docsUrl: "https://docs.granola.ai/help-center/sharing/integrations/mcp",
     setupNoteKey: "mcpIntegrations.catalog.granola.setupNote",
-    aliases: [
-      "meeting notes",
-      "meeting recordings",
-      "recordings",
-      "transcripts",
-      "action items",
-      "follow-ups",
-      "follow ups",
-      "decisions",
-    ],
     keywords: [
       "meetings",
       "meeting notes",
@@ -210,7 +201,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     docsUrl:
       "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
     setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
-    aliases: ["jira", "confluence", "rovo"],
+    brandAliases: ["Jira", "Confluence", "Rovo"],
     keywords: ["atlassian", "jira", "confluence", "issues", "tickets"],
   },
   {
@@ -721,6 +712,8 @@ export function filterMcpIntegrations(
       integration.description,
       integration.useCase,
       integration.url,
+      ...(integration.brandAliases ?? []),
+      ...(integration.aliases ?? []),
       ...integration.keywords,
     ]
       .join(" ")
@@ -802,12 +795,9 @@ export function findMcpIntegrationForText(
     isMcpConnectionFailureText(normalizedText);
   if (!hasResourceIntent) return null;
   const matchesCanonicalName = (integration: DefaultMcpIntegration) =>
-    [
-      integration.name,
-      integration.provider,
-      integration.id,
-      ...(integration.aliases ?? []),
-    ].some((alias) => textContainsTerm(normalizedText, alias));
+    [integration.name, ...(integration.brandAliases ?? [])].some((alias) =>
+      textContainsTerm(normalizedText, alias),
+    );
   const canonicalMatch = integrations.find(matchesCanonicalName);
   if (canonicalMatch) return canonicalMatch;
   return null;

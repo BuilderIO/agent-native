@@ -21,6 +21,7 @@
  * the server normalizes + groups it. That keeps one tested source of truth for
  * grouping instead of duplicating parser logic across the wire.
  */
+import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
@@ -358,12 +359,7 @@ function shouldIgnoreAutoCapturedError(normalized: {
   // Route-chunk recovery reloads the current page after stale lazy chunks or
   // module scripts fail. Browser-level failures have no useful stack, so do
   // not retain the transient loader noise as an application issue.
-  if (
-    !stack &&
-    /^(?:Importing a module script failed\.?|(?:Failed to fetch|error loading) dynamically imported module(?::.*)?)$/i.test(
-      message,
-    )
-  ) {
+  if (!stack && isDynamicImportFailureMessage(message)) {
     return true;
   }
 

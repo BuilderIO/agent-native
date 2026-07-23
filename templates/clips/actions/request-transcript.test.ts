@@ -68,10 +68,6 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
 }));
 
-vi.mock("@agent-native/core/secrets", () => ({
-  readAppSecret: vi.fn(async () => null),
-}));
-
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: vi.fn(() => "owner@example.com"),
   getCredentialContext: vi.fn(() => null),
@@ -526,6 +522,64 @@ describe("requestTranscript regeneration", () => {
       preserved: true,
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Builder when native transcription is unavailable", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "Recovered from the spoken recording.",
+      language: "en",
+      segments: [
+        {
+          startMs: 0,
+          endMs: 1200,
+          text: "Recovered from the spoken recording.",
+        },
+      ],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "failed",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_empty" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_empty" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_empty",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_empty",
+      status: "ready",
+      provider: "builder",
+    });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        fullText: "Recovered from the spoken recording.",
+        failureReason: null,
+      }),
+    );
   });
 });
 

@@ -197,9 +197,20 @@ describe("AgentPanel mode and full-view visibility", () => {
 describe("AgentChatSurface chrome defaults", () => {
   it("hides the legacy header and chat tab row by default", () => {
     const surface = AgentChatSurface({ mode: "page" });
+    const panel = surface.props.children[1];
 
-    expect(surface.props.showHeader).toBe(false);
-    expect(surface.props.showTabBar).toBe(false);
+    expect(panel.props.showHeader).toBe(false);
+    expect(panel.props.showTabBar).toBe(false);
+  });
+
+  it("mounts URL command sync for a full-page chat surface", () => {
+    const surface = AgentChatSurface({
+      mode: "page",
+      browserTabId: "tab-one",
+    });
+
+    expect(surface.props.children[0].type.name).toBe("URLSync");
+    expect(surface.props.children[0].props.browserTabId).toBe("tab-one");
   });
 
   it("allows an embedded host to opt back into the header chrome", () => {

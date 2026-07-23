@@ -1005,6 +1005,36 @@ export function createRealtimeVoiceToolManifestCoordinator(
 export function extractRealtimeVoiceFunctionCalls(
   event: RealtimeServerEvent,
 ): Array<{ name: string; callId: string; argumentsText: string }> {
+  if (event.type === "response.function_call_arguments.done") {
+    const name = typeof event.name === "string" ? event.name : "";
+    const callId = typeof event.call_id === "string" ? event.call_id : "";
+    if (!name || !callId) return [];
+    return [
+      {
+        name,
+        callId,
+        argumentsText:
+          typeof event.arguments === "string" ? event.arguments : "{}",
+      },
+    ];
+  }
+  if (event.type === "response.output_item.done") {
+    const item = event.item;
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    if (record.type !== "function_call") return [];
+    const name = typeof record.name === "string" ? record.name : "";
+    const callId = typeof record.call_id === "string" ? record.call_id : "";
+    if (!name || !callId) return [];
+    return [
+      {
+        name,
+        callId,
+        argumentsText:
+          typeof record.arguments === "string" ? record.arguments : "{}",
+      },
+    ];
+  }
   if (event.type !== "response.done") return [];
   const response = event.response;
   if (!response || typeof response !== "object") return [];

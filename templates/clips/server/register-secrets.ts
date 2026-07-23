@@ -7,13 +7,14 @@ import { registerRequiredSecret } from "@agent-native/core/secrets";
 // run in a separate Vite SSR module graph and write to a different Map.
 
 // ── Transcription secrets (optional) ──────────────────────────────────
-// Native web/macOS speech is the primary transcript source. Gemini is used
-// for cleanup and titles after native text exists; Groq is the only BYOK
-// speech-to-text fallback when native transcription is unavailable.
+// Native web/macOS speech is the primary recording transcript source. Builder
+// is the only cloud fallback for a saved recording. Gemini/Groq BYOK remain
+// available for desktop voice dictation and other provider-specific tools.
 //
 // We support two BYOK providers:
 //   1. Gemini — recommended for fast LLM cleanup in the desktop tray.
-//   2. Groq `whisper-large-v3-turbo` — fast speech-to-text fallback.
+//   2. Groq — optional voice-dictation provider, not a recording transcript
+//      fallback.
 //
 // Neither is strictly required — videos still upload and play back without
 // cloud transcription.
@@ -110,9 +111,9 @@ registerRequiredSecret({
 
 registerRequiredSecret({
   key: "GROQ_API_KEY",
-  label: "Groq API Key (recommended)",
+  label: "Groq API Key (voice dictation)",
   description:
-    "Fast speech-to-text fallback via Groq. Builder Gemini Flash-Lite is preferred when connected; Groq is used only when Builder/native transcription is unavailable.",
+    "Optional speech-to-text provider for desktop voice dictation. Clips recording transcripts use native browser/macOS capture first and Builder transcription for the saved recording fallback.",
   docsUrl: "https://console.groq.com/keys",
   scope: "user",
   kind: "api-key",

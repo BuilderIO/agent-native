@@ -806,7 +806,7 @@ const messages = {
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
-    connectWithOAuth: "Connect with OAuth",
+    connectWithOAuth: "Connect",
     useApiToken: "Use API token",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:

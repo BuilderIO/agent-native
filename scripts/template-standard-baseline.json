@@ -18,11 +18,6 @@
     },
     {
       "rule": "byte-sync:learnings-defaults:missing",
-      "template": "crm",
-      "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "byte-sync:learnings-defaults:missing",
       "template": "forms",
       "note": "Never got the starter learnings.defaults.md scaffold. Add via `pnpm sync:template-standard` once this entry is removed."
     },
@@ -63,11 +58,6 @@
     },
     {
       "rule": "byte-sync:gitignore-source:mismatch",
-      "template": "crm",
-      "note": "Existing _gitignore predates the canonical shape (different section ordering/entries). Needs reconciliation in Phase 2/3."
-    },
-    {
-      "rule": "byte-sync:gitignore-source:mismatch",
       "template": "design",
       "note": "Existing _gitignore adds Playwright E2E artifact paths on top of the shared base — legitimate template-specific addition. Needs a human decision in Phase 2/3 on reconciling vs. keeping as an accepted diff."
     },
@@ -105,11 +95,6 @@
       "rule": "byte-sync:gitignore-source:missing",
       "template": "tasks",
       "note": "Has a working .gitignore but no _gitignore. Add via `pnpm sync:template-standard` once this entry is removed."
-    },
-    {
-      "rule": "claude-md-symlink",
-      "template": "crm",
-      "note": "CLAUDE.md -> AGENTS.md symlink is missing entirely; all other 15 templates have it. Add in Phase 2 (`ln -s AGENTS.md templates/crm/CLAUDE.md`)."
     },
     {
       "rule": "agents-md-placeholder",

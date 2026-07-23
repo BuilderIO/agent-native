@@ -436,10 +436,10 @@ describe("buildPublicAgentContext", () => {
       /Builder transcription credits are exhausted/i,
     );
     expect(context.instructions.join(" ")).toMatch(
-      /Groq key for backup speech-to-text/i,
+      /Builder transcription on the original recording/i,
     );
     expect(context.instructions.join(" ")).toMatch(
-      /OpenAI or Anthropic chat keys do not transcribe/i,
+      /browser\/macOS native transcript first/i,
     );
   });
 

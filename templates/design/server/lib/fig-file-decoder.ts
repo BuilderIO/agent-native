@@ -162,6 +162,7 @@ function decompressZstdChunk(buf: Buffer): Buffer {
 }
 
 function decompressChunk(buf: Buffer): Buffer {
+  if (buf.length === 0) return Buffer.alloc(0);
   if (buf.length >= 4 && buf.subarray(0, 4).equals(ZSTD_MAGIC)) {
     return decompressZstdChunk(buf);
   }

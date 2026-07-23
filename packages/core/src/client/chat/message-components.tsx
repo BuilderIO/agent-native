@@ -122,6 +122,9 @@ interface FormattedMessageTimestamp {
   full: string;
 }
 
+const messageFooterFadeClassName =
+  "opacity-0 transition-[color,opacity] duration-150 group-hover:opacity-100 group-focus-within:opacity-100";
+
 function coerceMessageDate(value: unknown): Date | null {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
@@ -793,7 +796,7 @@ export function UserMessage() {
           {timestamp && (
             <MessageTimestamp
               timestamp={timestamp}
-              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              className={messageFooterFadeClassName}
             />
           )}
         </div>
@@ -845,12 +848,33 @@ export function messageTextFromContent(content: unknown): string {
     .join("\n");
 }
 
-function latestUserMessageText(messages: readonly unknown[]): string {
+export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
     const record = message as { role?: unknown; content?: unknown };
-    if (record.role === "user") return messageTextFromContent(record.content);
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
+  }
+  return "";
+}
+
+export function userMessageTextBeforeAssistant(
+  messages: readonly unknown[],
+  assistantMessageId: string,
+): string {
+  const assistantIndex = messages.findIndex((message) => {
+    if (!message || typeof message !== "object") return false;
+    return (message as { id?: unknown }).id === assistantMessageId;
+  });
+  if (assistantIndex < 1) return "";
+
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
   }
   return "";
 }
@@ -905,6 +929,22 @@ export function assistantMessageHasCompletedCustomUi(
       record.chatUI !== undefined || record.mcpApp !== undefined;
   }
   return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
+export function assistantMessageHasCustomUi(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as {
+      type?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    return (
+      record.type === "tool-call" &&
+      (record.chatUI !== undefined || record.mcpApp !== undefined)
+    );
+  });
 }
 
 // Only the last assistant message may shimmer as "the currently running
@@ -1173,13 +1213,17 @@ export function AssistantMessage() {
   const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
     msg.content,
   );
+  const hasCustomUi = assistantMessageHasCustomUi(msg.content);
   const showMissingFinalResponse = shouldShowMissingFinalResponse({
     statusIsTerminal,
     hasAssistantText: responseConnectionText.trim().length > 0,
     hasUnresolvedTool,
     hasCompletedCustomUi,
   });
-  const responseConnectionContext = latestUserMessageText(thread.messages);
+  const responseConnectionContext = userMessageTextBeforeAssistant(
+    thread.messages,
+    msg.id,
+  );
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
@@ -1327,7 +1371,8 @@ export function AssistantMessage() {
                 return (
                   <WorkedForSummary
                     durationMs={capturedDurationMs}
-                    autoCollapse={animateCollapse}
+                    defaultOpen={hasCustomUi}
+                    autoCollapse={animateCollapse && !hasCustomUi}
                   >
                     {children}
                   </WorkedForSummary>
@@ -1377,7 +1422,7 @@ export function AssistantMessage() {
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}
-        {isComplete && isLast && (
+        {isComplete && (
           <McpConnectionSuggestion
             text={responseConnectionText}
             contextText={responseConnectionContext}
@@ -1404,7 +1449,7 @@ export function AssistantMessage() {
                       <button
                         type="button"
                         aria-label="Regenerate response"
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         <IconRefresh className="h-3.5 w-3.5" />
                       </button>
@@ -1420,7 +1465,7 @@ export function AssistantMessage() {
             {timestamp && (
               <MessageTimestamp
                 timestamp={timestamp}
-                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                className={messageFooterFadeClassName}
               />
             )}
           </div>

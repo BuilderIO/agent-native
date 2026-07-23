@@ -1,4 +1,7 @@
-import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
+import {
+  useAgentChatGenerating,
+  type AgentChatMessage,
+} from "@agent-native/core/client/agent-chat";
 import { useCallback } from "react";
 
 /**
@@ -9,8 +12,12 @@ export function useAgentGenerating() {
   const [generating, send] = useAgentChatGenerating();
 
   const submit = useCallback(
-    (message: string, context: string) => {
-      send({ message, context, submit: true });
+    (
+      message: string,
+      context: string,
+      options?: Pick<AgentChatMessage, "newTab" | "openSidebar">,
+    ) => {
+      send({ message, context, submit: true, ...options });
     },
     [send],
   );

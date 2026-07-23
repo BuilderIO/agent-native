@@ -553,6 +553,53 @@ describe("workspace dev startup", () => {
     }
   });
 
+  it("keeps probing while a cold app returns a Nitro startup 503", async () => {
+    tmpDir = makeWorkspace(["dispatch"]);
+    const fake = fakeSpawn();
+    handle = await runWorkspaceDev({
+      root: tmpDir,
+      env: { ...testEnv(), WORKSPACE_PROXY_READY_TIMEOUT_MS: "2000" },
+      spawnProcess: fake.spawnProcess,
+      openBrowser: false,
+    });
+    const { url } = await handle.ready;
+    const app = handle.apps.find((candidate) => candidate.id === "dispatch");
+    expect(app).toBeDefined();
+
+    const first = await fetch(`${url}/dispatch`, {
+      headers: { accept: "text/html" },
+    });
+    expect(await first.text()).toContain("Starting Dispatch");
+
+    let requests = 0;
+    const upstream = http.createServer((_req, res) => {
+      requests += 1;
+      if (requests < 3) {
+        res.writeHead(503, { "content-type": "text/plain" });
+        res.end("Vite environment nitro is unavailable");
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end("<h1>Dispatch ready</h1>");
+    });
+    await new Promise<void>((resolve) => {
+      upstream.listen(app!.port, "127.0.0.1", resolve);
+    });
+
+    try {
+      await waitUntil(() => requests >= 2);
+      expect(app!.ready).not.toBe(true);
+      await waitUntil(() => app!.ready === true);
+
+      const second = await fetch(`${url}/dispatch`, {
+        headers: { accept: "text/html" },
+      });
+      expect(await second.text()).toContain("Dispatch ready");
+    } finally {
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
   it("runs a workspace install before starting a newly generated app without installed bins", async () => {
     tmpDir = makeWorkspace(["dispatch"]);
     const fake = fakeSpawn();

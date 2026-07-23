@@ -33,7 +33,7 @@ describe("reconcile", () => {
   it("surfaces baseline entries whose violation no longer reproduces", () => {
     const result = reconcile(
       [],
-      [{ rule: "claude-md-symlink", template: "crm", note: "fixed now" }],
+      [{ rule: "claude-md-symlink", template: "calendar", note: "fixed now" }],
     );
     assert.equal(result.staleBaselineEntries.length, 1);
     assert.equal(result.newFailures.length, 0);

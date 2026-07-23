@@ -522,7 +522,7 @@ describe("Realtime voice dynamic tool manifests", () => {
 });
 
 describe("extractRealtimeVoiceFunctionCalls", () => {
-  it("waits for the terminal response event before returning a function call", () => {
+  it("returns a function call as soon as its final arguments arrive", () => {
     expect(
       extractRealtimeVoiceFunctionCalls({
         type: "response.function_call_arguments.done",
@@ -530,7 +530,13 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
         call_id: "call-1",
         arguments: '{"path":"/inbox"}',
       }),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        name: "navigate",
+        callId: "call-1",
+        argumentsText: '{"path":"/inbox"}',
+      },
+    ]);
   });
 
   it("falls back to completed function items on response.done", () => {
@@ -555,6 +561,26 @@ describe("extractRealtimeVoiceFunctionCalls", () => {
         name: "view-screen",
         callId: "call-2",
         argumentsText: "{}",
+      },
+    ]);
+  });
+
+  it("accepts a completed function output item as a provider fallback", () => {
+    expect(
+      extractRealtimeVoiceFunctionCalls({
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          name: "navigate",
+          call_id: "call-output-item",
+          arguments: '{"path":"/todos"}',
+        },
+      }),
+    ).toEqual([
+      {
+        name: "navigate",
+        callId: "call-output-item",
+        argumentsText: '{"path":"/todos"}',
       },
     ]);
   });

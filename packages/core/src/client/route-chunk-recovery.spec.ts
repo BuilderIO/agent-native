@@ -129,6 +129,11 @@ describe("route chunk recovery", () => {
         "Importing a module script failed: https://example.com/assets/foo.js",
       ),
     ).toBe(true);
+    expect(
+      isDynamicImportFailureMessage(
+        "Failed to fetch dynamically imported sql-dashboard chunk",
+      ),
+    ).toBe(true);
     expect(isDynamicImportFailureMessage("plain network error")).toBe(false);
   });
 

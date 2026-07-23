@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
@@ -147,6 +148,15 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       });
       setViewName("");
       setSaveDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.saveFailedWithMessage", {
+          message:
+            error instanceof Error
+              ? error.message
+              : t("sqlDashboard.saveFailed"),
+        }),
+      );
     } finally {
       setSavingView(false);
     }

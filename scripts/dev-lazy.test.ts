@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
@@ -9,6 +10,8 @@ import {
   canonicalLoopbackRedirect,
   isBrowserAssetDestination,
   markAppReady,
+  probeHttpReady,
+  readinessProbeTimeoutMs,
   selectProxyResponseTimeout,
   shouldEvict,
   shouldRestartPersistent5xx,
@@ -157,6 +160,42 @@ describe("dev-lazy browser asset classification", () => {
       ),
       120_000,
     );
+  });
+});
+
+describe("dev-lazy readiness probe timeout", () => {
+  it("lets one cold-start request use the full remaining readiness window", () => {
+    assert.equal(readinessProbeTimeoutMs(90_000, 10_000), 80_000);
+  });
+
+  it("never passes a non-positive timeout to the HTTP client", () => {
+    assert.equal(readinessProbeTimeoutMs(10_000, 10_000), 1);
+    assert.equal(readinessProbeTimeoutMs(9_000, 10_000), 1);
+  });
+});
+
+describe("dev-lazy HTTP readiness", () => {
+  it("treats a startup 503 as responsive so the browser can receive its retry page", async () => {
+    const server = http.createServer((_req, res) => {
+      res.writeHead(503, { "content-type": "text/html" });
+      res.end("starting");
+    });
+    await new Promise<void>((resolve) => {
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== "string");
+      assert.equal(
+        await probeHttpReady({ id: "test", port: address.port }, 500),
+        true,
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   });
 });
 
