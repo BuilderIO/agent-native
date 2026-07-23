@@ -1,10 +1,7 @@
 import { getAllSettings, listOrgSettings } from "@agent-native/core/settings";
 
 import { dashboardCatalogEntries } from "./dashboard-catalog";
-import {
-  listDashboards,
-  type DashboardRecord,
-} from "./dashboards-store";
+import { listDashboards, type DashboardRecord } from "./dashboards-store";
 
 const DATA_DICTIONARY_KEY_PREFIX = "data-dict-";
 const MAX_QUERY_LENGTH = 12_000;

@@ -31,6 +31,7 @@ export const INITIAL_TOOL_NAMES = [
   "list-extensions",
   "get-extension",
   "generate-chart",
+  "search-analytics-query-catalog",
   "query-agent-native-analytics",
   "bigquery",
   "search-bigquery-schema",
