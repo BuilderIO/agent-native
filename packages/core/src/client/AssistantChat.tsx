@@ -110,6 +110,7 @@ import {
   shouldImportServerThreadData,
   dedupeRepoMessagesById,
   dropEmptyAssistantMessages,
+  withLastAssistantRunDuration,
 } from "./chat/repo-helpers.js";
 import {
   BuilderSetupContent,
@@ -2842,6 +2843,14 @@ const AssistantChatInner = forwardRef<
       ensureMessageMetadata(normalizeThreadRepository(threadRuntime.export())),
     [threadRuntime],
   );
+  const exportPersistableThreadRepo = useCallback(
+    () =>
+      withLastAssistantRunDuration(
+        exportCleanThreadRepo(),
+        showRunningInUI ? null : lastChatRunDurationMs,
+      ),
+    [exportCleanThreadRepo, lastChatRunDurationMs, showRunningInUI],
+  );
 
   const appendRealtimeVoiceTranscript = useCallback(
     (
@@ -2896,7 +2905,7 @@ const AssistantChatInner = forwardRef<
 
   const cacheCurrentThreadSnapshot = useCallback(() => {
     if (!threadId || messages.length === 0) return;
-    const repo = exportCleanThreadRepo();
+    const repo = exportPersistableThreadRepo();
     const threadData = JSON.stringify(stripBase64FromRepo(repo));
     const { title, preview } = extractThreadMeta(repo);
     writeCachedThreadSnapshot(apiUrl, threadId, {
@@ -2905,7 +2914,7 @@ const AssistantChatInner = forwardRef<
       preview,
       messageCount: messages.length,
     });
-  }, [apiUrl, exportCleanThreadRepo, messages.length, threadId]);
+  }, [apiUrl, exportPersistableThreadRepo, messages.length, threadId]);
 
   useBrowserLayoutEffect(() => {
     if (hasImportedInitialCachedSnapshotRef.current) return;
@@ -3669,7 +3678,7 @@ const AssistantChatInner = forwardRef<
     const timeSinceLastSave = now - lastSaveTimeRef.current;
     if (timeSinceLastSave < 5000) return;
 
-    const repo = exportCleanThreadRepo();
+    const repo = exportPersistableThreadRepo();
     const { title, preview } = extractThreadMeta(repo);
     const threadData = JSON.stringify(stripBase64FromRepo(repo));
     const snapshot = {
@@ -3683,7 +3692,7 @@ const AssistantChatInner = forwardRef<
     savedTitleRef.current = title;
     writeCachedThreadSnapshot(apiUrl, threadId, snapshot);
     onSaveThreadRef.current(threadId, snapshot);
-  }, [apiUrl, exportCleanThreadRepo, messages, isRunning, threadId]);
+  }, [apiUrl, exportPersistableThreadRepo, messages, isRunning, threadId]);
 
   // Persist full thread data after each completed response
   useEffect(() => {
@@ -3691,7 +3700,7 @@ const AssistantChatInner = forwardRef<
     if (isRunning) return;
     if (messages.length === 0) return;
 
-    const repo = exportCleanThreadRepo();
+    const repo = exportPersistableThreadRepo();
 
     if (threadId && onSaveThreadRef.current) {
       // Save to server via the hook callback
@@ -3713,7 +3722,14 @@ const AssistantChatInner = forwardRef<
         sessionStorage.setItem(storageKey, JSON.stringify(repo));
       } catch {}
     }
-  }, [apiUrl, exportCleanThreadRepo, messages, isRunning, threadId, tabId]);
+  }, [
+    apiUrl,
+    exportPersistableThreadRepo,
+    messages,
+    isRunning,
+    threadId,
+    tabId,
+  ]);
 
   useEffect(() => {
     onMessageCountChange?.(messages.length);
@@ -4810,7 +4826,7 @@ const AssistantChatInner = forwardRef<
       },
       exportThreadSnapshot() {
         if (messages.length === 0) return null;
-        const repo = exportCleanThreadRepo();
+        const repo = exportPersistableThreadRepo();
         const { title, preview } = extractThreadMeta(repo);
         return {
           threadData: JSON.stringify(repo),
@@ -4822,7 +4838,7 @@ const AssistantChatInner = forwardRef<
     }),
     [
       addToQueue,
-      exportCleanThreadRepo,
+      exportPersistableThreadRepo,
       isRunning,
       messages.length,
       stageComposerContextItem,

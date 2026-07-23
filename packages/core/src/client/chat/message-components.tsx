@@ -73,6 +73,7 @@ import {
   MarkdownText,
   renderMarkdownToClipboardHtml,
 } from "./markdown-renderer.js";
+import { getAssistantRunDurationMs } from "./repo-helpers.js";
 import {
   ToolCallFallback,
   ToolActivityPresentation,
@@ -1207,6 +1208,7 @@ export function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
+  const persistedDurationMs = getAssistantRunDurationMs(msg);
   const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
     thread.messages.length > 0 &&
@@ -1376,7 +1378,7 @@ export function AssistantMessage() {
                 if (!showSummary) return <>{children}</>;
                 return (
                   <WorkedForSummary
-                    durationMs={capturedDurationMs}
+                    durationMs={capturedDurationMs ?? persistedDurationMs}
                     defaultOpen={hasCustomUi}
                     autoCollapse={animateCollapse && !hasCustomUi}
                   >

@@ -56,6 +56,79 @@ export function getRepoMessage(entry: RepoEntry): RepoMessage | null {
   return (entry?.message ?? entry) as RepoMessage | null;
 }
 
+const AGENT_NATIVE_RUN_DURATION_KEY = "agentNativeRunDurationMs";
+
+export function getAssistantRunDurationMs(
+  message:
+    | {
+        metadata?: unknown;
+      }
+    | null
+    | undefined,
+): number | null {
+  const metadata =
+    message?.metadata && typeof message.metadata === "object"
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const custom =
+    metadata?.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : null;
+  const durationMs = custom?.[AGENT_NATIVE_RUN_DURATION_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
+}
+
+export function withLastAssistantRunDuration<T extends NormalizedRepo>(
+  repo: T,
+  durationMs: number | null | undefined,
+): T {
+  if (
+    !Array.isArray(repo.messages) ||
+    typeof durationMs !== "number" ||
+    !Number.isFinite(durationMs) ||
+    durationMs < 0
+  ) {
+    return repo;
+  }
+
+  const messageIndex = repo.messages.findLastIndex(
+    (entry) => getRepoMessage(entry)?.role === "assistant",
+  );
+  if (messageIndex < 0) return repo;
+
+  const entry = repo.messages[messageIndex]!;
+  const message = getRepoMessage(entry);
+  if (!message || getAssistantRunDurationMs(message) === durationMs) {
+    return repo;
+  }
+
+  const metadata = message.metadata ?? {};
+  const custom =
+    metadata.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : {};
+  const nextMessage: RepoMessage = {
+    ...message,
+    metadata: {
+      ...metadata,
+      custom: {
+        ...custom,
+        [AGENT_NATIVE_RUN_DURATION_KEY]: durationMs,
+      },
+    },
+  };
+  const messages = repo.messages.slice();
+  messages[messageIndex] =
+    entry.message === undefined
+      ? (nextMessage as RepoEntry)
+      : { ...entry, message: nextMessage };
+  return { ...repo, messages };
+}
+
 /**
  * Collapse duplicate message ids before a repository is handed to
  * `threadRuntime.import()`. assistant-ui's `MessageRepository` throws
