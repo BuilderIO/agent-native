@@ -835,7 +835,6 @@ function LLMSectionInner({
   onToggle?: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
-  const t = useT();
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
@@ -1120,37 +1119,8 @@ function LLMSectionInner({
             trackingFlow="connect_llm"
             label="Connect Builder.io"
           />
-          {builderConnected && (
-            <Button
-              type="button"
-              intent="neutral"
-              emphasis="ghost"
-              aria-expanded={manualSetupOpen}
-              aria-controls="llm-manual-setup"
-              onClick={() => setManualSetupOpen((open) => !open)}
-              className={cn(
-                "inline-flex items-center gap-1 px-0.5 text-muted-foreground hover:text-foreground",
-                isPage ? "text-xs" : "text-[10px]",
-              )}
-            >
-              {t("agentPanel.addOwnKeys", {
-                defaultValue: "Add your own keys",
-              })}
-              <IconChevronDown
-                size={isPage ? 14 : 11}
-                className={cn(
-                  "transition-transform",
-                  manualSetupOpen && "rotate-180",
-                )}
-              />
-            </Button>
-          )}
-          {(!builderConnected || manualSetupOpen) && (
-            <div id="llm-manual-setup">
-              <ManualSetupCard
-                hint={manualSetupHint}
-                sourceBadge={builderConnected ? undefined : sourceBadge}
-              >
+          {!builderConnected && (
+            <ManualSetupCard hint={manualSetupHint} sourceBadge={sourceBadge}>
               <div className="space-y-2 mb-1">
                 <SettingsSelect
                   label="Provider"
@@ -1444,8 +1414,7 @@ function LLMSectionInner({
                   </p>
                 )}
               </div>
-              </ManualSetupCard>
-            </div>
+            </ManualSetupCard>
           )}
         </div>
       )}
@@ -1488,6 +1457,7 @@ function AppModelDefaultsSectionInner({
   onToggle?: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
+  const t = useT();
   const [settings, setSettings] = useState<AppModelDefaultsResponse | null>(
     null,
   );
