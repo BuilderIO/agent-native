@@ -18,6 +18,7 @@ const messages = {
   },
   settings: {
     title: "Settings",
+    pageTitle: "Settings",
     description: "Language and workspace preferences for this app.",
     languageTitle: "Language",
     languageDescription:

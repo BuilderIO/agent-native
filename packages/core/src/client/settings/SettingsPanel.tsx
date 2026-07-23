@@ -39,7 +39,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import { Link } from "react-router";
+import { Link, Navigate } from "react-router";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
@@ -2950,6 +2950,32 @@ export function ConnectionsSettingsContent({
   );
 }
 
+export function AgentSettingsContent({
+  className,
+}: { className?: string } = {}) {
+  const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const settingsPanelProps = useMemo<SettingsPanelProps>(
+    () => ({
+      isDevMode,
+      onToggleDevMode: () => {
+        void setDevMode(!isDevMode);
+      },
+      showDevToggle: canToggle,
+    }),
+    [canToggle, isDevMode, setDevMode],
+  );
+
+  return (
+    <SettingsPanelContent
+      {...settingsPanelProps}
+      surface="page"
+      sections={AGENT_SETTINGS_SECTIONS}
+      showCapabilityStrip={false}
+      className={cn("mx-auto w-full max-w-2xl", className)}
+    />
+  );
+}
+
 export function useAgentSettingsTabs(): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const baseProps = useMemo<SettingsPanelProps>(
@@ -2981,15 +3007,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ...agent,
         icon: IconHierarchy2,
         group: "agent",
-        content: (
-          <SettingsPanelContent
-            {...baseProps}
-            surface="page"
-            sections={AGENT_SETTINGS_SECTIONS}
-            showCapabilityStrip={false}
-            className="mx-auto w-full max-w-2xl"
-          />
-        ),
+        href: "/agent#settings",
+        searchEntries: undefined,
+        content: <Navigate to="/agent#settings" replace />,
       },
       {
         ...connections,

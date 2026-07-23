@@ -368,7 +368,7 @@ describe("dashboard report email", () => {
         1,
         expect.any(String),
         undefined,
-        { timeout: 35_000 },
+        { timeout: 45_000 },
       );
       expect(page.page.goto).toHaveBeenCalledWith(
         expect.stringContaining("reportPanelLimit=4"),
@@ -395,7 +395,7 @@ describe("dashboard report email", () => {
     );
   });
 
-  it("fails the entire screenshot when any chunk fails and never sends partial images", async () => {
+  it("does not send completed chunks while a retry still requires a complete capture", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
@@ -418,9 +418,35 @@ describe("dashboard report email", () => {
       screenshotAttached: false,
       emailsSent: false,
     });
+    expect(first.locator.screenshot).toHaveBeenCalledOnce();
     expect(mocks.sendEmail).not.toHaveBeenCalled();
     expect(first.page.close).toHaveBeenCalledOnce();
     expect(failed.page.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a partial capture satisfy requireScreenshot", async () => {
+    mocks.getReportDashboard.mockResolvedValue(dashboard(8));
+    const first = createPage({
+      renderedPanelIds: Array.from(
+        { length: 4 },
+        (_, index) => `panel-${index}`,
+      ),
+    });
+    const failed = createPage({
+      waitForFails: true,
+      renderedPanelIds: ["panel-4", "panel-5", "panel-6", "panel-7"],
+    });
+    const { browser } = createBrowser([first, failed]);
+    mocks.launch.mockResolvedValue(browser);
+
+    await expect(
+      sendDashboardReportSubscription(subscription(), {
+        requireScreenshot: true,
+      }),
+    ).rejects.toThrow("Dashboard screenshot unavailable");
+
+    expect(first.locator.screenshot).toHaveBeenCalledOnce();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -487,7 +513,7 @@ describe("dashboard report email", () => {
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
-  it("rejects a chunk whose rendered panel ids no longer match the initial dashboard snapshot", async () => {
+  it("discards every chunk when a later panel window no longer matches the dashboard snapshot", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
@@ -499,18 +525,22 @@ describe("dashboard report email", () => {
     const { browser } = createBrowser([first, changed]);
     mocks.launch.mockResolvedValue(browser);
 
-    const result = await sendDashboardReportSubscription(subscription(), {
-      skipEmailWithoutScreenshot: true,
-    });
+    const result = await sendDashboardReportSubscription(subscription());
 
     expect(result).toMatchObject({
       screenshotAttached: false,
-      emailsSent: false,
+      screenshotMode: "none",
+      emailsSent: true,
       screenshotError: expect.stringContaining(
         'report chunk panel mismatch; expected=["panel-4","panel-5","panel-6","panel-7"] actual=[]',
       ),
     });
-    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: undefined,
+        html: expect.not.stringContaining("dashboard-report-snapshot-1"),
+      }),
+    );
     expect(first.page.close).toHaveBeenCalledOnce();
     expect(changed.page.close).toHaveBeenCalledOnce();
   });
@@ -763,7 +793,7 @@ describe("dashboard report email", () => {
       1,
       expect.any(String),
       undefined,
-      { timeout: 35_000 },
+      { timeout: 45_000 },
     );
     expect(page.page.waitForFunction).toHaveBeenNthCalledWith(
       2,
@@ -833,7 +863,7 @@ describe("dashboard report email", () => {
     );
   });
 
-  it("discards completed chunks when a later chunk crosses the 210 second serverless deadline", async () => {
+  it("sends completed chunks and labels the unavailable part on the final serverless sweep", async () => {
     vi.useFakeTimers();
     try {
       vi.stubEnv("NETLIFY", "true");
@@ -860,23 +890,37 @@ describe("dashboard report email", () => {
       });
       mocks.launchPersistentContext.mockResolvedValue(browser);
 
-      const capture = sendDashboardReportSubscription(subscription(), {
-        skipEmailWithoutScreenshot: true,
-      });
+      const capture = sendDashboardReportSubscription(subscription());
       await second.readyWaitStarted;
       await vi.advanceTimersByTimeAsync(210_000);
       const result = await capture;
 
       expect(first.locator.screenshot).toHaveBeenCalledOnce();
       expect(result).toMatchObject({
-        screenshotAttached: false,
-        emailsSent: false,
+        screenshotAttached: true,
+        screenshotMode: "partial",
+        emailsSent: true,
         screenshotError: expect.stringContaining("lambdaMemoryMb=1024"),
       });
       expect(result.screenshotError).toContain("capture exceeded 210000ms");
+      expect(mocks.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            expect.objectContaining({
+              content: Buffer.from("first"),
+              contentId: "dashboard-report-snapshot-1",
+            }),
+          ],
+          html: expect.stringContaining(
+            "Dashboard image part 2 was unavailable for this run.",
+          ),
+          text: expect.stringContaining(
+            "Dashboard image part 2 unavailable for this run.",
+          ),
+        }),
+      );
       expect(first.page.close).toHaveBeenCalledOnce();
       expect(second.page.close).toHaveBeenCalledOnce();
-      expect(mocks.sendEmail).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

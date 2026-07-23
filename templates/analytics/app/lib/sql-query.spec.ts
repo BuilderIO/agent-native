@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DASHBOARD_REPORT_READY_TIMEOUT_MS,
   FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
 } from "@shared/dashboard-report-timeouts";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),

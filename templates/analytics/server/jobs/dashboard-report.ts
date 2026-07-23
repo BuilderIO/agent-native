@@ -53,6 +53,18 @@ export async function runDashboardReportsOnce(): Promise<{
               skipEmailWithoutScreenshot: retryAt !== null,
             }),
         );
+        if (result.screenshotMode === "partial") {
+          failed++;
+          const message = result.screenshotError
+            ? `Dashboard screenshot partially available: ${result.screenshotError}`
+            : "Dashboard screenshot partially available";
+          console.error(
+            `[dashboard-report] Subscription ${sub.id} sent with a partial screenshot:`,
+            message,
+          );
+          await markDashboardReportResult(sub, "error", message);
+          continue;
+        }
         if (!result.screenshotAttached) {
           const message = result.screenshotError
             ? `Dashboard screenshot unavailable: ${result.screenshotError}`

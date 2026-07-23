@@ -62,9 +62,7 @@ export function AccountSettingsForm({
     if (nextName) setName(nextName);
   }, [profileQuery.data?.name, session?.name]);
 
-  const handleAvatarChange = async (
-    event: ChangeEvent<HTMLInputElement>,
-  ) => {
+  const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !email) return;
@@ -100,7 +98,12 @@ export function AccountSettingsForm({
           )}
         />
         <div className="min-w-0 flex-1">
-          <p className={cn("truncate font-medium", compact ? "text-xs" : "text-sm")}>
+          <p
+            className={cn(
+              "truncate font-medium",
+              compact ? "text-xs" : "text-sm",
+            )}
+          >
             {isLoading ? t("settings.profileLoading") : displayName}
           </p>
           {email && (
@@ -210,7 +213,9 @@ export function AccountSettingsCard({ className }: AccountSettingsCardProps) {
       )}
     >
       <div className="space-y-1">
-        <h2 className="text-base font-semibold">{t("settings.profileTitle")}</h2>
+        <h2 className="text-base font-semibold">
+          {t("settings.profileTitle")}
+        </h2>
         <p className="text-sm leading-6 text-muted-foreground">
           {t("settings.profileDescription")}
         </p>

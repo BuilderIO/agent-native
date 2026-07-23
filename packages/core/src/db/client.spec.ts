@@ -664,6 +664,49 @@ describe("dbExecQueryBudget", () => {
   });
 });
 
+describe("Neon foreground statement budgets", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.doUnmock("@neondatabase/serverless");
+    vi.resetModules();
+  });
+
+  it("uses the statement budget while acquiring a foreground connection", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "5");
+    const pool = {
+      connect: vi.fn(() => new Promise(() => {})),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      exec.execute({
+        sql: "SELECT 1",
+        timeoutMs: 25,
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow("DB connect timed out after 25ms");
+
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    expect(pool.connect).toHaveBeenCalledOnce();
+  });
+});
+
 describe("isTransientDatabaseError", () => {
   it("classifies Neon connection exhaustion as retryable", async () => {
     const { isConnectionError, isTransientDatabaseError } =

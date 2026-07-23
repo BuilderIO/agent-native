@@ -214,4 +214,31 @@ describe("dashboard report sweep", () => {
       "success",
     );
   });
+
+  it("delivers an honest partial final report while preserving the failure diagnostic", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(null);
+    mocks.sendDashboardReportSubscription.mockResolvedValue({
+      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+      recipientCount: 1,
+      screenshotAttached: true,
+      screenshotMode: "partial",
+      screenshotError: "part 2 timed out",
+      emailsSent: true,
+    });
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 sent with a partial screenshot:",
+      "Dashboard screenshot partially available: part 2 timed out",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "Dashboard screenshot partially available: part 2 timed out",
+    );
+  });
 });

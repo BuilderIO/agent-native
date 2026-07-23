@@ -1,4 +1,5 @@
 export {
+  AgentSettingsContent,
   SettingsPanel,
   useAgentSettingsTabs,
   type SettingsPanelProps,

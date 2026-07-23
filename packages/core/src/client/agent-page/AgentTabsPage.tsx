@@ -10,6 +10,7 @@ import {
   IconPlugConnected,
   IconTopologyRing2,
   IconSearch,
+  IconSettings,
   IconShieldLock,
   IconX,
 } from "@tabler/icons-react";
@@ -49,6 +50,11 @@ import {
   type McpServer,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
+import {
+  AGENT_SETTINGS_SECTIONS,
+  buildSectionSearchEntries,
+} from "../settings/agent-settings-search.js";
+import { AgentSettingsContent } from "../settings/SettingsPanel.js";
 import type {
   SettingsSearchEntry,
   SettingsTabItem,
@@ -824,6 +830,22 @@ export function AgentTabsPage({
           <Suspense fallback={<TabLoading />}>
             <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
           </Suspense>
+        ),
+      },
+      {
+        id: "settings",
+        label: t("settings.agentTitle"),
+        icon: IconSettings,
+        group: "agent",
+        keywords: "agent settings model llm api keys limits voice automations",
+        searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
+        content: (
+          <AgentTabFrame
+            title={t("settings.agentTitle")}
+            description={t("settings.agentDescription")}
+          >
+            <AgentSettingsContent />
+          </AgentTabFrame>
         ),
       },
       {

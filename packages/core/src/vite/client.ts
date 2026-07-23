@@ -628,6 +628,10 @@ function hasCoreDep(pkg: string, cwd: string): boolean {
 }
 
 function hasOptimizeDep(pkg: string, cwd: string): boolean {
+  // The nested dependency entry below is rooted at @agent-native/core, so
+  // monorepo consumers need to retain it even though the source package does
+  // not list itself as a dependency.
+  if (pkg === "@agent-native/core" && findCorePackageRoot(cwd)) return true;
   return hasDep(pkg, cwd) || hasCoreDep(pkg, cwd);
 }
 
@@ -859,8 +863,8 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
     {
-      specifier: "@assistant-ui/react > assistant-stream",
-      packageName: "@assistant-ui/react",
+      specifier: "@agent-native/core > @assistant-ui/react > assistant-stream",
+      packageName: "@agent-native/core",
     },
     { specifier: "@codemirror/lang-sql" },
     { specifier: "@codemirror/theme-one-dark" },

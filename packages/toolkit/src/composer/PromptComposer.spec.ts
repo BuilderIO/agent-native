@@ -1,17 +1,23 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
-import {
-  buildPromptComposerSubmission,
-  canSubmitWithAgentEngineState,
-} from "./PromptComposer.js";
+import { buildPromptComposerSubmission } from "./PromptComposer.js";
 
-describe("canSubmitWithAgentEngineState", () => {
-  it("allows configured engines and blocks unresolved states", () => {
-    expect(canSubmitWithAgentEngineState("configured")).toBe(true);
-    expect(canSubmitWithAgentEngineState("missing")).toBe(false);
-    expect(canSubmitWithAgentEngineState("unavailable")).toBe(false);
+describe("PromptComposer readiness", () => {
+  it("does not preflight readiness during submission", () => {
+    const source = readFileSync("src/composer/PromptComposer.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain(
+      "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
+    );
+    expect(source).not.toContain("ensureAgentEngineReadyForSubmit");
+    expect(source).not.toContain("fetchAgentEngineConfiguredState");
+    expect(source).not.toContain("SUBMIT_ENGINE_STATUS_TIMEOUT_MS");
   });
 });
 
