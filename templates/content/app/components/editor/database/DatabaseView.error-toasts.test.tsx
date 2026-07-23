@@ -468,7 +468,40 @@ describe("DatabaseView UI regressions", () => {
     }
   });
 
-  it("persists one personal override and protects a pending reload with keepalive", async () => {
+  it("persists exactly one personal override after filter selection", async () => {
+    vi.useFakeTimers();
+    await renderDatabaseView();
+    const filterButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter"]',
+    );
+
+    await act(async () => {
+      filterButton?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await Promise.resolve();
+    });
+    const nameItem = [
+      ...document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ].find((item) => item.textContent?.trim() === "Name");
+    expect(nameItem).toBeTruthy();
+
+    await act(async () => {
+      nameItem?.click();
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+
+    expect(personalViewMutation.mutate).toHaveBeenCalledTimes(1);
+    expect(personalViewMutation.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ databaseId: "database-1" }),
+      expect.any(Object),
+    );
+    expect(keepaliveActionMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("protects a pending personal override during reload with one keepalive", async () => {
     vi.useFakeTimers();
     await renderDatabaseView();
     const filterButton = container.querySelector<HTMLButtonElement>(
