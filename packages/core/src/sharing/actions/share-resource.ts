@@ -11,7 +11,7 @@ import { renderEmail } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
-import { getUserProfile } from "../../user-profile/store.js";
+import { getUserDisplayName } from "../../user-profile/store.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import {
   requireShareableResource,
@@ -121,28 +121,6 @@ export function isSyntheticQaEmail(email: string): boolean {
       domain === "example.invalid" ||
       domain.endsWith(".invalid"))
   );
-}
-
-/**
- * Resolves the sharer's real display name, if they've set one. Goes through
- * the same `getUserProfile()` the Settings > Account page reads/writes —
- * that checks the settings-table override first, then the auth provider's
- * `user.name` column — rather than querying the auth table directly, which
- * misses names entered in Settings (stored as a settings override, not a
- * `user` row column). Returns null when the profile has no name distinct
- * from the raw email (i.e. nothing meaningful to show).
- */
-async function getActorDisplayName(email: string): Promise<string | null> {
-  try {
-    const profile = await getUserProfile(email);
-    const name = profile.name?.trim();
-    if (!name || name.toLowerCase() === email.trim().toLowerCase()) {
-      return null;
-    }
-    return name;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -340,7 +318,7 @@ async function sendShareNotificationEmail(params: {
     );
     const appName =
       process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
-    const actorRealName = await getActorDisplayName(actor);
+    const actorRealName = await getUserDisplayName(actor);
     const actorDisplayName = actorRealName || actor;
     const senderDisplayName = actorRealName
       ? `${actorRealName} (via ${reg.logoLabel ?? appName})`
@@ -397,10 +375,7 @@ async function sendShareNotificationEmail(params: {
       messageId,
     });
   } catch (err) {
-    console.error(
-      "[share-resource] failed to send share notification:",
-      err,
-    );
+    console.error("[share-resource] failed to send share notification:", err);
   } finally {
     await recordShareNotification(resourceType, resourceId, principalId);
   }

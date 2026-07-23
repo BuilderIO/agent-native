@@ -3,8 +3,35 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { organizations } from "../../org/schema.js";
+import { getUserDisplayName } from "../../user-profile/store.js";
 import { resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+
+async function loadUserDisplayNames(
+  emails: Array<string | null | undefined>,
+): Promise<Map<string, string>> {
+  const uniqueEmails = Array.from(
+    new Set(
+      emails
+        .filter(
+          (e): e is string => typeof e === "string" && e.trim().length > 0,
+        )
+        .map((e) => e.trim().toLowerCase()),
+    ),
+  );
+  if (!uniqueEmails.length) return new Map();
+
+  const resolved = await Promise.all(
+    uniqueEmails.map(
+      async (email) => [email, await getUserDisplayName(email)] as const,
+    ),
+  );
+  return new Map(
+    resolved.filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
 
 async function loadOrgDisplayNames(
   db: any,
@@ -70,9 +97,20 @@ export default defineAction({
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
     const orgDisplayNames = await loadOrgDisplayNames(db, shares);
+    const userDisplayNames = await loadUserDisplayNames([
+      access.resource.ownerEmail,
+      ...shares
+        .filter((s: any) => s.principalType === "user")
+        .map((s: any) => s.principalId),
+    ]);
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
+      ownerDisplayName: access.resource.ownerEmail
+        ? (userDisplayNames.get(
+            access.resource.ownerEmail.trim().toLowerCase(),
+          ) ?? null)
+        : null,
       orgId: access.resource.orgId ?? null,
       visibility: access.resource.visibility ?? "private",
       role: access.role,
@@ -83,7 +121,7 @@ export default defineAction({
         displayName:
           s.principalType === "org"
             ? orgDisplayNames.get(s.principalId)
-            : undefined,
+            : userDisplayNames.get(s.principalId.trim().toLowerCase()),
         role: s.role,
         createdAt: s.createdAt,
       })),

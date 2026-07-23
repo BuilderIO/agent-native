@@ -28,6 +28,30 @@ export async function getUserProfile(email: string): Promise<UserProfile> {
   };
 }
 
+/**
+ * Resolves a user's real display name, if they've set one. Goes through the
+ * same `getUserProfile()` the Settings > Account page reads/writes — that
+ * checks the settings-table override first, then the auth provider's
+ * `user.name` column — rather than querying the auth table directly, which
+ * misses names entered in Settings (stored as a settings override, not a
+ * `user` row column). Returns null when the profile has no name distinct
+ * from the raw email (i.e. nothing meaningful to show).
+ */
+export async function getUserDisplayName(
+  email: string,
+): Promise<string | null> {
+  try {
+    const profile = await getUserProfile(email);
+    const name = profile.name?.trim();
+    if (!name || name.toLowerCase() === email.trim().toLowerCase()) {
+      return null;
+    }
+    return name;
+  } catch {
+    return null;
+  }
+}
+
 export async function updateUserProfile(
   email: string,
   name: string,

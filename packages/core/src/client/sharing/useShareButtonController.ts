@@ -26,6 +26,7 @@ export interface ShareButtonShare {
 
 export interface ShareButtonSharesResponse {
   ownerEmail: string | null;
+  ownerDisplayName?: string | null;
   orgId: string | null;
   visibility: ShareButtonVisibility | null;
   role?: "owner" | ShareButtonRole;

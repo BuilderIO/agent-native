@@ -32,6 +32,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
+import { useAvatarUrl } from "../use-avatar.js";
 import { cn } from "../utils.js";
 import {
   useShareButtonController,
@@ -463,54 +464,74 @@ function SharePanel(
       <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
       <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
         {data?.ownerEmail ? (
-          <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-            <Avatar label={displayName(data.ownerEmail, knownMembers)} />
-            <span className="flex-1 min-w-0 truncate">
-              {displayName(data.ownerEmail, knownMembers)}
-            </span>
+          <li className="group/row flex items-center gap-3 px-1 py-1 text-sm">
+            <PersonAvatar email={data.ownerEmail} label={ownerLabel(data)} />
+            <PersonCell
+              primary={ownerLabel(data)}
+              secondary={
+                data.ownerDisplayName?.trim() ? data.ownerEmail : undefined
+              }
+            />
             <span className="text-xs text-muted-foreground">Owner</span>
           </li>
         ) : null}
-        {shares.map((s) => (
-          <li
-            key={keyOf(s)}
-            className={cn(
-              "flex items-center gap-3 px-1 py-1.5 text-sm",
-              inFlight.has(keyOf(s)) && "opacity-60",
-            )}
-          >
-            <Avatar
-              label={principalLabel(s, knownMembers)}
-              org={s.principalType === "org"}
-            />
-            <span className="flex-1 min-w-0 truncate">
-              {principalLabel(s, knownMembers)}
-            </span>
-            {canManage ? (
-              <RoleSelect
-                value={s.role}
-                onChange={(r) => handleChangeRole(s, r)}
-                disabled={inFlight.has(keyOf(s))}
-                plain
+        {shares.map((s) => {
+          const isOrg = s.principalType === "org";
+          const label = principalLabel(s, knownMembers);
+          // Only surface the principal id as a secondary line when it's an
+          // actual email distinct from the resolved name — never for
+          // non-email principal ids (e.g. an org secret), where `label` is
+          // already the generic "Unknown person" placeholder.
+          const resolvedName =
+            !isOrg &&
+            s.principalId.includes("@") &&
+            label.trim().toLowerCase() !== s.principalId.trim().toLowerCase()
+              ? label
+              : null;
+          return (
+            <li
+              key={keyOf(s)}
+              className={cn(
+                "group/row flex items-center gap-3 px-1 py-1 text-sm",
+                inFlight.has(keyOf(s)) && "opacity-60",
+              )}
+            >
+              <PersonAvatar
+                email={isOrg ? undefined : s.principalId}
+                label={label}
+                org={isOrg}
               />
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {cap(s.role)}
-              </span>
-            )}
-            {canManage ? (
-              <button
-                type="button"
-                aria-label="Remove"
-                onClick={() => handleRemove(s)}
-                disabled={inFlight.has(keyOf(s))}
-                className={BUTTON_GHOST_ICON}
-              >
-                <IconTrash size={14} />
-              </button>
-            ) : null}
-          </li>
-        ))}
+              <PersonCell
+                primary={label}
+                secondary={resolvedName ? s.principalId : undefined}
+              />
+              {canManage ? (
+                <RoleSelect
+                  value={s.role}
+                  onChange={(r) => handleChangeRole(s, r)}
+                  disabled={inFlight.has(keyOf(s))}
+                  plain
+                  fadeChevron
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {cap(s.role)}
+                </span>
+              )}
+              {canManage ? (
+                <button
+                  type="button"
+                  aria-label="Remove"
+                  onClick={() => handleRemove(s)}
+                  disabled={inFlight.has(keyOf(s))}
+                  className={BUTTON_GHOST_ICON}
+                >
+                  <IconTrash size={14} />
+                </button>
+              ) : null}
+            </li>
+          );
+        })}
         {!shares.length && !data?.ownerEmail ? (
           <li className="px-1 py-1.5 text-sm text-muted-foreground">
             No one has access yet.
@@ -1059,6 +1080,12 @@ function RoleSelect(props: {
   /** When true, render as inline text + chevron (no border / bg) — matches
    *  the per-person role picker in Google Docs. */
   plain?: boolean;
+  /** Fades the dropdown chevron out until the row is hovered or focused, so
+   *  a list of existing collaborators reads as plain text at a glance and
+   *  only reveals the "this is editable" affordance on intent. Requires an
+   *  ancestor with the `group/row` class. The role label itself always stays
+   *  visible — it's meaningful information, not just an edit affordance. */
+  fadeChevron?: boolean;
 }) {
   const current =
     ROLE_OPTIONS.find((o) => o.value === props.value) ?? ROLE_OPTIONS[0];
@@ -1083,7 +1110,13 @@ function RoleSelect(props: {
         aria-label="Role"
       >
         <Select.Value>{current.label}</Select.Value>
-        <Select.Icon>
+        <Select.Icon
+          className={
+            props.fadeChevron
+              ? "opacity-30 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 data-[state=open]:opacity-100"
+              : undefined
+          }
+        >
           <IconChevronDown size={14} />
         </Select.Icon>
       </Select.Trigger>
@@ -1163,15 +1196,64 @@ function VisibilitySelect(props: {
   );
 }
 
-function Avatar({ label, org }: { label: string; org?: boolean }) {
+function PersonAvatar({
+  email,
+  label,
+  org,
+}: {
+  email?: string;
+  label: string;
+  org?: boolean;
+}) {
+  const avatarUrl = useAvatarUrl(org ? null : (email ?? null));
   return (
     <span
       aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
-      {org ? <IconUsersGroup size={14} strokeWidth={1.75} /> : initials(label)}
+      {org ? (
+        <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : avatarUrl ? (
+        <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+      ) : (
+        initials(label)
+      )}
     </span>
   );
+}
+
+/**
+ * Renders a person's name with their email as a small, muted line
+ * underneath — only when a real name is known and differs from the email,
+ * so unresolved rows (still just an email) stay single-line and don't grow
+ * taller than necessary.
+ */
+function PersonCell({
+  primary,
+  secondary,
+}: {
+  primary: string;
+  secondary?: string;
+}) {
+  return (
+    <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+      <span className="truncate leading-tight">{primary}</span>
+      {secondary ? (
+        <span className="truncate text-[11px] leading-tight text-muted-foreground">
+          {secondary}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function ownerLabel(data: {
+  ownerEmail: string | null;
+  ownerDisplayName?: string | null;
+}): string {
+  const name = data.ownerDisplayName?.trim();
+  if (name) return name;
+  return data.ownerEmail ?? "Unknown person";
 }
 
 function keyOf(s: Share): string {
