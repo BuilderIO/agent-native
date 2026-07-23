@@ -234,11 +234,15 @@ describe("agent-native skills", () => {
   it("directs missing-store installs to Clips without claiming native setup", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
     fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
     const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
     const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
     const previousLegacyStore = process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
     process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
     delete process.env.CLIPS_SCREEN_MEMORY_DIR;
     delete process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
 
@@ -259,9 +263,16 @@ describe("agent-native skills", () => {
       ).rejects.toThrow(
         /https:\/\/clips\.agent-native\.com\/download.*was not installed or enabled automatically/,
       );
+
+      expect(
+        fs.existsSync(path.join(codexHome, "skills", "rewind", "SKILL.md")),
+      ).toBe(false);
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
       if (previousStore === undefined)
         delete process.env.CLIPS_SCREEN_MEMORY_DIR;
       else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;

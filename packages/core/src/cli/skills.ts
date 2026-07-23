@@ -3549,8 +3549,18 @@ export async function addAgentNativeSkill(
   let connectCommand: string | undefined;
   let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
   let localManifestPath: string | undefined;
+  const screenMemoryDir =
+    shouldRegisterMcp && installsScreenMemoryMcp
+      ? resolveScreenMemoryStoreDir()
+      : undefined;
 
   try {
+    if (shouldRegisterMcp && installsScreenMemoryMcp && !screenMemoryDir) {
+      throw new Error(
+        "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.",
+      );
+    }
+
     if (parsed.instructions) {
       if (skillsAgents.length === 0) {
         if (!shouldRegisterMcp) {
@@ -3626,19 +3636,13 @@ export async function addAgentNativeSkill(
     });
 
     if (shouldRegisterMcp && installsScreenMemoryMcp) {
-      const screenMemoryDir = resolveScreenMemoryStoreDir();
-      if (!screenMemoryDir) {
-        throw new Error(
-          "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.",
-        );
-      }
       registeredMcpClients = mcpClients.map((client) => {
         commands.push(
           `npx @agent-native/core@latest mcp install-screen-memory --client ${client} --scope ${parsed.scope}`,
         );
         installScreenMemoryForClient(
           client,
-          screenMemoryDir,
+          screenMemoryDir!,
           baseDir,
           parsed.scope,
         );
