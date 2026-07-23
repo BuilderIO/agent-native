@@ -2335,39 +2335,37 @@ function nitroStartupRecovery(): Plugin {
     apply: "serve",
     enforce: "pre",
     configureServer(server) {
-      return () => {
-        server.middlewares.use(
-          (
-            error: unknown,
-            req: IncomingMessage,
-            res: ServerResponse,
-            next: (error?: unknown) => void,
-          ) => {
-            const accept = req.headers.accept ?? "";
-            if (
-              !isNitroEnvironmentUnavailable(error) ||
-              (req.method !== "GET" && req.method !== "HEAD") ||
-              !accept.includes("text/html") ||
-              res.headersSent
-            ) {
-              next(error);
-              return;
-            }
+      server.middlewares.use(
+        (
+          error: unknown,
+          req: IncomingMessage,
+          res: ServerResponse,
+          next: (error?: unknown) => void,
+        ) => {
+          const accept = req.headers.accept ?? "";
+          if (
+            !isNitroEnvironmentUnavailable(error) ||
+            (req.method !== "GET" && req.method !== "HEAD") ||
+            !accept.includes("text/html") ||
+            res.headersSent
+          ) {
+            next(error);
+            return;
+          }
 
-            res.statusCode = 503;
-            res.setHeader("cache-control", "no-store");
-            res.setHeader("content-type", "text/html; charset=utf-8");
-            res.setHeader("retry-after", "1");
-            if (req.method === "HEAD") {
-              res.end();
-              return;
-            }
-            res.end(
-              '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
-            );
-          },
-        );
-      };
+          res.statusCode = 503;
+          res.setHeader("cache-control", "no-store");
+          res.setHeader("content-type", "text/html; charset=utf-8");
+          res.setHeader("retry-after", "1");
+          if (req.method === "HEAD") {
+            res.end();
+            return;
+          }
+          res.end(
+            '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+          );
+        },
+      );
     },
   };
 }
@@ -2750,9 +2748,6 @@ function createAgentNativePlugins(
     embedDevFrameHeaders(),
     baseRedirectGuard(),
     portExposer(),
-    // Nitro can reject the first document request while its Vite environment
-    // is still importing. Recover that transient response after its middleware.
-    nitroStartupRecovery(),
     silenceConnectionResets(),
     rolldownInputFix(),
     // Nitro Vite plugin for dev-mode API route serving and HMR.
@@ -2762,6 +2757,9 @@ function createAgentNativePlugins(
       : includeNitro
         ? [nitroPlugin]
         : []),
+    // Nitro can reject the first document request while its Vite environment
+    // is still importing. This error handler must follow Nitro's middleware.
+    nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,
     createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),

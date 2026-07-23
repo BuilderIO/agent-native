@@ -31,15 +31,13 @@ describe("Nitro dev startup recovery", () => {
         ) => void)
       | undefined;
     const plugin = _nitroStartupRecovery();
-    const postHook = plugin.configureServer?.({
+    plugin.configureServer?.({
       middlewares: {
         use: vi.fn((handler) => {
           middleware = handler;
         }),
       },
     } as never);
-    expect(postHook).toBeTypeOf("function");
-    if (typeof postHook === "function") postHook();
 
     const error = Object.assign(
       new Error('Vite environment "nitro" is unavailable'),
@@ -74,14 +72,13 @@ describe("Nitro dev startup recovery", () => {
           next: (error?: unknown) => void,
         ) => void)
       | undefined;
-    const postHook = _nitroStartupRecovery().configureServer?.({
+    _nitroStartupRecovery().configureServer?.({
       middlewares: {
         use: vi.fn((handler) => {
           middleware = handler;
         }),
       },
     } as never);
-    if (typeof postHook === "function") postHook();
 
     const error = Object.assign(
       new Error('Vite environment "nitro" is unavailable'),
@@ -106,7 +103,7 @@ describe("Nitro dev startup recovery", () => {
     expect(next).toHaveBeenLastCalledWith(importError);
   });
 
-  it("registers recovery before Nitro so its post-hook follows Nitro", () => {
+  it("registers recovery after Nitro's middleware", () => {
     const plugins = flatPlugins(defineConfig().plugins);
     const gateIndex = plugins.findIndex(
       (plugin) => plugin.name === "agent-native-nitro-startup-recovery",
@@ -116,7 +113,7 @@ describe("Nitro dev startup recovery", () => {
     );
 
     expect(gateIndex).toBeGreaterThanOrEqual(0);
-    expect(nitroIndex).toBeGreaterThan(gateIndex);
+    expect(gateIndex).toBeGreaterThan(nitroIndex);
   });
 });
 
