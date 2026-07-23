@@ -51,6 +51,22 @@ function scopeDocumentAudit<T extends object>(result: T, ownerEmail: string) {
   return result;
 }
 
+function isFavoriteOnlyUpdate(args: {
+  isFavorite?: boolean;
+  title?: string;
+  content?: string;
+  description?: string;
+  icon?: string | null;
+}) {
+  return (
+    args.isFavorite !== undefined &&
+    args.title === undefined &&
+    args.content === undefined &&
+    args.description === undefined &&
+    args.icon === undefined
+  );
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -314,12 +330,7 @@ export default defineAction({
   }),
   audit: {
     target: (args, result) => {
-      const favoriteOnly =
-        args.isFavorite !== undefined &&
-        args.title === undefined &&
-        args.content === undefined &&
-        args.description === undefined &&
-        args.icon === undefined;
+      const favoriteOnly = isFavoriteOnlyUpdate(args);
       return {
         type: "document",
         id: args.id,
@@ -342,6 +353,11 @@ export default defineAction({
   ): Promise<DocumentUpdateResponse | DocumentUpdateConflictResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+    if (args.isFavorite !== undefined && !isFavoriteOnlyUpdate(args)) {
+      throw new Error(
+        "isFavorite must be updated separately from document fields",
+      );
+    }
 
     // Only surface AI presence for genuine agent invocations (in-app tool loop,
     // sub-agents/A2A → "tool"; external MCP agents → "mcp"). The browser editor
@@ -350,12 +366,7 @@ export default defineAction({
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    const favoriteOnly =
-      args.isFavorite !== undefined &&
-      args.title === undefined &&
-      args.content === undefined &&
-      args.description === undefined &&
-      args.icon === undefined;
+    const favoriteOnly = isFavoriteOnlyUpdate(args);
     const access = favoriteOnly
       ? await resolveContentDocumentAccess(id)
       : await assertAccess("document", id, "editor");

@@ -347,4 +347,32 @@ describe("update-document compare-and-swap", () => {
     });
     expect(ownerEvents).toHaveLength(0);
   });
+
+  it("rejects mixed document and personal favorite mutations", async () => {
+    const documentId = await createDocument({ content: "owner body" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: documentId,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+
+    await expect(
+      runWithRequestContext({ userEmail: EDITOR }, () =>
+        updateDocumentAction.run({
+          id: documentId,
+          content: "collaborator body",
+          isFavorite: true,
+        }),
+      ),
+    ).rejects.toThrow(
+      "isFavorite must be updated separately from document fields",
+    );
+    expect((await documentRow(documentId)).content).toBe("owner body");
+  });
 });
