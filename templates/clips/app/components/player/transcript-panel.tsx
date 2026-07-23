@@ -11,11 +11,8 @@ import {
   IconDownload,
   IconCheck,
   IconExternalLink,
-  IconKey,
   IconLoader2,
   IconBolt,
-  IconChevronDown,
-  IconChevronUp,
   IconRefresh,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -579,10 +576,9 @@ function friendlyCleanupFailure(
 /**
  * Inline card shown when transcription needs a provider set up.
  *
- * Builder.io is the primary/recommended path — free, one-click, no separate
- * API key required (uses BUILDER_PRIVATE_KEY once the user connects).
- * BYOK Groq is the secondary speech-to-text option when native/Builder cannot
- * produce a transcript. Clips does not route recording transcription to OpenAI.
+ * Builder.io is the only cloud fallback — free, one-click, no separate API
+ * key required (uses BUILDER_PRIVATE_KEY once the user connects). Clips does
+ * not route recording transcription to BYOK speech providers.
  */
 function TranscriptSetupCard({
   failureReason,
@@ -600,14 +596,6 @@ function TranscriptSetupCard({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
-  const [showByok, setShowByok] = useState(false);
-  const [apiKey, setApiKey] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveToast, setSaveToast] = useState<{
-    kind: "ok" | "err";
-    text: string;
-  } | null>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoRetryRef = useRef(false);
   const onRetryRef = useRef(onRetry);
 
@@ -630,7 +618,6 @@ function TranscriptSetupCard({
     return () => {
       mountedRef.current = false;
       if (pollRef.current) clearInterval(pollRef.current);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
     };
   }, []);
 
@@ -674,44 +661,6 @@ function TranscriptSetupCard({
       }
     }, 2000);
   }, [onRetry]);
-
-  async function saveApiKey() {
-    if (!apiKey.trim() || saving) return;
-    setSaving(true);
-    try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/secrets/GROQ_API_KEY"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ value: apiKey.trim() }),
-        },
-      );
-      if (!mountedRef.current) return;
-      if (!res.ok) {
-        const err = await res
-          .json()
-          .then((j: { error?: string }) => j.error)
-          .catch(() => null);
-        if (!mountedRef.current) return;
-        setSaveToast({
-          kind: "err",
-          text: err ?? t("transcriptPanel.saveFailed", { status: res.status }),
-        });
-        return;
-      }
-      setApiKey("");
-      setSaveToast({ kind: "ok", text: t("transcriptPanel.savedRetrying") });
-      onRetry?.();
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = setTimeout(() => {
-        if (mountedRef.current) setSaveToast(null);
-        toastTimerRef.current = null;
-      }, 2500);
-    } finally {
-      if (mountedRef.current) setSaving(false);
-    }
-  }
 
   const isProviderError =
     !isBuilderCreditsExhaustedMessage(failureReason) &&
@@ -815,87 +764,6 @@ function TranscriptSetupCard({
           </div>
           {connectError && (
             <p className="text-[11px] text-destructive mt-2">{connectError}</p>
-          )}
-        </div>
-
-        {/* BYOK — secondary option, collapsed by default. Shown even when
-            Builder is connected so users can fall back if Builder
-            transcription itself fails (quota / outage / unsupported audio
-            format) — the failure message tells them to add a key, so the
-            input must be reachable. */}
-        <div>
-          <button
-            type="button"
-            onClick={() => setShowByok((v) => !v)}
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <IconKey className="h-3.5 w-3.5" />
-            {isProviderError
-              ? "Update your API key"
-              : builderConfigured
-                ? "Advanced backup option"
-                : "Or use your own Groq key"}
-            {showByok ? (
-              <IconChevronUp className="h-3 w-3" />
-            ) : (
-              <IconChevronDown className="h-3 w-3" />
-            )}
-          </button>
-
-          {showByok && (
-            <div className="mt-2 space-y-2 pl-1">
-              <p className="text-[11px] text-muted-foreground">
-                {t("transcriptPanel.groqKeysStart")}{" "}
-                <code className="font-mono">gsk_</code>.{" "}
-                {t("transcriptPanel.nativeSpeechPrimary")}
-              </p>
-              <div className="flex gap-1.5">
-                <Input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveApiKey();
-                  }}
-                  placeholder="gsk_…"
-                  className="h-8 text-xs"
-                />
-                <Button
-                  size="sm"
-                  onClick={saveApiKey}
-                  disabled={!apiKey.trim() || saving}
-                >
-                  {saving ? (
-                    <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    t("common.save")
-                  )}
-                </Button>
-              </div>
-              <div className="flex items-center gap-3">
-                <a
-                  href="https://console.groq.com/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
-                >
-                  {t("transcriptPanel.getGroqKey")}
-                  <IconExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-              {saveToast && (
-                <p
-                  className={cn(
-                    "text-[11px]",
-                    saveToast.kind === "ok"
-                      ? "text-green-600"
-                      : "text-destructive",
-                  )}
-                >
-                  {saveToast.text}
-                </p>
-              )}
-            </div>
           )}
         </div>
       </div>

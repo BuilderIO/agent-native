@@ -93,4 +93,24 @@ describe("save-browser-transcript", () => {
     expect(mocks.update).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
   });
+
+  it("does not create a failed row before recording finalization", async () => {
+    mocks.rows = [[]];
+
+    const result = await saveBrowserTranscript.run({
+      recordingId: "rec-1",
+      fullText: "",
+      source: "web-speech",
+      failureReason: "Browser native transcription returned no speech.",
+    });
+
+    expect(result).toEqual({
+      recordingId: "rec-1",
+      status: "skipped",
+      reason: "Empty native transcript; waiting for recording finalization",
+    });
+    expect(mocks.update).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.writeAppState).not.toHaveBeenCalled();
+  });
 });

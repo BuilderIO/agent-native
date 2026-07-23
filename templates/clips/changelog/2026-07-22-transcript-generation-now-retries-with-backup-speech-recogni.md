@@ -3,4 +3,4 @@ type: fixed
 date: 2026-07-22
 ---
 
-Transcript generation now retries with backup speech recognition when the primary provider returns no text.
+Native browser/OS transcripts now remain primary, with Builder transcribing the original recording only when native speech capture is unavailable.
