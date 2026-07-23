@@ -4,7 +4,7 @@ import { Editor as CoreEditor } from "@tiptap/core";
 import { useEditor, type Editor } from "@tiptap/react";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
@@ -41,6 +41,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  vi.useRealTimers();
   container.remove();
 });
 
@@ -486,6 +487,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
   });
 
   it("adopts a nonempty synced Y.Doc instead of reconciling an empty SQL snapshot", async () => {
+    vi.useFakeTimers();
     const persistedYdoc = new Y.Doc();
     const persistedEditor = new CoreEditor({
       extensions: createRichMarkdownExtensions({
@@ -500,10 +502,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     persistedYdoc.destroy();
 
     const awareness = new Awareness(liveYdoc);
-    awareness.getStates().set(4_294_967_295, {
-      user: { name: "Active peer" },
-      visible: true,
-    });
     const setContentValues: string[] = [];
     let capturedEditor: Editor | null = null;
 
@@ -531,13 +529,24 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
 
     act(() => root.render(React.createElement(Probe)));
-    await flush();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 350));
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    // The document state can finish syncing before the first awareness poll.
+    // Publish the active peer after mount to cover that real transport order.
+    act(() => {
+      awareness.getStates().set(4_294_967_295, {
+        user: { name: "Active peer" },
+        visible: true,
+      });
+      awareness.emit("change", [
+        { added: [4_294_967_295], updated: [], removed: [] },
+        "remote",
+      ]);
     });
+    await act(async () => vi.advanceTimersByTimeAsync(2500));
 
     expect(getEditorMarkdown(capturedEditor!)).toBe("live collaborator body");
     expect(setContentValues).toEqual([]);
+    vi.useRealTimers();
     awareness.destroy();
     liveYdoc.destroy();
   });
@@ -558,6 +567,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
 
     const setContentValues: string[] = [];
     let capturedEditor: Editor | null = null;
+    const awareness = new Awareness(liveYdoc);
 
     function Probe() {
       const editor = useEditor({
@@ -570,6 +580,7 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       useCollabReconcile({
         editor,
         ydoc: liveYdoc,
+        awareness,
         collabSynced: true,
         value: "",
         contentUpdatedAt: "2024-01-01T00:00:01.000Z",
@@ -582,14 +593,78 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       return React.createElement("div", null);
     }
 
+    vi.useFakeTimers();
     act(() => root.render(React.createElement(Probe)));
-    await flush();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    });
+    await act(async () => vi.advanceTimersByTimeAsync(2499));
+    expect(setContentValues).toEqual([]);
+    await act(async () => vi.advanceTimersByTimeAsync(51));
 
     expect(setContentValues).toContain("");
     expect(getEditorMarkdown(capturedEditor!)).toBe("");
+    vi.useRealTimers();
+    awareness.destroy();
+    liveYdoc.destroy();
+  });
+
+  it("preserves and permits a first local edit during the awareness settle window", async () => {
+    const persistedYdoc = new Y.Doc();
+    const persistedEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: persistedYdoc,
+      }),
+    });
+    persistedEditor.commands.setContent("stale persisted body");
+    const liveYdoc = new Y.Doc();
+    Y.applyUpdate(liveYdoc, Y.encodeStateAsUpdate(persistedYdoc), "remote");
+    persistedEditor.destroy();
+    persistedYdoc.destroy();
+
+    const awareness = new Awareness(liveYdoc);
+    let capturedEditor: Editor | null = null;
+    let guards: ReturnType<typeof useCollabReconcile> | null = null;
+    const setContentValues: string[] = [];
+
+    function Probe() {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: liveYdoc,
+        }),
+      });
+      capturedEditor = editor;
+      guards = useCollabReconcile({
+        editor,
+        ydoc: liveYdoc,
+        awareness,
+        collabSynced: true,
+        value: "",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        setContent: (editorToSet, nextValue) => {
+          setContentValues.push(nextValue);
+          editorToSet.commands.setContent(nextValue);
+        },
+      });
+      return React.createElement("div", null);
+    }
+
+    vi.useFakeTimers();
+    act(() => root.render(React.createElement(Probe)));
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+
+    expect(guards).not.toBeNull();
+    expect(capturedEditor).not.toBeNull();
+    expect(guards!.shouldIgnoreUpdate(capturedEditor!.state.tr)).toBe(false);
+    expect(guards!.registerEmitted("first local edit")).toBe(true);
+    act(() => capturedEditor!.commands.setContent("first local edit"));
+
+    await act(async () => vi.advanceTimersByTimeAsync(2500));
+    expect(getEditorMarkdown(capturedEditor!)).toBe("first local edit");
+    expect(setContentValues).toEqual([]);
+
+    vi.useRealTimers();
+    awareness.destroy();
     liveYdoc.destroy();
   });
 

@@ -33,6 +33,11 @@ export function getEditorMarkdown(editor: Editor): string {
  * is identical, so skipping it is safe by construction.
  */
 const EMITTED_RING_MAX = 16;
+// The hosted awareness transport polls every 2s when its SSE gateway cannot
+// forward presence. Give that first snapshot one poll plus margin before an
+// empty SQL value is allowed to clear a nonempty Y.Doc. This is the same settle
+// window used below when a known peer may deliver an edit through Yjs.
+const PEER_SETTLE_MS = 2500;
 function pushEmittedRing(ring: string[], value: string): void {
   if (!value) return;
   if (ring[ring.length - 1] === value) return;
@@ -317,25 +322,28 @@ export function useCollabReconcile({
 
       emptySnapshotDecisionPendingRef.current = true;
       let cancelled = false;
-      const adoptTimer = setTimeout(() => {
-        if (cancelled || editor.isDestroyed) return;
-        const projectedMarkdown = getMarkdown(editor);
-        const isOwnFreshEdit =
-          projectedMarkdown.trim() &&
-          (projectedMarkdown === lastEmittedRef.current ||
-            recentEmittedRef.current.includes(projectedMarkdown));
-        if (
-          projectedMarkdown.trim() &&
-          (peerCountRef.current > 0 || isOwnFreshEdit)
-        ) {
-          lastAppliedValueRef.current = value;
-          lastAppliedSerializedRef.current = projectedMarkdown;
-          if (contentUpdatedAt) {
-            lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+      const adoptTimer = setTimeout(
+        () => {
+          if (cancelled || editor.isDestroyed) return;
+          const projectedMarkdown = getMarkdown(editor);
+          const isOwnFreshEdit =
+            projectedMarkdown.trim() &&
+            (projectedMarkdown === lastEmittedRef.current ||
+              recentEmittedRef.current.includes(projectedMarkdown));
+          if (
+            projectedMarkdown.trim() &&
+            (peerCountRef.current > 0 || isOwnFreshEdit)
+          ) {
+            lastAppliedValueRef.current = value;
+            lastAppliedSerializedRef.current = projectedMarkdown;
+            if (contentUpdatedAt) {
+              lastAppliedUpdatedAtRef.current = contentUpdatedAt;
+            }
           }
-        }
-        emptySnapshotDecisionPendingRef.current = false;
-      }, 0);
+          emptySnapshotDecisionPendingRef.current = false;
+        },
+        awareness ? PEER_SETTLE_MS : 0,
+      );
       return () => {
         cancelled = true;
         clearTimeout(adoptTimer);
@@ -412,8 +420,6 @@ export function useCollabReconcile({
     // With peers present, a peer's edit also arrives via Yjs. Defer one poll
     // cycle (+margin) and re-check before applying via setContent so the same
     // change isn't inserted twice (Yjs + setContent → duplicated region).
-    const PEER_SETTLE_MS = 2500;
-
     const apply = (deferred = false) => {
       if (cancelled || editor.isDestroyed) return;
       // In collab mode, defer all reconcile until the shared doc is seeded so we

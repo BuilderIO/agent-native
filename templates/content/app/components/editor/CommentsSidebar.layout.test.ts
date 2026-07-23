@@ -131,6 +131,34 @@ describe("comments sidebar layout", () => {
     expect(items[1].isOrphaned).toBe(true);
   });
 
+  it("separates layout-unanchored threads from the anchored rail section", () => {
+    const anchored = {
+      threadId: "anchored",
+      comments: [{ id: "anchored-comment" }],
+    } as CommentThread;
+    const unanchored = {
+      threadId: "unanchored",
+      comments: [{ id: "unanchored-comment" }],
+    } as CommentThread;
+    const positions = new Map([
+      ["anchored", { documentTop: 100, layoutTop: 100 }],
+      ["unanchored", { documentTop: 200, layoutTop: null }],
+    ]);
+
+    const items = layoutCommentThreads(
+      [anchored, unanchored],
+      positions,
+      new Map([
+        ["anchored", 80],
+        ["unanchored", 80],
+      ]),
+      null,
+    );
+
+    expect(items.map((item) => item.top)).toEqual([100, 212]);
+    expect(items[1].marginTop).toBe(32);
+  });
+
   it("bounds explicit anchor navigation inside the document scroller", () => {
     const scroll = document.createElement("div");
     Object.defineProperty(scroll, "scrollHeight", { value: 1000 });

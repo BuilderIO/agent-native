@@ -253,7 +253,8 @@ export function layoutCommentThreads(
     0,
   );
   for (const thread of sequential) {
-    const sectionGap = positions.has(thread.threadId) ? gap : gap + 20;
+    const sectionGap =
+      positions.get(thread.threadId)?.layoutTop != null ? gap : gap + 20;
     const top = cursor === 0 ? 0 : cursor + sectionGap;
     tops.set(thread.threadId, top);
     cursor = top + heightFor(thread);
