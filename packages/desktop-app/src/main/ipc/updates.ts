@@ -7,14 +7,21 @@
 // quitAndInstall from a sidebar pill / restart prompt. The app also
 // installs queued updates automatically on quit.
 //
-// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
-// so we report an "unsupported" status and skip all autoUpdater calls.
+// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml).
+// The signed Desktop SSO canary is also pinned to its exact artifact so the
+// stable feed cannot replace it during acceptance. Both report "unsupported"
+// and skip every autoUpdater call.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 
-const IS_DEV = !app.isPackaged;
+import { resolveDesktopUpdateSupport } from "./update-policy.js";
+
+const UPDATE_SUPPORT = resolveDesktopUpdateSupport(
+  app.isPackaged,
+  app.getVersion(),
+);
 
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
@@ -25,9 +32,9 @@ const DESKTOP_UPDATE_FEED_URL = (
   DEFAULT_DESKTOP_UPDATE_FEED_URL
 ).replace(/\/+$/, "");
 
-let currentUpdateStatus: UpdateStatus = IS_DEV
-  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
-  : { state: "idle" };
+let currentUpdateStatus: UpdateStatus = UPDATE_SUPPORT.supported
+  ? { state: "idle" }
+  : { state: "unsupported", reason: UPDATE_SUPPORT.reason };
 let updateCheckInFlight: Promise<unknown> | null = null;
 let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
@@ -66,7 +73,7 @@ function broadcastUpdateStatus(status: UpdateStatus) {
 
 /** Triggers (or awaits an in-flight) update check. Exported for the app menu's "Check for Updates" item. */
 export async function checkForAppUpdates(): Promise<UpdateStatus> {
-  if (IS_DEV) return currentUpdateStatus;
+  if (!UPDATE_SUPPORT.supported) return currentUpdateStatus;
   if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
 
   if (!updateCheckInFlight) {
@@ -89,7 +96,7 @@ export async function checkForAppUpdates(): Promise<UpdateStatus> {
 }
 
 function maybeCheckForAppUpdates() {
-  if (IS_DEV) return;
+  if (!UPDATE_SUPPORT.supported) return;
   if (currentUpdateStatus.state === "downloaded") return;
   if (
     updateCheckInFlight ||
@@ -122,7 +129,7 @@ function showUpdateReadyNotification(version: string) {
 export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   deps = ipcDeps;
 
-  if (!IS_DEV) {
+  if (UPDATE_SUPPORT.supported) {
     // The GitHub provider reads the repository-wide latest release feed, which
     // also contains npm package releases and Clips desktop releases. Use the
     // Agent Native feed that filters the shared repo down to desktop assets.
@@ -199,7 +206,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-    if (IS_DEV) return currentUpdateStatus;
+    if (!UPDATE_SUPPORT.supported) return currentUpdateStatus;
     try {
       await autoUpdater.downloadUpdate();
     } catch (err) {
@@ -212,7 +219,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
   });
 
   ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-    if (IS_DEV) return;
+    if (!UPDATE_SUPPORT.supported) return;
     // isSilent=false so any installer UI shows; isForceRunAfter=true so the
     // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);

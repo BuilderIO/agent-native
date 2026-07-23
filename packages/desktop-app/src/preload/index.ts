@@ -39,6 +39,7 @@ import {
   type DesktopAppContextAction,
   type DesktopAppCreationSettings,
   type DesktopAppRuntimeStatus,
+  type DesktopIdentityStatus,
   type DesktopCreateAppRequest,
   type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
@@ -202,6 +203,25 @@ const electronAPI = {
       ) => cb(status);
       ipcRenderer.on(IPC.APP_STATUS, handler);
       return () => ipcRenderer.removeListener(IPC.APP_STATUS, handler);
+    },
+  },
+
+  /** Workspace identity commands expose intent and status, never credentials. */
+  identity: {
+    getStatus: (): Promise<DesktopIdentityStatus> =>
+      ipcRenderer.invoke(IPC.IDENTITY_STATUS_GET),
+    signIn: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_IN),
+    signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
+    onStatusChange: (
+      cb: (status: DesktopIdentityStatus) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        status: DesktopIdentityStatus,
+      ) => cb(status);
+      ipcRenderer.on(IPC.IDENTITY_STATUS_CHANGED, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.IDENTITY_STATUS_CHANGED, handler);
     },
   },
 

@@ -139,6 +139,10 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 하위 도메인 전반에 걸쳐 `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1`를 나란히 설정
 `COOKIE_DOMAIN`.
 
+## Desktop 작업공간 SSO {#desktop-workspace-sso}
+
+서명된 Agent Native Desktop은 정식 퍼스트파티 호스팅 앱에 전용 영구 Dispatch ID 파티션을 사용합니다. 각 앱은 일반 [Cross-App SSO](/docs/cross-app-sso) 페더레이션을 실행하고 자체 로컬 세션을 만들며, Desktop은 대상 앱의 세션 쿠키만 `persist:app-<id>`로 옮깁니다. 사용자 정의, 사용자가 추가한 앱 및 타사 앱은 제외됩니다. 직접 웹 로그인과 `AGENT_NATIVE_IDENTITY_HUB_URL`의 앱별 opt-in, canary, 롤백은 바뀌지 않습니다. 로컬 `desktop-sso.json` broker는 loopback 비프로덕션 Electron 개발 전용입니다. Desktop 로그아웃은 중앙 ID와 정식 앱 세션을 지우지만 브라우저 세션은 지우지 않습니다. Builder Connect는 관련이 없습니다.
+
 ## QA 계정 {#qa-accounts}
 
 로컬 개발 및 테스트에서는 기본적으로 가입 이메일 확인을 건너뛰므로

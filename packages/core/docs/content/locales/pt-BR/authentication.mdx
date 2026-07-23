@@ -139,6 +139,10 @@ de volta ao nome `an_session` compartilhado. Para compartilhar intencionalmente 
 em todos os subdomínios, defina `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` ao lado
 `COOKIE_DOMAIN`.
 
+## SSO do espaço de trabalho Desktop {#desktop-workspace-sso}
+
+O Desktop assinado mantém uma partição persistente de identidade do Dispatch para os apps hospedados próprios canônicos. Cada app executa a federação normal de [Cross-App SSO](/docs/cross-app-sso) e cria sua própria sessão local; o Desktop transfere apenas o cookie de sessão do app de destino para `persist:app-<id>`. Apps personalizados, adicionados pelo usuário e de terceiros são excluídos. O login web direto e o opt-in, canary e rollback por app com `AGENT_NATIVE_IDENTITY_HUB_URL` não mudam. O broker local `desktop-sso.json` é apenas para desenvolvimento Electron em loopback, fora de produção. Sair do Desktop limpa a identidade central e as sessões dos apps canônicos, não as sessões do navegador; Builder Connect não tem relação.
+
 ## Contas de controle de qualidade {#qa-accounts}
 
 O desenvolvimento local e os testes ignoram a verificação de e-mail de inscrição por padrão, então você

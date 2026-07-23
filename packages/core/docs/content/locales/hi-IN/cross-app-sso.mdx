@@ -239,6 +239,10 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 </Diagram>
 
+## पैकेज्ड Desktop कार्यक्षेत्र {#desktop-workspace}
+
+हस्ताक्षरित Desktop इस federation को अपनी canonical first-party registry के लिए एक कार्यक्षेत्र sign-in में जोड़ता है। समर्पित persistent Dispatch identity partition केंद्रीय रहता है, लेकिन हर target app अपना local session बनाती है और केवल उसका cookie `persist:app-<id>` में जाता है। Dispatch cookies या app tokens साझा नहीं होते। custom, user-added और third-party apps बाहर हैं। `desktop-sso.json` loopback, non-production local broker ही रहता है। Desktop sign-out केंद्रीय identity और canonical app sessions मिटाता है, browser sign-out app-local रहता है। Builder Connect असंबंधित है। direct login और प्रति-app env opt-in, canary तथा rollback कायम रहते हैं।
+
 ## स्वयं-होस्टिंग {#self-hosting}
 
 कोई भी डिस्पैच परिनियोजन पहचान केंद्र के रूप में काम कर सकता है - आप `dispatch.agent-native.com` तक सीमित नहीं हैं। अपने डिस्पैच इंस्टेंस को इंगित करने के लिए प्रत्येक क्लाइंट ऐप पर `AGENT_NATIVE_IDENTITY_HUB_URL` सेट करें:

@@ -3944,6 +3944,8 @@ export function createCoreRoutesPlugin(
       // auth byte-for-byte unchanged. `/login` 302s to the identity hub;
       // `/callback` verifies the hub-issued A2A-signed identity JWT and JIT-
       // links the verified email into this app's local Better Auth store. The
+      // authenticated `/desktop-complete` landing page gives Electron a
+      // nonce-only completion signal after that local session exists. The
       // handler 404s if disabled (defence in depth). The auth guard bypasses
       // these two exact paths under the same env gate.
       if (isIdentitySsoEnabled()) {

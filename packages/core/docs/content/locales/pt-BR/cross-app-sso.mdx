@@ -239,6 +239,10 @@ O link just-in-time é uma decisão única digitada inteiramente no e-mail verif
 
 </Diagram>
 
+## Espaço de trabalho Desktop empacotado {#desktop-workspace}
+
+O Desktop assinado transforma esta federação em um login de espaço de trabalho para seu registro próprio canônico: uma partição persistente de identidade Dispatch fica central, mas cada app de destino cria sua própria sessão local e somente seu cookie é transferido para `persist:app-<id>`. Cookies do Dispatch e tokens de apps não são compartilhados. Apps personalizados, adicionados pelo usuário e de terceiros são excluídos. `desktop-sso.json` continua sendo um broker local de loopback fora de produção. Sair do Desktop limpa a identidade central e sessões canônicas; no navegador o logout continua local ao app. Builder Connect não tem relação. Login direto e opt-in, canary e rollback por variável de ambiente por app permanecem disponíveis.
+
 ## Auto-hospedagem {#self-hosting}
 
 Qualquer implantação do Dispatch pode servir como hub de identidade — você não está limitado ao `dispatch.agent-native.com`. Defina `AGENT_NATIVE_IDENTITY_HUB_URL` em cada aplicativo cliente para apontar para sua instância do Dispatch:

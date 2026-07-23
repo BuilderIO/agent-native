@@ -139,6 +139,29 @@ back to the shared `an_session` name. To intentionally share one auth database
 across subdomains, set `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` alongside
 `COOKIE_DOMAIN`.
 
+## Packaged Desktop Workspace SSO {#desktop-workspace-sso}
+
+The signed Agent Native Desktop app gives canonical first-party hosted apps one
+workspace sign-in without turning their sessions into a shared cookie. Desktop
+keeps the Dispatch identity session in its own persistent Electron partition,
+then each app completes the normal [Cross-App SSO](/docs/cross-app-sso)
+federation and mints its **own** local session. Desktop transfers only that
+target app's session cookie into its `persist:app-<id>` partition.
+
+This applies only to the canonical first-party app registry packaged with
+Desktop. Custom, user-added, and third-party apps are excluded. Direct web
+sign-in remains available for recovery and standalone browser use, and every
+hosted app still opts into federation independently with
+`AGENT_NATIVE_IDENTITY_HUB_URL`; the existing canary and rollback procedure is
+unchanged.
+
+The local `desktop-sso.json` broker is a separate compatibility mechanism for
+loopback, non-production Electron development. It is not a hosted SSO
+credential source and must not be broadened to production. Desktop workspace
+sign-out clears the central Dispatch identity session and the canonical app
+sessions in Desktop; standalone-browser sessions remain app-local. Builder
+Connect and Builder credentials are unrelated to this identity flow.
+
 ## QA Accounts {#qa-accounts}
 
 Local development and tests skip signup email verification by default, so you

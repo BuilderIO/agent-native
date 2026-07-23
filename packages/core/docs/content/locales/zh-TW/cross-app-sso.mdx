@@ -237,6 +237,10 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 
 </Diagram>
 
+## 封裝的 Desktop 工作區 {#desktop-workspace}
+
+已簽署的 Desktop 將此聯合編排為其規範第一方登錄檔的工作區登入。專用且持久的 Dispatch 身分分割區會保留在中央，但每個目標應用程式建立自己的本機工作階段，且只有該 cookie 會傳入 `persist:app-<id>`。不會共用 Dispatch cookie 或應用程式 token。自訂、使用者新增和第三方應用程式均排除在外。`desktop-sso.json` 仍只是 loopback、非正式環境的本機 broker。Desktop 登出會清除中央身分及規範應用程式工作階段；瀏覽器登出仍只限於該應用程式。Builder Connect 無關。直接登入及逐一應用程式環境變數 opt-in、canary 和復原仍可使用。
+
 ## 自託管 {#self-hosting}
 
 任何 Dispatch 部署都可以充當身分中心 - 您不限於 `dispatch.agent-native.com`。在每個用戶端應用程式上設定 `AGENT_NATIVE_IDENTITY_HUB_URL` 以指向您的 Dispatch 執行個體：

@@ -115,7 +115,8 @@ vi.mock("./identity-sso-store.js", () => ({
   }),
 }));
 
-const { handleIdentitySso } = await import("./identity-sso.js");
+const { handleIdentitySso, isIdentitySsoBypassPath } =
+  await import("./identity-sso.js");
 
 const HUB = "https://dispatch.agent-native.com";
 const SECRET = "test-a2a-secret";
@@ -218,6 +219,44 @@ describe("identity SSO — /login", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("Location")).toBe("/inbox");
     expect(stateRows.size).toBe(0);
+  });
+});
+
+describe("identity SSO — Desktop completion", () => {
+  const nonce = "desktop_completion_nonce_12345678901234567890";
+
+  it("requires a valid nonce and an authenticated app-local session", async () => {
+    expect(
+      (
+        await handleIdentitySso(
+          ev({ path: "/desktop-complete?nonce=short" }),
+          "/desktop-complete",
+        )
+      ).status,
+    ).toBe(400);
+
+    const unauthenticated = await handleIdentitySso(
+      ev({ path: `/desktop-complete?nonce=${nonce}` }),
+      "/desktop-complete",
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    getSessionMock.mockResolvedValue({ email: "example.user@example.com" });
+    const authenticated = await handleIdentitySso(
+      ev({ path: `/desktop-complete?nonce=${nonce}` }),
+      "/desktop-complete",
+    );
+    expect(authenticated.status).toBe(200);
+    expect(authenticated.headers.get("Cache-Control")).toBe("no-store");
+    const body = await authenticated.text();
+    expect(body).not.toContain(nonce);
+    expect(body).not.toContain("example.user@example.com");
+  });
+
+  it("does not make the completion page an auth-guard bypass", () => {
+    expect(
+      isIdentitySsoBypassPath("/_agent-native/identity/desktop-complete"),
+    ).toBe(false);
   });
 });
 

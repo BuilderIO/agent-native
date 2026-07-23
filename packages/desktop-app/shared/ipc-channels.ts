@@ -26,6 +26,12 @@ export const IPC = {
   /** App status events (main → renderer) */
   APP_STATUS: "app:status",
 
+  /** Desktop workspace identity (renderer intent/status only; no secrets) */
+  IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SIGN_IN: "identity:sign-in",
+  IDENTITY_SIGN_OUT: "identity:sign-out",
+
   /** App config management (renderer ↔ main) */
   APPS_LOAD: "apps:load",
   APPS_ADD: "apps:add",
@@ -256,6 +262,13 @@ export type DesktopPlanFilesResult =
       canceled?: boolean;
       folder?: DesktopPlanFilesFolder;
     };
+
+export type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
 
 export interface DesktopContentFilesFolder {
   id?: string;
