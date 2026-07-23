@@ -42,6 +42,18 @@ export default defineAction({
       .string()
       .optional()
       .describe("Owning team (e.g. 'Sales', 'Marketing', 'Product', 'Data')"),
+    source: z
+      .string()
+      .optional()
+      .describe(
+        "Canonical source/provider id for this definition (for example first-party, bigquery, or hubspot)",
+      ),
+    action: z
+      .string()
+      .optional()
+      .describe(
+        "Preferred Analytics action name when this metric is not expressed as SQL",
+      ),
     table: z
       .string()
       .optional()
@@ -143,6 +155,8 @@ export default defineAction({
       metric: args.metric,
       definition: args.definition,
       department: args.department ?? (existing as any)?.department ?? "",
+      source: args.source ?? (existing as any)?.source ?? "",
+      action: args.action ?? (existing as any)?.action ?? "",
       table: args.table ?? (existing as any)?.table ?? "",
       columnsUsed: args.columnsUsed ?? (existing as any)?.columnsUsed ?? "",
       cuts: args.cuts ?? (existing as any)?.cuts ?? "",
