@@ -145,7 +145,6 @@ function readTimezoneHeader(event: any): string | undefined {
   }
 }
 
-
 /**
  * True when the request originated from the browser action client
  * (`useActionQuery` / `useActionMutation` / `callAction`), which tags every
