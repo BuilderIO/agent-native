@@ -39,6 +39,7 @@ import {
   findEnclosingList,
   insertBulletAfterCaret,
   isBulletList,
+  ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 import { Button } from "@/components/ui/button";
 import {
@@ -212,13 +213,43 @@ function stripBuilderIds(html: string): string {
       }
       parent.removeChild(wrapper);
     }
-    cleaned =
-      doc.querySelector("[data-strip-root]")?.innerHTML ?? doc.body.innerHTML;
+    const stripRoot = doc.querySelector("[data-strip-root]");
+    if (stripRoot) stripPlaceholderZws(stripRoot);
+    cleaned = stripRoot?.innerHTML ?? doc.body.innerHTML;
   }
 
-  return cleaned
-    .replace(/\s*data-builder-id="[^"]*"/g, "")
-    .replace(/\u200B/g, "");
+  return cleaned.replace(/\s*data-builder-id="[^"]*"/g, "");
+}
+
+/**
+ * Remove zero-width-space characters used only as caret placeholders, while
+ * preserving a lone ZWS that is the sole content of an element — that ZWS keeps
+ * an empty bullet's text span from collapsing, so it retains its font. Stripping
+ * every ZWS (as a blanket regex did) drops that anchor and makes the next typed
+ * character fall back to the container's base font.
+ */
+function stripPlaceholderZws(root: Element): void {
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+  );
+  const textNodes: Text[] = [];
+  for (
+    let node = walker.nextNode();
+    node;
+    node = walker.nextNode()
+  ) {
+    textNodes.push(node as Text);
+  }
+  for (const textNode of textNodes) {
+    if (!textNode.data.includes(ZERO_WIDTH_SPACE)) continue;
+    const withoutZws = textNode.data.replaceAll(ZERO_WIDTH_SPACE, "");
+    if (withoutZws.length > 0) {
+      textNode.data = withoutZws;
+    } else if (textNode.parentNode?.childNodes.length !== 1) {
+      textNode.remove();
+    }
+  }
 }
 
 function cssPx(value: string): number {
