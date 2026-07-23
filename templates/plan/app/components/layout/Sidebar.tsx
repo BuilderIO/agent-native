@@ -9,7 +9,6 @@ import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -640,10 +639,6 @@ export function Sidebar({
 
       {!collapsed && session ? (
         <>
-          <div className="px-2 py-2">
-            <ExtensionsSidebarSection />
-          </div>
-
           <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <div className="flex items-center justify-end gap-1">

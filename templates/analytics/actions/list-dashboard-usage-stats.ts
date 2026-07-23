@@ -21,6 +21,7 @@ type DashboardUsageStats = {
   viewCount: number;
   engagementCount: number;
   eventEngagementCount: number;
+  editCount: number;
   savedViewCount: number;
   uniqueUserCount: number;
   lastViewedAt: string | null;
@@ -126,7 +127,7 @@ function dashboardUrl(row: { id: string; kind: string }): string {
 
 export default defineAction({
   description:
-    "List admin-only dashboard usage and cleanup stats for every dashboard in the active organization. Includes lifecycle metadata, owner, last tracked modifier, pageviews, engagement events, unique viewers, saved view counts, archive/hidden state, and dashboard links. Requires active organization owner/admin role.",
+    "List admin-only dashboard usage and cleanup stats for every dashboard in the active organization. Includes lifecycle metadata, owner, last tracked modifier, pageviews, edit counts, engagement events, unique viewers, saved view counts, archive/hidden state, and dashboard links. Requires active organization owner/admin role.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -179,59 +180,68 @@ export default defineAction({
       like(schema.analyticsEvents.url, "%/adhoc/%"),
     );
 
-    const [savedViewRows, eventRows, eventUserRows] = await Promise.all([
-      db
-        .select({
-          dashboardId: schema.dashboardViews.dashboardId,
-          count: sql<number>`count(*)`,
-          lastSavedViewAt: sql<
-            string | null
-          >`max(${schema.dashboardViews.createdAt})`,
-        })
-        .from(schema.dashboardViews)
-        .groupBy(schema.dashboardViews.dashboardId),
-      db
-        .select({
-          path: schema.analyticsEvents.path,
-          url: schema.analyticsEvents.url,
-          eventName: schema.analyticsEvents.eventName,
-          count: sql<number>`count(*)`,
-          lastSeenAt: sql<
-            string | null
-          >`max(${schema.analyticsEvents.receivedAt})`,
-        })
-        .from(schema.analyticsEvents)
-        .where(
-          and(
-            eq(schema.analyticsEvents.orgId, admin.orgId),
-            dashboardEventLocation,
+    const [savedViewRows, revisionRows, eventRows, eventUserRows] =
+      await Promise.all([
+        db
+          .select({
+            dashboardId: schema.dashboardViews.dashboardId,
+            count: sql<number>`count(*)`,
+            lastSavedViewAt: sql<
+              string | null
+            >`max(${schema.dashboardViews.createdAt})`,
+          })
+          .from(schema.dashboardViews)
+          .groupBy(schema.dashboardViews.dashboardId),
+        db
+          .select({
+            dashboardId: schema.dashboardRevisions.dashboardId,
+            count: sql<number>`count(*)`,
+          })
+          .from(schema.dashboardRevisions)
+          .where(eq(schema.dashboardRevisions.orgId, admin.orgId))
+          .groupBy(schema.dashboardRevisions.dashboardId),
+        db
+          .select({
+            path: schema.analyticsEvents.path,
+            url: schema.analyticsEvents.url,
+            eventName: schema.analyticsEvents.eventName,
+            count: sql<number>`count(*)`,
+            lastSeenAt: sql<
+              string | null
+            >`max(${schema.analyticsEvents.receivedAt})`,
+          })
+          .from(schema.analyticsEvents)
+          .where(
+            and(
+              eq(schema.analyticsEvents.orgId, admin.orgId),
+              dashboardEventLocation,
+            ),
+          )
+          .groupBy(
+            schema.analyticsEvents.path,
+            schema.analyticsEvents.url,
+            schema.analyticsEvents.eventName,
           ),
-        )
-        .groupBy(
-          schema.analyticsEvents.path,
-          schema.analyticsEvents.url,
-          schema.analyticsEvents.eventName,
-        ),
-      db
-        .select({
-          path: schema.analyticsEvents.path,
-          url: schema.analyticsEvents.url,
-          userIdentity: analyticsUserIdentity,
-        })
-        .from(schema.analyticsEvents)
-        .where(
-          and(
-            eq(schema.analyticsEvents.orgId, admin.orgId),
-            dashboardEventLocation,
-            sql`${analyticsUserIdentity} IS NOT NULL`,
+        db
+          .select({
+            path: schema.analyticsEvents.path,
+            url: schema.analyticsEvents.url,
+            userIdentity: analyticsUserIdentity,
+          })
+          .from(schema.analyticsEvents)
+          .where(
+            and(
+              eq(schema.analyticsEvents.orgId, admin.orgId),
+              dashboardEventLocation,
+              sql`${analyticsUserIdentity} IS NOT NULL`,
+            ),
+          )
+          .groupBy(
+            schema.analyticsEvents.path,
+            schema.analyticsEvents.url,
+            analyticsUserIdentity,
           ),
-        )
-        .groupBy(
-          schema.analyticsEvents.path,
-          schema.analyticsEvents.url,
-          analyticsUserIdentity,
-        ),
-    ]);
+      ]);
 
     const savedViewsByDashboard = new Map<
       string,
@@ -247,6 +257,16 @@ export default defineAction({
         count: toNumber(row.count),
         lastSavedViewAt: row.lastSavedViewAt ?? null,
       });
+    }
+
+    const editsByDashboard = new Map<string, number>();
+    for (const row of revisionRows as Array<{
+      dashboardId: string;
+      count: unknown;
+    }>) {
+      if (dashboardIds.has(row.dashboardId)) {
+        editsByDashboard.set(row.dashboardId, toNumber(row.count));
+      }
     }
 
     const eventsByDashboard = new Map<
@@ -333,6 +353,7 @@ export default defineAction({
           hiddenBy: row.hiddenBy ?? null,
           viewCount: events.viewCount,
           eventEngagementCount: events.eventEngagementCount,
+          editCount: editsByDashboard.get(row.id) ?? 0,
           savedViewCount: savedViews.count,
           engagementCount: events.eventEngagementCount + savedViews.count,
           uniqueUserCount: events.uniqueUsers.size,
@@ -345,6 +366,8 @@ export default defineAction({
       .sort((a, b) => {
         const views = b.viewCount - a.viewCount;
         if (views !== 0) return views;
+        const edits = b.editCount - a.editCount;
+        if (edits !== 0) return edits;
         return b.updatedAt.localeCompare(a.updatedAt);
       });
   },

@@ -175,7 +175,9 @@ membership id when its native update status reports `update-available`.
   `/agents?view=dashboards` shows the
   admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
   admins ask about dashboard created/modified dates, owners, last tracked
-  modifier, views, engagements, saved views, or cleanup candidates. The
+  modifier, views, edits, engagements, saved views, or cleanup candidates. The
+  dashboard overflow menu shows created/updated timestamps and their tracked
+  actors for both SQL and Explorer dashboards. The
   Advanced menu opens `/agents?view=database`, where organization owners/admins
   can connect other agent-native app databases and use the shared database admin
   tool for table browsing, row editing, and SQL inspection. This database

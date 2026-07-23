@@ -6,7 +6,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -450,10 +449,6 @@ export function Sidebar() {
 
         {!collapsed && (
           <div className="mt-auto shrink-0">
-            <div className="px-2 py-1">
-              <ExtensionsSidebarSection />
-            </div>
-
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>

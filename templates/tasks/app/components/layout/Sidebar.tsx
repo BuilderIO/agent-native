@@ -1,5 +1,4 @@
 import { appPath } from "@agent-native/core/client/api-path";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -166,9 +165,6 @@ export function Sidebar({
         )}
       >
         {!collapsed ? (
-          <div className="border-t border-sidebar-border px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
         ) : null}
 
         <div

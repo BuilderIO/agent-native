@@ -88,7 +88,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   callAction,
   useActionMutation,
@@ -2925,10 +2924,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   );
                 })}
               </nav>
-
-              <div className="min-w-0">
-                <ExtensionsSidebarSection />
-              </div>
 
               <div className="space-y-2 pt-2">
                 <OrgSwitcher />

@@ -4,7 +4,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -537,10 +536,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </CaptureInstallInlineLink>
               )}
               {(isMobile || !pageHasHeaderSearch) && <SearchBar />}
-            </div>
-
-            <div className="shrink-0 px-1 py-1">
-              <ExtensionsSidebarSection />
             </div>
 
             <div className="shrink-0 space-y-2 px-3 py-2">

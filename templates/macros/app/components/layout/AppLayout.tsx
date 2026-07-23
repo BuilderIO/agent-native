@@ -1,7 +1,6 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -289,10 +288,6 @@ function SidebarContent({
 
       {!collapsed && (
         <>
-          <div className="px-2 py-2">
-            <ExtensionsSidebarSection />
-          </div>
-
           <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />

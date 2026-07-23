@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -462,11 +461,6 @@ export function Sidebar() {
           <IconSettings size={14} className="shrink-0" />
           <span>{t("navigation.settings")}</span>
         </Link>
-      </div>
-
-      {/* Tools */}
-      <div className="shrink-0 px-1.5 py-1.5">
-        <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}

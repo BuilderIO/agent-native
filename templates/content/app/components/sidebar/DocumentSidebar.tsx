@@ -3,7 +3,6 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import {
   ExtensionSlot,
-  ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
 import {
   setClientAppState,
@@ -2092,7 +2091,6 @@ export function DocumentSidebar({
           className="px-2 py-2"
           toolClassName="overflow-hidden rounded-md"
         />
-        <ExtensionsSidebarSection />
       </div>
 
       <div className="shrink-0 px-3 py-2">
