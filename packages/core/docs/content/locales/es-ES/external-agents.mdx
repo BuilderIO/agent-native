@@ -528,6 +528,11 @@ Para transferencias rápidas de ChatGPT/Claude, la ruta ideal es directa: llame 
 
 ### Solicitudes de agente de larga duración
 
+Cuando `ask_app` devuelva un `taskHandle`, pase ese valor opaco sin modificar a
+`ask_app_status`; conserva la ruta original de la tarea aunque cambie el
+descubrimiento de aplicaciones entre llamadas. Los argumentos anteriores `app`
+y `taskId` siguen aceptándose durante la migración.
+
 Los hosts y gateways MCP no comparten un único tiempo de espera largo para las
 llamadas a herramientas; algunos aplican un límite de cinco minutos y otros lo
 hacen configurable. No diseñe una integración de agente externo alrededor de

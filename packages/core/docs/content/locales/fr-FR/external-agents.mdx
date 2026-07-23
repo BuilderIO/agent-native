@@ -529,6 +529,11 @@ Pour des transferts rapides ChatGPT/Claude, le chemin idéal est direct : appel
 
 ### Requêtes d'agent de longue durée
 
+Lorsque `ask_app` renvoie un `taskHandle`, transmettez cette valeur opaque sans
+la modifier à `ask_app_status` ; elle conserve la route d'origine de la tâche
+même si la découverte des applications change entre deux appels. Les anciens
+arguments `app` et `taskId` restent acceptés pendant la migration.
+
 Les hôtes et passerelles MCP ne partagent pas un seul et même délai d'expiration pour les appels d'outils : certains imposent un plafond de cinq minutes, d'autres sont configurables. Ne concevez pas une intégration d'agent externe autour d'un `tools/call` bloquant de dix minutes. `ask-agent` et `ask_app` accusent rapidement réception du travail hébergé, puis renvoient un `taskId` durable lorsque l'attente en ligne expire. Interrogez avec `ask_app_status` en utilisant les `app` et `taskId` renvoyés ; le résultat inclut `pollAfterMs` comme intervalle adapté à l'hôte. La tâche doit être créée avant que la première réponse ne puisse expirer, de sorte qu'une URL d'interrogation renvoyée seulement après un long appel n'est pas un contrat de récupération fiable.
 
 Si une lecture d'état transitoire et limitée est indisponible, `ask_app_status`
