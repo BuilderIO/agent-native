@@ -4276,7 +4276,6 @@ export function LiveCandidatesStage({
   );
 }
 
-
 function VariantPreview({
   slot,
   fit = "cover",
