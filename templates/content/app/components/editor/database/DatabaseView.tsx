@@ -42,6 +42,7 @@ import {
   type DocumentPropertyOption,
   type DocumentPropertyType,
   type DocumentPropertyValue,
+  type UpdateContentDatabasePersonalViewRequest,
 } from "@shared/api";
 import { contentDatabaseFormQuestions } from "@shared/database-form";
 import {
@@ -358,6 +359,8 @@ export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION;
 export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
 export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
+
+let personalViewMutationSequence = Date.now() * 1_000;
 
 export type PersonalDatabaseViewOverrides =
   ContentDatabasePersonalViewOverrides;
@@ -891,10 +894,8 @@ function DatabaseTable({
   const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const pendingPersonalViewSaveRef = useRef<{
-    databaseId: string;
-    overrides: PersonalDatabaseViewOverrides;
-  } | null>(null);
+  const pendingPersonalViewSaveRef =
+    useRef<UpdateContentDatabasePersonalViewRequest | null>(null);
   const unmountingRef = useRef(false);
   const updatePersonalViewRef = useRef(updatePersonalView);
   updatePersonalViewRef.current = updatePersonalView;
@@ -1611,7 +1612,9 @@ function DatabaseTable({
         personalViewSaveTimerRef.current = null;
       }
       pendingPersonalViewSaveRef.current = null;
-      updatePersonalView.mutate({ databaseId, overrides: null });
+      updatePersonalView.mutate(
+        personalDatabaseViewMutationRequest(databaseId, null),
+      );
       setSavedViewConfig(nextViewConfig);
       setViewConfig(nextViewConfig);
       setPersonalQueryDirty(false);
@@ -1639,10 +1642,9 @@ function DatabaseTable({
         current,
         savedViewConfig,
       );
-      updatePersonalView.mutate({
-        databaseId,
-        overrides: null,
-      });
+      updatePersonalView.mutate(
+        personalDatabaseViewMutationRequest(databaseId, null),
+      );
       setPersonalQueryDirty(false);
       hydratedViewRef.current = databaseViewStateKey(
         databaseId,
@@ -1710,7 +1712,10 @@ function DatabaseTable({
       clearTimeout(personalViewSaveTimerRef.current);
     }
     const overrides = personalDatabaseViewOverridesFromConfig(viewConfig);
-    pendingPersonalViewSaveRef.current = { databaseId, overrides };
+    pendingPersonalViewSaveRef.current = personalDatabaseViewMutationRequest(
+      databaseId,
+      overrides,
+    );
     personalViewSaveTimerRef.current = setTimeout(() => {
       flushPendingPersonalViewSave();
     }, 300);
@@ -13571,6 +13576,19 @@ function personalDatabaseViewOverridesFromConfig(
       filters: view.filters,
       filterMode: view.filterMode ?? "and",
     })),
+  };
+}
+
+function personalDatabaseViewMutationRequest(
+  databaseId: string,
+  overrides: PersonalDatabaseViewOverrides | null,
+): UpdateContentDatabasePersonalViewRequest {
+  personalViewMutationSequence += 1;
+  return {
+    databaseId,
+    overrides,
+    mutationSource: getBrowserTabId(),
+    mutationSequence: personalViewMutationSequence,
   };
 }
 

@@ -4,15 +4,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockGetSetting = vi.fn();
 const mockPutSetting = vi.fn();
 const mockDeleteSetting = vi.fn();
+const mockMutateSetting = vi.fn();
 
 vi.mock("./store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
+  mutateSetting: (...args: any[]) => mockMutateSetting(...args),
 }));
 
 import {
   getUserSetting,
+  mutateUserSetting,
   putUserSetting,
   deleteUserSetting,
 } from "./user-settings.js";
@@ -77,6 +80,29 @@ describe("user-settings", () => {
         { v: 1 },
         { requestSource: "tab-1" },
       );
+    });
+  });
+
+  describe("mutateUserSetting", () => {
+    it("atomically mutates only the prefixed user key", async () => {
+      const updater = vi.fn((current) => ({
+        count: Number(current?.count ?? 0) + 1,
+      }));
+      mockMutateSetting.mockResolvedValue({ count: 2 });
+
+      const result = await mutateUserSetting(
+        "alice@test.com",
+        "counter",
+        updater,
+        { requestSource: "tab-1" },
+      );
+
+      expect(mockMutateSetting).toHaveBeenCalledWith(
+        "u:alice@test.com:counter",
+        updater,
+        { requestSource: "tab-1" },
+      );
+      expect(result).toEqual({ count: 2 });
     });
   });
 

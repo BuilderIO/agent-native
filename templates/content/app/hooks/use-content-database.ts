@@ -831,6 +831,17 @@ export function useUpdateContentDatabasePersonalView(
         overrides: variables.overrides,
       });
     },
+    onSuccess: (data) => {
+      return queryClient.invalidateQueries({
+        queryKey: [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId: data.databaseId },
+        ],
+        exact: true,
+        refetchType: "all",
+      });
+    },
     onError: (_error, variables) => {
       return queryClient.invalidateQueries({
         queryKey: [

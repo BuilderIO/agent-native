@@ -362,6 +362,8 @@ export interface ContentDatabasePersonalViewResponse {
 export interface UpdateContentDatabasePersonalViewRequest {
   databaseId: string;
   overrides: ContentDatabasePersonalViewOverrides | null;
+  mutationSource?: string;
+  mutationSequence?: number;
 }
 
 export interface ContentDatabaseMembership {

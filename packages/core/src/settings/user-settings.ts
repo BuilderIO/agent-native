@@ -12,6 +12,7 @@ import {
   getSetting,
   putSetting,
   deleteSetting,
+  mutateSetting,
   type StoreWriteOptions,
 } from "./store.js";
 
@@ -35,6 +36,18 @@ export async function putUserSetting(
   options?: StoreWriteOptions,
 ): Promise<void> {
   return putSetting(userKey(email, key), value, options);
+}
+
+/** Atomically derive and persist one user-scoped setting. */
+export async function mutateUserSetting(
+  email: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  options?: StoreWriteOptions,
+): Promise<Record<string, unknown>> {
+  return mutateSetting(userKey(email, key), updater, options);
 }
 
 /** Delete a user-scoped setting. */
