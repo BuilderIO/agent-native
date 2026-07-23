@@ -103,6 +103,13 @@ export default defineAction({
         .filter((s: any) => s.principalType === "user")
         .map((s: any) => s.principalId),
     ]);
+    console.log(
+      "[DEBUG list-resource-shares]",
+      JSON.stringify({
+        ownerEmail: access.resource.ownerEmail,
+        userDisplayNames: Array.from(userDisplayNames.entries()),
+      }),
+    );
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
