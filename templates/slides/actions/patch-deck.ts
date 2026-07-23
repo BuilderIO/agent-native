@@ -24,6 +24,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 
@@ -122,7 +123,7 @@ const PatchDeckFieldsOp = z.object({
       tweaks: z
         .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
         .optional(),
-      aspectRatio: z.string().optional(),
+      aspectRatio: z.enum(ASPECT_RATIO_VALUES).optional(),
       shareToken: z.string().optional(),
       visibility: z.enum(["private", "org", "public"]).optional(),
     })

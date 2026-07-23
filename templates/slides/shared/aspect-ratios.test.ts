@@ -77,9 +77,11 @@ describe("getAspectRatioDims", () => {
     // Cast through unknown so the test is honest about runtime safety,
     // not just compile-time safety.
     const bogus = "21:9" as unknown as AspectRatio;
-    expect(getAspectRatioDims(bogus)).toBeUndefined();
-    // Note: the helper does not validate — callers rely on the Zod enum on
-    // the action / DB boundary. This test pins the contract: only nullish
-    // is coerced to default; an unknown value returns undefined.
+    expect(getAspectRatioDims(bogus)).toBe(ASPECT_RATIOS["16:9"]);
+  });
+
+  it("falls back to 16:9 for an empty string at runtime", () => {
+    const empty = "" as unknown as AspectRatio;
+    expect(getAspectRatioDims(empty)).toBe(ASPECT_RATIOS["16:9"]);
   });
 });
