@@ -2334,37 +2334,54 @@ function nitroStartupRecovery(): Plugin {
     name: "agent-native-nitro-startup-recovery",
     apply: "serve",
     configureServer(server) {
-      server.middlewares.use(
-        (
-          error: unknown,
-          req: IncomingMessage,
-          res: ServerResponse,
-          next: (error?: unknown) => void,
-        ) => {
-          const accept = req.headers.accept ?? "";
-          if (
-            !isNitroEnvironmentUnavailable(error) ||
-            (req.method !== "GET" && req.method !== "HEAD") ||
-            !accept.includes("text/html") ||
-            res.headersSent
-          ) {
-            next(error);
-            return;
-          }
-
-          res.statusCode = 503;
-          res.setHeader("cache-control", "no-store");
-          res.setHeader("content-type", "text/html; charset=utf-8");
-          res.setHeader("retry-after", "1");
-          if (req.method === "HEAD") {
-            res.end();
-            return;
-          }
-          res.end(
-            '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+      if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
+        setTimeout(() => {
+          console.log(
+            server.middlewares.stack.map(
+              (entry) => (entry.handle as { name?: string }).name,
+            ),
           );
-        },
-      );
+        }, 0);
+      }
+      server.middlewares.use(function nitroStartupErrorRecovery(
+        error: unknown,
+        req: IncomingMessage,
+        res: ServerResponse,
+        next: (error?: unknown) => void,
+      ) {
+        const accept = req.headers.accept ?? "";
+        if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
+          console.log("startup recovery", {
+            accept,
+            headersSent: res.headersSent,
+            matches: isNitroEnvironmentUnavailable(error),
+            method: req.method,
+            name: (error as Error)?.name,
+            status: (error as { status?: number })?.status,
+          });
+        }
+        if (
+          !isNitroEnvironmentUnavailable(error) ||
+          (req.method !== "GET" && req.method !== "HEAD") ||
+          !accept.includes("text/html") ||
+          res.headersSent
+        ) {
+          next(error);
+          return;
+        }
+
+        res.statusCode = 503;
+        res.setHeader("cache-control", "no-store");
+        res.setHeader("content-type", "text/html; charset=utf-8");
+        res.setHeader("retry-after", "1");
+        if (req.method === "HEAD") {
+          res.end();
+          return;
+        }
+        res.end(
+          '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+        );
+      });
     },
   };
 }

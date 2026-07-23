@@ -9,6 +9,7 @@ import {
   canonicalLoopbackRedirect,
   isBrowserAssetDestination,
   markAppReady,
+  readinessProbeTimeoutMs,
   selectProxyResponseTimeout,
   shouldEvict,
   shouldRestartPersistent5xx,
@@ -157,6 +158,17 @@ describe("dev-lazy browser asset classification", () => {
       ),
       120_000,
     );
+  });
+});
+
+describe("dev-lazy readiness probe timeout", () => {
+  it("lets one cold-start request use the full remaining readiness window", () => {
+    assert.equal(readinessProbeTimeoutMs(90_000, 10_000), 80_000);
+  });
+
+  it("never passes a non-positive timeout to the HTTP client", () => {
+    assert.equal(readinessProbeTimeoutMs(10_000, 10_000), 1);
+    assert.equal(readinessProbeTimeoutMs(9_000, 10_000), 1);
   });
 });
 

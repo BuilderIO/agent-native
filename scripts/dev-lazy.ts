@@ -837,16 +837,20 @@ async function waitForHttpReady(
 ): Promise<boolean> {
   let retryDelay = PROXY_READY_RETRY_DELAY_MS;
   while (Date.now() < deadline) {
-    // Nitro's dev SSR runner waits ~3.1s for the entry import before returning
-    // 503, so give each probe long enough to receive that real response rather
-    // than abandoning it at 1s — an abandoned request still completes (and
-    // logs) server-side. Backing off between polls keeps the warm-up quiet.
-    const timeoutMs = Math.min(4_000, Math.max(1, deadline - Date.now()));
+    // Keep one cold-start request alive for the remaining startup window.
+    // Aborting it after a short per-attempt timeout can make Nitro restart its
+    // environment import, so repeated probes prevent a slow app from ever
+    // becoming ready and can multiply its startup memory use.
+    const timeoutMs = readinessProbeTimeoutMs(deadline, Date.now());
     if (await probeHttpReady(app, timeoutMs)) return true;
     await new Promise((resolve) => setTimeout(resolve, retryDelay));
     retryDelay = Math.min(retryDelay * 2, 2_000);
   }
   return false;
+}
+
+export function readinessProbeTimeoutMs(deadline: number, now: number): number {
+  return Math.max(1, deadline - now);
 }
 
 /**

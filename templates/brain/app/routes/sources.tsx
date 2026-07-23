@@ -9,6 +9,7 @@ import {
   IconBrandGithub,
   IconBrandSlack,
   IconChecks,
+  IconChevronDown,
   IconCircleCheck,
   IconCircleDashed,
   IconClock,
@@ -40,7 +41,6 @@ import {
 } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -76,6 +76,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   type BrainConnectionProvider,
   type BrainHealthResponse,
   type BrainCaptureReviewStatus,
@@ -104,6 +109,7 @@ import {
   createOneTimeIngestHandoff,
   type OneTimeIngestHandoff,
 } from "@/lib/ingest-handoff";
+import { cn } from "@/lib/utils";
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
