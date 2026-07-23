@@ -89,6 +89,7 @@ describe("ShareDialog primitive normalization", () => {
     expect(source).toContain("<DesignSystemAvatar");
     expect(source).toContain("<Status");
     expect(source).toContain("<ActionButton");
+    expect(source).not.toContain("labels.done");
   });
 
   it("does not bypass Toolkit with raw portal or Radix select imports", () => {

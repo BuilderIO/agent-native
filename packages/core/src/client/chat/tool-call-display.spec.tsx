@@ -351,6 +351,157 @@ describe("ToolCallDisplay native renderers", () => {
     }
   });
 
+  it("keeps the full final agent result visible over a bounded activity preview", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          argsText="the complete downstream answer"
+          result="Done"
+          isRunning={false}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 2,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "complete",
+              responseText: "bounded preview",
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("the complete downstream answer");
+    expect(container.textContent).not.toContain("bounded preview");
+    expect(container.querySelector(".max-h-48")).toBeNull();
+  });
+
+  it("interleaves remote reasoning segments with their following tool calls", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 5,
+              startedAt: 1,
+              updatedAt: 5,
+              durationMs: 4,
+              activePhase: "responding",
+              reasoning: ["Plan the query", "Interpret the result"],
+              toolCalls: [
+                {
+                  id: "tool-1",
+                  name: "query-warehouse",
+                  status: "completed",
+                },
+              ],
+            },
+          }}
+        />,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text.indexOf("Plan the query")).toBeLessThan(
+      text.indexOf("query warehouse"),
+    );
+    expect(text.indexOf("query warehouse")).toBeLessThan(
+      text.indexOf("Interpret the result"),
+    );
+  });
+
+  it("shows generic A2A progress until an activity snapshot arrives", () => {
+    const progress = {
+      state: "working",
+      elapsedSeconds: 30,
+      detail: "Querying the warehouse",
+    };
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{ agentProgress: progress }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="agent-call-progress"]')
+        ?.textContent,
+    ).toContain("Working · 30s elapsed · Querying the warehouse");
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="agent:Analytics"
+          args={{}}
+          isRunning={true}
+          structuredMeta={{
+            agentProgress: progress,
+            agentActivity: {
+              kind: "agent-native/agent-activity",
+              version: 1,
+              sequence: 1,
+              startedAt: 1,
+              updatedAt: 2,
+              durationMs: 1,
+              activePhase: "reasoning",
+              reasoning: ["Inspecting signups"],
+              toolCalls: [],
+            },
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="agent-call-progress"]'),
+    ).toBeNull();
+    expect(container.textContent).toContain("Thinking");
+  });
+
+  it("renders a reconnected raw call-agent result through the scroll-free agent cell", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        argsText: JSON.stringify({
+          agent: "Analytics",
+          message: "Count signups",
+        }),
+        args: { agent: "Analytics", message: "Count signups" },
+        result: "**42** signups",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Asked Analytics");
+    expect(container.textContent).toContain("42 signups");
+    expect(container.querySelector(".max-h-48")).toBeNull();
+    expect(container.querySelector(".overflow-y-auto")).toBeNull();
+  });
+
   it("keeps only the newest resolved reconnect tool active while the chat runs", () => {
     const content: ContentPart[] = [
       {
