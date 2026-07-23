@@ -242,7 +242,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     },
     {
       to: "/agent",
-      label: t("navigation.agent"),
+      label: t("settings.agentTitle"),
       icon: IconHierarchy2,
       match: (p) => p.startsWith("/agent"),
     },

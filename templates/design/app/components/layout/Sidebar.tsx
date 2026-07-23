@@ -31,7 +31,7 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
-  { icon: IconHierarchy2, labelKey: "navigation.agent", href: "/agent" },
+  { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

@@ -14,7 +14,7 @@ import {
   IconMessageCircle,
   IconBrandGoogle,
 } from "@tabler/icons-react";
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -44,7 +44,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
@@ -161,10 +160,6 @@ export function SqlChartCard({
       ] as const,
     [panel.id, panel.source, panel.sql, resolvedSql],
   );
-  const chartFetchCount = useIsFetching({ queryKey: chartQueryKey });
-  const chartHasCachedData =
-    queryClient.getQueryData(chartQueryKey) !== undefined;
-  const isChartRefreshing = chartHasCachedData && chartFetchCount > 0;
   const extensionId =
     panel.chartType === "extension"
       ? ((panel.config as Record<string, unknown> | undefined)?.extensionId as
@@ -556,26 +551,7 @@ export function SqlChartCard({
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <div
-            className={`flex items-center gap-1 transition-opacity ${
-              isChartRefreshing
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
-            }`}
-          >
-            {isChartRefreshing ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex size-6 items-center justify-center rounded text-muted-foreground">
-                    <Spinner
-                      className="size-3.5"
-                      aria-label={t("sqlDashboard.refreshing")}
-                    />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>{t("sqlDashboard.refreshing")}</TooltipContent>
-              </Tooltip>
-            ) : null}
+          <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             {editable && onSaveSql ? (
               <ViewSqlPopover
                 panel={panel}

@@ -191,6 +191,11 @@ export default defineAction({
             >`max(${schema.dashboardViews.createdAt})`,
           })
           .from(schema.dashboardViews)
+          .innerJoin(
+            schema.dashboards,
+            eq(schema.dashboardViews.dashboardId, schema.dashboards.id),
+          )
+          .where(eq(schema.dashboards.orgId, admin.orgId))
           .groupBy(schema.dashboardViews.dashboardId),
         db
           .select({

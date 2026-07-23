@@ -26,16 +26,12 @@ import {
 import { cn } from "@/lib/utils";
 
 const ANALYSIS_CONTEXT =
-  "The user wants to kick off a new ad-hoc analysis. " +
-  "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `generate-chart`, and `save-analysis` do not count as data queries. " +
-  "The built-in `demo` dashboard source is a demo-environment Prometheus source and never satisfies REAL_DATA_REQUIRED for user analytics answers or saved analyses unless the user explicitly asks to analyze the demo dashboard itself. " +
-  "If no source can answer, report the exact unavailable/error result instead of saving a guessed analysis. " +
-  "Read the `adhoc-analysis` skill first. Then: gather data from relevant sources, " +
-  "synthesize findings, and save via `save-analysis` with --id, --name, --question, " +
-  "--description, --instructions (markdown recipe for re-running), --resultMarkdown (polished writeup), " +
-  "--dataSources (JSON array of data sources used), and --resultData (structured raw query results and metrics from the successful data-source actions). " +
-  "After saving, call `navigate --view=analyses --analysisId=<id>` so the user sees it. " +
-  "No code files to create — analyses are persisted settings data.";
+  "The user wants a new analytics dashboard artifact. " +
+  "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `generate-chart`, and dashboard inspection do not count as data queries. " +
+  "If no source can answer, report the exact unavailable/error result instead of saving guessed metrics. " +
+  "Read the `adhoc-analysis` skill first. Gather and synthesize the requested evidence, then save the result as a dashboard with `update-dashboard` and navigate with `navigate --view=adhoc --dashboardId=<id>`. " +
+  "If the requested visualization or workflow needs bespoke UI, call `create-extension` and immediately embed the new extension as one or more `chartType: \"extension\"` dashboard panels with `config.extensionId`; never leave it as a standalone Analytics artifact. " +
+  "No code files need to be created — dashboard and embedded-extension actions are the source of truth.";
 
 function buildAnalysisContext(configuredSourceNames: string[]): string {
   const sourceContext = configuredSourceNames.length
@@ -156,7 +152,7 @@ export function NewAnalysisDialog() {
           autoFocus
           disabled={isGenerating}
           placeholder={t("dialogs.newAnalysisPlaceholder")}
-          draftScope="analytics:new-analysis"
+          draftScope="analytics:new-dashboard"
           onSubmit={handleSubmit}
         />
       </PopoverContent>

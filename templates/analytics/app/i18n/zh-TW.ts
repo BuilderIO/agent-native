@@ -29,13 +29,6 @@ const messages = {
     updated: "更新於 {{date}}",
     created: "建立於 {{date}}",
   },
-  dashboardMetadata: {
-    created: "建立時間",
-    createdBy: "建立者",
-    updated: "上次更新",
-    updatedBy: "上次更新者",
-    notTracked: "未追蹤",
-  },
   sidebar: {
     collapseSidebar: "收合側邊欄",
     expandSidebar: "展開側邊欄",

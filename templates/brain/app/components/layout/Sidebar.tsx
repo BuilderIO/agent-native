@@ -363,9 +363,6 @@ export function Sidebar({
 
       <div className="mt-auto shrink-0">
         {!collapsed ? (
-        ) : null}
-
-        {!collapsed ? (
           <div className="px-3 py-2">
             <OrgSwitcher reserveSpace />
           </div>

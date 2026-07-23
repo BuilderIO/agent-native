@@ -8,6 +8,7 @@ import {
   IconInbox,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSettings,
 } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { icon: IconInbox, labelKey: "sidebar.navInbox", href: "/inbox" },
   { icon: IconCheckbox, labelKey: "sidebar.navTasks", href: "/tasks" },
   { icon: IconForms, labelKey: "sidebar.navFields", href: "/fields" },
+  { icon: IconSettings, labelKey: "header.pageSettings", href: "/settings" },
 ];
 
 interface SidebarProps {
@@ -164,9 +166,6 @@ export function Sidebar({
           collapsed && "border-t border-sidebar-border py-2",
         )}
       >
-        {!collapsed ? (
-        ) : null}
-
         <div
           className={cn(
             collapsed

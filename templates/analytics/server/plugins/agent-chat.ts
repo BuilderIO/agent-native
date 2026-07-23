@@ -709,7 +709,7 @@ export default createAgentChatPlugin({
     // render every organization metric before the model request starts.
     const sourceGuidance =
       analyticsSourceGuidanceOpening() +
-      "DASHBOARD CREATION RULE — You may create dashboards, analyses, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'create a new analysis', 'add a chart for...'). Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
+      "DASHBOARD CREATION RULE — You may create dashboard artifacts, SQL panels, or other resources only when the user explicitly asks you to (e.g. 'build me a dashboard for...', 'save this analysis', 'add a chart for...'). Treat a requested saved analysis or deep-dive report as a dashboard request. Never create any resource proactively during research, trend analysis, or answering questions. If you think a dashboard would be useful, suggest it and wait for explicit confirmation before creating anything. Never add new items to the sidebar or modify existing dashboards without an explicit user directive. " +
       "DASHBOARD MUTATION RULE — For dashboard edits, default to `mutate-dashboard` with the typed `dashboard.*` script API so the main payload is a string and avoids native-array serialization traps. It can move panels by id, edit titles/SQL/config, insert, duplicate, remove, and patch dashboard fields in one atomic save. The script API is constrained: no variables/imports/loops/functions, only JSON-compatible arguments on documented dashboard methods. Do not count shifting `/panels/<index>` positions for ordinary dashboard edits unless the user specifically asks for low-level JSON-pointer operations. " +
       'DASHBOARD EXTENSION BOX RULE — Analytics dashboards support extension boxes. For ordinary requests such as "put X in this dashboard," insert a `chartType: "extension"` panel with `config.extensionId`; this author-selected embed is shared with the dashboard, appears in scheduled reports, and receives dashboard/panel/current-filter context. Use `config.extensionSlotId` only when the user explicitly asks for a personal/per-viewer slot. Slot ids use `analytics.dashboard.<dashboard-id>.panel.<panel-id>` and require `add-extension-slot-target` plus `install-extension`; installs are per-user, so viewers can see different content and report identities may see an empty slot. Use `get-sql-dashboard` panel summaries to inspect an existing box. ' +
       'EXTENSION DATA-REPAIR RULE — When fixing data in an existing extension-backed dashboard or migrated surface such as Risk Meeting, inspect the current dashboard and extension first, then call `update-extension` with exactly `id`, `operation="edit"`, and a `payloadJson` string containing focused patches/edits that change only the data-loading seam. Never send empty placeholder fields. Preserve the existing layout, CSS, copy, and interactions; never reconstruct the full HTML body for a data-only fix. A request that combines a visual rewrite such as compacting, removing sections, renaming, or changing padding with a data repair is a broad rewrite; after inspecting the current extension, use `operation="replace"` with the complete replacement in `payloadJson`. If a focused edit fails, change the target instead of retrying identical arguments. ' +
@@ -721,20 +721,19 @@ export default createAgentChatPlugin({
       "When the user names a provider such as first-party Analytics, BigQuery, HubSpot, Gong, Jira, Pylon, Slack, Sentry, GA4, or another connected source, that source is authoritative for the turn. Use its first-class query action when available; if it is not on the initial tool surface, use tool-search for that provider instead of loading unrelated catalogs. For an ordinary structured lookup, make one bounded query and stop on success. " +
       "Load provider API, corpus, staging, or code tools only when the user explicitly requests cross-source work, exhaustive unstructured-record coverage, or an absence claim that the first-class action cannot support. For those genuinely broad workflows, fetch every relevant page or an explicitly bounded cohort, preserve coverage counts, and state any uncovered records. " +
       "For named deal, account, renewal, churn-risk, or customer deep dives that need HubSpot and Gong context, `account-deep-dive` can provide a bounded evidence bundle. Do not answer a requested transcript deep dive from call metadata alone. " +
-      "When the user refers to the current analysis, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned analysis details; if an analysis id or @mention is provided, call `get-analysis` before responding. " +
+      "When the user refers to the current dashboard artifact, this analysis, this project, or asks to spin off, adapt, modify, or reuse a saved analysis, call `view-screen` first and use the returned dashboard details; for an explicitly named legacy analysis id or @mention, call `get-analysis` before responding and preserve its legacy deep link only for compatibility. " +
       "If a query action fails because its arguments are invalid, correct the arguments once. Never repeat the identical failed call. For credential, permission, quota, network, or repeated schema failures, stop using that source for the turn and surface the actual error instead of trying unrelated providers. " +
       "For ordinary ad-hoc structured data questions, answer the explicit question after the first relevant successful query or bounded evidence batch. The words all, total, or exact do not require cross-source validation when a single structured query fully covers the requested source and filters. " +
-      "If the user challenges coverage, asks why more records were not included, or asks for the updated answer, rerun the relevant source query or revise from the corrected cohort and provide the updated deliverable directly. Do not claim an analysis was revised unless the revised answer is included in the response or saved with `save-analysis`. " +
+      "If the user challenges coverage, asks why more records were not included, or asks for the updated answer, rerun the relevant source query or revise from the corrected cohort and provide the updated deliverable directly. Do not claim a dashboard artifact was revised unless the revised answer is included in the response or saved with `update-dashboard`. " +
       "Unstructured source records are valid analytics evidence: Pylon tickets, Jira issues, Gong calls/transcripts, Slack messages, and similar text records may be coded for themes, mention counts, sentiment, objections, and qualitative patterns as long as the answer states the inspected sample size and does not imply unsupported statistical certainty. " +
       "For schema questions, prefer data-dictionary entries and configured warehouse schemas over assumptions; use `search-bigquery-schema` for BigQuery metadata before inventing datasets, tables, or columns. " +
       "Before finalizing any analytics answer, make the evidence trail explicit enough to audit: answer the user's question, name the source(s), time window, sample size or row count, filters, join/match method, caveats/gaps, and recommended next action when useful. Never substitute fabricated numbers for a failed query or unavailable provider. It is fine to ask a clarifying question, provide a plan, or say exactly which source is unavailable as long as you do not present metrics or source-record conclusions without evidence.\n" +
       "</data-source-guidance>";
     const artifactGuidance =
       "<analytics-artifact-guidance>\n" +
-      "Native Analytics dashboards and saved analyses are constrained artifacts: dashboards are JSON configs rendered by the built-in dashboard components, and analyses are Markdown reports with generated chart images plus structured resultData. " +
-      "If the user's requested dashboard, analysis surface, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within those native components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension` instead, using Alpine.js HTML and the available app/data helpers. " +
-      "After creating the extension, briefly tell the user that the request needed bespoke UI/code beyond the native Analytics dashboard or analysis format, so you built it as an extension. " +
-      "Do not also create a same-named dashboard or saved analysis unless the user explicitly asked for multiple artifacts; saved analyses appear in the sidebar and should not be used for throwaway notes or scratch summaries.\n" +
+      "Analytics has one user-facing artifact type: dashboards. Dashboards are JSON configs rendered by the built-in dashboard components, and an extension is a dashboard block—not a separate Analytics result. " +
+      "If the user's requested dashboard, saved analysis/report, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within the native dashboard components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension`, then immediately call `update-dashboard` to embed it as one or more `chartType: \"extension\"` panels with `config.extensionId`. " +
+      "After creating the dashboard, briefly tell the user that a dashboard block uses an embedded extension because the request needed bespoke UI/code. Never leave a newly created extension standalone, never create a separate saved analysis for the same request, and never direct the user to an Extensions page from Analytics. Legacy analyses may be read or updated only for compatibility with an existing deep link.\n" +
       "</analytics-artifact-guidance>";
 
     return `${sourceGuidance}\n\n${artifactGuidance}\n\n${analyticsDataDictionaryRoutingContext()}`;
@@ -775,51 +774,6 @@ export default createAgentChatPlugin({
           }));
         } catch (err) {
           console.error("[analytics] Dashboard mention provider failed:", err);
-          return [];
-        }
-      },
-    },
-    analyses: {
-      label: "Analyses",
-      icon: "document",
-      search: async (query: string, event?: any) => {
-        if (!event) return [];
-        try {
-          const { getOrgContext } = await import("@agent-native/core/org");
-          const { listAnalyses } = await import("../lib/dashboards-store.js");
-          const ctx = await getOrgContext(event);
-          const rows = await listAnalyses({
-            email: ctx.email,
-            orgId: ctx.orgId ?? null,
-          });
-          const q = (query || "").toLowerCase().trim();
-          const filtered = q
-            ? rows.filter(
-                (analysis) =>
-                  (analysis.name || "").toLowerCase().includes(q) ||
-                  (analysis.description || "").toLowerCase().includes(q) ||
-                  analysis.id.toLowerCase().includes(q),
-              )
-            : rows;
-
-          return filtered
-            .sort(
-              (a, b) =>
-                new Date(b.updatedAt).getTime() -
-                new Date(a.updatedAt).getTime(),
-            )
-            .slice(0, 20)
-            .map((analysis) => ({
-              id: `analysis:${analysis.id}`,
-              label: analysis.name || "Untitled analysis",
-              description: `/analyses/${analysis.id}`,
-              icon: "document",
-              refType: "analysis",
-              refId: analysis.id,
-              refPath: `/analyses/${analysis.id}`,
-            }));
-        } catch (err) {
-          console.error("[analytics] Analysis mention provider failed:", err);
           return [];
         }
       },

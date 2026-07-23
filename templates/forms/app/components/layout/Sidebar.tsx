@@ -280,7 +280,7 @@ export function Sidebar() {
             <TooltipTrigger asChild>
               <Link
                 to="/agent"
-                aria-label={t("navigation.agent")}
+                aria-label={t("settings.agentTitle")}
                 className={cn(
                   "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
                   location.pathname.startsWith("/agent")
@@ -292,7 +292,7 @@ export function Sidebar() {
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {t("navigation.agent")}
+              {t("settings.agentTitle")}
             </TooltipContent>
           </Tooltip>
 
@@ -445,7 +445,7 @@ export function Sidebar() {
           )}
         >
           <IconHierarchy2 size={14} className="shrink-0" />
-          <span>{t("navigation.agent")}</span>
+          <span>{t("settings.agentTitle")}</span>
         </Link>
 
         <Link
