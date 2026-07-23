@@ -2040,25 +2040,27 @@ export default function SourcesRoute() {
             <LoadingRows rows={3} />
           </div>
         ) : visibleSources.length ? (
-          visibleSources.map((source) => (
-            <SourceListItem
-              key={source.id}
-              source={source}
-              syncPending={
-                syncSource.isPending || rotateSourceIngestToken.isPending
-              }
-              onReview={() => openCaptureReview(source)}
-              onRotateIngestToken={
-                (source.provider === "clips" ||
-                  source.provider === "generic") &&
-                ingestSourceKey(source)
-                  ? () => void rotateIngestToken(source)
-                  : undefined
-              }
-              onSync={() => syncSource.mutate({ sourceId: source.id })}
-              onTune={() => openEdit(source)}
-            />
-          ))
+          <div className="overflow-hidden rounded-lg border border-border bg-card divide-y divide-border">
+            {visibleSources.map((source) => (
+              <SourceListItem
+                key={source.id}
+                source={source}
+                syncPending={
+                  syncSource.isPending || rotateSourceIngestToken.isPending
+                }
+                onReview={() => openCaptureReview(source)}
+                onRotateIngestToken={
+                  (source.provider === "clips" ||
+                    source.provider === "generic") &&
+                  ingestSourceKey(source)
+                    ? () => void rotateIngestToken(source)
+                    : undefined
+                }
+                onSync={() => syncSource.mutate({ sourceId: source.id })}
+                onTune={() => openEdit(source)}
+              />
+            ))}
+          </div>
         ) : (
           <div>
             <EmptyActionState
