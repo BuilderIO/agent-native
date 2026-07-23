@@ -491,6 +491,19 @@ describe("DatabaseView UI regressions", () => {
       nameItem?.click();
       await Promise.resolve();
     });
+    const filterValueInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Text"]',
+    );
+    expect(filterValueInput).toBeTruthy();
+    await act(async () => {
+      if (!filterValueInput) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(filterValueInput, "Personal only");
+      filterValueInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
 
     personalViewQuery.data = {
       databaseId: "database-1",
