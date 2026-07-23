@@ -24,9 +24,9 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
-import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 
 // ---------------------------------------------------------------------------
 // Per-deck write lock — same pattern as add-slide.ts so all client and agent
