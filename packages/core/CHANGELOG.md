@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.119.6
+
+### Patch Changes
+
+- f3c3523: Add an opt-in, scoped Netlify background handoff and scheduled recovery sweep for durable messaging-integration tasks.
+
 ## 0.119.5
 
 ### Patch Changes
