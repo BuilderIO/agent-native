@@ -1686,12 +1686,15 @@ export default async (nitroApp: any): Promise<void> => {
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
   });
-  sweepOrphanedResumableSessions().catch((err) => {
-    console.warn(
-      "[db] resumable-session sweep failed:",
-      (err as Error)?.message ?? err,
-    );
-  });
+  // TEMPORARILY DISABLED: this ran on every serverless cold start and did an
+  // unbounded N+1 scan of resumable-session rows, causing Netlify timeouts and
+  // a Neon connection spike. Re-enable once moved to a throttled/scheduled path.
+  // sweepOrphanedResumableSessions().catch((err) => {
+  //   console.warn(
+  //     "[db] resumable-session sweep failed:",
+  //     (err as Error)?.message ?? err,
+  //   );
+  // });
 
   try {
     const summary = await ensureAdditiveColumns({
