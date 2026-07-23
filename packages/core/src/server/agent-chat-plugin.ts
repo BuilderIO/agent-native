@@ -1179,8 +1179,10 @@ export function createAgentChatPlugin(
       // that never emit the corpus prompt (no provider/run-code tools
       // registered), so this never silently expands the initial set for
       // apps that don't teach these tools by name.
-      const corpusToolNames =
-        corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
+      const loadCorpusToolsInitially = options?.corpusTools !== "lazy";
+      const corpusToolNames = loadCorpusToolsInitially
+        ? corpusToolNamesTaughtByPrompt(corpusPromptRegistry)
+        : [];
       const effectiveInitialToolNames =
         corpusToolNames.length > 0
           ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
@@ -1907,7 +1909,9 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const corpusToolsPrompt = generateCorpusToolsPrompt(corpusPromptRegistry);
+      const corpusToolsPrompt = loadCorpusToolsInitially
+        ? generateCorpusToolsPrompt(corpusPromptRegistry)
+        : "";
       const prodActionsPrompt =
         generateActionsPrompt(
           templateScripts,
