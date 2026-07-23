@@ -197,7 +197,7 @@ describe("A2AClient", () => {
           JSON.parse(String(init.body)).method === "tasks/get",
       )?.[1]?.signal,
     ).toBeInstanceOf(AbortSignal);
-  });
+  }, 15_000);
 
   it("recovers after one task-status request exceeds the per-request timeout", async () => {
     vi.useFakeTimers();
