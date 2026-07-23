@@ -16,6 +16,8 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
     state,
     log,
     failAllocation: false,
+    /** Simulates commit-then-timeout: the row lands, then the call throws. */
+    failAllocationAfterCommit: false,
     async execute(query: string | { sql: string; args?: unknown[] }) {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
@@ -30,6 +32,17 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
         if (state.v === 0) state.v = Date.now();
         return { rows: [], rowsAffected: 1 };
       }
+      if (sql.includes("UPDATE sync_version SET v = GREATEST")) {
+        state.v = Math.max(state.v, Number(args[0]));
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (sql.includes("SELECT version FROM sync_events WHERE id")) {
+        const committed = state.ids.get(String(args[0]));
+        return {
+          rows: committed !== undefined ? [{ version: committed }] : [],
+          rowsAffected: 0,
+        };
+      }
       if (sql.includes("WITH alloc")) {
         if (db.failAllocation) throw new Error("neon unavailable");
         const floor = Number(args[0]);
@@ -41,6 +54,9 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
           return { rows: [{ version: existing }], rowsAffected: 1 };
         }
         state.ids.set(id, state.v);
+        if (db.failAllocationAfterCommit) {
+          throw new Error("timeout after commit");
+        }
         return { rows: [{ version: state.v }], rowsAffected: 1 };
       }
       // Legacy INSERT / DELETE prune / anything else.
@@ -211,6 +227,55 @@ describe("dbAssignedVersions", () => {
       ),
     ).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("commit-then-timeout recovers the durable row's version instead of clock-falling-back", async () => {
+    const db = makeAllocatorDb();
+    db.failAllocationAfterCommit = true;
+    const s = new AppSyncState({
+      getDb: () => db as never,
+      isPostgres: () => true,
+      dbAssignedVersions: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    s.recordChange(baseEvent());
+    await flush();
+
+    const events = s.getChangesSince(0).events;
+    expect(events).toHaveLength(1);
+    // Emitted version is the COMMITTED allocator version, not a divergent
+    // clock value — and no fallback fired.
+    expect(events[0].version).toBe(db.state.v);
+    expect(warn).not.toHaveBeenCalled();
+    // No second durable write: recovery, not the legacy fallback insert.
+    expect(
+      db.log.some(
+        (q) =>
+          q.sql.includes("INSERT INTO sync_events") &&
+          !q.sql.includes("WITH alloc"),
+      ),
+    ).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("a true allocation failure lifts the allocator to the fallback version before emitting", async () => {
+    const db = makeAllocatorDb();
+    db.failAllocation = true;
+    const s = new AppSyncState({
+      getDb: () => db as never,
+      isPostgres: () => true,
+      dbAssignedVersions: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    s.recordChange(baseEvent());
+    await flush();
+
+    const emitted = s.getChangesSince(0).events[0]?.version ?? 0;
+    expect(emitted).toBeGreaterThan(0);
+    // The shared allocator was lifted to the fallback value, so other writers'
+    // next allocations land above the cursors this emit advanced.
+    expect(db.state.v).toBeGreaterThanOrEqual(emitted);
     warn.mockRestore();
   });
 

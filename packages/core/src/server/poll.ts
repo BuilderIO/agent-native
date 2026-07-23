@@ -705,6 +705,21 @@ export class AppSyncState {
     return version > 0 ? version : null;
   }
 
+  /** Read back the version of an already-committed row (a failed allocating
+   * call whose statement actually committed). Null when absent/unreachable. */
+  private async recoverCommittedVersion(id: string): Promise<number | null> {
+    try {
+      const result = await this.getDb().execute({
+        sql: "SELECT version FROM sync_events WHERE id = ?",
+        args: [id],
+      });
+      const version = timestampValue(result.rows[0]?.version);
+      return version > 0 ? version : null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Lift the allocator to at least `floor`. Client cursors are max-only, so
    * any value that can become a cursor (notably the seed's app-clock
@@ -975,9 +990,19 @@ export class AppSyncState {
       version = null;
     }
     if (version == null) {
+      // The statement may have COMMITTED even though the call failed (e.g. a
+      // timeout after commit). Recover the durable row's version by the shared
+      // id so clients see the allocator-assigned value, never a divergent
+      // clock one.
+      version = await this.recoverCommittedVersion(id);
+    }
+    if (version == null) {
       // Availability fallback: a DB blip must not stall the in-process fast
-      // path. Clock-allocate and emit; the allocator's GREATEST(v+1, now)
-      // re-aligns the domain on recovery. The ordering guarantee is soft
+      // path. Clock-allocate and emit — but first make a best effort to lift
+      // the allocator to the fallback value, so other writers' next
+      // allocations land above the cursors this emit will advance (max-only
+      // cursors above the allocator would filter those events permanently).
+      // If the DB is down the lift fails too; the ordering guarantee is soft
       // exactly while the DB is unhealthy.
       this.dbVersionFallbacks++;
       if (this.dbVersionFallbacks === 1) {
@@ -987,6 +1012,7 @@ export class AppSyncState {
       }
       this.version = Math.max(this.version + 1, Date.now());
       const entry: ChangeEvent = { ...event, version: this.version };
+      await this.alignVersionAllocator(this.version);
       this.commitEntryForChain(entry);
       void this.persistSyncEvent(entry, dedupeKey, id);
       return;
