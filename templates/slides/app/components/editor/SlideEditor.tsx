@@ -1239,7 +1239,18 @@ export default function SlideEditor({
       (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
       editingBulletList;
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof Node && !editingEl.contains(e.target)) return;
+      // Ignore keys from outside the slide (e.g. the style dock's font-size
+      // input). Guard against the LIVE slide content, not `editingEl`, which a
+      // re-render may have detached — a stale ref would wrongly bail here and
+      // let native Enter run.
+      const slideContent = getSlideContent();
+      if (
+        e.target instanceof Node &&
+        slideContent &&
+        !slideContent.contains(e.target)
+      ) {
+        return;
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
@@ -1258,7 +1269,20 @@ export default function SlideEditor({
         //    so the slide layout can never be broken by a stray new node.
         if (e.shiftKey) return;
 
-        if (editingBulletList && insertBulletAfterCaret(editingEl)) {
+        // Re-derive the list from the LIVE caret so a re-render that swapped
+        // the edited node can't drop us into native Enter.
+        const sel = window.getSelection();
+        const anchor = sel?.anchorNode ?? null;
+        const anchorEl = anchor
+          ? anchor.nodeType === Node.TEXT_NODE
+            ? anchor.parentElement
+            : (anchor as HTMLElement)
+          : null;
+        const liveList =
+          anchorEl && slideContent && slideContent.contains(anchorEl)
+            ? findEnclosingList(anchorEl, slideContent)
+            : null;
+        if (liveList && insertBulletAfterCaret(liveList)) {
           e.preventDefault();
           captureInlineEditDraft(slide.id);
           return;
@@ -1272,7 +1296,13 @@ export default function SlideEditor({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [exitInlineEdit, editingEl, captureInlineEditDraft, slide.id]);
+  }, [
+    exitInlineEdit,
+    editingEl,
+    captureInlineEditDraft,
+    slide.id,
+    getSlideContent,
+  ]);
 
   // Click-outside: exit inline edit mode
   useEffect(() => {
