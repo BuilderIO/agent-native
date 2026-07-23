@@ -87,6 +87,11 @@ describe("document editor layout", () => {
     expect(source).toContain(
       "await createDatabase.mutateAsync({ documentId })",
     );
+    expect(source).toContain("isDatabaseChoicePending(");
+    expect(source).toContain("document,\n    createDatabase.isPending");
+    expect(source).toContain(
+      "disabled={!editorCanEdit || databaseChoicePending}",
+    );
     expect(source).toContain('{t("sidebar.page")}');
     expect(source).toContain('{t("sidebar.database")}');
     expect(source.indexOf("if (showNewDocumentTypeChooser)")).toBeLessThan(
