@@ -89,9 +89,28 @@ const copy: RealtimeVoiceModeCopy = {
 describe("RealtimeVoiceMode", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let animate: ReturnType<typeof vi.fn>;
+  let cancelGlowAnimation: ReturnType<typeof vi.fn>;
+  let updateGlowPlaybackRate: ReturnType<typeof vi.fn>;
+  let originalAnimate: typeof HTMLElement.prototype.animate | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    originalAnimate = HTMLElement.prototype.animate;
+    cancelGlowAnimation = vi.fn();
+    updateGlowPlaybackRate = vi.fn();
+    animate = vi.fn(
+      () =>
+        ({
+          cancel: cancelGlowAnimation,
+          playbackRate: 1,
+          updatePlaybackRate: updateGlowPlaybackRate,
+        }) as unknown as Animation,
+    );
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -100,6 +119,14 @@ describe("RealtimeVoiceMode", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    if (originalAnimate) {
+      Object.defineProperty(HTMLElement.prototype, "animate", {
+        configurable: true,
+        value: originalAnimate,
+      });
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "animate");
+    }
     vi.unstubAllGlobals();
   });
 
@@ -800,6 +827,53 @@ describe("RealtimeVoiceMode", () => {
     expect(
       document.querySelector(".agent-realtime-voice-working"),
     ).not.toBeNull();
+  });
+
+  it("changes glow speed without restarting or jumping its rotation", () => {
+    render(
+      <RealtimeVoiceModeDock
+        state="listening"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+    const glow = document.querySelector('[data-realtime-voice-glow="true"]');
+
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(1);
+
+    render(
+      <RealtimeVoiceModeDock
+        state="working"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector('[data-realtime-voice-glow="true"]')).toBe(
+      glow,
+    );
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(cancelGlowAnimation).not.toHaveBeenCalled();
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(2.4);
+
+    render(
+      <RealtimeVoiceModeDock
+        state="speaking"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(cancelGlowAnimation).not.toHaveBeenCalled();
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(1);
   });
 
   it.each(["connecting", "error", "ending"] as const)(

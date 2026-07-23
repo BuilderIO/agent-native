@@ -717,6 +717,8 @@ export function RealtimeVoiceModeDock({
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const glowRef = useRef<HTMLSpanElement>(null);
+  const glowAnimationRef = useRef<Animation | null>(null);
   const selectInteractionRef = useRef(false);
   const selectInteractionFrameRef = useRef<number | null>(null);
   const levels = useSyncExternalStore(
@@ -744,6 +746,42 @@ export function RealtimeVoiceModeDock({
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const controlsVisible = controlsOpen || settingsOpen;
   const chatPanelTranslation = useChatPanelTranslation(chatVisible);
+
+  useEffect(() => {
+    if (!connected || reducedMotion || !glowRef.current) {
+      glowAnimationRef.current?.cancel();
+      glowAnimationRef.current = null;
+      return;
+    }
+
+    const animation = glowRef.current.animate(
+      [{ transform: "rotate(0turn)" }, { transform: "rotate(1turn)" }],
+      {
+        duration: 12_000,
+        easing: "linear",
+        iterations: Number.POSITIVE_INFINITY,
+      },
+    );
+    glowAnimationRef.current = animation;
+
+    return () => {
+      animation.cancel();
+      if (glowAnimationRef.current === animation) {
+        glowAnimationRef.current = null;
+      }
+    };
+  }, [connected, reducedMotion]);
+
+  useEffect(() => {
+    const animation = glowAnimationRef.current;
+    if (!animation) return;
+    const playbackRate = state === "working" ? 2.4 : 1;
+    if (typeof animation.updatePlaybackRate === "function") {
+      animation.updatePlaybackRate(playbackRate);
+    } else {
+      animation.playbackRate = playbackRate;
+    }
+  }, [state]);
 
   const handleSelectOpenChange = useCallback((open: boolean) => {
     if (selectInteractionFrameRef.current !== null) {
@@ -920,10 +958,19 @@ export function RealtimeVoiceModeDock({
               className={cn(
                 "relative isolate size-16 overflow-visible rounded-full ring-1 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
-                connected && "agent-realtime-voice-glow",
-                state === "working" && "agent-realtime-voice-working",
               )}
             >
+              {connected ? (
+                <span
+                  ref={glowRef}
+                  aria-hidden="true"
+                  data-realtime-voice-glow="true"
+                  className={cn(
+                    "agent-realtime-voice-glow",
+                    state === "working" && "agent-realtime-voice-working",
+                  )}
+                />
+              ) : null}
               <span className="relative z-10 flex items-center justify-center">
                 {state === "connecting" ? (
                   <VoiceConnectingIndicator />
