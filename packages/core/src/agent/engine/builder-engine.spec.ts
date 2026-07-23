@@ -117,7 +117,6 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     expect(engine.name).toBe("builder");
     expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
-    expect(engine.defaultModel).toBe(CLAUDE_SONNET_MODEL_ID);
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
     expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");

@@ -647,6 +647,8 @@ export async function callAgent(
   text: string,
   opts?: {
     apiKey?: string;
+    /** Additional transport metadata. Receivers must not use it as identity. */
+    metadata?: Record<string, unknown>;
     contextId?: string;
     userEmail?: string;
     orgDomain?: string;
@@ -694,7 +696,7 @@ export async function callAgent(
     onUpdate?: (task: Task) => void;
   },
 ): Promise<string> {
-  const metadata: Record<string, unknown> = {};
+  const metadata: Record<string, unknown> = { ...opts?.metadata };
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;

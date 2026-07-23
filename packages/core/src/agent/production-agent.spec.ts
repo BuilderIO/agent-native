@@ -24,7 +24,9 @@ import {
   backgroundContinuationReasonForRun,
   buildFirstRequestPayloadDetail,
   buildUserContentWithAttachments,
+  callConnectedAgentReference,
   claimBackgroundWorkerRunEarly,
+  createConnectedAgentReferenceEventRelay,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
   isCachedToolResultVisibleInContext,
@@ -105,6 +107,231 @@ describe("resolveAgentRequestReasoningEffort", () => {
         configuredEffort: "high",
       }),
     ).toBe("none");
+  });
+});
+
+describe("createConnectedAgentReferenceEventRelay", () => {
+  it("uses the same correlation id for terminal errors", () => {
+    const events: AgentChatEvent[] = [];
+    const relay = createConnectedAgentReferenceEventRelay({
+      agent: "Analytics",
+      agentCallId: "failed-call",
+      send: (event) => events.push(event),
+      now: vi.fn().mockReturnValueOnce(500).mockReturnValueOnce(450),
+    });
+
+    relay.start();
+    relay.finish("error");
+
+    expect(events.at(-1)).toEqual({
+      type: "agent_call",
+      agent: "Analytics",
+      status: "error",
+      agentCallId: "failed-call",
+      durationMs: 0,
+    });
+  });
+
+  it("ignores a status message without parts", () => {
+    const events: AgentChatEvent[] = [];
+    const relay = createConnectedAgentReferenceEventRelay({
+      agent: "Analytics",
+      send: (event) => events.push(event),
+      now: vi.fn().mockReturnValueOnce(500).mockReturnValueOnce(750),
+    });
+
+    relay.start();
+    expect(() =>
+      relay.observeActivity({
+        id: "remote-task",
+        status: {
+          state: "completed",
+          timestamp: "2026-07-23T12:00:00.000Z",
+          message: { role: "agent" },
+        },
+      } as import("../a2a/types.js").Task),
+    ).not.toThrow();
+    relay.finish("done");
+
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "agent_call",
+        agent: "Analytics",
+        status: "done",
+        durationMs: 250,
+      }),
+    );
+  });
+
+  it("emits bounded generic progress only until rich activity arrives", () => {
+    const events: AgentChatEvent[] = [];
+    const relay = createConnectedAgentReferenceEventRelay({
+      agent: "Analytics",
+      agentCallId: "analytics-call",
+      send: (event) => events.push(event),
+      now: vi.fn().mockReturnValueOnce(1_000).mockReturnValueOnce(3_500),
+    });
+    const longDetail = "Querying the warehouse ".repeat(20);
+
+    relay.start();
+    relay.observePollUpdate({
+      id: "remote-task",
+      status: {
+        state: "working",
+        timestamp: "2026-07-23T12:00:00.000Z",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: longDetail }],
+        },
+      },
+    });
+    relay.observePollUpdate({
+      id: "remote-task",
+      status: {
+        state: "working",
+        timestamp: "2026-07-23T12:00:02.000Z",
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "data",
+              data: {
+                kind: "agent-native/agent-activity",
+                version: 1,
+                sequence: 1,
+                startedAt: 1_000,
+                updatedAt: 3_000,
+                durationMs: 2_000,
+                activePhase: "reasoning",
+                reasoning: ["Inspecting signups"],
+                toolCalls: [],
+              },
+            },
+          ],
+        },
+      },
+    });
+    relay.observePollUpdate({
+      id: "remote-task",
+      status: {
+        state: "working",
+        timestamp: "2026-07-23T12:00:04.000Z",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "Should stay hidden" }],
+        },
+      },
+    });
+
+    const progressEvents = events.filter(
+      (event) => event.type === "agent_call_progress",
+    );
+    expect(progressEvents).toHaveLength(1);
+    expect(progressEvents[0]).toMatchObject({
+      agentCallId: "analytics-call",
+      state: "working",
+      elapsedSeconds: 3,
+    });
+    expect(
+      (
+        progressEvents[0] as Extract<
+          AgentChatEvent,
+          { type: "agent_call_progress" }
+        >
+      ).detail,
+    ).toHaveLength(200);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "agent_call_activity",
+        agentCallId: "analytics-call",
+        snapshot: expect.objectContaining({ sequence: 1 }),
+      }),
+    );
+  });
+});
+
+describe("callConnectedAgentReference", () => {
+  it("uses async message/send polling and emits only terminal text", async () => {
+    const events: AgentChatEvent[] = [];
+    const callAgent = vi.fn(async (_path, _message, options) => {
+      options?.onUpdate?.({
+        id: "remote-task",
+        status: {
+          state: "working",
+          timestamp: "2026-07-23T12:00:02.000Z",
+          message: {
+            role: "agent",
+            parts: [{ type: "text", text: "Querying the warehouse" }],
+          },
+        },
+      });
+      return "## Final answer\n\n42 signups";
+    });
+    const resolveCallerAuth = vi.fn(async () => ({
+      apiKey: "test-key",
+      userEmail: "user@example.test",
+      orgId: "org-1",
+      orgDomain: "example.test",
+      orgSecret: "test-secret",
+      metadata: { googleToken: "test-google-token" },
+    }));
+
+    const response = await callConnectedAgentReference({
+      agent: "Analytics",
+      path: "https://analytics.example.test",
+      message: "Count signups",
+      send: (event) => events.push(event),
+      callAgent,
+      resolveCallerAuth,
+      agentCallId: "analytics-call",
+      now: vi
+        .fn()
+        .mockReturnValueOnce(1_000)
+        .mockReturnValueOnce(3_000)
+        .mockReturnValueOnce(5_500),
+    });
+
+    expect(response).toBe("## Final answer\n\n42 signups");
+    expect(callAgent).toHaveBeenCalledOnce();
+    expect(callAgent).toHaveBeenCalledWith(
+      "https://analytics.example.test",
+      "Count signups",
+      expect.objectContaining({
+        async: true,
+        apiKey: "test-key",
+        metadata: { googleToken: "test-google-token" },
+        onUpdate: expect.any(Function),
+      }),
+    );
+    expect(events).toEqual([
+      {
+        type: "agent_call",
+        agent: "Analytics",
+        status: "start",
+        agentCallId: "analytics-call",
+      },
+      {
+        type: "agent_call_progress",
+        agent: "Analytics",
+        agentCallId: "analytics-call",
+        state: "working",
+        elapsedSeconds: 2,
+        detail: "Querying the warehouse",
+      },
+      {
+        type: "agent_call_text",
+        agent: "Analytics",
+        agentCallId: "analytics-call",
+        text: "## Final answer\n\n42 signups",
+      },
+      {
+        type: "agent_call",
+        agent: "Analytics",
+        status: "done",
+        agentCallId: "analytics-call",
+        durationMs: 4_500,
+      },
+    ]);
   });
 });
 

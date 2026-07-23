@@ -385,6 +385,27 @@ describe("A2AClient", () => {
     });
   });
 
+  it("forwards additional metadata without letting it override caller identity", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.metadata).toMatchObject({
+        googleToken: "fake-google-token",
+        userEmail: "verified@example.test",
+      });
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "capture this", {
+      async: false,
+      metadata: {
+        googleToken: "fake-google-token",
+        userEmail: "spoofed@example.test",
+      },
+      userEmail: "verified@example.test",
+    });
+  });
+
   it("sends bounded correlation metadata and idempotency at the protocol top level", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
