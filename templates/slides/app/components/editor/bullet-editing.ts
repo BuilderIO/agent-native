@@ -32,6 +32,20 @@ export function isBulletMarker(el: Element): boolean {
   return text.length > 0 && [...text].every((c) => BULLET_GLYPHS.has(c));
 }
 
+/** The bullet-marker element enclosing a node (or the node itself), bounded by
+ * `root`, or null when the node isn't inside a marker glyph. */
+function enclosingMarker(node: Node, root: HTMLElement): HTMLElement | null {
+  let el: HTMLElement | null =
+    node.nodeType === Node.ELEMENT_NODE
+      ? (node as HTMLElement)
+      : node.parentElement;
+  while (el && el !== root && root.contains(el)) {
+    if (isBulletMarker(el)) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
 /**
  * A "bullet row" is a styled list item whose first element child is a marker
  * glyph. The text after it may be a <span> or a bare text node (contentEditable
@@ -149,7 +163,16 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return false;
   const range = sel.getRangeAt(0);
-  if (!range.collapsed) range.deleteContents();
+  if (!range.collapsed) {
+    // A selection that spans a row's marker glyph would delete it here, blanking
+    // the bullet on the surviving row (and its clone). Clamp both boundaries out
+    // of any enclosing marker so deletion never touches the glyphs.
+    const startMarker = enclosingMarker(range.startContainer, list);
+    if (startMarker) range.setStartAfter(startMarker);
+    const endMarker = enclosingMarker(range.endContainer, list);
+    if (endMarker) range.setEndBefore(endMarker);
+    if (!range.collapsed) range.deleteContents();
+  }
 
   let row: HTMLElement | null = null;
   let node: Node | null = range.endContainer;
