@@ -878,6 +878,13 @@ function assertCleanServerLogs(logs: string[]): void {
   if (text.includes("You must render this element inside a")) {
     offenders.push("render outside router context");
   }
+  if (
+    text.includes(
+      'NitroViteError]: Vite environment "nitro" is unavailable',
+    )
+  ) {
+    offenders.push("Nitro environment unavailable");
+  }
   if (hasAuthLockFailure(logs))
     offenders.push("auth init failure (app locked)");
   assert.deepEqual(
@@ -950,7 +957,7 @@ async function main(): Promise<void> {
       "  checked:  scaffold → install → dev server → auto-login → /agent → / (Chat)",
     );
     console.log(
-      "  checked:  no Unexpected Server Error, no HydratedRouter in dev logs",
+      "  checked:  no Nitro startup noise or SSR errors in dev logs",
     );
     console.log("  checked:  no browser console/page errors after warmup");
   } catch (err) {
