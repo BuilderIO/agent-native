@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "agent-native dev --inspect",
+    "dev": "agent-native dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
