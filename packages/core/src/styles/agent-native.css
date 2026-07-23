@@ -139,6 +139,28 @@
   background: inherit;
 }
 
+.message-scroller-viewport--top-fade {
+  --message-scroller-top-fade-size: 48px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--message-scroller-top-fade-size),
+    black 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black var(--message-scroller-top-fade-size),
+    black 100%
+  );
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
+
 .agent-sidebar-resize-handle {
   background: transparent;
 }
