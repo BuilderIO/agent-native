@@ -974,6 +974,7 @@ interface VisualEditorExtensionOptions {
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
   referenceDepth?: number;
+  emptyBlockPlaceholder?: string;
 }
 
 function hasAncestorType(
@@ -1087,11 +1088,13 @@ function getVisualEditorPlaceholder({
   node,
   pos,
   hasAnchor,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: {
   editor: CoreEditor;
   node: ProseMirrorNode;
   pos: number;
   hasAnchor: boolean;
+  emptyBlockPlaceholder?: string;
 }): string {
   const isToggleBody =
     node.type.name === "paragraph" &&
@@ -1099,7 +1102,7 @@ function getVisualEditorPlaceholder({
 
   if (isToggleBody) {
     return hasAnchor && editor.isFocused
-      ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER
+      ? emptyBlockPlaceholder
       : EMPTY_TOGGLE_BODY_PLACEHOLDER;
   }
 
@@ -1131,7 +1134,7 @@ function getVisualEditorPlaceholder({
     return "";
   }
 
-  return hasAnchor && editor.isFocused ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
+  return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
 }
 
 export async function uploadAndInsertImageFiles(
@@ -1301,6 +1304,7 @@ export function createVisualEditorExtensions({
   onOpenNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: VisualEditorExtensionOptions = {}): Extensions {
   // Build on the SHARED editor core (StarterKit base + the Collaboration /
   // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
@@ -1336,7 +1340,8 @@ export function createVisualEditorExtensions({
       NotionBlockquote,
       CodeBlock,
       Placeholder.configure({
-        placeholder: getVisualEditorPlaceholder,
+        placeholder: (options) =>
+          getVisualEditorPlaceholder({ ...options, emptyBlockPlaceholder }),
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
         includeChildren: true,
@@ -1739,6 +1744,7 @@ export function VisualEditor({
         onOpenNotionPageLink,
         localFilePath,
         referenceDepth,
+        emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
       }),
     [
       documentId,
@@ -1753,6 +1759,7 @@ export function VisualEditor({
       onOpenNotionPageLink,
       localFilePath,
       referenceDepth,
+      t,
     ],
   );
 
