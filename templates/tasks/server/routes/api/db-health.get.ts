@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { defineEventHandler } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
 
 import { getDb } from "../../db/index.js";
 
@@ -8,12 +8,14 @@ function isLocalDb(): boolean {
   return url.startsWith("file:");
 }
 
-export default defineEventHandler(async () => {
+export default defineEventHandler(async (event) => {
   try {
     const db = getDb();
     await db.run(sql`SELECT 1`);
     return { ok: true, local: isLocalDb() };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Unknown" };
+  } catch (error) {
+    console.error("[tasks] Database health check failed", error);
+    setResponseStatus(event, 503);
+    return { ok: false, error: "Database health check failed" };
   }
 });
