@@ -124,6 +124,9 @@ function createPage(
     captureBox?: { width: number; height: number };
     renderedPanelIds?: string[];
     loadingPanels?: Array<{ id: string; title: string }>;
+    consoleErrors?: string[];
+    requestFailures?: string[];
+    responseFailures?: Array<{ url: string; status: number }>;
     unresponsive?: boolean;
     blockReadyWait?: boolean;
   } = {},
@@ -147,6 +150,7 @@ function createPage(
   const addCookies = vi.fn(async () => {
     if (options.cookieError) throw options.cookieError;
   });
+  const listeners = new Map<string, (value: any) => void>();
   return {
     page: {
       close: vi.fn(async () => {}),
@@ -154,6 +158,27 @@ function createPage(
       emulateMedia: vi.fn(async () => {}),
       addInitScript: vi.fn(async () => {}),
       goto: vi.fn(async (_url: string, _options: unknown) => {
+        for (const text of options.consoleErrors ?? []) {
+          listeners.get("console")?.({
+            type: () => "error",
+            text: () => text,
+          });
+        }
+        for (const errorText of options.requestFailures ?? []) {
+          listeners.get("requestfailed")?.({
+            method: () => "POST",
+            url: () =>
+              "https://analytics.example.test/_agent-native/actions/query-dashboard-panel",
+            failure: () => ({ errorText }),
+          });
+        }
+        for (const failure of options.responseFailures ?? []) {
+          listeners.get("response")?.({
+            status: () => failure.status,
+            url: () => failure.url,
+            request: () => ({ method: () => "POST" }),
+          });
+        }
         if (options.gotoError) throw options.gotoError;
       }),
       locator: vi.fn(() => locator),
@@ -198,7 +223,9 @@ function createPage(
           options.pageUrl ??
           "https://analytics.example.test/dashboards/example",
       ),
-      on: vi.fn(),
+      on: vi.fn((event: string, listener: (value: any) => void) => {
+        listeners.set(event, listener);
+      }),
       context: vi.fn(() => ({ addCookies })),
     },
     locator,
@@ -674,6 +701,32 @@ describe("dashboard report email", () => {
     expect(page.page.evaluate).toHaveBeenCalledWith(
       expect.stringContaining("data-dashboard-report-panel-title"),
     );
+  });
+
+  it("includes collected console and action HTTP failures when a chunk times out", async () => {
+    const page = createPage({
+      readyWaitFails: true,
+      consoleErrors: ["panel query exceeded its report timeout"],
+      requestFailures: ["net::ERR_ABORTED"],
+      responseFailures: [
+        {
+          url: "https://analytics.example.test/_agent-native/actions/query-dashboard-panel",
+          status: 500,
+        },
+      ],
+    });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result.screenshotError).toContain(
+      "panel query exceeded its report timeout",
+    );
+    expect(result.screenshotError).toContain("net::ERR_ABORTED");
+    expect(result.screenshotError).toContain("HTTP 500");
   });
 
   it("bounds serverless cleanup after a completed capture", async () => {

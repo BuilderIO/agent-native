@@ -6,6 +6,10 @@ import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 import { addBytesProcessed } from "./cost-tracker";
 
+// Screenshot captures have a fixed 35s serverless readiness window. End each
+// panel action before that window closes so the capture can surface its error.
+export const DASHBOARD_REPORT_ACTION_TIMEOUT_MS = 30_000;
+
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];
   error?: string;
@@ -86,6 +90,7 @@ export async function executeSqlQuery(
   sql: string,
   source: DataSourceType,
   signal?: AbortSignal,
+  options?: { reportScreenshot?: boolean },
 ): Promise<SqlQueryResult> {
   const release = await acquireSqlQuerySlot(signal);
   let data: DashboardPanelQueryResponse;
@@ -93,7 +98,12 @@ export async function executeSqlQuery(
     data = await callAction<DashboardPanelQueryResponse>(
       "query-dashboard-panel",
       { query: sql, source },
-      { signal },
+      {
+        signal,
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS }
+          : {}),
+      },
     );
   } finally {
     release();
@@ -128,12 +138,16 @@ export function useSqlQuery(
     refetchOnReconnect?: boolean | "always";
     refetchOnWindowFocus?: boolean | "always";
     retry?: boolean | number;
+    reportScreenshot?: boolean;
     staleTime?: number;
   },
 ) {
   return useQuery<SqlQueryResult>({
     queryKey,
-    queryFn: ({ signal }) => executeSqlQuery(sql, source, signal),
+    queryFn: ({ signal }) =>
+      executeSqlQuery(sql, source, signal, {
+        reportScreenshot: options?.reportScreenshot,
+      }),
     enabled: options?.enabled ?? true,
     refetchInterval: options?.refetchInterval,
     refetchOnMount: options?.refetchOnMount ?? false,

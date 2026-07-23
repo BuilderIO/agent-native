@@ -397,6 +397,8 @@ function positiveIntEnv(name: string): number | null {
 async function waitForDashboardReportReady(
   page: any,
   timeout: number,
+  consoleErrors: string[] = [],
+  failedRequests: string[] = [],
 ): Promise<boolean> {
   try {
     await page.waitForFunction(
@@ -441,7 +443,11 @@ async function waitForDashboardReportReady(
       })()`)
       .catch(() => null);
     const message = detail
-      ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify(detail)}`
+      ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify({
+          ...detail,
+          consoleErrors,
+          failedRequests,
+        })}`
       : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
     throw new Error(message);
   }
@@ -765,6 +771,8 @@ async function captureDashboardChunk(
     await waitForDashboardReportReady(
       page,
       boundedStageTimeout(attempt.readyTimeout ?? timeout, deadlineAt),
+      consoleErrors,
+      failedRequests,
     );
     captureStage = "validating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
@@ -777,6 +785,8 @@ async function captureDashboardChunk(
         attempt.secondReadyTimeout ?? secondReadyTimeoutMs(),
         deadlineAt,
       ),
+      consoleErrors,
+      failedRequests,
     );
     captureStage = "revalidating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);

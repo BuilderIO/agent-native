@@ -248,6 +248,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor,
   editable,
   eagerLoad,
+  reportScreenshot,
   isDragSource,
   selectedForChat,
   selectPanelForChat,
@@ -261,6 +262,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
+  reportScreenshot: boolean;
   isDragSource: boolean;
   selectedForChat: boolean;
   selectPanelForChat: (
@@ -348,6 +350,7 @@ const PanelCell = memo(function PanelCell({
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
         editable={editable}
         eagerLoad={eagerLoad}
+        reportScreenshot={reportScreenshot}
         isDragSource={isDragSource}
         selectedForChat={selectedForChat}
         onSelectForChat={handleSelectForChat}
@@ -1972,6 +1975,7 @@ export default function SqlDashboardPage() {
                                 }
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
+                                reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
                                 selectedForChat={selectedPanelId === panel.id}
                                 selectPanelForChat={selectPanelForChat}
