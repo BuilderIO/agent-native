@@ -1,3 +1,4 @@
+import { getOrgContext } from "@agent-native/core/org";
 import {
   FeatureNotConfiguredError,
   getSession,
@@ -90,9 +91,19 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         .replace(/[-_]+/g, " ")
         .trim() || "Imported brand";
 
+    // `session.orgId` is set at sign-in and not refreshed when the user
+    // switches orgs; `getOrgContext` resolves the live active-org setting.
+    let orgId: string | undefined;
+    try {
+      orgId = (await getOrgContext(event)).orgId ?? undefined;
+    } catch {
+      // Org tables can be unavailable during first boot; fall back below.
+    }
+    orgId ??= session.orgId ?? undefined;
+
     try {
       return await runWithRequestContext(
-        { userEmail: session.email, orgId: session.orgId },
+        { userEmail: session.email, orgId },
         async () => {
           const result = await startBuilderDesignSystemIndex({
             projectName: suggestedTitle,
@@ -107,7 +118,7 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
           const proxy = await upsertBuilderProxyDesignSystem({
             result,
             ownerEmail: session.email,
-            orgId: session.orgId ?? null,
+            orgId: orgId ?? null,
             projectName: suggestedTitle,
           });
           return {

@@ -40,11 +40,13 @@ vi.mock("../lib/builder-design-system-proxy.js", () => ({
 }));
 
 vi.mock("./request-auth-context.js", () => ({
-  withSlidesRequestContext: (
-    _event: unknown,
+  withSlidesRequestContext: async (
+    event: unknown,
     fn: (ctx: { email?: string; orgId?: string }) => unknown,
-    preResolvedContext: { email?: string; orgId?: string },
-  ) => fn(preResolvedContext),
+  ) => {
+    const session = await mockGetSession(event);
+    return fn({ email: session?.email, orgId: session?.orgId });
+  },
 }));
 
 import { indexDesignSystemWithBuilder } from "./index-design-system-with-builder";

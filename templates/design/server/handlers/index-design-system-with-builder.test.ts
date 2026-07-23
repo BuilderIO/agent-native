@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getOrgContext: vi.fn(),
   getRequestHeader: vi.fn(),
   getSession: vi.fn(),
   readMultipartFormData: vi.fn(),
@@ -8,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   startBuilderDesignSystemIndex: vi.fn(),
   upsertBuilderProxyDesignSystem: vi.fn(),
   runWithRequestContext: vi.fn((_ctx, fn) => fn()),
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  getOrgContext: mocks.getOrgContext,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -37,6 +42,7 @@ describe("Builder .fig multipart preflight", () => {
       email: "designer@example.com",
       orgId: null,
     });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
     mocks.getRequestHeader.mockReturnValue("1024");
     mocks.readMultipartFormData.mockResolvedValue([
       {

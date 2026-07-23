@@ -73,33 +73,29 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         .trim() || "Imported brand";
 
     try {
-      return await withSlidesRequestContext(
-        event,
-        async ({ orgId }) => {
-          const result = await startBuilderDesignSystemIndex({
-            projectName: suggestedTitle,
-            files: [
-              {
-                name: part.filename || "brand.fig",
-                data: part.data,
-                mimeType: "application/octet-stream",
-              },
-            ],
-          });
-          const proxy = await upsertBuilderProxyDesignSystem({
-            result,
-            ownerEmail: session.email,
-            orgId: orgId ?? null,
-            projectName: suggestedTitle,
-          });
-          return {
-            ...result,
-            ...proxy,
-            uploadedFileCount: 1,
-          };
-        },
-        { email: session.email, orgId: session.orgId ?? undefined },
-      );
+      return await withSlidesRequestContext(event, async ({ orgId }) => {
+        const result = await startBuilderDesignSystemIndex({
+          projectName: suggestedTitle,
+          files: [
+            {
+              name: part.filename || "brand.fig",
+              data: part.data,
+              mimeType: "application/octet-stream",
+            },
+          ],
+        });
+        const proxy = await upsertBuilderProxyDesignSystem({
+          result,
+          ownerEmail: session.email,
+          orgId: orgId ?? null,
+          projectName: suggestedTitle,
+        });
+        return {
+          ...result,
+          ...proxy,
+          uploadedFileCount: 1,
+        };
+      });
     } catch (err) {
       if (err instanceof FeatureNotConfiguredError) {
         setResponseStatus(event, 412);
