@@ -15,6 +15,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Database: "database",
   MessageSquare: "message-square",
   Route: "shuffle",
+  Users: "users",
   ListCheck: "check-square",
   Settings: "settings",
 };
@@ -23,7 +24,7 @@ function getFeatherIcon(iconName: string): keyof typeof Feather.glyphMap {
   return ICON_MAP[iconName] ?? "box";
 }
 
-function AppIcon({
+export function AppIcon({
   iconName,
   size,
   color,

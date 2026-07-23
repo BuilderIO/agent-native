@@ -732,6 +732,198 @@ describe("canvas frame / annotation patch interactions", () => {
     expect(next.canvas?.frames[0]?.y).toBe(80);
   });
 
+  it("promotes every persisted visual surface to design mode in one patch", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      prototype: {
+        initialScreenId: "prototype-screen",
+        screens: [
+          {
+            id: "prototype-screen",
+            html: '<main class="brand-screen">Prototype</main>',
+            css: ".brand-screen { color: #123456; }",
+          },
+        ],
+      },
+      canvas: {
+        frames: [
+          {
+            id: "linked-frame",
+            blockId: "linked-wireframe",
+          },
+          {
+            id: "inline-frame",
+            wireframe: {
+              surface: "mobile",
+              html: '<main class="brand-screen">Inline</main>',
+              css: ".brand-screen { color: #654321; }",
+            },
+          },
+        ],
+        annotations: [
+          { id: "keep-note", targetId: "inline-frame", text: "Keep me." },
+        ],
+      },
+      blocks: [
+        {
+          id: "visual-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "mockups",
+                label: "Mockups",
+                blocks: [
+                  {
+                    id: "linked-wireframe",
+                    type: "wireframe",
+                    data: {
+                      surface: "browser",
+                      html: '<main class="brand-screen">Linked</main>',
+                      css: ".brand-screen { color: #abcdef; }",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      { op: "set-visual-render-mode", renderMode: "design" },
+      {
+        op: "update-canvas-frame",
+        frameId: "inline-frame",
+        patch: {
+          wireframe: {
+            surface: "mobile",
+            html: '<main class="brand-screen">Upgraded inline</main>',
+            css: ".brand-screen { color: #fedcba; }",
+          },
+        },
+      },
+    ]);
+
+    expect(next.canvas?.mode).toBe("design");
+    expect(next.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    expect(next.canvas?.frames[1]?.wireframe?.renderMode).toBe("design");
+    expect(next.canvas?.frames[1]?.wireframe?.css).toBe(
+      ".brand-screen { color: #fedcba; }",
+    );
+    expect(next.prototype?.screens[0]).toMatchObject({
+      renderMode: "design",
+      css: ".brand-screen { color: #123456; }",
+    });
+    expect(next.canvas?.annotations).toEqual(content.canvas?.annotations);
+    const tabs = next.blocks[0];
+    expect(tabs.type).toBe("tabs");
+    if (tabs.type === "tabs") {
+      const wireframe = tabs.data.tabs[0]?.blocks[0];
+      expect(wireframe?.type).toBe("wireframe");
+      if (wireframe?.type === "wireframe") {
+        expect(wireframe.data).toMatchObject({
+          renderMode: "design",
+          css: ".brand-screen { color: #abcdef; }",
+        });
+      }
+    }
+  });
+
+  it("sets design mode on a canvas without wireframe targets", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: { frames: [] },
+      blocks: [],
+    });
+
+    const next = applyPlanContentPatches(content, [
+      { op: "set-visual-render-mode", renderMode: "design" },
+    ]);
+
+    expect(next.canvas?.mode).toBe("design");
+    expect(next.blocks).toEqual(content.blocks);
+  });
+
+  it("requires legacy wireframes to be upgraded before setting design mode", () => {
+    const content = planContentSchema.parse({
+      version: 2,
+      canvas: {
+        frames: [{ id: "legacy-frame", blockId: "legacy-wireframe" }],
+      },
+      blocks: [
+        {
+          id: "visual-tabs",
+          type: "tabs",
+          data: {
+            tabs: [
+              {
+                id: "mockups",
+                label: "Mockups",
+                blocks: [
+                  {
+                    id: "legacy-wireframe",
+                    type: "legacy-wireframe",
+                    data: {
+                      viewport: "desktop",
+                      regions: [
+                        {
+                          id: "legacy-content",
+                          kind: "content",
+                          label: "Legacy content",
+                          x: 0,
+                          y: 0,
+                          width: 100,
+                          height: 100,
+                        },
+                      ],
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(() =>
+      applyPlanContentPatches(content, [
+        { op: "set-visual-render-mode", renderMode: "design" },
+      ]),
+    ).toThrow(/replace legacy-wireframe blocks.*current wireframes/i);
+
+    const next = applyPlanContentPatches(content, [
+      { op: "set-visual-render-mode", renderMode: "design" },
+      {
+        op: "replace-block",
+        blockId: "legacy-wireframe",
+        block: {
+          id: "legacy-wireframe",
+          type: "wireframe",
+          data: {
+            surface: "browser",
+            html: "<main>Upgraded mockup</main>",
+          },
+        },
+      },
+    ]);
+
+    expect(next.canvas?.mode).toBe("design");
+    expect(next.canvas?.frames[0]?.legacyWireframe).toBeUndefined();
+    expect(next.canvas?.frames[0]?.wireframe?.renderMode).toBe("design");
+    const tabs = next.blocks[0];
+    expect(tabs.type).toBe("tabs");
+    if (tabs.type === "tabs") {
+      const wireframe = tabs.data.tabs[0]?.blocks[0];
+      expect(wireframe?.type).toBe("wireframe");
+      if (wireframe?.type === "wireframe") {
+        expect(wireframe.data.renderMode).toBe("design");
+      }
+    }
+  });
+
   it("BUG PROBE: syncCanvasWireframes can revive frame.wireframe right after update-canvas-frame clears it", () => {
     // A frame referencing a block (blockId) gets its inline `wireframe`
     // re-synced from that block at the end of applyPlanContentPatches. If a

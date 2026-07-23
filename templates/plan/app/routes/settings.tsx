@@ -2,6 +2,7 @@ import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -51,6 +52,7 @@ export default function SettingsRoute() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       teamLabel={t("header.team")}
       extraTabs={agentSettingsTabs}
       generalSearchEntries={generalSearchEntries}

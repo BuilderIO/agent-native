@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { IconX } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -32,7 +33,7 @@ export function SidePanel({
   className,
   title,
   subtitle,
-  closeLabel = "Close panel",
+  closeLabel,
   onClose,
 }: {
   children: ReactNode;
@@ -42,6 +43,8 @@ export function SidePanel({
   closeLabel?: string;
   onClose?: () => void;
 }) {
+  const t = useT();
+  const resolvedCloseLabel = closeLabel ?? t("common.closePanel");
   const width = useAgentSidebarWidth();
 
   useEffect(() => {
@@ -85,7 +88,7 @@ export function SidePanel({
               variant="ghost"
               size="icon"
               onClick={onClose}
-              aria-label={closeLabel}
+              aria-label={resolvedCloseLabel}
               className="size-8"
             >
               <IconX className="size-4" />

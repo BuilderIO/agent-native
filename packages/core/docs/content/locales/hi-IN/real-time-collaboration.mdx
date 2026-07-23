@@ -240,10 +240,11 @@ export default defineConfig({
 
 ### 3. कोलाब सर्वर प्लगइन जोड़ें
 
-हमेशा `resourceType` को पंजीकृत साझा करने योग्य संसाधन के नाम पर सेट करें
-`registerShareableResource` के माध्यम से। इसके बिना, कोलाब पुश इवेंट वितरित किए जाते हैं
-दस्तावेज़-स्तरीय दायरे के बिना सभी प्रमाणित उपयोगकर्ताओं और सर्वर के लिए
-एक बार की चेतावनी लॉग करता है।
+डेटा मॉडल से मेल खाने वाला एक्सेस मोड चुनें। स्वामित्व वाले या साझा किए जा सकने वाले
+रिकॉर्ड `registerShareableResource` से पंजीकृत प्रकार के साथ `mode: "resource"`
+का उपयोग करते हैं। परिनियोजन के सभी प्रमाणित उपयोगकर्ताओं के लिए जानबूझकर खुले रिकॉर्ड
+स्पष्ट रूप से `mode: "all-authenticated"` का उपयोग करते हैं। केवल चेतावनी हटाने के लिए
+संसाधन प्रकार न बनाएँ।
 
 ```ts
 // server/plugins/collab.ts
@@ -253,9 +254,12 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+`access` को छोड़ना बहिष्कृत विरासत व्यवहार है। यह `all-authenticated` की तरह
+व्यवहार करता है, चेतावनी लॉग करता है और Doctor इसे चिह्नित करता है।
 
 ### 4. क्लाइंट हुक का उपयोग करें
 
@@ -601,22 +605,34 @@ try {
 
 ## सुरक्षा {#security}
 
-### हमेशा `resourceType` सेट करें
+### एक्सेस मॉडल स्पष्ट रूप से चुनें
+
+स्वामित्व वाले या साझा किए जा सकने वाले संसाधनों के लिए
+`registerShareableResource` से पंजीकृत प्रकार का उपयोग करें:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-`resourceType` के बिना प्लगइन एक चेतावनी लॉग करता है और कोलाब पुश प्रसारित करता है
-दस्तावेज़-स्तर के बिना परिनियोजन पर सभी प्रमाणित उपयोगकर्ताओं के लिए ईवेंट
-स्कोपिंग। गैर-मालिक राज्य-वेक्टर कैच-अप (सुरक्षित लेकिन उच्चतर
-विलंबता) चाहे `resourceType` सेट हो।
+पूरे परिनियोजन में जानबूझकर साझा संसाधन के लिए:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+चेतावनी हटाने के लिए `resourceType` न बनाएँ: `resource` मोड तभी सही है जब
+संबंधित स्वामित्व और साझाकरण मॉडल मौजूद हो। विरासत संगतता के लिए `access` को
+छोड़ना समर्थित है, लेकिन यह `all-authenticated` की तरह व्यवहार करता है, चेतावनी
+लॉग करता है और Doctor इसे चिह्नित करता है। स्पष्ट एक्सेस वाले गैर-मालिक स्टेट-वेक्टर
+कैच-अप का उपयोग करते हैं (सुरक्षित, लेकिन अधिक विलंबता वाला)।
 
 ### पहुंच जांच
 
-सभी सहयोग मार्गों को प्रमाणीकरण की आवश्यकता होती है। जब `resourceType` सेट हो, तो पढ़ें
+सभी सहयोग मार्गों को प्रमाणीकरण की आवश्यकता होती है। `resource` मोड में पढ़ने के लिए
 के उपयोग से कम से कम दर्शक पहुंच की आवश्यकता होती है और लेखन के लिए संपादक पहुंच की आवश्यकता होती है।
 साझाकरण प्रणाली के समान `resolveAccess` / `assertAccess` सहायक। ए 404
 (403 नहीं) लौटाया जाता है।
@@ -629,7 +645,7 @@ HTTP 413 के साथ कॉन्फ़िगर की गई सीमा
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -761,7 +777,7 @@ undoManager.redo(); // Shift+Cmd+Z
 - [Real-Time Sync](/docs/client#usedbsync) - `useDbSync` + `useChangeVersion`
   प्रणाली जो `updatedAt` बम्प ड्राइविंग एडिटर समाधान प्रदान करती है।
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  और `resourceType` द्वारा संदर्भित एक्सेस मॉडल के लिए `assertAccess`।
+  और संसाधन-स्कोप सहयोग के लिए `assertAccess`।
 - [Sharing](/docs/sharing) - दस्तावेज़ कैसे साझा किए जाते हैं और पहुंच कैसे प्रदान की जाती है।
 - [Template: Content](/docs/template-content) — का संदर्भ कार्यान्वयन
   सहयोगात्मक रिच-टेक्स्ट संपादन।

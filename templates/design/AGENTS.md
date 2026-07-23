@@ -109,8 +109,11 @@ ladder.
   `design-systems` skill's "Import from Figma" section.
 - Uploading a raw `.fig` file in the Design editor's Import panel decodes the
   container/Kiwi document locally into editable screens — no Builder
-  connection needed — and is scoped to screens only; it never creates or
-  updates a design system. This is separate from uploading `.fig` on the
+  connection needed — and accepts an optional Figma frame URL alongside the
+  file. When the URL contains a `node-id`, only that frame or its containing
+  top-level frame is imported; a mismatch falls back to all frames. This path
+  uses no Figma REST API quota and is scoped to screens only; it never creates
+  or updates a design system. This is separate from uploading `.fig` on the
   Design System Setup page, which still indexes tokens/brand-kit data through
   Builder and does not parse `.fig` locally. See the `design-systems` skill
   for both paths.
@@ -118,9 +121,19 @@ ladder.
   `figmeta.selectedNodeData`; `import-figma-clipboard` uses those before any
   heuristic matching and supports multi-selection. Clipboard metadata is not a
   public Figma contract, so a copied frame link remains the stable exact path
-  if Figma changes that field. Without a token, current Figma's binary-only
-  clipboard has no browser-readable HTML fallback; give setup guidance instead
-  of claiming a successful import.
+  if Figma changes that field. Without a token, `import-figma-clipboard` falls
+  back to a local Kiwi binary decode: geometry, auto-layout, text, solid fills,
+  and strokes are editable immediately; image fills become annotated
+  placeholders (`data-figma-image-ref="<sha1>"`) that can be filled in later two
+  ways. (1) Token-free: upload the original `.fig` — the paste-result dialog's
+  "Fill images from .fig" option, or `hydrateFileIds` on the `.fig` upload route
+  (`/api/import-design-file`) — which matches each placeholder's SHA-1 hash to
+  the `.fig`'s embedded `images/` bytes, mirrors them to durable storage, and
+  needs no Figma API. (2) With a token: `hydrate-figma-paste-images` resolves the
+  same placeholders through Figma's REST image endpoint. This is not a
+  full-fidelity import — report which image fills are still unresolved and offer
+  to hydrate them. Clipboard paste is the fast no-quota path; the original `.fig`
+  is what carries the real image bytes for both upload and paste-hydration.
 - For "what's in this Figma file/frame?" or "show me a screenshot of this
   frame" without importing anything, use `get-figma-design-context` — no
   `nodeId` lists pages/top-level frames (like the official Figma MCP's
@@ -288,11 +301,15 @@ ladder.
   `view-screen`; not rendered as canvas overlays).
 - `design-reprompt-pending:<designId>:<fileId>` is the client-captured source
   selection, instruction, base hash, and authoritative current request id for
-  a scoped regenerate request.
+  a scoped regenerate request. The frontend starts requests through the
+  compare-and-set `begin-node-rewrite-request` action and must not overwrite a
+  `resolving` acceptance reservation.
 - `design-reprompt-proposal:<designId>:<fileId>:<repromptId>` is one
   request-specific preview-only subtree proposal. Candidate payloads have a
-  256 KiB aggregate serialized limit. Resolution and cancellation use atomic
-  compare-and-set cleanup so an older request cannot erase a newer one.
+  256 KiB aggregate serialized limit. Proposal publication, resolution, and
+  cancellation use atomic multi-key compare-and-set transitions. Acceptance
+  reserves its matching pending request before writing design content, so a
+  newer request and an older acceptance cannot both win.
   `view-screen` lists only proposals paired to the current pending request as
   `pendingCandidateReviews`.
 - `show-design-questions` opens focused pre-generation questions in the main

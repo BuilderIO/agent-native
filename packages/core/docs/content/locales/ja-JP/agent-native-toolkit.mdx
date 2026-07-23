@@ -95,6 +95,16 @@ Toolkit は、高品質なエージェント型アプリケーションのため
 - Blocks と Context X-Ray エンジンはこの段階では **Core 所有** のままです。再利用可能な Context X-Ray 表示は Toolkit 所有です。
 - Creative Context、Scheduling、Pinpoint は必要に応じて導入する **Toolkit 能力モジュール** で、個別の npm パッケージとライフサイクルマニフェストを維持します。Dispatch は独立した製品です。
 
+## ダッシュボードキット {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` は、指標・統計カード、テーブル、日付範囲、
+パネルの順序とレイアウト、汎用チャートのための表示専用で eject 可能な単位です。
+アプリが行とコールバックを渡し、このキットはデータ取得、ダッシュボード状態、
+認証情報を保持しません。`@agent-native/core/dashboard-storage` はアプリごとに
+スキーマとアクセス制御を持って生成し、既定の `program` source でアプリの data program を実行します。
+適用する前に `agent-native eject inspect toolkit/dashboard` を実行してください。
+プロバイダーリゾルバーは、接続とクエリポリシーを所有するアプリに置きます。
+
 ## 実装の境界 {#implementation-boundary}
 
 キットはまずプロダクト画面です。一部はランタイムに支えられ（`@agent-native/core`）、一部は表示プリミティブ（`@agent-native/toolkit`）で、アプリは通常ローカルアダプターで両方を包みます。必要な振る舞いを所有するパッケージパスを使いつつ、ユーザー向けの設定、コラボレーション、共有、チーム、レビュー、セットアップの体験は、アプリ内でパッケージ境界を見せず、一つの一貫したキットとして設計してください。

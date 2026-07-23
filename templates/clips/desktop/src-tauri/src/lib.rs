@@ -147,7 +147,6 @@ pub fn run() {
             native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
-            native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_stop_and_save,
             native_screen::native_fullscreen_recording_cancel,
@@ -204,6 +203,7 @@ pub fn run() {
             // notifications
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
+            notifications::dismiss_meeting_notification,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
@@ -231,8 +231,11 @@ pub fn run() {
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
             // whisper model management
+            whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            whisper_model::whisper_downloaded_models,
+            whisper_model::whisper_model_delete,
             // permission status (silent checks for all TCC permissions)
             permission_status::check_permission_statuses,
             // persistent log file (production debugging)
@@ -455,7 +458,16 @@ pub fn run() {
             // login (tagged with `--autostart`) so it doesn't pop up every boot.
             let launched_at_login = std::env::args().any(|arg| arg == "--autostart");
             if !launched_at_login {
-                toggle_popover(app.handle());
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..8 {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        if tray::refresh_tray_anchor(&app_handle) {
+                            break;
+                        }
+                    }
+                    clips::force_show_popover(&app_handle);
+                });
             }
 
             Ok(())

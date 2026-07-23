@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client/i18n";
+
 import {
   AlertDialog,
   type AlertDialogProps,
@@ -19,16 +21,18 @@ function BulkDeleteDialogDescription({
   BulkDeleteDialogProps,
   "selectedItems" | "entitySingular" | "entityPlural"
 >) {
+  const t = useT();
   const selectedCount = selectedItems.length;
 
   return (
     <div className="space-y-2 text-sm text-muted-foreground">
       <p>
-        This permanently removes{" "}
         {selectedCount === 1
-          ? `the selected ${entitySingular}`
-          : `all ${selectedCount} selected ${entityPlural}`}
-        .
+          ? t("dialogs.bulkDeleteDescriptionOne", { entity: entitySingular })
+          : t("dialogs.bulkDeleteDescriptionOther", {
+              count: selectedCount,
+              entity: entityPlural,
+            })}
       </p>
       {selectedItems.length > 0 ? (
         <ul className="list-disc space-y-1 pl-5 text-foreground">
@@ -39,7 +43,7 @@ function BulkDeleteDialogDescription({
           ))}
           {selectedItems.length > 5 ? (
             <li className="text-muted-foreground">
-              and {selectedItems.length - 5} more
+              {t("dialogs.andMore", { count: selectedItems.length - 5 })}
             </li>
           ) : null}
         </ul>
@@ -57,12 +61,15 @@ export function BulkDeleteDialog({
   pending,
   onConfirm,
 }: BulkDeleteDialogProps) {
+  const t = useT();
   return (
     <AlertDialog
       open={open}
       onOpenChange={onOpenChange}
       pending={pending}
-      title={`Delete ${selectedItems.length === 1 ? entitySingular : entityPlural}?`}
+      title={t("dialogs.deleteEntityTitle", {
+        entity: selectedItems.length === 1 ? entitySingular : entityPlural,
+      })}
       description={
         <BulkDeleteDialogDescription
           selectedItems={selectedItems}

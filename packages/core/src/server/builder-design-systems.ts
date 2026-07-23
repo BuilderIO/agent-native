@@ -1,3 +1,4 @@
+import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { FeatureNotConfiguredError } from "./credential-provider.js";
 import {
   getBuilderProxyOrigin,
@@ -356,11 +357,15 @@ function nonEmptyFiles(
 
 export function builderDesignSystemUrl(designSystemId?: string | null): string {
   const host = trimTrailingSlash(getBuilderAppHost());
-  return designSystemId
+  const url = designSystemId
     ? `${host}/app/design-system-intelligence/${encodeURIComponent(
         designSystemId,
       )}`
     : `${host}/app/design-system-intelligence`;
+  return withBuilderUtmTrackingParams(url, {
+    campaign: "product",
+    content: "design_system_intelligence",
+  });
 }
 
 export function localBuilderDesignSystemId(

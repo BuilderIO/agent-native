@@ -1,6 +1,14 @@
 // A2A Protocol types (spec v0.3) + framework config types
 import type { PublicAgentActionConfig } from "../action.js";
 
+export type {
+  A2AAgentActivityPhase,
+  A2AAgentActivitySnapshot,
+  A2AAgentActivityState,
+  A2AAgentActivityToolCall,
+  A2AAgentActivityToolStatus,
+} from "./activity.js";
+
 // --- Parts (content atoms) ---
 
 export interface TextPart {
@@ -36,6 +44,7 @@ export interface Message {
 export type TaskState =
   | "submitted"
   | "working"
+  | "processing"
   | "completed"
   | "failed"
   | "canceled"

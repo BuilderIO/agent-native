@@ -493,6 +493,7 @@ const messages = {
     makePublicAndCopy: "Tornar público e copiar",
     copy: "Copiar",
     addPeopleByEmail: "Adicionar pessoas por e-mail",
+    invite: "Convidar",
     notifyPeople: "Notificar pessoas",
     peopleWithAccess: "Pessoas com acesso",
     ownerRole: "Proprietário",
@@ -850,6 +851,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     loadFailedBody:
       "Algo deu errado ao carregar esta lista. Suas gravações estão seguras — tente novamente.",
     retry: "Tentar novamente",
+    paginationRange: "{{start}}–{{end}} de {{total}}",
+    paginationPrevious: "Anterior",
+    paginationNext: "Próxima",
+    paginationPage: "Página {{page}} de {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Notificações · Clips",
@@ -1398,6 +1403,8 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
   clipsFinalRaw: {
     splitAtPlayhead: "Dividir no cursor (S)",
     selectedCount: "{{count}} selecionados",
+    selectAll: "Selecionar tudo",
+    deselectAll: "Desmarcar tudo",
     move: "Mover",
     moveSelected: "Mover {{count}} selecionados",
     current: "Atual",

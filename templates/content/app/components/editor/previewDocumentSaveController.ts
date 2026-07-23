@@ -67,6 +67,19 @@ export interface PreviewDocumentSaveDeferred {
   conflictSnapshot?: PreviewDocumentDraftSnapshot;
 }
 
+/**
+ * A successful save can report the server's fresh `updatedAt`/emptiness back
+ * to the controller so its baseline stops looking stale. Without this, a
+ * baseline seeded as empty (a brand-new page) stays flagged empty forever, so
+ * a later poll of content the user just saved themselves gets mistaken for a
+ * non-empty body arriving externally over an empty one.
+ */
+export interface PreviewDocumentSaveSuccess {
+  outcome: "saved";
+  loadedUpdatedAt?: string;
+  loadedContentWasEmpty?: boolean;
+}
+
 export interface PreviewDocumentSaveAdapter {
   save: (
     documentId: string,
@@ -151,6 +164,18 @@ function payloadsEqual(a: PreviewDocumentPayload, b: PreviewDocumentPayload) {
   return a.title === b.title && a.content === b.content;
 }
 
+function asSaveSuccess(result: unknown): PreviewDocumentSaveSuccess | null {
+  if (
+    result &&
+    typeof result === "object" &&
+    "outcome" in result &&
+    (result as { outcome?: unknown }).outcome === "saved"
+  ) {
+    return result as PreviewDocumentSaveSuccess;
+  }
+  return null;
+}
+
 export function createPreviewDocumentSaveController(
   args: PreviewDocumentSaveAdapter & {
     /**
@@ -230,7 +255,21 @@ export function createPreviewDocumentSaveController(
           }
           return;
         }
-        lastSaved = attempted;
+        // Adopt the server's fresh metadata (if the adapter reported it) into
+        // the confirmed baseline. Otherwise `loadedUpdatedAt`/
+        // `loadedContentWasEmpty` would keep carrying whatever was true when
+        // the controller was created/last marked — e.g. "empty" for a
+        // brand-new page — forever, even after real content has been saved.
+        const success = asSaveSuccess(result);
+        lastSaved = {
+          ...attempted,
+          ...(success?.loadedUpdatedAt !== undefined
+            ? { loadedUpdatedAt: success.loadedUpdatedAt }
+            : {}),
+          ...(success?.loadedContentWasEmpty !== undefined
+            ? { loadedContentWasEmpty: success.loadedContentWasEmpty }
+            : {}),
+        };
         hasSavedLocally = true;
         deferredReason = null;
         inFlight = null;

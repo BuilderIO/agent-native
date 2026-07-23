@@ -9,6 +9,7 @@ import {
 } from "@agent-native/core/client/onboarding";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
   useBuilderConnectFlow,
@@ -107,6 +108,7 @@ export default function SettingsPage() {
       className="max-w-5xl"
     >
       <SettingsTabsPage
+        account={<AccountSettingsCard />}
         teamLabel={t("team.title")}
         extraTabs={agentSettingsTabs}
         generalSearchEntries={generalSearchEntries}

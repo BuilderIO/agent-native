@@ -434,6 +434,21 @@ Like `callAgent()`, the CLI defaults to async + poll (`invokeAgent` → `callAge
 
 The target resolves the same way as `agentNative.invoke()`: by workspace app id, by app name, or by a full URL — so the same command works against a sibling app in a multi-app workspace or an arbitrary A2A peer elsewhere.
 
+## Delegated agent activity {#delegated-agent-activity}
+
+Agent Native peers may attach an optional `data` part with
+`kind: "agent-native/agent-activity"` to task status messages. It carries a
+bounded snapshot of the user-visible reasoning summaries, tool names and
+completion states, elapsed time, and progressive response text. Calling apps
+render these updates as a nested agent run and collapse the work history when
+the delegated task finishes.
+
+The activity part never includes tool inputs, tool results, credentials, or
+hidden provider reasoning. Treat it as untrusted presentation data, never as
+identity, authorization, approval, routing, or artifact validation. External
+A2A peers can omit the extension; their ordinary status text and final response
+still render in the same delegated-agent surface.
+
 ## Task lifecycle {#task-lifecycle}
 
 Each message creates a task that moves through these states:

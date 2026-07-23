@@ -839,6 +839,17 @@ const migrations = runMigrations(
       name: "clips-meetings-share-transcript",
       sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS share_transcript INTEGER NOT NULL DEFAULT 0`,
     },
+    {
+      version: 50,
+      name: "clips-public-organization-default",
+      // Earlier releases persisted the old private default into org rows.
+      // Normalize that state once; the org setting remains an explicit override.
+      // guard:allow-unscoped — startup migration normalizes legacy defaults across organizations.
+      sql: [
+        `UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+        `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1269,7 +1280,9 @@ function rowNumber(value: unknown): number {
  * rows forever. We only delete sessions whose recording row is gone, or whose
  * recording reached a terminal status more than an hour ago. Abandoned browser
  * uploads can leave the recording stuck in `uploading`, so those are swept only
- * after a much longer grace window.
+ * after a much longer grace window. Resumable session activity is the heartbeat
+ * for in-progress uploads because streaming chunks do not update the recording
+ * row on every provider relay.
  */
 async function sweepOrphanedResumableSessions(): Promise<void> {
   const exec = getDbExec();
@@ -1320,6 +1333,16 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
     if (!key.startsWith(prefix)) continue;
     const recordingId = key.slice(prefix.length);
     if (!recordingId) continue;
+    // `application_state.updated_at` is epoch-ms (a JS number on SQLite, a
+    // BIGINT string on Postgres), but the staleness cutoffs below are ISO-8601.
+    // Normalize to ISO before comparing — a raw epoch-ms value ("1753…") always
+    // sorts lexically below any "2…" ISO date, which would flag every live
+    // upload as stale and force-fail it.
+    const sessionUpdatedAtMs = Number(row.updated_at);
+    const sessionUpdatedAt =
+      Number.isFinite(sessionUpdatedAtMs) && sessionUpdatedAtMs > 0
+        ? new Date(sessionUpdatedAtMs).toISOString()
+        : "";
 
     let shouldSweep = false;
     try {
@@ -1342,7 +1365,7 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
       } else if (
         (recording.status === "uploading" ||
           recording.status === "processing") &&
-        (recording.updated_at ?? "") < staleInProgressIso
+        (sessionUpdatedAt || recording.updated_at || "") < staleInProgressIso
       ) {
         try {
           await exec.execute({

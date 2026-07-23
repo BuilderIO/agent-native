@@ -87,7 +87,7 @@ const DEFAULT_COLORS = [
 ];
 
 const CHART_TOOLTIP_WRAPPER_STYLE: CSSProperties = {
-  zIndex: 9999,
+  zIndex: 280,
   pointerEvents: "none",
 };
 
@@ -117,6 +117,7 @@ const CHART_LEGEND_PROPS = {
 } as const;
 
 const CHART_RESIZE_DEBOUNCE_MS = 50;
+const LEGEND_ACTION_CLOSE_DELAY_MS = 600;
 
 type ChartSize = {
   width: number;
@@ -586,7 +587,7 @@ export function SeriesLegend({
     closeTimeoutRef.current = setTimeout(() => {
       setOpenKey(null);
       closeTimeoutRef.current = null;
-    }, 200);
+    }, LEGEND_ACTION_CLOSE_DELAY_MS);
   }, [clearCloseTimeout]);
 
   useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
@@ -674,7 +675,7 @@ export function SeriesLegend({
                 <PopoverContent
                   side="top"
                   align="center"
-                  sideOffset={8}
+                  sideOffset={0}
                   collisionPadding={12}
                   className="w-auto max-w-[calc(100vw-1.5rem)] rounded-lg p-1 shadow-lg"
                   onPointerEnter={clearCloseTimeout}
@@ -943,7 +944,7 @@ export function ChartTooltip({
     <div
       ref={boxRef}
       role="tooltip"
-      className="fixed z-[9999] min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
+      className="fixed z-[280] min-w-40 max-w-[280px] rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground shadow-lg pointer-events-none"
     >
       {labelText && (
         <div className="mb-1.5 truncate font-medium text-foreground">
@@ -1078,6 +1079,7 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
@@ -1087,6 +1089,7 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  reportScreenshot = false,
   onExportCsvChange,
   extensionContext,
 }: SqlChartProps) {
@@ -1109,7 +1112,7 @@ export function SqlChart({
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: shouldQuery },
+    { enabled: shouldQuery, reportScreenshot },
   );
 
   const rawRows = result?.rows ?? [];

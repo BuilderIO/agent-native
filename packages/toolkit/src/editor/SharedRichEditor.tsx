@@ -14,7 +14,12 @@ import {
   type SharedEditorFeatures,
 } from "./extensions.js";
 import type { ImageUploadFn } from "./ImageExtension.js";
-import { SlashCommandMenu, type SlashCommandItem } from "./SlashCommandMenu.js";
+import {
+  DEFAULT_SLASH_COMMANDS,
+  filterSlashCommandItems,
+  SlashCommandMenu,
+  type SlashCommandItem,
+} from "./SlashCommandMenu.js";
 import {
   useCollabReconcile,
   getEditorMarkdown,
@@ -200,6 +205,12 @@ export function SharedRichEditor({
 
   const collab = !!ydoc;
 
+  const effectiveSlashItems = useMemo(
+    () =>
+      filterSlashCommandItems(slashItems ?? DEFAULT_SLASH_COMMANDS, features),
+    [features, slashItems],
+  );
+
   // The collab hook needs the editor, but useEditor's `onUpdate` needs the
   // hook's guards. Break the cycle with a ref: `onUpdate` reads the guards
   // through `guardsRef`, which is populated right after the hook runs below.
@@ -313,7 +324,7 @@ export function SharedRichEditor({
         <BubbleToolbar editor={editor} buildItems={buildBubbleItems} />
       ) : null}
       {editable ? (
-        <SlashCommandMenu editor={editor} items={slashItems} />
+        <SlashCommandMenu editor={editor} items={effectiveSlashItems} />
       ) : null}
       <EditorContent editor={editor} />
     </div>

@@ -29,7 +29,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPlus,
   IconShare,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -244,7 +244,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
     {
       to: "/agent",
       label: t("navigation.agent"),
-      icon: IconBrain,
+      icon: IconHierarchy2,
       match: (p) => p.startsWith("/agent"),
     },
     {
@@ -566,7 +566,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         browserTabId={getBrowserTabId()}
       >
         {/* Main content area */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {!pageOwnsToolbar && (
             <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
               <button

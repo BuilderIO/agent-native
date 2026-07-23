@@ -46,6 +46,7 @@ import {
 } from "@agent-native/core/client/review";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import type { ReviewComment } from "@agent-native/core/review";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
@@ -136,6 +137,7 @@ import { sourceContentHash } from "@shared/source-workspace";
 import {
   IconArrowLeft,
   IconArrowUpRight,
+  IconArrowsDown,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -231,6 +233,7 @@ import { sanitizeLocalhostSourceSnapshotHtml } from "@/components/design/design-
 import type {
   IframeContextMenuPayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 } from "@/components/design/design-canvas/iframe-events";
 import type { MotionTrackWire } from "@/components/design/design-canvas/motion-types";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
@@ -242,6 +245,10 @@ import {
 } from "@/components/design/DesignExtensionsPanel";
 import { DesignImportPanel } from "@/components/design/DesignImportPanel";
 import { dndHostLog } from "@/components/design/dnd-debug";
+import {
+  mergeRotationValue,
+  parseRotationValue,
+} from "@/components/design/edit-panel/transform-helpers";
 import { nextTextDecorationLineValue } from "@/components/design/edit-panel/typography-helpers";
 import {
   EditPanel,
@@ -252,6 +259,7 @@ import {
   type ScreenGeometrySelection,
   type StyleChangeMeta,
 } from "@/components/design/EditPanel";
+import { FigmaHydrationDialog } from "@/components/design/FigmaHydrationDialog";
 import { FusionAppBanner } from "@/components/design/FusionAppBanner";
 import {
   beginEyedropperPick,
@@ -308,7 +316,6 @@ import {
   type ReviewCommentsPanelProps,
 } from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
-import { ReviewStatusControl } from "@/components/design/ReviewStatusControl";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
   CanvasLayerHitCandidate,
@@ -3327,6 +3334,11 @@ function DesignEditor() {
   const pngExportingRef = useRef(false);
   const figmaSvgExportingRef = useRef(false);
   const figmaPasteImportingRef = useRef(false);
+  const [figmaHydrationOpen, setFigmaHydrationOpen] = useState(false);
+  const [figmaHydrationFileIds, setFigmaHydrationFileIds] = useState<string[]>(
+    [],
+  );
+  const [figmaHydrationImageCount, setFigmaHydrationImageCount] = useState(0);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -3712,7 +3724,6 @@ function DesignEditor() {
     persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
   const reviewAgentQueueCount =
     persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
-  const reviewStatus = reviewResult.data?.reviewStatus?.status ?? "draft";
   const sendReviewThreadToAgent = useSendReviewThreadToAgent();
   const [reviewSendingThreadId, setReviewSendingThreadId] = useState<
     string | null
@@ -6400,11 +6411,13 @@ function DesignEditor() {
       const inspectorTab =
         command.inspectorTab === "design" ||
         command.inspectorTab === "comments" ||
-        command.inspectorTab === "tweaks"
+        command.inspectorTab === "tweaks" ||
+        command.inspectorTab === "code"
           ? command.inspectorTab
           : command.inspector === "design" ||
               command.inspector === "comments" ||
-              command.inspector === "tweaks"
+              command.inspector === "tweaks" ||
+              command.inspector === "code"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
@@ -15674,12 +15687,30 @@ function DesignEditor() {
             ? t("designEditor.import.figmaPasteRestLabel")
             : result?.strategy === "htmlFallback"
               ? t("designEditor.import.figmaPasteHtmlLabel")
-              : undefined;
+              : result?.strategy === "localKiwi"
+                ? t("designEditor.import.figmaPasteLocalKiwiLabel")
+                : undefined;
         toast.success(
           importResultSummary(result, t("designEditor.import.figmaSuccess")),
           figmaStrategyLabel ? { description: figmaStrategyLabel } : undefined,
         );
-        if (result?.figmaApiKeyMissing) {
+        if (
+          result?.strategy === "localKiwi" &&
+          (result?.unresolvedImages ?? 0) > 0 &&
+          result?.files?.length
+        ) {
+          const count = result.unresolvedImages!;
+          const fileIds = result.files.map((f) => f.id);
+          setFigmaHydrationFileIds(fileIds);
+          setFigmaHydrationImageCount(count);
+          setFigmaHydrationOpen(true);
+          toast.info(
+            t("designEditor.import.figmaPasteImagesNeedToken", {
+              count,
+              plural: count === 1 ? "" : "s",
+            }),
+          );
+        } else if (result?.figmaApiKeyMissing) {
           toast.info(t("designEditor.import.figmaPasteApiKeyHint"));
         } else if (
           result?.strategy === "htmlFallback" &&
@@ -15918,6 +15949,24 @@ function DesignEditor() {
       uploadImageFileForHtml,
       zoom,
     ],
+  );
+
+  const handleCanvasImagePaste = useCallback(
+    ({ files }: IframeImagePastePayload) => {
+      if (files.length === 0 || !canEditDesign) return;
+      const fileObjects = files.map(({ dataUrl, type, name }) => {
+        const comma = dataUrl.indexOf(",");
+        const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        return new File(
+          [new Blob([bytes], { type })],
+          name || "pasted-image.png",
+          { type },
+        );
+      });
+      handlePastedImageFiles(fileObjects);
+    },
+    [canEditDesign, handlePastedImageFiles],
   );
 
   // OS-file-drop (contract 13): MultiScreenCanvas's `onDropFiles` reports a
@@ -19151,6 +19200,15 @@ function DesignEditor() {
     parseSelectionScaleValue,
     selectedElement,
   ]);
+
+  const handleRotateSelectionClockwise = useCallback(() => {
+    if (!canEditDesign || !selectedElement) return;
+    const transform = selectedElement.computedStyles.transform;
+    handleStyleChange(
+      "transform",
+      mergeRotationValue(transform, parseRotationValue(transform) + 90),
+    );
+  }, [canEditDesign, handleStyleChange, selectedElement]);
 
   // Figma's Shift+X — swap fill and stroke. Matches Figma even when one side
   // is empty: an element with a fill and no stroke ends up with a stroke and
@@ -27263,6 +27321,11 @@ function DesignEditor() {
           selectedSelectorGroups={
             selectedLayerSelectorGroupsByScreen[screen.id] ?? []
           }
+          passiveSelectionStyle={
+            screen.breakpointWidths?.length && !screenIsActive
+              ? "soft"
+              : "default"
+          }
           hoveredSelector={
             hoveredElementScreenId === screen.id ? hoveredCanvasSelector : null
           }
@@ -27291,6 +27354,7 @@ function DesignEditor() {
           }}
           onIframeHotkey={handleIframeHotkey}
           onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
+          onImagePaste={handleCanvasImagePaste}
           onIframeContextMenu={handleIframeContextMenu}
           onVisualStyleChange={(selector, styles, info, metadata) => {
             activateResponsiveScope();
@@ -27416,6 +27480,7 @@ function DesignEditor() {
       handleScreenElementClear,
       handleIframeHotkey,
       handleCanvasFigmaClipboardPaste,
+      handleCanvasImagePaste,
       handleIframeContextMenu,
       handleScreenVisualStyleChange,
       handleScreenVisualStructureChange,
@@ -27932,12 +27997,27 @@ function DesignEditor() {
           handleResponsiveEditScopeChange(value as ResponsiveEditScope)
         }
       >
-        <SelectTrigger
-          className="h-7 w-[190px] shrink-0 !text-[11px]"
-          aria-label={t("designEditor.breakpointBar.scope.label")}
-        >
-          <SelectValue />
-        </SelectTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SelectTrigger
+              className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"
+              aria-label={t("designEditor.breakpointBar.scope.label")}
+              title={
+                responsiveEditScope === "only"
+                  ? t("designEditor.breakpointBar.scope.only")
+                  : t("designEditor.breakpointBar.scope.cascadeSmaller")
+              }
+            >
+              <IconArrowsDown className="size-3.5" aria-hidden="true" />
+              <SelectValue className="sr-only" />
+            </SelectTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {responsiveEditScope === "only"
+              ? t("designEditor.breakpointBar.scope.only")
+              : t("designEditor.breakpointBar.scope.cascadeSmaller")}
+          </TooltipContent>
+        </Tooltip>
         <SelectContent>
           <SelectItem value="cascade-smaller">
             {t("designEditor.breakpointBar.scope.cascadeSmaller")}
@@ -28571,7 +28651,6 @@ function DesignEditor() {
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
               showShareLinks={false}
-              showDoneButton={false}
               shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}
@@ -28667,7 +28746,7 @@ function DesignEditor() {
           (collaborators + play + share in a ~300px panel) cannot spare that
           without overlapping — squeezing both into one line collapsed the
           collaborators menu to a sliver behind the segments. */}
-      <div className="mt-1 flex min-w-0 items-center gap-1.5">
+      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto">
         {deviceFrameControl}
         {responsiveEditScopeControl}
       </div>
@@ -28746,13 +28825,6 @@ function DesignEditor() {
               >
                 <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
                   {projectTitleControl}
-                  {id ? (
-                    <ReviewStatusControl
-                      designId={id}
-                      status={reviewStatus}
-                      editable={designAccessRole === "owner"}
-                    />
-                  ) : null}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -28881,7 +28953,17 @@ function DesignEditor() {
                 )}
               >
                 {canEditDesign ? (
-                  <DesignImportPanel context={designExtensionContext} />
+                  <DesignImportPanel
+                    context={designExtensionContext}
+                    onImport={(result) => {
+                      const count = result.unresolvedImageRefCount ?? 0;
+                      if (count > 0 && result.files?.length) {
+                        setFigmaHydrationFileIds(result.files.map((f) => f.id));
+                        setFigmaHydrationImageCount(count);
+                        setFigmaHydrationOpen(true);
+                      }
+                    }}
+                  />
                 ) : (
                   <ReadOnlyEditorPanel
                     title={"Import requires editor access" /* i18n-ignore */}
@@ -29116,6 +29198,7 @@ function DesignEditor() {
               (selectedElement ||
                 (viewMode === "overview" && selectedScreenIds.length === 1)),
             )}
+            canRotateClockwise={canEditDesign && Boolean(selectedElement)}
             canGroup={canGroup}
             canUngroup={canUngroup}
             canPasteToReplace={
@@ -29231,6 +29314,7 @@ function DesignEditor() {
             onCopyAsCode={handleCopySelection}
             onCopyAsPng={() => void handleCopyAsPng()}
             onCopyAsSvg={() => void handleCopyAsFigmaSvg()}
+            onRotateClockwise={handleRotateSelectionClockwise}
             onPasteToReplace={canEditDesign ? handlePasteToReplace : undefined}
             onFrameSelection={canEditDesign ? handleFrameSelection : undefined}
             onCreateComponent={
@@ -29393,6 +29477,7 @@ function DesignEditor() {
                         pendingReviewScreenIds={pendingNodeRewriteScreenIds}
                         onReviewPendingScreen={handleReviewPendingScreen}
                         interactMode={mode === "interact"}
+                        readOnly={!canEditDesign}
                         activeScreenHasHoveredChild={
                           Boolean(hoveredElement) &&
                           !hoveredElementIsScreenRoot &&
@@ -29489,6 +29574,7 @@ function DesignEditor() {
                         onBoardFigmaClipboardPaste={
                           handleCanvasFigmaClipboardPaste
                         }
+                        onBoardImagePaste={handleCanvasImagePaste}
                         onBoardIframeContextMenu={handleIframeContextMenu}
                         onBoardTextEditingStateChange={
                           handleBoardTextEditingStateChange
@@ -29717,6 +29803,7 @@ function DesignEditor() {
                         }}
                         onIframeHotkey={handleIframeHotkey}
                         onFigmaClipboardPaste={handleCanvasFigmaClipboardPaste}
+                        onImagePaste={handleCanvasImagePaste}
                         onIframeContextMenu={handleIframeContextMenu}
                         onVisualStyleChange={handleVisualStyleChange}
                         onVisualStructureChange={handleVisualStructureChange}
@@ -29940,6 +30027,7 @@ function DesignEditor() {
               <div className="min-h-0 flex-1">
                 <EditPanel
                   selectedElement={selectedElement}
+                  readOnly={!canEditDesign}
                   selectedElements={selectedInspectorElements}
                   selectedScreenGeometry={selectedScreenGeometry}
                   pageStyles={pageStyles}
@@ -30031,6 +30119,7 @@ function DesignEditor() {
             <div className="h-full min-h-0 pt-8">
               <EditPanel
                 selectedElement={selectedElement}
+                readOnly={!canEditDesign}
                 selectedElements={selectedInspectorElements}
                 selectedScreenGeometry={selectedScreenGeometry}
                 pageStyles={pageStyles}
@@ -30130,6 +30219,17 @@ function DesignEditor() {
           if (!open) setAutoLayoutSuggestionPreview(null);
         }}
         onApply={handleApplyAutoLayoutSuggestion}
+      />
+
+      <FigmaHydrationDialog
+        open={figmaHydrationOpen}
+        onOpenChange={setFigmaHydrationOpen}
+        designId={id ?? ""}
+        fileIds={figmaHydrationFileIds}
+        imageCount={figmaHydrationImageCount}
+        onHydrated={() => {
+          void queryClient.invalidateQueries({ queryKey: ["action"] });
+        }}
       />
 
       <AlertDialog open={pendingScreenDeletion !== null}>
@@ -30363,7 +30463,10 @@ function DesignEditor() {
                 )}
                 {migrationResult.url && (
                   <a
-                    href={migrationResult.url}
+                    href={withBuilderUtmTrackingParams(migrationResult.url, {
+                      campaign: "product",
+                      content: "design_migration",
+                    })}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 text-sm text-[var(--design-editor-accent-color)] hover:underline"

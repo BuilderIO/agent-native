@@ -15,6 +15,7 @@ export const MAX_NODE_REWRITE_PROPOSAL_BYTES = 256 * 1024;
 export type NodeRewriteTarget = EditIntentTarget;
 
 export interface PendingDesignReprompt {
+  status?: "pending";
   repromptId: string;
   designId: string;
   fileId: string;
@@ -24,6 +25,16 @@ export interface PendingDesignReprompt {
   createdAt: string;
   priorProposalId?: string;
   priorRepromptId?: string;
+}
+
+export interface NodeRewriteResolutionClaim extends Omit<
+  PendingDesignReprompt,
+  "status"
+> {
+  status: "resolving";
+  claimId: string;
+  proposalId: string;
+  resolution: "accept";
 }
 
 export interface NodeRewriteVariant {
@@ -69,6 +80,7 @@ export function isPendingDesignReprompt(
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const pending = value as Partial<PendingDesignReprompt>;
   return (
+    (pending.status === undefined || pending.status === "pending") &&
     typeof pending.repromptId === "string" &&
     typeof pending.designId === "string" &&
     typeof pending.fileId === "string" &&
@@ -76,6 +88,26 @@ export function isPendingDesignReprompt(
     typeof pending.instruction === "string" &&
     typeof pending.createdAt === "string" &&
     Boolean(pending.target)
+  );
+}
+
+export function isNodeRewriteResolutionClaim(
+  value: unknown,
+): value is NodeRewriteResolutionClaim {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const claim = value as Partial<NodeRewriteResolutionClaim>;
+  return (
+    claim.status === "resolving" &&
+    typeof claim.claimId === "string" &&
+    typeof claim.proposalId === "string" &&
+    claim.resolution === "accept" &&
+    typeof claim.repromptId === "string" &&
+    typeof claim.designId === "string" &&
+    typeof claim.fileId === "string" &&
+    typeof claim.baseVersionHash === "string" &&
+    typeof claim.instruction === "string" &&
+    typeof claim.createdAt === "string" &&
+    Boolean(claim.target)
   );
 }
 

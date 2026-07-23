@@ -12,18 +12,18 @@ function jsonResponse(status: number, body: unknown = {}) {
   });
 }
 
-describe("extension delete helper", () => {
+describe("extension archive helper", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
-  it("permanently deletes extensions when allowed", async () => {
+  it("archives extensions when allowed", async () => {
     const fetch = vi.fn(async () => jsonResponse(200, { ok: true }));
     vi.stubGlobal("fetch", fetch);
 
     await expect(
       deleteOrHideExtension({ id: "ext-1", canDelete: true }),
-    ).resolves.toEqual({ mode: "deleted" });
+    ).resolves.toEqual({ mode: "archived" });
 
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith("/_agent-native/extensions/ext-1", {

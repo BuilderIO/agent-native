@@ -241,10 +241,11 @@ export default defineConfig({
 
 ### 3. Adicione o plugin do servidor de colaboração
 
-Sempre defina `resourceType` com o nome do recurso compartilhável registrado
-via `registerShareableResource`. Sem ele, os eventos push de colaboração são entregues
-para todos os usuários autenticados sem escopo no nível do documento e para o servidor
-registra um aviso único.
+Escolha o modo de acesso compatível com o modelo de dados. Registros com proprietário
+ou compartilháveis usam `mode: "resource"` com o tipo registrado por
+`registerShareableResource`. Registros deliberadamente compartilhados com todos os
+usuários autenticados da implantação usam `mode: "all-authenticated"` explicitamente.
+Nunca invente um tipo de recurso apenas para silenciar um aviso.
 
 ```ts
 // server/plugins/collab.ts
@@ -254,9 +255,12 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+Omitir `access` é um comportamento legado obsoleto. Ele se comporta como
+`all-authenticated`, registra um aviso e é sinalizado pelo Doctor.
 
 ### 4. Use o gancho do cliente
 
@@ -602,22 +606,35 @@ plug-in:
 
 ## Segurança {#security}
 
-### Sempre defina `resourceType`
+### Escolha explicitamente o modelo de acesso
+
+Para recursos com proprietário ou compartilháveis, use o tipo registrado por
+`registerShareableResource`:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-Sem `resourceType` o plugin registra um aviso e transmite push de colaboração
-eventos para todos os usuários autenticados na implantação sem nível de documento
-escopo. Os não proprietários recorrem à recuperação do vetor estatal (seguro, mas maior
-latência) independentemente de `resourceType` estar definido.
+Para um recurso deliberadamente compartilhado em toda a implantação:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+Não invente um `resourceType` para eliminar um aviso: o modo `resource` só é
+válido quando existe o modelo correspondente de propriedade e compartilhamento.
+Omitir `access` continua disponível para compatibilidade legada, comporta-se como
+`all-authenticated`, registra um aviso e é sinalizado pelo Doctor. Usuários não
+proprietários com acesso explícito usam a atualização por vetor de estado (segura,
+mas com latência maior).
 
 ### Verificações de acesso
 
-Todas as rotas de colaboração requerem autenticação. Quando `resourceType` é definido, lê
+Todas as rotas de colaboração requerem autenticação. No modo `resource`, as leituras
 requerem pelo menos acesso de visualizador e gravações requerem acesso de editor, usando o
 mesmos ajudantes `resolveAccess` / `assertAccess` do sistema de compartilhamento. Um 404
 (não 403) é retornado em falhas de acesso para evitar vazamento da existência do documento.
@@ -630,7 +647,7 @@ Substituir por plugin:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -762,7 +779,7 @@ camadas acima do mesmo estado de reconhecimento.
 - [Real-Time Sync](/docs/client#usedbsync) — o `useDbSync` + `useChangeVersion`
   sistema que fornece a reconciliação do editor de colisão `updatedAt`.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  e `assertAccess` para o modelo de acesso referenciado por `resourceType`.
+  e `assertAccess` para colaboração com escopo de recurso.
 - [Sharing](/docs/sharing) — como os documentos são compartilhados e como o acesso é concedido.
 - [Template: Content](/docs/template-content) — implementação de referência de
   edição colaborativa de rich text.

@@ -268,6 +268,8 @@ const messages = {
     duplicated: "Formulário duplicado",
     duplicateFailed: "Falha ao duplicar o formulário",
     movedToArchive: "Formulário movido para arquivo",
+    movingToArchive: "Movendo formulário para o arquivo…",
+    archiveFailed: "Falha ao mover o formulário para o arquivo",
     restored: "Formulário restaurado",
     permanentlyDeleted: "Formulário excluído permanentemente",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   useOrg: vi.fn(),
+  useSession: vi.fn(),
 }));
 
 vi.mock("react-router", () => ({
@@ -29,6 +30,15 @@ vi.mock("./hooks.js", () => {
     useSwitchOrg: idleMutation,
   };
 });
+
+vi.mock("../use-session.js", () => ({
+  useSession: mocks.useSession,
+}));
+
+vi.mock("../i18n.js", () => ({
+  useT: () => (key: string) =>
+    key === "settings.profileMenuItem" ? "Profile" : key,
+}));
 
 vi.mock("./workspace-app-links.js", async (importOriginal) => {
   const actual =
@@ -54,7 +64,9 @@ describe("OrgSwitcher", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
+    mocks.useSession.mockReset();
     mocks.navigate.mockReset();
+    mocks.useSession.mockReturnValue({ session: null, isLoading: false });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -135,5 +147,36 @@ describe("OrgSwitcher", () => {
 
     window.removeEventListener("agent-panel:open", openPanel);
     window.removeEventListener("agent-panel:open-settings", openSettings);
+  });
+
+  it("opens the shared profile settings section", () => {
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "owner",
+        orgs: [{ orgId: "org-1", orgName: "Acme" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+
+    const profileButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Profile"));
+    expect(profileButton).not.toBeNull();
+
+    act(() => {
+      profileButton!.click();
+    });
+
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings#account");
   });
 });

@@ -227,8 +227,8 @@ async function dispatch(
     }
 
     const access = await resolveAccess("extension", parts[0]);
-    const extension = access?.resource;
-    if (!extension) {
+    const extension = access?.resource as ExtensionRow | undefined;
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
@@ -317,11 +317,12 @@ async function dispatch(
     }
 
     const access = await resolveAccess("extension", parts[0]);
-    if (!access) {
+    const extension = access?.resource as ExtensionRow | undefined;
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return extensionResponse(access.resource as ExtensionRow, access.role);
+    return extensionResponse(extension, access.role);
   }
 
   // POST /:id/hide — remove from the current user's Extensions list/sidebar
@@ -433,7 +434,7 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return { ok: true };
+    return { ok: true, archived: true };
   }
 
   setResponseStatus(event, 404);
@@ -662,6 +663,10 @@ async function requireExtensionDataAccess(
   minRole: ShareRole,
 ): Promise<{ ok: true } | { ok: false; response: unknown }> {
   const access = await resolveAccess("extension", extensionId);
+  if (access?.resource && (access.resource as ExtensionRow).archivedAt) {
+    setResponseStatus(event, 404);
+    return { ok: false, response: { error: "Extension not found" } };
+  }
   if (access) {
     if (ROLE_RANK[access.role] < ROLE_RANK[minRole]) {
       setResponseStatus(event, 403);

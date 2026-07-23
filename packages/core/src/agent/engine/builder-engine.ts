@@ -20,6 +20,7 @@ import {
   getBuilderGatewayBaseUrl,
   recordBuilderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
+import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   normalizeReasoningEffortForModel,
   type ReasoningEffort,
@@ -112,6 +113,9 @@ async function buildUpgradeUrl(): Promise<string> {
   url.searchParams.set("agentNativeConnectSource", "gateway_quota_upgrade");
   url.searchParams.set("agentNativeFlow", "connect_llm");
   url.searchParams.set("framework", "agent-native");
+  applyBuilderUtmTrackingParams(url.searchParams, {
+    content: "gateway_quota_upgrade",
+  });
   return url.toString();
 }
 

@@ -2,6 +2,8 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCalendarEvent,
+  IconChevronDown,
+  IconChevronRight,
   IconCircleCheck,
   IconCopy,
   IconDownload,
@@ -51,6 +53,7 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
+import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import {
   startBubbleWebrtc,
@@ -344,6 +347,8 @@ const CAM_ON_KEY = "clips:camera-on";
 const MIC_ON_KEY = "clips:mic-on";
 const SYSTEM_AUDIO_KEY = "clips:system-audio";
 const READINESS_REVIEWED_KEY = "clips:readiness-reviewed";
+const REWIND_DOCS_URL =
+  "https://www.agent-native.com/docs/template-clips#agent-readable-clips";
 
 // Sensible defaults so the user never has to type a URL on first launch.
 // Dev builds point at the local dev server; production builds point at the
@@ -569,6 +574,21 @@ function openPrivacySettings(pane: MacosPrivacyPane): void {
     }
     return;
   }
+}
+
+// Same explicit-drag pattern the toolbar/bubble overlays use —
+// `data-tauri-drag-region` has been unreliable, so we call `startDragging()`
+// directly on mousedown. Clicks on buttons/inputs still reach their handlers
+// since we only start a drag when the mousedown target isn't inside one.
+function handlePopoverHeaderMouseDown(event: React.MouseEvent) {
+  if (event.button !== 0) return;
+  const target = event.target as HTMLElement;
+  if (target.closest("button, a, input, select, textarea")) return;
+  getCurrentWindow()
+    .startDragging()
+    .catch((err) => {
+      console.warn("[clips-popover] startDragging failed:", err);
+    });
 }
 
 function nativeVoiceProvider(): VoiceProvider {
@@ -920,6 +940,7 @@ export function App() {
   const [readinessOpen, setReadinessOpen] = useState<boolean>(
     () => !loadBool(READINESS_REVIEWED_KEY, false),
   );
+  const [rewindHomeOpen, setRewindHomeOpen] = useState(false);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -953,6 +974,9 @@ export function App() {
     config: featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG,
     clipRecordingActive: isRecording || recordingFlowActive,
   });
+  const homeRewindOn =
+    featureConfig?.screenMemory?.enabled === true &&
+    featureConfig.screenMemory.paused !== true;
   const refreshHomeScreenMemoryStatus = useCallback(() => {
     const version = ++homeScreenMemoryRefreshVersionRef.current;
     invoke<ScreenMemoryStatus>("screen_memory_status")
@@ -2535,6 +2559,12 @@ export function App() {
     });
   }
 
+  function openRewindDocs() {
+    openExternal(REWIND_DOCS_URL).catch((err) => {
+      console.error("[clips-tray] open Rewind docs failed:", err);
+    });
+  }
+
   async function retryPendingUpload(upload: PendingDesktopUpload) {
     if (retryingUploadId || exportingUploadId || dismissingUploadId) return;
     const targetServerUrl = serverUrlForPendingUpload(upload, serverUrl);
@@ -3652,71 +3682,95 @@ export function App() {
           />
         </div>
 
-        <ReadinessPanel
-          mode={mode}
-          cameraOn={cameraOn}
-          micOn={micOn}
-          includeVoicePaste={voiceDictationEnabled}
-          includeFnMonitoring={fnShortcutEnabled}
-          open={readinessOpen}
-          onOpenChange={updateReadinessOpen}
-          onOpenPermission={openPrivacySettings}
-        />
+        <div className="recorder-disclosures">
+          <ReadinessPanel
+            mode={mode}
+            cameraOn={cameraOn}
+            micOn={micOn}
+            includeVoicePaste={voiceDictationEnabled}
+            includeFnMonitoring={fnShortcutEnabled}
+            open={readinessOpen}
+            onOpenChange={updateReadinessOpen}
+            onOpenPermission={openPrivacySettings}
+          />
 
-        <section className="rewind-home-card" aria-label="Rewind status">
-          <div className="rewind-home-status">
-            <span
-              className={`rewind-home-dot ${homeRewindPresentation.isLive ? "is-live" : ""}`}
-            />
-            <div>
-              <strong>{homeRewindPresentation.title}</strong>
-              {!homeRewindPresentation.isLive ||
-              homeRewindPresentation.hasError ? (
-                <p>{homeRewindPresentation.detail}</p>
-              ) : null}
-            </div>
-            <div className="rewind-home-controls">
-              <button
-                type="button"
-                className="rewind-agent-prompt-copy"
-                onClick={() => void copyRewindAgentPrompt()}
-                aria-label={
-                  rewindAgentPromptCopied
-                    ? "Setup prompt copied — paste it into your agent once"
-                    : "Set up your agent"
-                }
-                title={
-                  rewindAgentPromptCopied
-                    ? "Setup prompt copied — paste it into your agent once"
-                    : "Set up your agent"
-                }
-              >
-                {rewindAgentPromptCopied ? (
-                  <IconCircleCheck size={15} stroke={2} />
+          <section className="rewind-home-card" aria-label="Rewind">
+            <button
+              type="button"
+              className="rewind-home-summary"
+              aria-expanded={rewindHomeOpen}
+              onClick={() => setRewindHomeOpen((open) => !open)}
+            >
+              <span className="rewind-home-title">Rewind</span>
+              <span className="rewind-home-state">
+                {homeRewindOn ? "On" : "Off"}
+                {rewindHomeOpen ? (
+                  <IconChevronDown size={11} stroke={2} />
                 ) : (
-                  <IconCopy size={15} stroke={1.9} />
+                  <IconChevronRight size={11} stroke={2} />
                 )}
-              </button>
-              <Switch
-                on={
-                  featureConfig?.screenMemory?.enabled === true &&
-                  featureConfig.screenMemory.paused !== true
-                }
-                disabled={
-                  homeScreenMemoryBusy || isRecording || recordingFlowActive
-                }
-                onChange={(remembering) =>
-                  void setHomeRewindRemembering(remembering)
-                }
-                label={
-                  featureConfig?.screenMemory?.enabled === true
-                    ? "Remember with Rewind"
-                    : "Set up Rewind"
-                }
-              />
-            </div>
-          </div>
-        </section>
+              </span>
+            </button>
+            {rewindHomeOpen ? (
+              <div className="rewind-home-details">
+                <p>{homeRewindPresentation.detail}</p>
+                <div className="rewind-home-detail-actions">
+                  <button
+                    type="button"
+                    className="rewind-docs-link"
+                    onClick={openRewindDocs}
+                  >
+                    Learn about Rewind
+                    <IconExternalLink size={13} stroke={1.9} />
+                  </button>
+                  <div className="rewind-home-controls">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="rewind-agent-prompt-copy"
+                          onClick={() => void copyRewindAgentPrompt()}
+                          aria-label={
+                            rewindAgentPromptCopied
+                              ? "Setup prompt copied — paste it into your agent once"
+                              : "Copy setup prompt for your agent"
+                          }
+                        >
+                          {rewindAgentPromptCopied ? (
+                            <IconCircleCheck size={15} stroke={2} />
+                          ) : (
+                            <IconCopy size={15} stroke={1.9} />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {rewindAgentPromptCopied
+                          ? "Setup prompt copied"
+                          : "Copy setup prompt for your agent"}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Switch
+                      on={homeRewindOn}
+                      disabled={
+                        homeScreenMemoryBusy ||
+                        isRecording ||
+                        recordingFlowActive
+                      }
+                      onChange={(remembering) =>
+                        void setHomeRewindRemembering(remembering)
+                      }
+                      label={
+                        featureConfig?.screenMemory?.enabled === true
+                          ? "Remember with Rewind"
+                          : "Set up Rewind"
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
 
         {!isRecording ? (
           <button
@@ -4247,7 +4301,10 @@ function Header({
   // close button lives top-right as an absolute-positioned sibling, so the
   // tabs aren't offset by the close button's width.
   return (
-    <div className="header header-centered">
+    <div
+      className="header header-centered"
+      onMouseDown={handlePopoverHeaderMouseDown}
+    >
       <FeedbackButton submitterEmail={submitterEmail} />
       <div
         className="mode-toggle"
@@ -4443,7 +4500,10 @@ function PopoverSubViewHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="setup-header popover-view-header">
+    <div
+      className="setup-header popover-view-header"
+      onMouseDown={handlePopoverHeaderMouseDown}
+    >
       <button
         type="button"
         className="setup-back"
@@ -4940,17 +5000,20 @@ function Setup({
     featureConfig?.meetingTranscriptionMode ?? "ask";
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
-  const whisperModelEnabled = featureConfig?.whisperModelEnabled !== false;
-  type WhisperModelState = "disabled" | "missing" | "downloading" | "ready";
-  interface WhisperModelStatus {
-    state: WhisperModelState;
-    path: string;
-    downloadedMb: number;
-    totalMb: number;
-  }
-  const [whisperStatus, setWhisperStatus] = useState<WhisperModelStatus | null>(
-    null,
+  const whisper = useWhisperSettings(
+    featureConfig,
+    voiceProvider,
+    onVoiceProviderChange,
+    nativeVoiceProvider,
   );
+  const {
+    catalog: whisperModels,
+    status: whisperStatus,
+    enabled: whisperModelEnabled,
+    modelId: whisperModelId,
+    selectedModel: selectedWhisperModel,
+    deletableModels,
+  } = whisper;
   const [screenMemoryStatus, setScreenMemoryStatus] =
     useState<ScreenMemoryStatus | null>(null);
   const screenMemoryStatusRefreshVersionRef = useRef(0);
@@ -5057,24 +5120,6 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
-  }
-
-  function triggerWhisperDownload() {
-    invoke("whisper_model_download").catch(() => {});
-  }
-
-  function setWhisperModelEnabled(enabled: boolean) {
-    if (!featureConfig) return;
-    invoke("set_feature_config", {
-      config: { ...featureConfig, whisperModelEnabled: enabled },
-    }).catch((err) =>
-      console.error("[settings] set_feature_config failed", err),
-    );
-    if (enabled) {
-      triggerWhisperDownload();
-    } else if (voiceProvider === "whisper") {
-      onVoiceProviderChange(nativeVoiceProvider());
-    }
   }
 
   function setLaunchAtLoginEnabled(enabled: boolean) {
@@ -5480,47 +5525,6 @@ function Setup({
     };
   }, [refreshScreenMemoryStatus]);
 
-  // Load model status on mount and keep it current via events.
-  useEffect(() => {
-    let cancelled = false;
-    const refresh = () => {
-      invoke<WhisperModelStatus>("whisper_model_status")
-        .then((s) => {
-          if (!cancelled) setWhisperStatus(s);
-        })
-        .catch(() => {});
-    };
-    refresh();
-    const unlistens: Array<() => void> = [];
-    const track = (p: Promise<() => void>) => {
-      p.then((u) => {
-        if (cancelled) {
-          try {
-            u();
-          } catch {
-            /* ignore */
-          }
-          return;
-        }
-        unlistens.push(u);
-      }).catch(() => {});
-    };
-    track(listen("whisper:model-progress", () => refresh()));
-    track(listen("whisper:model-ready", () => refresh()));
-    track(listen("whisper:model-error", () => refresh()));
-    track(listen("whisper:model-enabled-changed", () => refresh()));
-    return () => {
-      cancelled = true;
-      unlistens.forEach((u) => {
-        try {
-          u();
-        } catch {
-          /* ignore */
-        }
-      });
-    };
-  }, []);
-
   useEffect(() => {
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
     let cancelled = false;
@@ -5606,7 +5610,7 @@ function Setup({
       onVoiceProviderChange(nativeVoiceProvider());
     } else if (mode === "whisper") {
       onVoiceProviderChange("whisper");
-      if (!whisperModelEnabled) setWhisperModelEnabled(true);
+      if (!whisperModelEnabled) whisper.setEnabled(true);
     } else if (mode === "builder") {
       onVoiceProviderChange("builder-gemini");
     } else {
@@ -6431,7 +6435,7 @@ function Setup({
 
   return (
     <div className="setup">
-      <div className="setup-header">
+      <div className="setup-header" onMouseDown={handlePopoverHeaderMouseDown}>
         {onCancel ? (
           <button
             type="button"
@@ -7192,15 +7196,58 @@ function Setup({
           />
           <Switch
             on={whisperModelEnabled}
-            onChange={setWhisperModelEnabled}
+            onChange={whisper.setEnabled}
             label="Enable Whisper model"
           />
         </div>
+        <SettingLabel
+          label="Model"
+          hint="Larger models can improve transcription accuracy but use more storage and may run more slowly."
+          htmlFor="whisper-model"
+        />
+        <select
+          id="whisper-model"
+          className="setup-select"
+          value={whisperModelId}
+          onChange={(event) => whisper.setModelId(event.target.value)}
+          disabled={
+            whisperModels.length === 0 || whisperStatus?.state === "downloading"
+          }
+        >
+          {whisperModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.title} · {model.sizeMb} MB — {model.description}
+            </option>
+          ))}
+        </select>
+        {selectedWhisperModel ? (
+          <p className="setup-hint">{selectedWhisperModel.description}</p>
+        ) : null}
         <WhisperModelStatusRow
           status={whisperStatus}
           enabled={whisperModelEnabled}
-          onDownload={triggerWhisperDownload}
+          onDownload={whisper.triggerDownload}
         />
+        {deletableModels.length > 0 ? (
+          <div className="whisper-other-models">
+            <p className="setup-hint">Other downloaded models</p>
+            {deletableModels.map((model) => (
+              <div key={model.id} className="whisper-other-model-row">
+                <span className="whisper-other-model-name">
+                  {model.title} &middot; {model.sizeMb} MB
+                </span>
+                <button
+                  type="button"
+                  className="whisper-delete-btn"
+                  onClick={() => whisper.deleteModel(model.id)}
+                >
+                  <IconTrash size={13} />
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="setup-section-heading">Dictation</div>
@@ -7528,9 +7575,12 @@ function WhisperModelStatusRow({
         <span className="whisper-progress-label">
           Downloading… {status.downloadedMb} / {status.totalMb} MB ({pct}%)
         </span>
-        <div className="whisper-progress-bar">
-          <div className="whisper-progress-fill" style={{ width: `${pct}%` }} />
-        </div>
+        <progress
+          className="whisper-progress-bar"
+          value={pct}
+          max={100}
+          aria-label={`Whisper model download ${pct}% complete`}
+        />
       </div>
     );
   }

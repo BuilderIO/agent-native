@@ -557,6 +557,10 @@ const messages = {
           label: "UI 流程",
           description: "UI 流程 - 线框和状态",
         },
+        design: {
+          label: "고충실도 디자인",
+          description: "고충실도 디자인 - 세련된 브랜드 화면",
+        },
         questions: {
           label: "可视化问题",
           description: "可视化问题 - 明确收集需求",
@@ -580,6 +584,8 @@ const messages = {
           "# 구현 계획\n\n기존 Codex 또는 Claude Code 계획을 여기에 붙여넣고 시각적 리뷰 문서로 변환하세요.",
       },
       assessment: {
+        design:
+          "고충실도 요청을 자동으로 감지했습니다. 에이전트가 세련된 브랜드 화면을 만듭니다.",
         ui: "自动检测到 UI 状态或流程；代理将创建线框优先的计划。",
         visual: "自动会让代理创建包含图表和实现细节的丰富技术计划。",
       },

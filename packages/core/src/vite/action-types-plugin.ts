@@ -187,7 +187,15 @@ function scanActionFiles(actionsDir: string): string[] {
       const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
-      if (!content.includes("defineAction") && !reexportsDefaultAction) {
+      const exportsActionFactory =
+        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+          content,
+        );
+      if (
+        !content.includes("defineAction") &&
+        !reexportsDefaultAction &&
+        !exportsActionFactory
+      ) {
         return false;
       }
     } catch {

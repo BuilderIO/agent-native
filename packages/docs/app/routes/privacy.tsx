@@ -110,7 +110,7 @@ export default function PrivacyPage() {
         <p>
           {t("legal.privacy.paragraphs.scope2Prefix")}{" "}
           <a
-            href="https://www.builder.io/legal/privacy"
+            href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
             className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
           >
             {t("legal.privacy.links.builderPrivacy")}
@@ -183,7 +183,7 @@ export default function PrivacyPage() {
         <p>
           {t("legal.privacy.paragraphs.changes2Prefix")}{" "}
           <a
-            href="https://www.builder.io/legal/privacy"
+            href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
             className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
           >
             {t("legal.privacy.links.builderPrivacyFull")}

@@ -24,6 +24,7 @@ describe("SeriesLegend actions", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -87,6 +88,44 @@ describe("SeriesLegend actions", () => {
     });
     expect(onFilter).toHaveBeenCalledWith("alpha");
     expect(onToggle).not.toHaveBeenCalled();
+  });
+
+  it("keeps actions open long enough to move from a legend item to its menu", async () => {
+    vi.useFakeTimers();
+
+    await act(async () => {
+      root.render(
+        <SeriesLegend
+          keys={["alpha", "beta"]}
+          colors={["#111", "#222"]}
+          panel={{ chartType: "line", source: "first-party" } as never}
+          onFilterKey={vi.fn()}
+          onToggleKey={vi.fn()}
+        />,
+      );
+    });
+
+    const seriesButton = container.querySelector<HTMLButtonElement>(
+      'button[title="alpha"]',
+    );
+    expect(seriesButton).not.toBeNull();
+
+    await act(async () => {
+      seriesButton!.dispatchEvent(
+        new PointerEvent("pointerenter", { bubbles: true }),
+      );
+      seriesButton!.dispatchEvent(
+        new PointerEvent("pointerover", { bubbles: true }),
+      );
+      seriesButton!.dispatchEvent(
+        new PointerEvent("pointerleave", { bubbles: true }),
+      );
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(
+      document.body.querySelector('[data-chart-legend-action="filter"]'),
+    ).not.toBeNull();
   });
 
   it("keeps the legend click as the hide toggle", async () => {

@@ -486,6 +486,7 @@ const messages = {
     makePublicAndCopy: "جعله عامًا ونسخه",
     copy: "نسخ",
     addPeopleByEmail: "إضافة أشخاص بالبريد الإلكتروني",
+    invite: "دعوة",
     notifyPeople: "إشعار الأشخاص",
     peopleWithAccess: "الأشخاص الذين لديهم وصول",
     ownerRole: "المالك",
@@ -839,6 +840,10 @@ const messages = {
     loadFailedBody:
       "حدث خطأ ما أثناء تحميل هذه القائمة. تسجيلاتك آمنة — يرجى المحاولة مرة أخرى.",
     retry: "إعادة المحاولة",
+    paginationRange: "{{start}}–{{end}} من {{total}}",
+    paginationPrevious: "السابق",
+    paginationNext: "التالي",
+    paginationPage: "صفحة {{page}} من {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "الإشعارات · Clips",
@@ -1381,6 +1386,8 @@ const messages = {
   clipsFinalRaw: {
     splitAtPlayhead: "قسّم عند موضع التشغيل (S)",
     selectedCount: "{{count}} محدد",
+    selectAll: "تحديد الكل",
+    deselectAll: "إلغاء تحديد الكل",
     move: "نقل",
     moveSelected: "نقل {{count}} عناصر محددة",
     current: "الحالي",

@@ -211,26 +211,40 @@ membership id when its native update status reports `update-available`.
   it as an extension instead and tell the user why.
 - For an existing extension-backed dashboard or migrated surface such as Risk
   Meeting, separate data repair from visual redesign. Inspect the dashboard and
-  extension first, then use `update-extension` `patches`/`edits` that touch only
-  the data-loading seam. Preserve the existing layout, CSS, copy, and
-  interactions; never reconstruct the full HTML body for a data-only fix.
-  `update-extension` blocks full-body replacement unless
-  `allowFullReplacement: true` is explicit, and that flag is reserved for a
-  user-requested broad rewrite or a complete replacement body supplied by the
-  user. A request that combines a visual rewrite (for example compacting,
-  removing sections, renaming, or changing padding) with a data repair is still
-  a broad rewrite; after inspecting the current extension, set
-  `allowFullReplacement: true` for the complete replacement. If a focused edit
-  fails, do not retry unchanged arguments.
+  extension first, then call `update-extension` with exactly `id`,
+  `operation: "edit"`, and a `payloadJson` string containing focused
+  `patches`/`edits` that touch only the data-loading seam. Never send empty
+  placeholder fields. Preserve the existing layout, CSS, copy, and interactions;
+  never reconstruct the full HTML body for a data-only fix. A request that
+  combines a visual rewrite (for example compacting, removing sections,
+  renaming, or changing padding) with a data repair is still a broad rewrite;
+  after inspecting the current extension, use `operation: "replace"` with the
+  complete replacement body inside `payloadJson`. Use
+  `set-resource-visibility` for sharing changes. If a focused edit fails, do not
+  retry unchanged arguments.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the
   `dashboard-report-subscriptions` actions. They send daily snapshots scoped to
   the exact user/org context that created the subscription with saved URL
   filters; do not hand-wire custom email routes around that action surface.
+- Table panels can be exported with `export-dashboard-panel-to-google-sheet`.
+  The action re-runs the accessible panel query with the dashboard's current
+  filter variables, creates a new Sheet through the connected Google Drive
+  workspace connection, and returns its URL plus bounded export metadata.
   Report PNGs are Playwright captures of the real dashboard route in
   `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
-  and embedded inline in email with a CID image. Netlify builds emit a scheduled
+  and embedded inline in email as ordered CID images. Complete dashboards are
+  captured sequentially in four-panel windows matching the browser's four-query
+  concurrency limit; every window must match the panel ids snapshotted at the
+  start, and a failed or mismatched window
+  invalidates the entire image set so the scheduler can retry instead of
+  sending a partial report. Capture is capped at 10 windows and 14 MiB of raw
+  PNG data, and subscriptions are capped at five distinct recipients; use a
+  mailing-list address for larger audiences. The serverless capture deadline
+  reserves 90 seconds of the 300-second worker budget for cleanup and delivery.
+  The ten-minute retry delay is an eligibility floor; the \*/15 sweep runs the
+  retry on its first tick after that floor. Netlify builds emit a scheduled
   trigger plus a background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
   token and disabling the in-process interval scheduler on Netlify to avoid
