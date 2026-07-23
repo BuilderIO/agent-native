@@ -261,8 +261,7 @@ export function createPreviewDocumentSaveController(
         // the controller was created/last marked — e.g. "empty" for a
         // brand-new page — forever, even after real content has been saved.
         const success = asSaveSuccess(result);
-        lastSaved = {
-          ...attempted,
+        const savedMetadata = {
           ...(success?.loadedUpdatedAt !== undefined
             ? { loadedUpdatedAt: success.loadedUpdatedAt }
             : {}),
@@ -270,6 +269,15 @@ export function createPreviewDocumentSaveController(
             ? { loadedContentWasEmpty: success.loadedContentWasEmpty }
             : {}),
         };
+        lastSaved = {
+          ...attempted,
+          ...savedMetadata,
+        };
+        // A later keystroke starts from `pending`, including while this save is
+        // in flight. Rebase that trailing payload onto our own successful write
+        // so its next CAS does not mistake the preceding save for an external
+        // change.
+        pending = { ...pending, ...savedMetadata };
         hasSavedLocally = true;
         deferredReason = null;
         inFlight = null;

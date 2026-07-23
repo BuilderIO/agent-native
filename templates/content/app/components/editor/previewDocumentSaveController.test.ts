@@ -180,6 +180,57 @@ describe("previewDocumentSaveController", () => {
     expect(save).toHaveBeenLastCalledWith(DOC, { title: "T1", content: "C2" });
   });
 
+  it("rebases trailing edits onto the timestamp returned by its own save", async () => {
+    let resolveFirst:
+      | ((value: {
+          outcome: "saved";
+          loadedUpdatedAt: string;
+          loadedContentWasEmpty: boolean;
+        }) => void)
+      | undefined;
+    const save = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        outcome: "saved",
+        loadedUpdatedAt: "after-second-save",
+        loadedContentWasEmpty: false,
+      });
+    const c = makeController({
+      save,
+      init: {
+        title: "T0",
+        content: "",
+        loadedUpdatedAt: "before-first-save",
+        loadedContentWasEmpty: true,
+      },
+    });
+
+    c.changeContent("C1");
+    vi.advanceTimersByTime(450);
+    await flushMicrotasks();
+    c.changeContent("C2");
+
+    resolveFirst?.({
+      outcome: "saved",
+      loadedUpdatedAt: "after-first-save",
+      loadedContentWasEmpty: false,
+    });
+    await flushMicrotasks();
+
+    expect(save).toHaveBeenLastCalledWith(DOC, {
+      title: "T0",
+      content: "C2",
+      loadedUpdatedAt: "after-first-save",
+      loadedContentWasEmpty: false,
+    });
+  });
+
   it("flush does NOT duplicate-save when the in-flight save already covers the latest payload", async () => {
     let resolveFirst: (() => void) | undefined;
     const save = vi

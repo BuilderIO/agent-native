@@ -436,7 +436,8 @@ export function databaseCreatedItemForImmediatePreview(
   if (returnedItem) return returnedItem;
   if (!response.createdItemId || !response.createdDocumentId) return null;
 
-  const now = args.now ?? new Date().toISOString();
+  const now =
+    response.createdDocumentUpdatedAt ?? args.now ?? new Date().toISOString();
   const position = Math.max(
     0,
     (response.pagination?.totalItems ?? response.items.length + 1) - 1,
@@ -4098,8 +4099,6 @@ function DatabaseItemPreview({
   // ever touch its own row's state. See previewDocumentSaveRegistry.
   const updateDocumentRef = useRef(updateDocument);
   updateDocumentRef.current = updateDocument;
-  const queryClientRef = useRef(queryClient);
-  queryClientRef.current = queryClient;
   const bodyHydrationPendingRef = useRef(bodyHydrationPending);
   bodyHydrationPendingRef.current = bodyHydrationPending;
   const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
@@ -4276,12 +4275,6 @@ function DatabaseItemPreview({
     onSaved: (persistedPayload) => {
       const controller = peekPreviewDocumentSaveController(documentId);
       if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
-      void queryClientRef.current.invalidateQueries({
-        queryKey: contentDatabaseQueryKey(databaseDocumentId),
-      });
-      void queryClientRef.current.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
     },
     onError: (err) => {
       toast.error(dbText("failedToSavePagePreview"), {

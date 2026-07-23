@@ -76,6 +76,21 @@ describe("database preview property saves", () => {
       /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
     );
   });
+
+  it("does not refetch Content after the document mutation patches its caches", () => {
+    const source = readFileSync(
+      new URL("./DatabaseView.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+    const onSaved = source.match(
+      /onSaved: \(persistedPayload\) => \{([\s\S]*?)\n    \},\n    onError:/,
+    )?.[1];
+
+    expect(onSaved).toBeDefined();
+    expect(onSaved).not.toContain("invalidateQueries");
+  });
 });
 
 describe("Builder required publishing fields", () => {
@@ -1003,6 +1018,7 @@ describe("large database authoring", () => {
       },
       createdItemId: "created-item",
       createdDocumentId: "created-document",
+      createdDocumentUpdatedAt: "2026-07-13T11:59:59.000Z",
     } as unknown as ContentDatabaseResponse;
 
     const createdItem = databaseCreatedItemForImmediatePreview(response, {
@@ -1022,6 +1038,8 @@ describe("large database authoring", () => {
         parentId: "database-document",
         title: "New QA row",
         content: "",
+        createdAt: "2026-07-13T11:59:59.000Z",
+        updatedAt: "2026-07-13T11:59:59.000Z",
       },
     });
     expect(
