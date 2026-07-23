@@ -93,6 +93,42 @@ const ACCESS_CACHE_DENY_TTL_MS = 5_000;
 const ACCESS_CACHE_MAX = 500;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 
+/**
+ * DB-assigned version allocation (see `AppSyncStateOptions.dbAssignedVersions`).
+ * The allocator is a one-row table advanced with `GREATEST(v + 1, epoch_ms)` —
+ * the SQL analog of the in-memory `Math.max(version + 1, Date.now())` — inside
+ * the same autocommit statement as the event insert. The row lock is held to
+ * the statement's implicit commit, so version order equals commit order across
+ * every writer, closing the cross-writer clock-skew hole no sequence closes
+ * (sequences serialize allocation, not commit visibility). Single-statement is
+ * required: the gateway reaches the app DB through a pooled (transactionless)
+ * connection. `ON CONFLICT DO UPDATE` (not DO NOTHING) so a deterministic-id
+ * dedupe loser still gets the winner's version back and never emits a phantom
+ * version to its own clients. The stored JSON is restamped with the allocated
+ * version; the read path's column-wins override makes that belt-and-suspenders.
+ */
+const SEED_SYNC_VERSION_SQL = `
+  INSERT INTO sync_version (id, v)
+  SELECT 1, GREATEST(
+    COALESCE((SELECT MAX(version) FROM sync_events), 0),
+    (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT
+  )
+  ON CONFLICT (id) DO NOTHING
+`;
+const ALLOCATING_INSERT_SQL = `
+  WITH alloc AS (
+    UPDATE sync_version
+       SET v = GREATEST(v + 1, (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::BIGINT, (?)::BIGINT)
+     WHERE id = 1
+     RETURNING v
+  )
+  INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
+  SELECT ?, alloc.v, jsonb_set((?)::jsonb, '{version}', to_jsonb(alloc.v))::text, ?, ?, ?, ?, ?, ?, ?, ?
+    FROM alloc
+  ON CONFLICT (id) DO UPDATE SET id = excluded.id
+  RETURNING version
+`;
+
 function timestampValue(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value !== "string") return 0;
@@ -341,6 +377,22 @@ export interface AppSyncStateOptions {
    * across instances.
    */
   deterministicEventIds?: boolean;
+  /**
+   * Allocate durable-event versions from the app's Postgres DB (a one-row
+   * allocator advanced with `GREATEST(v + 1, epoch_ms_now)` inside the insert
+   * statement) instead of the per-writer in-memory clock counter.
+   *
+   * Off by default: a single-writer app's clock counter is already monotonic.
+   * Hosted realtime has MULTIPLE writers per app DB (the app's serverless
+   * instances plus gateway instances), where clock skew can assign a LOWER
+   * version to a LATER event — a client whose cursor passed the higher value
+   * then filters the later event out forever. DB allocation serializes on the
+   * allocator row's lock, so version order equals commit order across all
+   * writers. Versions stay on the epoch-ms scale (existing cursors, the
+   * detector's timestamp-mixed seed, and lag metrics all assume it).
+   * Postgres only; ignored on SQLite.
+   */
+  dbAssignedVersions?: boolean;
 }
 
 /**
@@ -354,6 +406,13 @@ export class AppSyncState {
   private readonly isPg: () => boolean;
   private readonly resolveAccessFn: AccessResolver;
   private readonly deterministicEventIds: boolean;
+  private readonly dbAssignedVersions: boolean;
+  /** Serializes gated recordChange calls so buffer/emit order matches
+   * allocation order (interleaved allocations could buffer out of order). */
+  private recordChain: Promise<void> = Promise.resolve();
+  /** Count of DB-allocation failures that fell back to clock versions. */
+  private dbVersionFallbacks = 0;
+  private warnedListenerThrow = false;
 
   // Timestamp-aligned versions so all serverless instances produce values in
   // the same range (seeded from DB, then incremented via Date.now). Plain
@@ -415,6 +474,7 @@ export class AppSyncState {
     this.isPg = options.isPostgres ?? isPostgres;
     this.resolveAccessFn = options.resolveAccess ?? defaultResolveAccess;
     this.deterministicEventIds = options.deterministicEventIds ?? false;
+    this.dbAssignedVersions = options.dbAssignedVersions ?? false;
     this.pollEmitter.setMaxListeners(0);
   }
 
@@ -522,6 +582,16 @@ export class AppSyncState {
             "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
             guardOptions,
           );
+          if (this.dbAssignedVersions) {
+            await ensureTableExists(
+              "sync_version",
+              "CREATE TABLE IF NOT EXISTS sync_version (id INT PRIMARY KEY, v BIGINT NOT NULL)",
+              guardOptions,
+            );
+            // Seed at/above both the existing durable max and wall clock, so
+            // allocated versions never land below live client cursors.
+            await client.execute(SEED_SYNC_VERSION_SQL);
+          }
           return true;
         }
 
@@ -561,6 +631,7 @@ export class AppSyncState {
   async persistSyncEvent(
     event: ChangeEvent,
     dedupeKey?: string,
+    presetId?: string,
   ): Promise<void> {
     if (!(await this.ensureSyncEventsTable())) return;
     const client = this.getDb();
@@ -573,7 +644,9 @@ export class AppSyncState {
           : `INSERT OR IGNORE INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         args: [
-          this.durableEventId(event, dedupeKey),
+          // presetId lets a gated fallback reuse the allocating attempt's id,
+          // so a commit-then-timeout can't produce the same event twice.
+          presetId ?? this.durableEventId(event, dedupeKey),
           event.version,
           JSON.stringify(event),
           event.source,
@@ -588,6 +661,69 @@ export class AppSyncState {
       })
       .catch(() => {});
     await this.pruneDurableEvents(client);
+  }
+
+  /**
+   * Persist with a DB-allocated version (see ALLOCATING_INSERT_SQL). Returns
+   * the allocated version — for a deterministic-id dedupe loser, the winner's
+   * existing version — or null when persistence is unavailable (caller falls
+   * back to clock allocation). Unlike `persistSyncEvent`, errors PROPAGATE to
+   * the caller: silence here would silently drop the event entirely, since the
+   * buffer/emit are deferred behind this call.
+   */
+  private async persistWithDbAssignedVersion(
+    event: { source: string; type: string; key?: string; [k: string]: unknown },
+    id: string,
+  ): Promise<number | null> {
+    if (!(await this.ensureSyncEventsTable())) return null;
+    const client = this.getDb();
+    const args = [
+      // Local monotonicity floor: after a clock fallback, the next allocation
+      // must not land at/below versions this writer already emitted.
+      this.version + 1,
+      id,
+      // jsonb (unlike the legacy TEXT write) rejects \\u0000 escapes; strip
+      // them rather than diverting those events to the clock fallback.
+      JSON.stringify(event).split("\\u0000").join(""),
+      event.source,
+      event.type,
+      event.key ?? null,
+      (event.owner as string | undefined) ?? null,
+      (event.orgId as string | undefined) ?? null,
+      (event.resourceType as string | undefined) ?? null,
+      (event.resourceId as string | undefined) ?? null,
+      Date.now(),
+    ];
+    let result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
+    if (result.rows.length === 0) {
+      // Allocator row missing (e.g. wiped after ensure): reseed, retry once.
+      await client.execute(SEED_SYNC_VERSION_SQL).catch(() => {});
+      result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
+    }
+    const version = timestampValue(result.rows[0]?.version);
+    await this.pruneDurableEvents(client);
+    return version > 0 ? version : null;
+  }
+
+  /**
+   * Lift the allocator to at least `floor`. Client cursors are max-only, so
+   * any value that can become a cursor (notably the seed's app-clock
+   * `updated_at` domain) must never exceed the allocator — a cursor above it
+   * would filter later, lower-allocated events out permanently. Failure is
+   * swallowed: alignment degrades to the same soft guarantee as the clock
+   * fallback.
+   */
+  private async alignVersionAllocator(floor: number): Promise<void> {
+    if (floor <= 0) return;
+    try {
+      if (!(await this.ensureSyncEventsTable())) return;
+      await this.getDb().execute({
+        sql: "UPDATE sync_version SET v = GREATEST(v, (?)::BIGINT) WHERE id = 1",
+        args: [floor],
+      });
+    } catch {
+      // Soft guarantee under DB failure, matching the clock fallback.
+    }
   }
 
   async readMaxSyncEventVersion(): Promise<number> {
@@ -787,14 +923,100 @@ export class AppSyncState {
     },
     opts?: { dedupeKey?: string },
   ): void {
+    if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+      // No provisional version may reach clients: cursors are max-only, so an
+      // emitted clock version above a later DB allocation would recreate the
+      // skew bug. Buffer/emit happen only after the DB returns the version,
+      // serialized so entries land in allocation order. The catch is a
+      // backstop: one rejected link must never poison the chain and silently
+      // drop every later event.
+      this.recordChain = this.recordChain
+        .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
+        .catch(() => {});
+      return;
+    }
     this.version = Math.max(this.version + 1, Date.now());
     const entry: ChangeEvent = { ...event, version: this.version };
+    this.commitEntry(entry);
+    void this.persistSyncEvent(entry, opts?.dedupeKey);
+  }
+
+  /** Buffer + emit. Shared by both version-allocation modes. */
+  private commitEntry(entry: ChangeEvent): void {
     this.buffer.push(entry);
     if (this.buffer.length > MAX_BUFFER) {
       this.buffer.splice(0, this.buffer.length - MAX_BUFFER);
     }
     this.pollEmitter.emit(POLL_CHANGE_EVENT, entry);
-    void this.persistSyncEvent(entry, opts?.dedupeKey);
+  }
+
+  private async recordWithDbVersion(
+    event: { source: string; type: string; key?: string; [k: string]: unknown },
+    dedupeKey?: string,
+  ): Promise<void> {
+    // One id for both the allocating attempt AND any fallback persist: if the
+    // allocating INSERT commits server-side but the call fails (e.g. a query
+    // timeout after commit), the fallback's ON CONFLICT dedupes against the
+    // committed row instead of writing the same event twice under two ids.
+    // Deterministic ids exclude version by design; the random fallback id gets
+    // a wall-clock prefix instead of its usual version prefix (the prefix is
+    // debuggability, not semantics — nothing parses row ids).
+    const id =
+      this.deterministicEventIds && dedupeKey !== undefined
+        ? this.durableEventId(
+            { ...event, version: 0 } as ChangeEvent,
+            dedupeKey,
+          )
+        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    let version: number | null = null;
+    try {
+      version = await this.persistWithDbAssignedVersion(event, id);
+    } catch {
+      version = null;
+    }
+    if (version == null) {
+      // Availability fallback: a DB blip must not stall the in-process fast
+      // path. Clock-allocate and emit; the allocator's GREATEST(v+1, now)
+      // re-aligns the domain on recovery. The ordering guarantee is soft
+      // exactly while the DB is unhealthy.
+      this.dbVersionFallbacks++;
+      if (this.dbVersionFallbacks === 1) {
+        console.warn(
+          "[agent-native] sync version allocation failed; falling back to clock-assigned versions",
+        );
+      }
+      this.version = Math.max(this.version + 1, Date.now());
+      const entry: ChangeEvent = { ...event, version: this.version };
+      this.commitEntryForChain(entry);
+      void this.persistSyncEvent(entry, dedupeKey, id);
+      return;
+    }
+    // A deterministic-id dedupe loser adopts the winner's (possibly older)
+    // version here — buffer filtering is a full scan, so a non-tail version is
+    // delivered correctly and the version-keyed combined-read dedupe collapses
+    // it against the durable row.
+    this.version = Math.max(this.version, version);
+    this.commitEntryForChain({ ...event, version });
+  }
+
+  /**
+   * `commitEntry` for the deferred (chained) path: the buffer push must land
+   * and a throwing pollEmitter listener must not reject the chain — the
+   * synchronous path propagates such throws to the recordChange caller, but
+   * here there is no caller to propagate to, only the chain to poison.
+   */
+  private commitEntryForChain(entry: ChangeEvent): void {
+    try {
+      this.commitEntry(entry);
+    } catch (err) {
+      if (!this.warnedListenerThrow) {
+        this.warnedListenerThrow = true;
+        console.warn(
+          "[agent-native] poll listener threw during deferred emit",
+          err,
+        );
+      }
+    }
   }
 
   private recordExtensionChanges(
@@ -1079,9 +1301,7 @@ export class AppSyncState {
         refreshTs = Math.max(refreshTs, timestampValue(row.updated_at));
       }
 
-      // Seed version — never decrease an already-set value
-      this.version = Math.max(
-        this.version,
+      const seedMax = Math.max(
         syncEventsTs,
         appTs,
         settingsTs,
@@ -1089,6 +1309,15 @@ export class AppSyncState {
         extensionMarkerTs,
         actionMarkerTs,
       );
+      // The seed mixes app-clock `updated_at` values that can sit AHEAD of the
+      // allocator (a skew-fast writer's rows). Lift the allocator to the seed
+      // BEFORE the seed can reach this.version — and through it, client
+      // cursors — so no later allocation lands below a seeded cursor.
+      if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+        await this.alignVersionAllocator(seedMax);
+      }
+      // Seed version — never decrease an already-set value
+      this.version = Math.max(this.version, seedMax);
 
       // Set baselines so checkExternalDbChanges detects future writes
       this.lastAppStateTs = appTs;
@@ -1135,9 +1364,20 @@ export class AppSyncState {
     // second overlapping run that would double-advance the watermarks.
     if (this.checkPromise) return this.checkPromise;
     this.lastDbCheck = now;
-    this.checkPromise = this.doCheckExternalDbChanges().finally(() => {
-      this.checkPromise = null;
-    });
+    this.checkPromise = this.doCheckExternalDbChanges()
+      .then(() => {
+        // Gated: the detector's recordChange calls only SCHEDULED allocations.
+        // The poll handler awaits this check so detected cross-process writes
+        // land in the same response — drain the chain here to keep that
+        // contract (and so a serverless instance frozen after responding
+        // can't strand them). The chain never rejects (backstopped).
+        if (this.dbAssignedVersions && this.isPg() && !syncEventsDisabled()) {
+          return this.recordChain;
+        }
+      })
+      .finally(() => {
+        this.checkPromise = null;
+      });
     return this.checkPromise;
   }
 
@@ -1362,11 +1602,31 @@ export class AppSyncState {
 let _defaultState: AppSyncState | undefined;
 
 /**
+ * Hosted-realtime gate for the default instance, env-only. Mirrors the
+ * fail-closed transport-AND-url pair in `sentry-config.ts`'s
+ * `resolveRealtimeClientConfig` (not imported — poll.ts is import-cycle
+ * sensitive). Hosted apps are multi-writer (their own serverless instances
+ * plus gateway instances share one DB), so THEY must DB-allocate versions too
+ * — gating only the gateway would leave the app's user-event writes
+ * clock-versioned and the cross-writer skew hole open.
+ */
+function hostedRealtimeTransportEnabled(): boolean {
+  return (
+    process.env.AGENT_NATIVE_REALTIME_TRANSPORT?.trim() === "hosted" &&
+    !!process.env.AGENT_NATIVE_REALTIME_GATEWAY_URL?.trim()
+  );
+}
+
+/**
  * The process-wide default instance, bound to the global DB. All module-level
  * exports delegate here so self-hosted apps run exactly one code path.
  */
 export function getDefaultAppSyncState(): AppSyncState {
-  if (!_defaultState) _defaultState = new AppSyncState();
+  if (!_defaultState) {
+    _defaultState = new AppSyncState({
+      dbAssignedVersions: hostedRealtimeTransportEnabled(),
+    });
+  }
   return _defaultState;
 }
 
