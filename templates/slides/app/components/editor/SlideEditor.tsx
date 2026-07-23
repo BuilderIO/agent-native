@@ -229,7 +229,10 @@ function stripBuilderIds(html: string): string {
  * character fall back to the container's base font.
  */
 function stripPlaceholderZws(root: Element): void {
-  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+  );
   const textNodes: Text[] = [];
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     textNodes.push(node as Text);
