@@ -3,4 +3,4 @@ type: improved
 date: 2026-07-23
 ---
 
-Agent-Native signup questions now use the first-party dashboard's single-query fast path.
+Routine analytics lookups now search existing dashboard queries and dictionary definitions, then stop after one successful authoritative query.

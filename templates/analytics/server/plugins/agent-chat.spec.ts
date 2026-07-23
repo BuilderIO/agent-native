@@ -185,6 +185,7 @@ describe("Analytics agent Plan mode policy", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
+        "search-analytics-query-catalog",
         "search-bigquery-schema",
         "list-data-dictionary",
       ]),
