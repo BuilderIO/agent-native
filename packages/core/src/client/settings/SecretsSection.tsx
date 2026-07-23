@@ -5,7 +5,10 @@
  */
 
 import { Picker, TextField } from "@agent-native/toolkit/design-system";
-import { Button as ToolkitButton } from "@agent-native/toolkit/ui/button";
+import {
+  Button as ToolkitButton,
+  ButtonBase as ToolkitButtonBase,
+} from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconChevronRight,
@@ -208,15 +211,14 @@ function KeysHeader({
       <p className="text-[11px] font-medium text-foreground">Keys</p>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button
+          <ToolkitButtonBase
             type="button"
-            intent="neutral"
-            emphasis="outline"
+            variant="outline"
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
           >
             <IconPlus size={11} />
             New
-          </Button>
+          </ToolkitButtonBase>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
           {availableSecrets.length > 0 && (

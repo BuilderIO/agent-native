@@ -440,6 +440,9 @@ describe("Vite optimized dependency recovery", () => {
     const script = tags?.[0]?.children ?? "";
 
     expect(tags?.[0]?.injectTo).toBe("head-prepend");
+    expect(script).toContain("__agentNativeViteDevRecoveryInstalled");
+    expect(script).toContain("MIN_RELOAD_INTERVAL_MS = 2000");
+    expect(script).toContain('"vite:beforeFullReload"');
     expect(script).toContain("vite:preloadError");
     expect(script).toContain("PerformanceObserver");
     expect(script).toContain("Outdated Optimize Dep");
@@ -477,6 +480,60 @@ describe("Vite optimized dependency recovery", () => {
     expect(server.ws.send).toHaveBeenCalledWith({ type: "full-reload" });
     expect(server.config.logger.info).toHaveBeenCalledOnce();
     expect(originalEnd).toHaveBeenCalledOnce();
+  });
+
+  it("spaces out and caps repeated optimized dep reloads", () => {
+    vi.useFakeTimers();
+    try {
+      const plugin = findPlugin("agent-native-full-reload-optimize-dep-504");
+      let middleware: Function | null = null;
+      const server = {
+        middlewares: {
+          use: vi.fn((fn: Function) => {
+            middleware = fn;
+          }),
+        },
+        ws: { send: vi.fn() },
+        config: { logger: { info: vi.fn() } },
+      };
+
+      plugin.configureServer(server);
+      const next = vi.fn();
+      const sendFailure = () => {
+        const res = {
+          statusCode: 504,
+          statusMessage: "Outdated Optimize Dep",
+          end: vi.fn(),
+        };
+        middleware!(
+          { url: "/node_modules/.vite/deps/react.js?v=stale" },
+          res,
+          next,
+        );
+        res.end();
+      };
+
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1_999);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(4_000);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(3);
+
+      vi.advanceTimersByTime(2_000);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -706,6 +763,12 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.server.fs.deny).toContain("secret.txt");
     expect(config.build.outDir).toBe("build/client");
     expect(config.build.cssMinify).toBe("esbuild");
+    expect(config.optimizeDeps.include).toContain(
+      "@agent-native/core > @assistant-ui/react > assistant-stream",
+    );
+    expect(config.optimizeDeps.include).toContain(
+      "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
+    );
     expect(config.optimizeDeps.include).toContain("date-fns");
     expect(config.optimizeDeps.exclude).toContain("lodash");
     expect(config.resolve.dedupe).toContain("zustand");
@@ -1343,6 +1406,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
     expect(code).toContain("export const InputRule = stub;");
+    expect(code).toContain("export const useAuiState = stub;");
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
   });
@@ -1712,11 +1776,21 @@ describe("local-core dev aliases and router dedupe", () => {
       "core",
     );
     fs.mkdirSync(path.join(installedCore, "src"), { recursive: true });
+    fs.mkdirSync(path.join(installedCore, "dist"), { recursive: true });
     fs.writeFileSync(path.join(installedCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(path.join(installedCore, "dist/index.js"), "export {};\n");
     fs.writeFileSync(
       path.join(installedCore, "package.json"),
       JSON.stringify({
         name: "@agent-native/core",
+        main: "dist/index.js",
+        dependencies: {
+          "@assistant-ui/react": "0.12.28",
+          "@assistant-ui/react-markdown": "0.12.11",
+          "@assistant-ui/store": "0.2.13",
+          "@assistant-ui/tap": "0.5.16",
+          "highlight.js": "11.11.1",
+        },
         devDependencies: {
           "@excalidraw/excalidraw": "0.18.1",
           mermaid: "11.15.0",
@@ -1730,12 +1804,30 @@ describe("local-core dev aliases and router dedupe", () => {
       }),
     );
 
-    expect(_findCorePackageRoot(tmpDir)).toBeNull();
+    expect(_findCorePackageRoot(tmpDir)).toBe(fs.realpathSync(installedCore));
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain("@agent-native/core");
-    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/react",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/react-markdown",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/store",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/tap",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > highlight.js/lib/core",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > highlight.js/lib/languages/javascript",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/core > @excalidraw/excalidraw",
     );
-    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/core > mermaid",
     );
 

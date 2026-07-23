@@ -738,6 +738,56 @@ async function gotoAndWaitForAgentPage(
   );
 }
 
+async function gotoAndWaitForChatPage(
+  page: Page,
+  running: RunningDev,
+  path: string,
+  browserErrors: string[],
+  httpErrors: string[],
+): Promise<void> {
+  const deadline = Date.now() + (isCi ? 90_000 : 45_000);
+  let lastError: unknown;
+  let lastBody = "";
+
+  while (Date.now() < deadline) {
+    browserErrors.length = 0;
+    httpErrors.length = 0;
+
+    try {
+      await gotoCommitted(page, `${running.baseUrl}${path}`);
+      await waitForViteDepsQuiet(running.viteReload, running.logs, {
+        timeoutMs: 30_000,
+      });
+      await page
+        .getByText(/Ask me anything|How can I help/i)
+        .first()
+        .waitFor({ state: "visible", timeout: 8_000 });
+      return;
+    } catch (err) {
+      lastError = err;
+      lastBody = await page
+        .locator("body")
+        .innerText({ timeout: 2_000 })
+        .catch(() => "");
+      if (Date.now() >= deadline) break;
+      if (verbose || isCi) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[standalone-dev-smoke] ${path} not ready yet: ${message.split("\n")[0]}`,
+        );
+      }
+      await sleep(2_000);
+    }
+  }
+
+  const message =
+    lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(
+    `${path} did not render the Chat surface before timeout: ${message}\n` +
+      `Body preview: ${lastBody.slice(0, 400)}`,
+  );
+}
+
 async function waitForAuthenticatedShell(
   page: Page,
   baseUrl: string,
@@ -811,6 +861,18 @@ async function runBrowserSmoke(
 
   assert.deepEqual(browserErrors, [], "browser console/page errors");
   assert.deepEqual(httpErrors, [], "browser HTTP errors on app origin");
+
+  log("assertion pass: /chat after /agent");
+  await gotoAndWaitForChatPage(
+    page,
+    running,
+    "/chat",
+    browserErrors,
+    httpErrors,
+  );
+
+  assert.deepEqual(browserErrors, [], "browser console/page errors on /chat");
+  assert.deepEqual(httpErrors, [], "browser HTTP errors on /chat");
 }
 
 function assertCleanServerLogs(logs: string[]): void {
@@ -891,7 +953,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → / → /agent",
+      "  checked:  scaffold → install → dev server → auto-login → / → /agent → /chat",
     );
     console.log(
       "  checked:  no Unexpected Server Error, no HydratedRouter in dev logs",

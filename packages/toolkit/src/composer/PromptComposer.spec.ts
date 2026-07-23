@@ -2,18 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  buildPromptComposerSubmission,
-  canSubmitWithAgentEngineState,
-} from "./PromptComposer.js";
-
-describe("canSubmitWithAgentEngineState", () => {
-  it("allows configured engines and blocks unresolved states", () => {
-    expect(canSubmitWithAgentEngineState("configured")).toBe(true);
-    expect(canSubmitWithAgentEngineState("missing")).toBe(false);
-    expect(canSubmitWithAgentEngineState("unavailable")).toBe(false);
-  });
-});
+import { buildPromptComposerSubmission } from "./PromptComposer.js";
 
 describe("buildPromptComposerSubmission", () => {
   it("passes images through files only — never inlines base64 into prompt text", async () => {

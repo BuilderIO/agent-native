@@ -29,12 +29,12 @@ const REQUIRE_ACTIVE_HANDOFF: Record<
   (typeof PAGE_CHAT_TEMPLATES)[number],
   boolean
 > = {
-  chat: false,
-  assets: false,
-  analytics: false,
-  brain: false,
+  chat: true,
+  assets: true,
+  analytics: true,
+  brain: true,
   forms: true,
-  plan: false,
+  plan: true,
 };
 
 function readTemplateFile(template: string, relativePath: string): string {

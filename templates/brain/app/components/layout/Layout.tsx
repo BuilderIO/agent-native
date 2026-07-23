@@ -47,7 +47,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   useAgentChatHomeHandoffLinks({
     storageKey: "brain",
     chatPath: "/",
-    requireActiveHandoff: false,
+    requireActiveHandoff: true,
   });
 
   useEffect(() => {

@@ -92,11 +92,6 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-.assets-create-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
-}
-
 .assets-create-chat-intro {
   display: none;
 }

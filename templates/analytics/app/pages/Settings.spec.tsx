@@ -31,8 +31,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("@agent-native/core/client/settings", () => ({
-  SettingsTabsPage: ({ general }: { general: React.ReactNode }) => (
-    <main>{general}</main>
+  AccountSettingsCard: () => <div>settings-user@example.com</div>,
+  SettingsTabsPage: ({
+    account,
+    general,
+  }: {
+    account: React.ReactNode;
+    general: React.ReactNode;
+  }) => (
+    <main>
+      {account}
+      {general}
+    </main>
   ),
   useAgentSettingsTabs: () => [],
 }));

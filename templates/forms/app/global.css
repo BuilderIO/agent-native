@@ -179,11 +179,6 @@
   width: 100%;
 }
 
-.forms-ask-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(2rem, 6vh, 4rem);
-}
-
 .forms-ask-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;

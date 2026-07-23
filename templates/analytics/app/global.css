@@ -138,11 +138,6 @@
   }
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
-}
-
 .analytics-mobile-nav {
   height: 2.75rem;
   min-height: 2.75rem;

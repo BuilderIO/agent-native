@@ -41,9 +41,15 @@ import {
   IconMail,
   IconPlug,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./ui/accordion";
 import { Button } from "./ui/button";
 import {
   Collapsible,
@@ -118,17 +124,48 @@ function StatusPill({
 }) {
   const toneClass =
     tone === "success"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
       : tone === "warning"
-        ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
-        : "border-border bg-muted/40 text-muted-foreground";
+        ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+        : "bg-muted text-muted-foreground";
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium ${toneClass}`}
+      className={`inline-flex items-center rounded-full px-2 py-1 text-[11px] font-medium ${toneClass}`}
     >
       {label}
     </span>
+  );
+}
+
+function DisclosureSection({
+  title,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  summary?: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <Collapsible defaultOpen={defaultOpen} className="border-t">
+      <CollapsibleTrigger className="group flex w-full cursor-pointer items-center justify-between gap-3 py-3 text-left">
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-foreground">
+            {title}
+          </span>
+          {summary ? (
+            <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+              {summary}
+            </span>
+          ) : null}
+        </span>
+        <IconChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pb-3">{children}</CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -443,7 +480,11 @@ export function MessagingSetupPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 xl:grid-cols-2">
+      <Accordion
+        type="single"
+        collapsible
+        className="overflow-hidden rounded-2xl border bg-card"
+      >
         {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
           const configured =
@@ -464,20 +505,27 @@ export function MessagingSetupPanel() {
             envKeys,
             envStatusByKey,
           );
+          const configuredCredentialCount = envKeys.filter(
+            (envKey) => envStatusByKey.get(envKey.key)?.configured,
+          ).length;
+          const credentialSummary = envLoading
+            ? "Checking saved credentials"
+            : missingRequiredCredentials
+              ? "Required credentials are missing"
+              : `${configuredCredentialCount} saved`;
           const Icon = PLATFORM_ICONS[platform.iconKey] ?? IconPlug;
 
           return (
-            <section
+            <AccordionItem
               key={platform.id}
-              className="rounded-2xl border bg-card p-5"
+              value={platform.id}
+              className="border-b last:border-b-0"
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-muted/30 text-foreground">
-                    <Icon size={18} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
+              <AccordionTrigger className="gap-3 px-4 text-left hover:no-underline">
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Icon className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-base font-semibold text-foreground">
                         {platform.name}
                       </h3>
@@ -486,289 +534,339 @@ export function MessagingSetupPanel() {
                         enabled={enabled}
                       />
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
+                    <p className="mt-1 truncate text-sm text-muted-foreground">
                       {platform.description}
                     </p>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button
-                    asChild
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs text-muted-foreground"
-                  >
-                    <a
-                      href={platform.documentation.href}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Docs
-                      <IconExternalLink className="ml-1 h-3 w-3" />
-                    </a>
-                  </Button>
-                  {platform.documentation.externalHref ? (
-                    <Button
-                      asChild
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs text-muted-foreground"
-                    >
-                      <a
-                        href={platform.documentation.externalHref}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {platform.documentation.externalLabel ?? "Open"}
-                        <IconExternalLink className="ml-1 h-3 w-3" />
-                      </a>
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
+              </AccordionTrigger>
 
-              {platform.id === "slack" ? (
-                <div className="mt-5 space-y-3 rounded-xl border bg-muted/20 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+              <AccordionContent className="px-4">
+                <div className="border-t">
+                  <div className="flex flex-wrap items-center justify-between gap-3 py-3">
                     <div>
-                      <div className="text-sm font-medium text-foreground">
-                        {t("messaging.managed.title")}
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t("messaging.managed.description")}
+                      <p className="text-sm font-medium text-foreground">
+                        {enabled
+                          ? "Messages are flowing"
+                          : configured
+                            ? "Ready to connect"
+                            : "Finish setup to connect"}
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {t("messaging.managed.agentManifestDescription")}
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {credentialSummary}
                       </p>
                     </div>
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <a href={managedSlackAgentManifestUrl()}>
-                            <IconFileDescription className="mr-2 h-4 w-4" />
-                            {t("messaging.managed.agentManifest")}
-                          </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {platform.id === "telegram" && configured ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => runSetup(platform)}
+                          disabled={setupPlatform === platform.id}
+                        >
+                          {setupPlatform === platform.id ? (
+                            <>
+                              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Setting up...
+                            </>
+                          ) : (
+                            "Set up webhook"
+                          )}
                         </Button>
-                        {missingRequiredCredentials ? (
-                          <Button size="sm" disabled>
-                            <IconBrandSlack className="mr-2 h-4 w-4" />
-                            {t("messaging.managed.addToSlack")}
-                          </Button>
-                        ) : (
-                          <Button asChild size="sm">
-                            <a href={managedIntegrationOAuthUrl("slack")}>
-                              <IconBrandSlack className="mr-2 h-4 w-4" />
-                              {t("messaging.managed.addToSlack")}
+                      ) : null}
+                      {!configured && !enabled ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span tabIndex={0}>
+                              <Button size="sm" disabled>
+                                Enable
+                              </Button>
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Save the required credentials first.
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => togglePlatform(platform, enabled)}
+                          disabled={togglingPlatform === platform.id}
+                        >
+                          {togglingPlatform === platform.id ? (
+                            <>
+                              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : enabled ? (
+                            "Disable"
+                          ) : (
+                            "Enable"
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {platform.id === "slack" ? (
+                    <DisclosureSection
+                      title={t("messaging.managed.title")}
+                      summary={
+                        installations.length
+                          ? `${installations.length} connected`
+                          : "No workspaces connected yet"
+                      }
+                    >
+                      <div className="space-y-3">
+                        <p className="text-xs text-muted-foreground">
+                          {t("messaging.managed.description")}{" "}
+                          {t("messaging.managed.agentManifestDescription")}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button asChild variant="outline" size="sm">
+                            <a href={managedSlackAgentManifestUrl()}>
+                              <IconFileDescription className="mr-2 h-4 w-4" />
+                              {t("messaging.managed.agentManifest")}
                             </a>
                           </Button>
+                          {missingRequiredCredentials ? (
+                            <Button size="sm" disabled>
+                              <IconBrandSlack className="mr-2 h-4 w-4" />
+                              {t("messaging.managed.addToSlack")}
+                            </Button>
+                          ) : (
+                            <Button asChild size="sm">
+                              <a href={managedIntegrationOAuthUrl("slack")}>
+                                <IconBrandSlack className="mr-2 h-4 w-4" />
+                                {t("messaging.managed.addToSlack")}
+                              </a>
+                            </Button>
+                          )}
+                        </div>
+                        {missingRequiredCredentials ? (
+                          <p className="text-xs text-amber-700 dark:text-amber-300">
+                            {t("messaging.managed.requiredCredentials")}
+                          </p>
+                        ) : null}
+                        {installations.length ? (
+                          <div className="divide-y rounded-lg bg-muted/20 px-3">
+                            {installations.map((installation) => (
+                              <div
+                                key={installation.id}
+                                className="flex flex-wrap items-center justify-between gap-3 py-3"
+                              >
+                                <div>
+                                  <div className="text-sm font-medium text-foreground">
+                                    {installation.teamName ||
+                                      installation.enterpriseName ||
+                                      installation.teamId ||
+                                      t("messaging.managed.workspaceFallback")}
+                                  </div>
+                                  <div className="mt-0.5 text-xs text-muted-foreground">
+                                    {t("messaging.managed.scopesUpdated", {
+                                      count: installation.scopes.length,
+                                      date: formatDate(installation.updatedAt, {
+                                        dateStyle: "medium",
+                                      }),
+                                    })}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <StatusPill
+                                    tone={
+                                      installation.health === "healthy"
+                                        ? "success"
+                                        : installation.health === "degraded" ||
+                                            installation.health === "revoked"
+                                          ? "warning"
+                                          : "neutral"
+                                    }
+                                    label={t(
+                                      `messaging.managed.health.${installation.health}`,
+                                    )}
+                                  />
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() =>
+                                      runInstallationAction(
+                                        installation,
+                                        "test",
+                                      )
+                                    }
+                                    disabled={
+                                      installationAction ===
+                                      `test:${installation.id}`
+                                    }
+                                  >
+                                    {t("messaging.managed.test")}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      runInstallationAction(
+                                        installation,
+                                        "disconnect",
+                                      )
+                                    }
+                                    disabled={
+                                      installationAction ===
+                                      `disconnect:${installation.id}`
+                                    }
+                                  >
+                                    {t("messaging.managed.disconnect")}
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            {t("messaging.managed.empty")}
+                          </p>
                         )}
                       </div>
-                      {missingRequiredCredentials ? (
-                        <p className="max-w-72 text-xs text-amber-700 dark:text-amber-300">
-                          {t("messaging.managed.requiredCredentials")}
+                    </DisclosureSection>
+                  ) : null}
+
+                  {platform.id === "slack" && scopes.length ? (
+                    <DisclosureSection
+                      title={t("messaging.managed.channelAccessTitle")}
+                      summary={`${scopes.length} channel${scopes.length === 1 ? "" : "s"}`}
+                    >
+                      <div className="space-y-3">
+                        <p className="text-xs text-muted-foreground">
+                          {t("messaging.managed.channelAccessDescription")}
                         </p>
-                      ) : null}
-                    </div>
-                  </div>
-                  {installations.length ? (
-                    <div className="space-y-2">
-                      {installations.map((installation) => (
-                        <div
-                          key={installation.id}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2"
-                        >
-                          <div>
-                            <div className="text-sm font-medium text-foreground">
-                              {installation.teamName ||
-                                installation.enterpriseName ||
-                                installation.teamId ||
-                                t("messaging.managed.workspaceFallback")}
-                            </div>
-                            <div className="mt-0.5 text-xs text-muted-foreground">
-                              {t("messaging.managed.scopesUpdated", {
-                                count: installation.scopes.length,
-                                date: formatDate(installation.updatedAt, {
-                                  dateStyle: "medium",
-                                }),
-                              })}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <StatusPill
-                              tone={
-                                installation.health === "healthy"
-                                  ? "success"
-                                  : installation.health === "degraded" ||
-                                      installation.health === "revoked"
-                                    ? "warning"
-                                    : "neutral"
-                              }
-                              label={t(
-                                `messaging.managed.health.${installation.health}`,
-                              )}
-                            />
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                runInstallationAction(installation, "test")
-                              }
-                              disabled={
-                                installationAction === `test:${installation.id}`
-                              }
+                        {scopes.map((scope) => {
+                          const subjectId = JSON.stringify([
+                            scope.platform,
+                            scope.tenantId,
+                            scope.conversationId,
+                          ]);
+                          const budget = budgets.find(
+                            (item) =>
+                              item.subjectType === "scope" &&
+                              item.subjectId === subjectId &&
+                              item.period === "month",
+                          );
+                          return (
+                            <Collapsible
+                              key={scope.id}
+                              className="border-b last:border-b-0"
                             >
-                              {t("messaging.managed.test")}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                runInstallationAction(
-                                  installation,
-                                  "disconnect",
-                                )
-                              }
-                              disabled={
-                                installationAction ===
-                                `disconnect:${installation.id}`
-                              }
-                            >
-                              {t("messaging.managed.disconnect")}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t("messaging.managed.empty")}
-                    </p>
-                  )}
-                </div>
-              ) : null}
-
-              {platform.id === "slack" && scopes.length ? (
-                <div className="mt-4 space-y-3 rounded-xl border bg-muted/20 p-4">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">
-                      {t("messaging.managed.channelAccessTitle")}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {t("messaging.managed.channelAccessDescription")}
-                    </p>
-                  </div>
-                  {scopes.map((scope) => {
-                    const subjectId = JSON.stringify([
-                      scope.platform,
-                      scope.tenantId,
-                      scope.conversationId,
-                    ]);
-                    const budget = budgets.find(
-                      (item) =>
-                        item.subjectType === "scope" &&
-                        item.subjectId === subjectId &&
-                        item.period === "month",
-                    );
-                    return (
-                      <div
-                        key={scope.id}
-                        className="space-y-3 rounded-lg border bg-background/60 p-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="font-mono text-xs text-foreground">
-                              {scope.conversationId}
-                            </div>
-                            <div className="mt-0.5 text-xs text-muted-foreground">
-                              {t("messaging.managed.isolatedIdentity", {
-                                trust: t(
-                                  `messaging.managed.trust.${scope.trust}`,
-                                ),
-                              })}
-                            </div>
-                          </div>
-                          <StatusPill
-                            tone={
-                              scope.trust === "trusted" ? "success" : "warning"
-                            }
-                            label={t(`messaging.managed.trust.${scope.trust}`)}
-                          />
-                        </div>
-                        <div className="grid gap-2 sm:grid-cols-3">
-                          {[
-                            [
-                              "requireMention",
-                              t("messaging.managed.requireMention"),
-                            ],
-                            ["allowGuests", t("messaging.managed.allowGuests")],
-                            [
-                              "allowExternalShared",
-                              t("messaging.managed.allowSlackConnect"),
-                            ],
-                          ].map(([key, label]) => (
-                            <label
-                              key={key}
-                              className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-xs"
-                            >
-                              {label}
-                              <Switch
-                                checked={
-                                  scope.policy[
-                                    key as keyof ClientIntegrationScope["policy"]
-                                  ]
-                                }
-                                disabled={savingScope === scope.id}
-                                onCheckedChange={(checked) =>
-                                  updateScopePolicy(scope, { [key]: checked })
-                                }
-                              />
-                            </label>
-                          ))}
-                        </div>
-                        <div className="flex flex-wrap items-end gap-2">
-                          <div className="min-w-40 flex-1 space-y-1">
-                            <label className="text-xs font-medium text-foreground">
-                              {t("messaging.managed.monthlyBudgetUsd")}
-                            </label>
-                            <Input
-                              inputMode="decimal"
-                              value={
-                                scopeBudget[scope.id] ??
-                                (budget
-                                  ? String(budget.limitMicros / 1_000_000)
-                                  : "")
-                              }
-                              onChange={(event) =>
-                                setScopeBudget((current) => ({
-                                  ...current,
-                                  [scope.id]: event.target.value,
-                                }))
-                              }
-                              placeholder="25"
-                            />
-                          </div>
-                          <Button
-                            variant="outline"
-                            onClick={() => saveScopeBudget(scope)}
-                            disabled={savingScope === `budget:${scope.id}`}
-                          >
-                            {t("messaging.managed.saveBudget")}
-                          </Button>
-                        </div>
+                              <CollapsibleTrigger className="group flex w-full cursor-pointer items-center justify-between gap-3 py-3 text-left">
+                                <span className="min-w-0">
+                                  <span className="block truncate font-mono text-xs text-foreground">
+                                    {scope.conversationId}
+                                  </span>
+                                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                                    {t("messaging.managed.isolatedIdentity", {
+                                      trust: t(
+                                        `messaging.managed.trust.${scope.trust}`,
+                                      ),
+                                    })}
+                                  </span>
+                                </span>
+                                <span className="flex shrink-0 items-center gap-2">
+                                  <StatusPill
+                                    tone={
+                                      scope.trust === "trusted"
+                                        ? "success"
+                                        : "warning"
+                                    }
+                                    label={t(
+                                      `messaging.managed.trust.${scope.trust}`,
+                                    )}
+                                  />
+                                  <IconChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />
+                                </span>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="pb-3">
+                                <div className="grid gap-2 sm:grid-cols-3">
+                                  {[
+                                    [
+                                      "requireMention",
+                                      t("messaging.managed.requireMention"),
+                                    ],
+                                    [
+                                      "allowGuests",
+                                      t("messaging.managed.allowGuests"),
+                                    ],
+                                    [
+                                      "allowExternalShared",
+                                      t("messaging.managed.allowSlackConnect"),
+                                    ],
+                                  ].map(([key, label]) => (
+                                    <label
+                                      key={key}
+                                      className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-xs"
+                                    >
+                                      {label}
+                                      <Switch
+                                        checked={
+                                          scope.policy[
+                                            key as keyof ClientIntegrationScope["policy"]
+                                          ]
+                                        }
+                                        disabled={savingScope === scope.id}
+                                        onCheckedChange={(checked) =>
+                                          updateScopePolicy(scope, {
+                                            [key]: checked,
+                                          })
+                                        }
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
+                                <div className="flex flex-wrap items-end gap-2">
+                                  <div className="min-w-40 flex-1 space-y-1">
+                                    <label className="text-xs font-medium text-foreground">
+                                      {t("messaging.managed.monthlyBudgetUsd")}
+                                    </label>
+                                    <Input
+                                      inputMode="decimal"
+                                      value={
+                                        scopeBudget[scope.id] ??
+                                        (budget
+                                          ? String(
+                                              budget.limitMicros / 1_000_000,
+                                            )
+                                          : "")
+                                      }
+                                      onChange={(event) =>
+                                        setScopeBudget((current) => ({
+                                          ...current,
+                                          [scope.id]: event.target.value,
+                                        }))
+                                      }
+                                      placeholder="25"
+                                    />
+                                  </div>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => saveScopeBudget(scope)}
+                                    disabled={
+                                      savingScope === `budget:${scope.id}`
+                                    }
+                                  >
+                                    {t("messaging.managed.saveBudget")}
+                                  </Button>
+                                </div>
+                              </CollapsibleContent>
+                            </Collapsible>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
-              ) : null}
+                    </DisclosureSection>
+                  ) : null}
 
-              <Collapsible className="mt-5">
-                <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
-                  <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
-                  <span>Setup steps</span>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="mt-2 rounded-xl border bg-muted/20 p-4">
-                    <ol className="space-y-2 text-sm text-muted-foreground">
+                  <DisclosureSection
+                    title="Setup steps"
+                    summary={`${platform.setup.steps.length} step${platform.setup.steps.length === 1 ? "" : "s"}`}
+                  >
+                    <ol className="space-y-2 rounded-lg bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
                       {platform.setup.steps.map((step, index) => (
                         <li key={step} className="flex gap-2">
                           <span className="text-muted-foreground/60">
@@ -778,252 +876,243 @@ export function MessagingSetupPanel() {
                         </li>
                       ))}
                     </ol>
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+                  </DisclosureSection>
 
-              <div className="mt-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-medium text-foreground">
-                    Credentials
-                  </div>
-                  {envLoading ? (
-                    <span className="text-xs text-muted-foreground">
-                      Checking...
-                    </span>
-                  ) : null}
-                </div>
-                <div className="space-y-3">
-                  {primaryEnvKeys.map((envKey) => {
-                    const envStatus = envStatusByKey.get(envKey.key);
-                    const isConfigured = !!envStatus?.configured;
-                    const helpText = envKey.helpText ?? envStatus?.helpText;
-                    const label =
-                      envKey.label || envStatus?.label || envKey.key;
-                    // Email agent address is not a secret — show it plainly
-                    // so users can copy and share it.
-                    const isPublicValue = envKey.key === "EMAIL_AGENT_ADDRESS";
-                    return (
-                      <div key={envKey.key} className="space-y-1.5">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-xs font-medium text-foreground">
-                              {label}
-                              {!envKey.required ? (
-                                <span className="ml-1 text-muted-foreground">
-                                  (optional)
-                                </span>
-                              ) : null}
-                            </label>
-                            {helpText ? (
-                              <HelpTooltip content={helpText} />
+                  <DisclosureSection
+                    title="Credentials"
+                    summary={credentialSummary}
+                  >
+                    <div className="space-y-3">
+                      {primaryEnvKeys.map((envKey) => {
+                        const envStatus = envStatusByKey.get(envKey.key);
+                        const isConfigured = !!envStatus?.configured;
+                        const helpText = envKey.helpText ?? envStatus?.helpText;
+                        const label =
+                          envKey.label || envStatus?.label || envKey.key;
+                        // Email agent address is not a secret — show it plainly
+                        // so users can copy and share it.
+                        const isPublicValue =
+                          envKey.key === "EMAIL_AGENT_ADDRESS";
+                        return (
+                          <div key={envKey.key} className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-1.5">
+                                <label className="text-xs font-medium text-foreground">
+                                  {label}
+                                  {!envKey.required ? (
+                                    <span className="ml-1 text-muted-foreground">
+                                      (optional)
+                                    </span>
+                                  ) : null}
+                                </label>
+                                {helpText ? (
+                                  <HelpTooltip content={helpText} />
+                                ) : null}
+                              </div>
+                              {isConfigured ? (
+                                <StatusPill tone="success" label="Saved" />
+                              ) : (
+                                <StatusPill
+                                  tone="neutral"
+                                  label={
+                                    envKey.required ? "Missing" : "Not set"
+                                  }
+                                />
+                              )}
+                            </div>
+                            {isConfigured && isPublicValue ? (
+                              <PublicValueReveal envKey={envKey.key} />
+                            ) : !isConfigured ? (
+                              <Input
+                                type={isPublicValue ? "text" : "password"}
+                                value={envValues[envKey.key] || ""}
+                                onChange={(event) =>
+                                  setEnvValues((current) => ({
+                                    ...current,
+                                    [envKey.key]: event.target.value,
+                                  }))
+                                }
+                                placeholder={
+                                  isPublicValue
+                                    ? "agent@yourcompany.com"
+                                    : `Enter ${label}`
+                                }
+                                autoComplete="off"
+                              />
                             ) : null}
                           </div>
-                          {isConfigured ? (
-                            <StatusPill tone="success" label="Saved" />
-                          ) : (
-                            <StatusPill
-                              tone="neutral"
-                              label={envKey.required ? "Missing" : "Not set"}
-                            />
-                          )}
-                        </div>
-                        {isConfigured && isPublicValue ? (
-                          <PublicValueReveal envKey={envKey.key} />
-                        ) : !isConfigured ? (
-                          <Input
-                            type={isPublicValue ? "text" : "password"}
-                            value={envValues[envKey.key] || ""}
-                            onChange={(event) =>
-                              setEnvValues((current) => ({
-                                ...current,
-                                [envKey.key]: event.target.value,
-                              }))
-                            }
-                            placeholder={
-                              isPublicValue
-                                ? "agent@yourcompany.com"
-                                : `Enter ${label}`
-                            }
-                            autoComplete="off"
-                          />
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-                {legacyEnvKeys.length ? (
-                  <Collapsible>
-                    <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
-                      <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
-                      <span>{legacyEnvKeys[0]?.label}</span>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="mt-2 space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-                        <p className="text-xs text-muted-foreground">
-                          {legacyEnvKeys[0]?.helpText}
-                        </p>
-                        {legacyEnvKeys.map((envKey) => {
-                          const envStatus = envStatusByKey.get(envKey.key);
-                          const isConfigured = !!envStatus?.configured;
-                          const helpText =
-                            envKey.helpText ?? envStatus?.helpText;
-                          const label =
-                            envKey.label || envStatus?.label || envKey.key;
-                          return (
-                            <div key={envKey.key} className="space-y-1.5">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="flex items-center gap-1.5">
-                                  <label className="text-xs font-medium text-foreground">
-                                    {label}
-                                  </label>
-                                  {helpText ? (
-                                    <HelpTooltip content={helpText} />
+                        );
+                      })}
+                    </div>
+                    {legacyEnvKeys.length ? (
+                      <Collapsible>
+                        <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                          <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                          <span>{legacyEnvKeys[0]?.label}</span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="mt-2 space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                            <p className="text-xs text-muted-foreground">
+                              {legacyEnvKeys[0]?.helpText}
+                            </p>
+                            {legacyEnvKeys.map((envKey) => {
+                              const envStatus = envStatusByKey.get(envKey.key);
+                              const isConfigured = !!envStatus?.configured;
+                              const helpText =
+                                envKey.helpText ?? envStatus?.helpText;
+                              const label =
+                                envKey.label || envStatus?.label || envKey.key;
+                              return (
+                                <div key={envKey.key} className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-1.5">
+                                      <label className="text-xs font-medium text-foreground">
+                                        {label}
+                                      </label>
+                                      {helpText ? (
+                                        <HelpTooltip content={helpText} />
+                                      ) : null}
+                                    </div>
+                                    <StatusPill
+                                      tone={
+                                        isConfigured ? "success" : "neutral"
+                                      }
+                                      label={isConfigured ? "Saved" : "Not set"}
+                                    />
+                                  </div>
+                                  {!isConfigured ? (
+                                    <Input
+                                      type="password"
+                                      value={envValues[envKey.key] || ""}
+                                      onChange={(event) =>
+                                        setEnvValues((current) => ({
+                                          ...current,
+                                          [envKey.key]: event.target.value,
+                                        }))
+                                      }
+                                      placeholder={`Enter ${label}`}
+                                      autoComplete="off"
+                                    />
                                   ) : null}
                                 </div>
-                                <StatusPill
-                                  tone={isConfigured ? "success" : "neutral"}
-                                  label={isConfigured ? "Saved" : "Not set"}
-                                />
-                              </div>
-                              {!isConfigured ? (
-                                <Input
-                                  type="password"
-                                  value={envValues[envKey.key] || ""}
-                                  onChange={(event) =>
-                                    setEnvValues((current) => ({
-                                      ...current,
-                                      [envKey.key]: event.target.value,
-                                    }))
-                                  }
-                                  placeholder={`Enter ${label}`}
-                                  autoComplete="off"
-                                />
-                              ) : null}
-                            </div>
-                          );
-                        })}
-                        {legacyEnvKeys.some(
-                          (envKey) =>
-                            !envStatusByKey.get(envKey.key)?.configured,
-                        ) ? (
-                          <Button
-                            variant="outline"
-                            onClick={() =>
-                              saveEnvKeys(
-                                platform,
-                                legacyEnvKeys.map((envKey) => envKey.key),
-                              )
-                            }
-                            disabled={savingKeysFor === platform.id}
-                          >
-                            {savingKeysFor === platform.id
-                              ? "Saving..."
-                              : "Save credentials"}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                ) : null}
-                {missingRequiredCredentials ? (
-                  <Button
-                    variant="outline"
-                    onClick={() =>
-                      saveEnvKeys(
-                        platform,
-                        envKeys.map((k) => k.key),
-                      )
-                    }
-                    disabled={savingKeysFor === platform.id}
-                  >
-                    {savingKeysFor === platform.id ? (
-                      <>
-                        <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : (
-                      "Save credentials"
-                    )}
-                  </Button>
-                ) : null}
-              </div>
+                              );
+                            })}
+                            {legacyEnvKeys.some(
+                              (envKey) =>
+                                !envStatusByKey.get(envKey.key)?.configured,
+                            ) ? (
+                              <Button
+                                variant="outline"
+                                onClick={() =>
+                                  saveEnvKeys(
+                                    platform,
+                                    legacyEnvKeys.map((envKey) => envKey.key),
+                                  )
+                                }
+                                disabled={savingKeysFor === platform.id}
+                              >
+                                {savingKeysFor === platform.id
+                                  ? "Saving..."
+                                  : "Save credentials"}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    ) : null}
+                    {missingRequiredCredentials ? (
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          saveEnvKeys(
+                            platform,
+                            envKeys.map((k) => k.key),
+                          )
+                        }
+                        disabled={savingKeysFor === platform.id}
+                      >
+                        {savingKeysFor === platform.id ? (
+                          <>
+                            <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          "Save credentials"
+                        )}
+                      </Button>
+                    ) : null}
+                  </DisclosureSection>
 
-              {status?.webhookUrl ? (
-                <div className="mt-4 space-y-2">
-                  <div className="text-sm font-medium text-foreground">
-                    Webhook URL
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 truncate rounded-md border bg-muted/30 px-3 py-2 text-xs text-foreground">
-                      {status.webhookUrl}
-                    </code>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={() => copyWebhook(status.webhookUrl!)}
-                      aria-label={`Copy ${platform.name} webhook URL`}
+                  {status?.webhookUrl ? (
+                    <DisclosureSection
+                      title="Webhook URL"
+                      summary="Copy the endpoint for this channel"
                     >
-                      {copiedWebhook === status.webhookUrl ? (
-                        <IconCheck className="h-4 w-4" />
-                      ) : (
-                        <IconCopy className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 truncate rounded-md bg-muted/30 px-3 py-2 text-xs text-foreground">
+                          {status.webhookUrl}
+                        </code>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          onClick={() => copyWebhook(status.webhookUrl!)}
+                          aria-label={`Copy ${platform.name} webhook URL`}
+                        >
+                          {copiedWebhook === status.webhookUrl ? (
+                            <IconCheck className="h-4 w-4" />
+                          ) : (
+                            <IconCopy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </DisclosureSection>
+                  ) : null}
 
-              <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-                {platform.id === "telegram" && configured ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => runSetup(platform)}
-                    disabled={setupPlatform === platform.id}
+                  <DisclosureSection
+                    title="Resources"
+                    summary="Documentation and external links"
                   >
-                    {setupPlatform === platform.id ? (
-                      <>
-                        <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Setting up...
-                      </>
-                    ) : (
-                      "Set up webhook"
-                    )}
-                  </Button>
-                ) : null}
-                {!configured && !enabled ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span tabIndex={0}>
-                        <Button disabled>Enable</Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Save the required credentials first.
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <Button
-                    onClick={() => togglePlatform(platform, enabled)}
-                    disabled={togglingPlatform === platform.id}
-                  >
-                    {togglingPlatform === platform.id ? (
-                      <>
-                        <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Saving...
-                      </>
-                    ) : enabled ? (
-                      "Disable"
-                    ) : (
-                      "Enable"
-                    )}
-                  </Button>
-                )}
-              </div>
-            </section>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        asChild
+                        variant="ghost"
+                        size="sm"
+                        className="px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                      >
+                        <a
+                          href={platform.documentation.href}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Docs
+                          <IconExternalLink className="ml-1 h-3 w-3" />
+                        </a>
+                      </Button>
+                      {platform.documentation.externalHref ? (
+                        <Button
+                          asChild
+                          variant="ghost"
+                          size="sm"
+                          className="px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+                        >
+                          <a
+                            href={platform.documentation.externalHref}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {platform.documentation.externalLabel ?? "Open"}
+                            <IconExternalLink className="ml-1 h-3 w-3" />
+                          </a>
+                        </Button>
+                      ) : null}
+                    </div>
+                  </DisclosureSection>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
           );
         })}
-      </div>
+      </Accordion>
 
       {loading ? (
         <div className="rounded-2xl border border-dashed px-4 py-6 text-sm text-muted-foreground">

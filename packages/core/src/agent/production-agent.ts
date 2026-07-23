@@ -1846,6 +1846,7 @@ export async function callConnectedAgentReference(input: {
     const response = await input.callAgent(input.path, input.message, {
       async: true,
       apiKey: callerAuth.apiKey,
+      apiKeyFallbacks: callerAuth.apiKeyFallbacks,
       metadata: callerAuth.metadata,
       userEmail: callerAuth.userEmail,
       orgDomain: callerAuth.orgDomain,

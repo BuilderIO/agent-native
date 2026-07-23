@@ -124,6 +124,9 @@ function createPage(
     captureBox?: { width: number; height: number };
     renderedPanelIds?: string[];
     loadingPanels?: Array<{ id: string; title: string }>;
+    consoleErrors?: string[];
+    requestFailures?: string[];
+    responseFailures?: Array<{ url: string; status: number }>;
     unresponsive?: boolean;
     blockReadyWait?: boolean;
   } = {},
@@ -147,6 +150,7 @@ function createPage(
   const addCookies = vi.fn(async () => {
     if (options.cookieError) throw options.cookieError;
   });
+  const listeners = new Map<string, (value: any) => void>();
   return {
     page: {
       close: vi.fn(async () => {}),
@@ -154,6 +158,27 @@ function createPage(
       emulateMedia: vi.fn(async () => {}),
       addInitScript: vi.fn(async () => {}),
       goto: vi.fn(async (_url: string, _options: unknown) => {
+        for (const text of options.consoleErrors ?? []) {
+          listeners.get("console")?.({
+            type: () => "error",
+            text: () => text,
+          });
+        }
+        for (const errorText of options.requestFailures ?? []) {
+          listeners.get("requestfailed")?.({
+            method: () => "POST",
+            url: () =>
+              "https://analytics.example.test/_agent-native/actions/query-dashboard-panel",
+            failure: () => ({ errorText }),
+          });
+        }
+        for (const failure of options.responseFailures ?? []) {
+          listeners.get("response")?.({
+            status: () => failure.status,
+            url: () => failure.url,
+            request: () => ({ method: () => "POST" }),
+          });
+        }
         if (options.gotoError) throw options.gotoError;
       }),
       locator: vi.fn(() => locator),
@@ -198,7 +223,9 @@ function createPage(
           options.pageUrl ??
           "https://analytics.example.test/dashboards/example",
       ),
-      on: vi.fn(),
+      on: vi.fn((event: string, listener: (value: any) => void) => {
+        listeners.set(event, listener);
+      }),
       context: vi.fn(() => ({ addCookies })),
     },
     locator,
@@ -288,6 +315,7 @@ describe("dashboard report email", () => {
       urls.every((url) => (url ?? "").includes("reportPanelLimit=4")),
     ).toBe(true);
     const email = mocks.sendEmail.mock.calls[0]?.[0];
+    expect(email.timeoutMs).toBe(10_000);
     expect(
       email.attachments.map(
         (attachment: { content: Buffer }) => attachment.content,
@@ -302,6 +330,29 @@ describe("dashboard report email", () => {
     );
     for (let index = 1; index <= 10; index++) {
       expect(email.html).toContain(`cid:dashboard-report-snapshot-${index}`);
+    }
+  });
+
+  it("stops before launching Chromium when the report snapshot exhausts the delivery deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getReportDashboard.mockImplementation(() => new Promise(() => {}));
+      const pending = expect(
+        sendDashboardReportSubscription(subscription(), {
+          deadlineAt: Date.now() + 25,
+        }),
+      ).rejects.toThrow(
+        "Dashboard report snapshot exceeded the report delivery deadline",
+      );
+
+      await vi.advanceTimersByTimeAsync(25);
+      await pending;
+
+      expect(mocks.launch).not.toHaveBeenCalled();
+      expect(mocks.launchPersistentContext).not.toHaveBeenCalled();
+      expect(mocks.sendEmail).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -341,7 +392,7 @@ describe("dashboard report email", () => {
         1,
         expect.any(String),
         undefined,
-        { timeout: 35_000 },
+        { timeout: 45_000 },
       );
       expect(page.page.goto).toHaveBeenCalledWith(
         expect.stringContaining("reportPanelLimit=4"),
@@ -368,7 +419,7 @@ describe("dashboard report email", () => {
     );
   });
 
-  it("fails the entire screenshot when any chunk fails and never sends partial images", async () => {
+  it("does not send completed chunks while a retry still requires a complete capture", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
@@ -391,9 +442,35 @@ describe("dashboard report email", () => {
       screenshotAttached: false,
       emailsSent: false,
     });
+    expect(first.locator.screenshot).toHaveBeenCalledOnce();
     expect(mocks.sendEmail).not.toHaveBeenCalled();
     expect(first.page.close).toHaveBeenCalledOnce();
     expect(failed.page.close).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a partial capture satisfy requireScreenshot", async () => {
+    mocks.getReportDashboard.mockResolvedValue(dashboard(8));
+    const first = createPage({
+      renderedPanelIds: Array.from(
+        { length: 4 },
+        (_, index) => `panel-${index}`,
+      ),
+    });
+    const failed = createPage({
+      waitForFails: true,
+      renderedPanelIds: ["panel-4", "panel-5", "panel-6", "panel-7"],
+    });
+    const { browser } = createBrowser([first, failed]);
+    mocks.launch.mockResolvedValue(browser);
+
+    await expect(
+      sendDashboardReportSubscription(subscription(), {
+        requireScreenshot: true,
+      }),
+    ).rejects.toThrow("Dashboard screenshot unavailable");
+
+    expect(first.locator.screenshot).toHaveBeenCalledOnce();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -460,7 +537,7 @@ describe("dashboard report email", () => {
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
-  it("rejects a chunk whose rendered panel ids no longer match the initial dashboard snapshot", async () => {
+  it("discards every chunk when a later panel window no longer matches the dashboard snapshot", async () => {
     mocks.getReportDashboard.mockResolvedValue(dashboard(8));
     const first = createPage({
       renderedPanelIds: Array.from(
@@ -472,18 +549,22 @@ describe("dashboard report email", () => {
     const { browser } = createBrowser([first, changed]);
     mocks.launch.mockResolvedValue(browser);
 
-    const result = await sendDashboardReportSubscription(subscription(), {
-      skipEmailWithoutScreenshot: true,
-    });
+    const result = await sendDashboardReportSubscription(subscription());
 
     expect(result).toMatchObject({
       screenshotAttached: false,
-      emailsSent: false,
+      screenshotMode: "none",
+      emailsSent: true,
       screenshotError: expect.stringContaining(
         'report chunk panel mismatch; expected=["panel-4","panel-5","panel-6","panel-7"] actual=[]',
       ),
     });
-    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: undefined,
+        html: expect.not.stringContaining("dashboard-report-snapshot-1"),
+      }),
+    );
     expect(first.page.close).toHaveBeenCalledOnce();
     expect(changed.page.close).toHaveBeenCalledOnce();
   });
@@ -676,6 +757,32 @@ describe("dashboard report email", () => {
     );
   });
 
+  it("includes collected console and action HTTP failures when a chunk times out", async () => {
+    const page = createPage({
+      readyWaitFails: true,
+      consoleErrors: ["panel query exceeded its report timeout"],
+      requestFailures: ["net::ERR_ABORTED"],
+      responseFailures: [
+        {
+          url: "https://analytics.example.test/_agent-native/actions/query-dashboard-panel",
+          status: 500,
+        },
+      ],
+    });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result.screenshotError).toContain(
+      "panel query exceeded its report timeout",
+    );
+    expect(result.screenshotError).toContain("net::ERR_ABORTED");
+    expect(result.screenshotError).toContain("HTTP 500");
+  });
+
   it("bounds serverless cleanup after a completed capture", async () => {
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", "");
@@ -710,7 +817,7 @@ describe("dashboard report email", () => {
       1,
       expect.any(String),
       undefined,
-      { timeout: 35_000 },
+      { timeout: 45_000 },
     );
     expect(page.page.waitForFunction).toHaveBeenNthCalledWith(
       2,
@@ -780,7 +887,7 @@ describe("dashboard report email", () => {
     );
   });
 
-  it("discards completed chunks when a later chunk crosses the 210 second serverless deadline", async () => {
+  it("sends completed chunks and labels the unavailable part on the final serverless sweep", async () => {
     vi.useFakeTimers();
     try {
       vi.stubEnv("NETLIFY", "true");
@@ -808,22 +915,38 @@ describe("dashboard report email", () => {
       mocks.launchPersistentContext.mockResolvedValue(browser);
 
       const capture = sendDashboardReportSubscription(subscription(), {
-        skipEmailWithoutScreenshot: true,
+        deadlineAt: Date.now() + 100_000,
       });
       await second.readyWaitStarted;
-      await vi.advanceTimersByTimeAsync(210_000);
+      await vi.advanceTimersByTimeAsync(55_000);
       const result = await capture;
 
       expect(first.locator.screenshot).toHaveBeenCalledOnce();
       expect(result).toMatchObject({
-        screenshotAttached: false,
-        emailsSent: false,
+        screenshotAttached: true,
+        screenshotMode: "partial",
+        emailsSent: true,
         screenshotError: expect.stringContaining("lambdaMemoryMb=1024"),
       });
-      expect(result.screenshotError).toContain("capture exceeded 210000ms");
+      expect(result.screenshotError).toContain("capture exceeded 55000ms");
+      expect(mocks.sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachments: [
+            expect.objectContaining({
+              content: Buffer.from("first"),
+              contentId: "dashboard-report-snapshot-1",
+            }),
+          ],
+          html: expect.stringContaining(
+            "Dashboard image part 2 was unavailable for this run.",
+          ),
+          text: expect.stringContaining(
+            "Dashboard image part 2 unavailable for this run.",
+          ),
+        }),
+      );
       expect(first.page.close).toHaveBeenCalledOnce();
       expect(second.page.close).toHaveBeenCalledOnce();
-      expect(mocks.sendEmail).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -848,7 +971,7 @@ describe("dashboard report email", () => {
       const capture = sendDashboardReportSubscription(subscription(), {
         skipEmailWithoutScreenshot: true,
       });
-      await vi.advanceTimersByTimeAsync(210_000);
+      await vi.advanceTimersByTimeAsync(150_000);
       const result = await capture;
       resolveLateLaunch(lateBrowser);
       await Promise.resolve();

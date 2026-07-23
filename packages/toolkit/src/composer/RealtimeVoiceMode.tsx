@@ -775,7 +775,10 @@ export function RealtimeVoiceModeDock({
     }
 
     const animation = glowRef.current.animate(
-      [{ transform: "rotate(0turn)" }, { transform: "rotate(1turn)" }],
+      [
+        { "--agent-realtime-voice-angle": "0deg" },
+        { "--agent-realtime-voice-angle": "360deg" },
+      ] as Keyframe[],
       {
         duration: 12_000,
         easing: "linear",
@@ -989,7 +992,9 @@ export function RealtimeVoiceModeDock({
                     "agent-realtime-voice-glow",
                     workingGlowActive && "agent-realtime-voice-working",
                   )}
-                />
+                >
+                  <span className="agent-realtime-voice-edge-light" />
+                </span>
               ) : null}
               <span className="relative z-10 flex items-center justify-center">
                 {state === "connecting" ? (

@@ -186,10 +186,7 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
-import {
-  fetchAgentEngineConfiguredState,
-  useAgentEngineConfigured,
-} from "./use-agent-engine-configured.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import type {
   ChatThreadScope,
   ChatThreadSnapshot,
@@ -292,8 +289,6 @@ const RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE =
 // through transient labels ("Contacting model", "Preparing X action"); past it
 // the live label appears so a genuinely slow step reads as working, not hung.
 const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
-const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
-
 type ActiveRunLookup = {
   active?: boolean;
   runId?: string;
@@ -2376,8 +2371,6 @@ const AssistantChatInner = forwardRef<
     { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
-  const isProviderStatusChecking =
-    providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
   const isProviderStatusUnavailable =
     providerStatusChecksEnabled &&
     agentEngineConfigured.state === "unavailable";
@@ -2396,36 +2389,6 @@ const AssistantChatInner = forwardRef<
     if (agentEngineConfigured.state !== "configured") return;
     setMissingKeySetupOpen(false);
   }, [agentEngineConfigured.state]);
-  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
-    const state =
-      agentEngineConfigured.state === "missing"
-        ? "missing"
-        : await fetchAgentEngineConfiguredState(providerStatusChecksEnabled, {
-            timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
-          });
-    if (state === "configured") return true;
-
-    // Unknown means the readiness endpoint is unavailable or still resolving.
-    // Do not start a run optimistically: that recreates the long failure path
-    // this preflight exists to prevent. The mounted hook retries automatically.
-    if (state === "unknown" || state === "unavailable") return false;
-
-    requestMissingKeySetup();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:missing-api-key", {
-          detail: { tabId, threadId },
-        }),
-      );
-    }
-    return false;
-  }, [
-    agentEngineConfigured.state,
-    providerStatusChecksEnabled,
-    requestMissingKeySetup,
-    tabId,
-    threadId,
-  ]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -4449,7 +4412,7 @@ const AssistantChatInner = forwardRef<
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (agentEngineConfigured.state === "missing") {
-        void ensureAgentEngineReadyForSubmit();
+        requestMissingKeySetup();
         reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
         return;
       }
@@ -4687,12 +4650,12 @@ const AssistantChatInner = forwardRef<
       applyLocalQueuedMessages,
       agentEngineConfigured.state,
       buildComposerContextSubmission,
-      ensureAgentEngineReadyForSubmit,
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
       markOptimisticRunning,
       appendThreadMessage,
+      requestMissingKeySetup,
       updateComposerContextItems,
     ],
   );
@@ -5654,16 +5617,14 @@ const AssistantChatInner = forwardRef<
                                   ? "Connect AI to start chatting..."
                                   : isProviderStatusUnavailable
                                     ? t("agentPanel.connectionUnavailable")
-                                    : isProviderStatusChecking
-                                      ? t("agentPanel.checkingAiConnection")
-                                      : composerDisabled
-                                        ? (composerDisabledPlaceholder ??
-                                          "Open Desktop to use this chat.")
-                                        : isRunning
-                                          ? queuedMessages.length > 0
-                                            ? `${queuedMessages.length} queued — send a follow-up...`
-                                            : "Send a follow-up..."
-                                          : composerPlaceholder
+                                    : composerDisabled
+                                      ? (composerDisabledPlaceholder ??
+                                        "Open Desktop to use this chat.")
+                                      : isRunning
+                                        ? queuedMessages.length > 0
+                                          ? `${queuedMessages.length} queued — send a follow-up...`
+                                          : "Send a follow-up..."
+                                        : composerPlaceholder
                               }
                               onSubmit={
                                 isRunning || composerContextItems.length > 0

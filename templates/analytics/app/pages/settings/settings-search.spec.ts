@@ -58,7 +58,7 @@ describe("Analytics settings command items", () => {
       keywords: expect.stringContaining("profile photo avatar"),
     });
     expect(account?.keywords).toContain("General settings");
-    expect(account?.keywords).toContain("Workspace settings");
+    expect(account?.keywords).not.toContain("Workspace settings");
     expect(labels).not.toContain("Language");
     expect(labels).not.toContain("Replay storage");
   });

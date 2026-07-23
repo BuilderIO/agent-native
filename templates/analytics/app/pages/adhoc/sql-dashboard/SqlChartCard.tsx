@@ -67,6 +67,7 @@ interface SqlChartCardProps {
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
   eagerLoad?: boolean;
+  reportScreenshot?: boolean;
   isDragSource?: boolean;
   selectedForChat?: boolean;
   onSelectForChat?: (options?: SelectDashboardPanelOptions) => void;
@@ -125,6 +126,7 @@ export function SqlChartCard({
   onSaveSql,
   editable = true,
   eagerLoad = false,
+  reportScreenshot = false,
   isDragSource = false,
   selectedForChat = false,
   onSelectForChat,
@@ -394,6 +396,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData
+            reportScreenshot={reportScreenshot}
             extensionContext={extensionContext}
           />
         )}
@@ -490,6 +493,7 @@ export function SqlChartCard({
                   panel={panel}
                   resolvedSql={resolvedSql}
                   loadData
+                  reportScreenshot={reportScreenshot}
                   extensionContext={extensionContext}
                 />
               </ChartFillHeight>
@@ -684,6 +688,7 @@ export function SqlChartCard({
             panel={panel}
             resolvedSql={resolvedSql}
             loadData={shouldLoadData}
+            reportScreenshot={reportScreenshot}
             onExportCsvChange={handleExportCsvChange}
             extensionContext={extensionContext}
           />
@@ -701,6 +706,7 @@ export function SqlChartCard({
                 panel={panel}
                 resolvedSql={resolvedSql}
                 loadData
+                reportScreenshot={reportScreenshot}
                 extensionContext={extensionContext}
               />
             </ChartFillHeight>

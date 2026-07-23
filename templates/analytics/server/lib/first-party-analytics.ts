@@ -1,6 +1,7 @@
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 
+import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
@@ -642,6 +643,8 @@ export async function queryFirstPartyAnalytics(
   const result = await exec.execute({
     sql: `SELECT * FROM (${scoped.sql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS}`,
     args: scoped.args,
+    timeoutMs: FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+    maxAttempts: 1,
   });
   const rows = result.rows as Record<string, unknown>[];
   return { rows, schema: inferSchema(rows) };

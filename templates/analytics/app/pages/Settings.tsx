@@ -1,8 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { useSession } from "@agent-native/core/client/hooks";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsTabItem,
@@ -28,11 +28,6 @@ import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
 import { buildAnalyticsGeneralSettingsSearchEntries } from "./settings/settings-search";
 
 export default function Settings() {
-  // Settings is also reachable directly from the full-page agent surface.
-  // Read the session from the framework's owning AppProviders boundary rather
-  // than the template-local compatibility context, which may be remounted
-  // independently during that route transition.
-  const { session: auth } = useSession();
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const replayStorageStatus = useReplayStorageStatus();
@@ -66,30 +61,13 @@ export default function Settings() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       teamLabel={t("navigation.team")}
       whatsNewLabel={t("root.whatsNew")}
       extraTabs={extraTabs}
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
-          <Card id="account" className="bg-card border-border/50 scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.account")}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {auth && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">
-                    {t("settings.signedInAs")}
-                  </span>
-                  <span className="text-sm font-medium">{auth.email}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           <Card
             id="credentials"
             className="bg-card border-border/50 scroll-mt-16"

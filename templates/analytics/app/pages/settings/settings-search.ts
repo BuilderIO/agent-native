@@ -20,7 +20,7 @@ export function buildAnalyticsGeneralSettingsSearchEntries(
     {
       id: "analytics-account",
       label: t("settings.account"),
-      keywords: "profile email signed in identity",
+      keywords: "profile photo avatar email signed in identity",
       hash: "account",
     },
     {

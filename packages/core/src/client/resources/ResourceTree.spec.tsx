@@ -49,7 +49,7 @@ describe("ResourceTree empty state", () => {
     );
 
     expect(container.querySelector(".tabler-icon-file")).toBeNull();
-    expect(message?.className).toContain("ps-5");
+    expect(message?.className).not.toContain("ps-5");
     expect(action?.parentElement?.className).toContain("mt-4");
     expect(action?.parentElement?.parentElement?.className).toContain("px-2");
   });
