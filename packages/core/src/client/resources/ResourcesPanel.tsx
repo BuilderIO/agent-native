@@ -338,7 +338,11 @@ function CreateMenu({
       window.clearTimeout(skillFlyoutCloseTimerRef.current);
       skillFlyoutCloseTimerRef.current = null;
     }
-    if (rowEl && typeof window !== "undefined") {
+    if (
+      rowEl &&
+      typeof window !== "undefined" &&
+      typeof rowEl.getBoundingClientRect === "function"
+    ) {
       const rect = rowEl.getBoundingClientRect();
       const FLYOUT_WIDTH = 248;
       setSkillFlyoutSide(
