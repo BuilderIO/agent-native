@@ -165,6 +165,7 @@ function tWithFallback(
 
 interface DocumentPropertiesProps {
   documentId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   popoversPortalled?: boolean;
 }
@@ -796,6 +797,7 @@ function scalarPlaceholder(type: DocumentPropertyType, t: TFunction) {
 
 export function DocumentProperties({
   documentId,
+  databaseDocumentId,
   canEdit,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
@@ -826,6 +828,7 @@ export function DocumentProperties({
               key={property.definition.id}
               property={property}
               documentId={documentId}
+              databaseDocumentId={databaseDocumentId}
               canEdit={canEdit}
               popoversPortalled={popoversPortalled}
               t={t}
@@ -927,12 +930,14 @@ function HiddenPropertiesMenu({
 function PropertyRow({
   property,
   documentId,
+  databaseDocumentId,
   canEdit,
   popoversPortalled,
   t,
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseDocumentId: string;
   canEdit: boolean;
   popoversPortalled: boolean;
   t: TFunction;
@@ -978,6 +983,7 @@ function PropertyRow({
         <PropertyValuePopover
           property={property}
           documentId={documentId}
+          databaseDocumentId={databaseDocumentId}
           portalled={popoversPortalled}
         >
           {value}

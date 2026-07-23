@@ -130,8 +130,8 @@ export interface PreviewDocumentSaveController {
   /** Adopt `payload` as the confirmed-saved baseline (no save scheduled). */
   mark(payload: PreviewDocumentPayload): void;
   /**
-   * Adopt a fresher server baseline while retaining the user's pending title
-   * and content. Used only after an explicit "keep local draft" choice.
+   * Adopt a fresher server baseline while retaining only fields the user
+   * changed locally. Used only after an explicit "keep local draft" choice.
    */
   rebasePending(payload: PreviewDocumentPayload): void;
   /** Replace callbacks captured by an older preview mount. */
@@ -261,8 +261,7 @@ export function createPreviewDocumentSaveController(
         // the controller was created/last marked — e.g. "empty" for a
         // brand-new page — forever, even after real content has been saved.
         const success = asSaveSuccess(result);
-        lastSaved = {
-          ...attempted,
+        const savedMetadata = {
           ...(success?.loadedUpdatedAt !== undefined
             ? { loadedUpdatedAt: success.loadedUpdatedAt }
             : {}),
@@ -270,6 +269,15 @@ export function createPreviewDocumentSaveController(
             ? { loadedContentWasEmpty: success.loadedContentWasEmpty }
             : {}),
         };
+        lastSaved = {
+          ...attempted,
+          ...savedMetadata,
+        };
+        // A later keystroke starts from `pending`, including while this save is
+        // in flight. Rebase that trailing payload onto our own successful write
+        // so its next CAS does not mistake the preceding save for an external
+        // change.
+        pending = { ...pending, ...savedMetadata };
         hasSavedLocally = true;
         deferredReason = null;
         inFlight = null;
@@ -336,9 +344,13 @@ export function createPreviewDocumentSaveController(
     },
     rebasePending(payload: PreviewDocumentPayload) {
       clearTimer();
+      const titleChangedLocally = pending.title !== lastSaved.title;
+      const contentChangedLocally = pending.content !== lastSaved.content;
       lastSaved = { ...payload };
       pending = {
         ...pending,
+        title: titleChangedLocally ? pending.title : payload.title,
+        content: contentChangedLocally ? pending.content : payload.content,
         loadedUpdatedAt: payload.loadedUpdatedAt,
         loadedContentWasEmpty: payload.loadedContentWasEmpty,
       };
