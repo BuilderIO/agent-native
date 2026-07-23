@@ -1,10 +1,8 @@
 /**
- * `GET /_agent-native/can-see?token=<gateway-access-token>` — the hosted
- * Realtime Gateway has no copy of this app's shareable-resource registry, so it
- * cannot resolve sharee visibility itself. It signs a token with the app's
- * per-project HMAC secret (binding the full access query) and asks here; the
- * app runs `resolveAccess` and answers `{ allowed }`. The token is the auth —
- * only a holder of the per-project secret can mint it.
+ * `GET /_agent-native/can-see` — the hosted Realtime Gateway's sharee-visibility
+ * check. Verifies a gateway access-check token (rationale in
+ * short-lived-token.ts), runs the app's own `resolveAccess`, answers
+ * `{ allowed }`, and fails closed.
  */
 
 import {
@@ -17,6 +15,7 @@ import {
 } from "h3";
 
 import { resolveAccess } from "../sharing/access.js";
+import { getBuilderBranchProjectId } from "./builder-browser.js";
 import { getRealtimeSigningSecret } from "./realtime-token.js";
 import { runWithRequestContext } from "./request-context.js";
 import { verifyGatewayAccessToken } from "./short-lived-token.js";
@@ -37,9 +36,12 @@ export function createGatewayAccessCheckHandler() {
     }
 
     const token = getQuery(event).token;
+    // Sync, env-only: binds the token's channel when this app's project id is
+    // known, and no-ops (undefined) for scoped-secret apps where it isn't.
+    const expectedProjectId = getBuilderBranchProjectId() || undefined;
     const verified =
       typeof token === "string"
-        ? verifyGatewayAccessToken(token, secret)
+        ? verifyGatewayAccessToken(token, secret, expectedProjectId)
         : ({ ok: false, reason: "missing" } as const);
     if (!verified.ok) {
       setResponseStatus(event, 401);

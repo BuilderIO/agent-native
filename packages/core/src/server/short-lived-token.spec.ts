@@ -262,4 +262,24 @@ describe("gateway access-check token", () => {
       reason: "expired",
     });
   });
+
+  it("binds the projectId channel when an expected value is provided", () => {
+    const token = signGatewayAccessToken(claims, KEY_A); // projectId proj_a
+    expect(verifyGatewayAccessToken(token, KEY_A, "proj_a")).toMatchObject({
+      ok: true,
+      projectId: "proj_a",
+    });
+    expect(verifyGatewayAccessToken(token, KEY_A, "proj_b")).toEqual({
+      ok: false,
+      reason: "wrong_project",
+    });
+  });
+
+  it("skips the projectId check when no expected value is given", () => {
+    const token = signGatewayAccessToken(claims, KEY_A);
+    expect(verifyGatewayAccessToken(token, KEY_A)).toMatchObject({ ok: true });
+    expect(verifyGatewayAccessToken(token, KEY_A, undefined)).toMatchObject({
+      ok: true,
+    });
+  });
 });

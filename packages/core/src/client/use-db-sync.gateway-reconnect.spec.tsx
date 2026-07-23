@@ -100,4 +100,33 @@ describe("hosted SSE reconnect ownership", () => {
 
     unsub();
   });
+
+  it("ignores a late error from a replaced (stale) stream", async () => {
+    const unsub = subscribeSyncEvents({ onEvents: () => {} });
+    await vi.advanceTimersByTimeAsync(200);
+    const first = FakeEventSource.instances.at(-1)!;
+    first.readyState = FakeEventSource.OPEN;
+    first.onopen?.();
+
+    // Force a reconnect so `first` is replaced by `second`.
+    first.readyState = FakeEventSource.CONNECTING;
+    first.onerror?.();
+    await vi.advanceTimersByTimeAsync(1500);
+    const second = FakeEventSource.instances.at(-1)!;
+    expect(second).not.toBe(first);
+    second.readyState = FakeEventSource.OPEN;
+    second.onopen?.();
+
+    const countBefore = FakeEventSource.instances.length;
+    // The stale `first` fires a late error: the guard must ignore it so the
+    // healthy `second` is neither closed nor triggers a spurious reconnect.
+    first.readyState = FakeEventSource.CONNECTING;
+    first.onerror?.();
+    await vi.advanceTimersByTimeAsync(1500);
+
+    expect(second.readyState).toBe(FakeEventSource.OPEN);
+    expect(FakeEventSource.instances.length).toBe(countBefore);
+
+    unsub();
+  });
 });

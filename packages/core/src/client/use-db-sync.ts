@@ -658,6 +658,9 @@ class SyncTransport {
       this.schedulePoll();
     };
     source.onerror = () => {
+      // A replaced/closed source can still fire late; ignore it so it can't
+      // flip the connected state or tear down the current stream.
+      if (this.eventSource !== source) return;
       this.setSseConnected(false);
       if (this.mode === "hosted" && this.gateway) {
         // Browser auto-reconnect reuses the URL frozen at construction, so it

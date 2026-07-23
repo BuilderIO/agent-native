@@ -47,6 +47,7 @@ describe("gateway access-check endpoint", () => {
   });
   afterEach(() => {
     delete process.env.AGENT_NATIVE_REALTIME_HMAC_SECRET;
+    delete process.env.BUILDER_PROJECT_ID;
   });
 
   it("returns allowed:true and forwards the signed query to resolveAccess", async () => {
@@ -67,6 +68,22 @@ describe("gateway access-check endpoint", () => {
     const token = signGatewayAccessToken(CLAIMS, SECRET);
     const { body } = await invoke({ query: { token } });
     expect(body).toEqual({ allowed: false });
+  });
+
+  it("401s and skips access when the token's project id mismatches this app", async () => {
+    process.env.BUILDER_PROJECT_ID = "proj_other";
+    const token = signGatewayAccessToken(CLAIMS, SECRET); // projectId proj_a
+    const { e } = await invoke({ query: { token } });
+    expect(e.status).toBe(401);
+    expect(mockResolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("allows when the token's project id matches this app's", async () => {
+    process.env.BUILDER_PROJECT_ID = "proj_a";
+    mockResolveAccess.mockResolvedValue({ role: "viewer" });
+    const token = signGatewayAccessToken(CLAIMS, SECRET);
+    const { body } = await invoke({ query: { token } });
+    expect(body).toEqual({ allowed: true });
   });
 
   it("fails closed when resolveAccess throws (unknown resource type)", async () => {

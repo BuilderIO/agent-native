@@ -395,6 +395,7 @@ export function signGatewayAccessToken(
 export function verifyGatewayAccessToken(
   token: string,
   key: string,
+  expectedProjectId?: string,
 ): GatewayAccessVerifyResult {
   if (!key) return { ok: false, reason: "no_key" };
   if (typeof token !== "string" || !token.includes(".")) {
@@ -427,6 +428,13 @@ export function verifyGatewayAccessToken(
     !claims.userEmail
   ) {
     return { ok: false, reason: "bad_payload" };
+  }
+  // Optional channel binding, mirroring verifyRealtimeSubscribeToken. The
+  // per-project key already scopes verification to one app; this is belt-and-
+  // suspenders for a future multi-tenant secret store. Skipped when the caller
+  // can't cheaply resolve its own project id (scoped-secret apps).
+  if (expectedProjectId && claims.projectId !== expectedProjectId) {
+    return { ok: false, reason: "wrong_project" };
   }
 
   return {
