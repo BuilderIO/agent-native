@@ -106,6 +106,9 @@ describe("MCP integration catalog", () => {
     const figma = DEFAULT_MCP_INTEGRATIONS.find(
       (integration) => integration.id === "figma",
     );
+    const granola = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "granola",
+    );
 
     expect(context7?.logoUrl).toMatch(
       /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
@@ -120,6 +123,7 @@ describe("MCP integration catalog", () => {
       availability: "ready",
     });
     expect(cloudflare?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(granola?.logoUrl).toMatch(/^data:image\/png;base64,/);
     expect(figma).toMatchObject({
       url: "https://mcp.figma.com/mcp",
       connectionMode: "manual",
@@ -144,7 +148,7 @@ describe("MCP integration catalog", () => {
     ).toBe(26);
     for (const integration of DEFAULT_MCP_INTEGRATIONS) {
       expect(integration.logoUrl).toMatch(
-        /^data:image\/(?:svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
+        /^data:image\/(?:png|svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
       );
       expect(["verified", "preflight-only", "restricted"]).toContain(
         integration.verification,

@@ -252,7 +252,7 @@ describe("ToolCallDisplay native renderers", () => {
 
     const row = container.querySelector(".agent-tool-call");
     expect(row?.getAttribute("data-running")).toBeNull();
-    expect(row?.getAttribute("data-active-tail")).toBe("true");
+    expect(row?.getAttribute("data-active-tail")).toBeNull();
     expect(row?.className).toContain("agent-tool-call--entering");
     expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
   });
@@ -379,14 +379,10 @@ describe("ToolCallDisplay native renderers", () => {
       );
     });
 
-    const activeRows = container.querySelectorAll(
-      '.agent-tool-call[data-active-tail="true"]',
-    );
-    expect(activeRows).toHaveLength(1);
-    expect(activeRows[0]?.textContent).toContain("read file");
-    expect(
-      activeRows[0]?.querySelector(".agent-running-shimmer"),
-    ).not.toBeNull();
+    const activeLabels = container.querySelectorAll(".agent-running-shimmer");
+    expect(activeLabels).toHaveLength(1);
+    expect(activeLabels[0]?.textContent).toContain("read file");
+    expect(activeLabels[0]?.closest(".agent-tool-call")).not.toBeNull();
   });
 
   it("shows a subtle long-running hint after a running tool stays active", () => {
@@ -410,6 +406,9 @@ describe("ToolCallDisplay native renderers", () => {
       expect(container.textContent).toContain(
         "Still working. Large updates can take a minute or two.",
       );
+      expect(
+        container.querySelector(".agent-tool-call > div:last-child")?.className,
+      ).toContain("pb-2");
 
       act(() => {
         root.render(

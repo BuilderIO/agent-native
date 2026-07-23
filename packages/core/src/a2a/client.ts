@@ -14,6 +14,8 @@ import type {
   Task,
 } from "./types.js";
 
+const DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS = 15_000;
+
 export class A2ATaskTimeoutError extends Error {
   readonly taskId: string;
   readonly lastTask: Task;
@@ -171,6 +173,7 @@ export class A2AClient {
   private async rpc(
     method: string,
     params: Record<string, unknown>,
+    options?: { requestTimeoutMs?: number },
   ): Promise<JsonRpcResponse> {
     const body: JsonRpcRequest = {
       jsonrpc: "2.0",
@@ -186,7 +189,12 @@ export class A2AClient {
       for (let i = 0; i < this.apiKeyAttempts.length; i++) {
         console.log(`[A2A Client] POST ${url} method=${method}`);
         const startTime = Date.now();
-        const res = await this.postJson(url, body, this.apiKeyAttempts[i]);
+        const res = await this.postJson(
+          url,
+          body,
+          this.apiKeyAttempts[i],
+          options?.requestTimeoutMs,
+        );
         console.log(
           `[A2A Client] Response: ${res.status} in ${Date.now() - startTime}ms`,
         );
@@ -278,8 +286,15 @@ export class A2AClient {
   /**
    * Poll for a task by id. Used in async mode after `send({ async: true })`.
    */
-  async getTask(taskId: string): Promise<Task> {
-    const response = await this.rpc("tasks/get", { id: taskId });
+  async getTask(
+    taskId: string,
+    opts?: { requestTimeoutMs?: number },
+  ): Promise<Task> {
+    const response = await this.rpc(
+      "tasks/get",
+      { id: taskId },
+      { requestTimeoutMs: opts?.requestTimeoutMs },
+    );
     if (response.error) {
       throw new Error(
         `A2A error (${response.error.code}): ${response.error.message}`,
@@ -392,9 +407,17 @@ export class A2AClient {
 
     let current = submitted;
     while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, pollMs));
+      const sleepMs = Math.min(pollMs, Math.max(0, deadline - Date.now()));
+      await new Promise((r) => setTimeout(r, sleepMs));
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
       try {
-        current = await this.getTask(submitted.id);
+        current = await this.getTask(submitted.id, {
+          requestTimeoutMs: Math.min(
+            this.requestTimeoutMs ?? DEFAULT_A2A_POLL_REQUEST_TIMEOUT_MS,
+            remainingMs,
+          ),
+        });
         opts?.onUpdate?.(current);
       } catch {
         // Transient fetch failure — keep polling until the deadline.
@@ -509,13 +532,12 @@ export class A2AClient {
     url: string,
     body: JsonRpcRequest,
     apiKey = this.apiKey,
+    requestTimeoutMs = this.requestTimeoutMs,
   ): Promise<Response> {
-    const controller = this.requestTimeoutMs
-      ? new AbortController()
-      : undefined;
+    const controller = requestTimeoutMs ? new AbortController() : undefined;
     const timer =
-      controller && this.requestTimeoutMs
-        ? setTimeout(() => controller.abort(), this.requestTimeoutMs)
+      controller && requestTimeoutMs
+        ? setTimeout(() => controller.abort(), requestTimeoutMs)
         : undefined;
     try {
       return await ssrfSafeFetch(

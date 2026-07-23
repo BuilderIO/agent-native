@@ -141,6 +141,64 @@ describe("A2AClient", () => {
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
   });
 
+  it("bounds a hung task-status request by the overall poll deadline", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      async (_url: string, init?: RequestInit): Promise<Response> => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-hung-poll");
+        }
+
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener(
+            "abort",
+            () => {
+              reject(
+                new DOMException("The operation was aborted", "AbortError"),
+              );
+            },
+            { once: true },
+          );
+        });
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new A2AClient("https://agent.test");
+    const result = client.sendAndWait(
+      { role: "user", parts: [{ type: "text", text: "hello" }] },
+      { timeoutMs: 5_000, pollIntervalMs: 1_000 },
+    );
+    const assertion = expect(result).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-hung-poll",
+      lastState: "working",
+      timeoutMs: 5_000,
+    });
+
+    const hasTaskRead = () =>
+      fetchMock.mock.calls.some(
+        ([, init]) =>
+          init?.method === "POST" &&
+          JSON.parse(String(init.body)).method === "tasks/get",
+      );
+    while (!hasTaskRead()) await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(5_000);
+    await assertion;
+    expect(hasTaskRead()).toBe(true);
+    expect(
+      fetchMock.mock.calls.find(
+        ([, init]) =>
+          init?.method === "POST" &&
+          JSON.parse(String(init.body)).method === "tasks/get",
+      )?.[1]?.signal,
+    ).toBeInstanceOf(AbortSignal);
+  });
+
   it("returns input-required without polling until timeout", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

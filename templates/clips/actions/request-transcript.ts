@@ -1376,67 +1376,68 @@ const requestTranscriptAction = defineAction({
         }
 
         if (!fullText) {
-          return failEmptyProviderTranscript({
-            db,
-            recordingId: args.recordingId,
-            ownerEmail,
-            providerName: "Builder",
-            now,
+          builderError = "Builder transcription returned no speech.";
+          await writeTranscriptCleanupState(args.recordingId, {
+            status: "builder-transcription-empty",
+            provider: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
+            failureReason: builderError,
           });
         }
 
-        await upsertTranscriptRow(db, {
-          recordingId: args.recordingId,
-          ownerEmail,
-          status: "ready",
-          failureReason: null,
-          language: builderResult.language ?? "en",
-          segmentsJson: JSON.stringify(normalizedTranscript.segments),
-          fullText,
-          now,
-        });
-        await writeAppState("refresh-signal", { ts: Date.now() });
-        await queueBrainExport(args.recordingId);
-        await clearBuilderCreditsExhausted();
+        if (fullText) {
+          await upsertTranscriptRow(db, {
+            recordingId: args.recordingId,
+            ownerEmail,
+            status: "ready",
+            failureReason: null,
+            language: builderResult.language ?? "en",
+            segmentsJson: JSON.stringify(normalizedTranscript.segments),
+            fullText,
+            now,
+          });
+          await writeAppState("refresh-signal", { ts: Date.now() });
+          await queueBrainExport(args.recordingId);
+          await clearBuilderCreditsExhausted();
 
-        // Re-read title fresh — `rec.title` was fetched before the 30+ s
-        // transcription and may be stale if the user renamed during that window.
-        const [freshRec] = await db
-          .select({
-            title: schema.recordings.title,
-            titleSource: schema.recordings.titleSource,
-            description: schema.recordings.description,
-          })
-          .from(schema.recordings)
-          .where(eq(schema.recordings.id, args.recordingId))
-          .limit(1);
-        if (freshRec) {
-          try {
-            await generateRecordingMetadata({
-              recordingId: args.recordingId,
-              title: freshRec.title,
-              titleSource: freshRec.titleSource,
-              description: freshRec.description,
-              transcriptText: fullText,
-            });
-          } catch (delegateErr) {
-            console.warn(
-              `[clips] automatic metadata generation failed for ${args.recordingId}:`,
-              (delegateErr as Error).message,
-            );
+          // Re-read title fresh — `rec.title` was fetched before the 30+ s
+          // transcription and may be stale if the user renamed during that window.
+          const [freshRec] = await db
+            .select({
+              title: schema.recordings.title,
+              titleSource: schema.recordings.titleSource,
+              description: schema.recordings.description,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, args.recordingId))
+            .limit(1);
+          if (freshRec) {
+            try {
+              await generateRecordingMetadata({
+                recordingId: args.recordingId,
+                title: freshRec.title,
+                titleSource: freshRec.titleSource,
+                description: freshRec.description,
+                transcriptText: fullText,
+              });
+            } catch (delegateErr) {
+              console.warn(
+                `[clips] automatic metadata generation failed for ${args.recordingId}:`,
+                (delegateErr as Error).message,
+              );
+            }
           }
-        }
 
-        const elapsedMs = Date.now() - startedAt;
-        console.log(
-          `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
-        );
-        return {
-          recordingId: args.recordingId,
-          status: "ready" as const,
-          segments: normalizedTranscript.segments.length,
-          provider: "builder",
-        };
+          const elapsedMs = Date.now() - startedAt;
+          console.log(
+            `Transcribed recording ${args.recordingId} via builder in ${elapsedMs}ms (${normalizedTranscript.segments.length} segments)`,
+          );
+          return {
+            recordingId: args.recordingId,
+            status: "ready" as const,
+            segments: normalizedTranscript.segments.length,
+            provider: "builder",
+          };
+        }
       } catch (err) {
         const reason = (err as Error).message;
         const details = serializeError(err);

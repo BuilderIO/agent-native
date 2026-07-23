@@ -134,11 +134,10 @@ export function ToolActivityPresentation({
         animateEntry && "agent-tool-call--entering",
       )}
       data-running={isRunning ? "true" : undefined}
-      data-active-tail={isActiveTail ? "true" : undefined}
     >
       {children}
       {isRunning && showLongRunningHint && (
-        <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
           Still working. Large updates can take a minute or two.
         </div>
       )}
