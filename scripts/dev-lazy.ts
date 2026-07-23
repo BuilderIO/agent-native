@@ -781,7 +781,7 @@ function probePort(port: number, timeoutMs = 1_000): Promise<boolean> {
   });
 }
 
-function probeHttpReady(
+export function probeHttpReady(
   app: Pick<TemplateApp, "id" | "port">,
   timeoutMs = 1_000,
 ): Promise<boolean> {
@@ -807,12 +807,11 @@ function probeHttpReady(
       },
       (res) => {
         res.resume();
-        // A 5xx here is Nitro's transient cold-start 503 ("Vite environment
-        // ... is unavailable") — the SSR entry is still importing, so the app
-        // is not ready. Only a non-5xx response means it can actually serve;
-        // otherwise we'd flip app.ready and proxy real traffic into a cold
-        // dev server (and the prewarm would "warm" nothing).
-        finish((res.statusCode ?? 500) < 500);
+        // Once the child can return headers, let the gateway proxy real traffic.
+        // Nitro's transient startup 503 contains a self-refreshing response;
+        // hiding it here would keep the browser on the gateway's Starting page
+        // and make the normal persistent-5xx recovery path unreachable.
+        finish(true);
       },
     );
     req.setTimeout(timeoutMs, () => finish(false));

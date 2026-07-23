@@ -13,7 +13,9 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _nitroStartupGate,
   _nitroStartupRecovery,
+  _nitroStaticImportGraphReady,
   agentNative,
   defineConfig,
   isFrameworkDevPath,
@@ -21,6 +23,83 @@ import {
 } from "./client.js";
 
 describe("Nitro dev startup recovery", () => {
+  it("waits for the static Nitro import graph and a short settle window", () => {
+    const dependency = {
+      id: "/app/server.ts",
+      importedModules: new Set(),
+      transformResult: null,
+    };
+    const entry = {
+      id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
+      importedModules: new Set([dependency]),
+      transformResult: { code: "entry" },
+    };
+    const environment = {
+      moduleGraph: {
+        idToModuleMap: new Map([
+          [entry.id, entry],
+          [dependency.id, dependency],
+        ]),
+      },
+    };
+
+    expect(_nitroStaticImportGraphReady(environment)).toBe(false);
+    dependency.transformResult = { code: "server" };
+    expect(_nitroStaticImportGraphReady(environment)).toBe(true);
+
+    let time = 0;
+    let middleware:
+      | ((req: unknown, res: unknown, next: () => void) => void)
+      | undefined;
+    _nitroStartupGate({ now: () => time, settleMs: 100 }).configureServer?.({
+      environments: { nitro: environment },
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+    const request = { headers: { accept: "text/html" }, method: "GET" };
+    const firstResponse = {
+      end: vi.fn(),
+      setHeader: vi.fn(),
+      statusCode: 200,
+    };
+    const next = vi.fn();
+
+    middleware?.(request, firstResponse, next);
+    expect(firstResponse.statusCode).toBe(503);
+    expect(next).not.toHaveBeenCalled();
+
+    time = 100;
+    middleware?.(
+      request,
+      { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+      next,
+    );
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("does not wait for dynamically imported Nitro modules", () => {
+    const dynamicDependency = {
+      id: "/app/lazy.ts",
+      importedModules: new Set(),
+      transformResult: null,
+    };
+    const entry = {
+      id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
+      importedModules: new Set([dynamicDependency]),
+      info: { dynamicallyImportedIds: [dynamicDependency.id] },
+      transformResult: { code: "entry" },
+    };
+
+    expect(
+      _nitroStaticImportGraphReady({
+        moduleGraph: { idToModuleMap: new Map([[entry.id, entry]]) },
+      }),
+    ).toBe(true);
+  });
+
   it("turns a transient document error into a quiet retry page", () => {
     let middleware:
       | ((
@@ -103,18 +182,23 @@ describe("Nitro dev startup recovery", () => {
     expect(next).toHaveBeenLastCalledWith(importError);
   });
 
-  it("registers recovery after Nitro's middleware", () => {
+  it("registers the startup gate before Nitro and recovery after it", () => {
     const plugins = flatPlugins(defineConfig().plugins);
-    const gateIndex = plugins.findIndex(
+    const startupGateIndex = plugins.findIndex(
+      (plugin) => plugin.name === "agent-native-nitro-startup-gate",
+    );
+    const recoveryIndex = plugins.findIndex(
       (plugin) => plugin.name === "agent-native-nitro-startup-recovery",
     );
     const nitroIndex = plugins.findIndex(
       (plugin) => plugin.name === "nitro:main",
     );
 
-    expect(gateIndex).toBeGreaterThanOrEqual(0);
-    expect(gateIndex).toBeGreaterThan(nitroIndex);
-    expect(plugins[gateIndex]?.enforce).toBeUndefined();
+    expect(startupGateIndex).toBeGreaterThanOrEqual(0);
+    expect(startupGateIndex).toBeLessThan(nitroIndex);
+    expect(plugins[startupGateIndex]?.enforce).toBe("pre");
+    expect(recoveryIndex).toBeGreaterThan(nitroIndex);
+    expect(plugins[recoveryIndex]?.enforce).toBeUndefined();
   });
 });
 

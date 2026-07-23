@@ -2329,86 +2329,145 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
   );
 }
 
+type NitroModuleNode = {
+  id: string | null;
+  importedModules: Set<NitroModuleNode>;
+  info?: { dynamicallyImportedIds?: readonly string[] };
+  ssrError?: Error | null;
+  transformResult: unknown | null;
+};
+
+type NitroModuleGraph = {
+  idToModuleMap: Map<string, NitroModuleNode>;
+};
+
+const NITRO_STARTUP_SETTLE_MS = 500;
+const NITRO_STARTUP_TIMEOUT_MS = 30_000;
+
+function nitroStaticImportGraphReady(environment: unknown): boolean {
+  const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
+    ?.moduleGraph;
+  if (!graph) return false;
+
+  const entry = [...graph.idToModuleMap.values()].find((module) =>
+    module.id
+      ?.replaceAll("\\", "/")
+      .endsWith("/nitro/dist/runtime/internal/vite/dev-entry.mjs"),
+  );
+  if (!entry) return false;
+
+  const seen = new Set<NitroModuleNode>();
+  const visit = (module: NitroModuleNode): boolean => {
+    if (seen.has(module)) return true;
+    seen.add(module);
+    if (module.ssrError) return true;
+    if (!module.transformResult) return false;
+
+    const dynamicImports = new Set(module.info?.dynamicallyImportedIds ?? []);
+    for (const dependency of module.importedModules) {
+      if (dependency.id && dynamicImports.has(dependency.id)) continue;
+      if (!visit(dependency)) return false;
+    }
+    return true;
+  };
+
+  return visit(entry);
+}
+
+function isHtmlDocumentRequest(req: IncomingMessage): boolean {
+  return (
+    (req.method === "GET" || req.method === "HEAD") &&
+    (req.headers.accept ?? "").includes("text/html")
+  );
+}
+
+function sendNitroStartingResponse(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  res.statusCode = 503;
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("retry-after", "1");
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(
+    '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+  );
+}
+
+function nitroStartupGate(
+  options: {
+    now?: () => number;
+    settleMs?: number;
+    timeoutMs?: number;
+  } = {},
+): Plugin {
+  return {
+    name: "agent-native-nitro-startup-gate",
+    apply: "serve",
+    enforce: "pre",
+    configureServer(server) {
+      const now = options.now ?? Date.now;
+      const settleMs = options.settleMs ?? NITRO_STARTUP_SETTLE_MS;
+      const timeoutMs = options.timeoutMs ?? NITRO_STARTUP_TIMEOUT_MS;
+      const startedAt = now();
+      let graphReadyAt: number | undefined;
+      let startupComplete = false;
+
+      server.middlewares.use((req, res, next) => {
+        if (startupComplete || !isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        const timestamp = now();
+        if (timestamp - startedAt >= timeoutMs) {
+          startupComplete = true;
+          next();
+          return;
+        }
+
+        if (nitroStaticImportGraphReady(server.environments?.nitro)) {
+          graphReadyAt ??= timestamp;
+          if (timestamp - graphReadyAt >= settleMs) {
+            startupComplete = true;
+            next();
+            return;
+          }
+        } else {
+          graphReadyAt = undefined;
+        }
+
+        sendNitroStartingResponse(req, res);
+      });
+    },
+  };
+}
+
 function nitroStartupRecovery(): Plugin {
   return {
     name: "agent-native-nitro-startup-recovery",
     apply: "serve",
     configureServer(server) {
-      if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
-        const logState = () => {
-          console.log(
-            server.middlewares.stack.map(
-              (entry) => (entry.handle as { name?: string }).name,
-            ),
-          );
-          console.log(
-            "nitro input",
-            server.environments?.nitro?.config.build?.rollupOptions?.input,
-          );
-          console.log(
-            "nitro modules",
-            [
-              ...((
-                server.environments?.nitro?.moduleGraph as unknown as {
-                  idToModuleMap?: Map<
-                    string,
-                    {
-                      transformResult?: unknown;
-                      lastInvalidationTimestamp?: number;
-                    }
-                  >;
-                }
-              )?.idToModuleMap?.entries() ?? []),
-            ]
-              .slice(0, 20)
-              .map(([id, mod]) => ({
-                id,
-                transformed: Boolean(mod.transformResult),
-              })),
-          );
-        };
-        for (const delay of [0, 1_000, 3_000, 6_000, 10_000]) {
-          setTimeout(logState, delay);
-        }
-      }
       server.middlewares.use(function nitroStartupErrorRecovery(
         error: unknown,
         req: IncomingMessage,
         res: ServerResponse,
         next: (error?: unknown) => void,
       ) {
-        const accept = req.headers.accept ?? "";
-        if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
-          console.log("startup recovery", {
-            accept,
-            headersSent: res.headersSent,
-            matches: isNitroEnvironmentUnavailable(error),
-            method: req.method,
-            name: (error as Error)?.name,
-            status: (error as { status?: number })?.status,
-          });
-        }
         if (
           !isNitroEnvironmentUnavailable(error) ||
-          (req.method !== "GET" && req.method !== "HEAD") ||
-          !accept.includes("text/html") ||
+          !isHtmlDocumentRequest(req) ||
           res.headersSent
         ) {
           next(error);
           return;
         }
 
-        res.statusCode = 503;
-        res.setHeader("cache-control", "no-store");
-        res.setHeader("content-type", "text/html; charset=utf-8");
-        res.setHeader("retry-after", "1");
-        if (req.method === "HEAD") {
-          res.end();
-          return;
-        }
-        res.end(
-          '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
-        );
+        sendNitroStartingResponse(req, res);
       });
     },
   };
@@ -2792,6 +2851,7 @@ function createAgentNativePlugins(
     embedDevFrameHeaders(),
     baseRedirectGuard(),
     portExposer(),
+    nitroStartupGate(),
     silenceConnectionResets(),
     rolldownInputFix(),
     // Nitro Vite plugin for dev-mode API route serving and HMR.
@@ -3198,6 +3258,8 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
+  nitroStaticImportGraphReady as _nitroStaticImportGraphReady,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };
