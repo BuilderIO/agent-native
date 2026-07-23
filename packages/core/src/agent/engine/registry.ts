@@ -96,6 +96,33 @@ function packageNameFromInstallSpecifier(specifier: string): string | null {
   return versionIndex === -1 ? trimmed : trimmed.slice(0, versionIndex);
 }
 
+/**
+ * True when running inside a bundled serverless function (Vercel/Netlify/Nitro,
+ * AWS Lambda, Cloud Run, …). In those runtimes optional dependencies are inlined
+ * into the function bundle and are NOT resolvable via `require.resolve`, even
+ * though a dynamic `import()` of them works.
+ */
+function isBundledServerlessRuntime(): boolean {
+  const env = process.env;
+  if (
+    env.LAMBDA_TASK_ROOT ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    env.VERCEL ||
+    env.NETLIFY ||
+    env.FUNCTION_TARGET ||
+    env.K_SERVICE
+  ) {
+    return true;
+  }
+  try {
+    return /\/var\/task\/|[\\/](?:_libs|\.vercel|\.netlify)[\\/]/.test(
+      import.meta.url ?? "",
+    );
+  } catch {
+    return false;
+  }
+}
+
 function canResolvePackage(packageName: string): boolean {
   const cached = _packageAvailabilityCache.get(packageName);
   if (cached !== undefined) return cached;
@@ -104,7 +131,15 @@ function canResolvePackage(packageName: string): boolean {
     require.resolve(packageName);
     available = true;
   } catch {
-    available = false;
+    // Bundled serverless runtimes (e.g. Nitro on Vercel/Netlify) inline optional
+    // provider packages into the function bundle, so require.resolve cannot find
+    // them even though the dynamic `import()` the engine actually uses to load
+    // them works. Treat them as available there and let the engine's own import
+    // be the real gate — it already fails with a clear "pnpm add …" message when
+    // the package is genuinely missing. Without this, every engine-usability
+    // gate rejects the AI-SDK engines at runtime and the agent silently falls
+    // back to the native Anthropic engine.
+    available = isBundledServerlessRuntime();
   }
   _packageAvailabilityCache.set(packageName, available);
   return available;
@@ -197,10 +232,23 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
-  return (
-    findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
-    engine.defaultModel
+  const versionMatch = findLatestSupportedVersionMatch(
+    candidate,
+    engine.supportedModels,
   );
+  if (versionMatch) return versionMatch;
+
+  // The OpenAI engine is commonly pointed at an OpenAI-compatible gateway
+  // (OPENAI_BASE_URL, e.g. Ollama Cloud or LiteLLM) whose model IDs aren't in
+  // the built-in OpenAI catalog. The live engine instance preserves those via
+  // preserveCustomModels, but the sync registry entry passed here (from
+  // set-agent-engine / list-agent-engines) doesn't carry it — so keep an
+  // unrecognized OpenAI model as-is instead of silently replacing it with the
+  // engine default (which would revert e.g. an Ollama model to gpt-5.6-sol on
+  // both save and read).
+  if (engine.name === "ai-sdk:openai") return candidate;
+
+  return engine.defaultModel;
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
