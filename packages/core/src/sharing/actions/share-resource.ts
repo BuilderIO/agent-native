@@ -122,6 +122,44 @@ export function isSyntheticQaEmail(email: string): boolean {
   );
 }
 
+const USER_PROFILE_LOOKUP_SQL =
+  'SELECT name, image FROM "user" WHERE lower(email) = ?';
+
+async function getUserProfileByEmail(
+  email: string,
+): Promise<{ name: string | null; image: string | null }> {
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: USER_PROFILE_LOOKUP_SQL,
+      args: [email.trim().toLowerCase()],
+    });
+    const row = rows[0] as { name?: string; image?: string } | undefined;
+    return {
+      name: row?.name?.trim() || null,
+      image: row?.image?.trim() || null,
+    };
+  } catch {
+    return { name: null, image: null };
+  }
+}
+
+/**
+ * Overrides only the display name on a `"Name <addr@example.com>"` from
+ * string, keeping the verified email address untouched. Returns undefined
+ * when there's no base from-address to override (the caller then falls back
+ * to the global default, which we can't safely rewrite without knowing its
+ * address).
+ */
+function withSenderDisplayName(
+  fromAddress: string | undefined,
+  displayName: string,
+): string | undefined {
+  if (!fromAddress) return undefined;
+  const match = fromAddress.match(/<([^>]+)>/);
+  const email = match ? match[1] : fromAddress;
+  return `"${displayName.replace(/"/g, "'")}" <${email}>`;
+}
+
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
@@ -300,7 +338,18 @@ async function sendShareNotificationEmail(params: {
     );
     const appName =
       process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
-    const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+    const actorProfile = await getUserProfileByEmail(actor);
+    const actorDisplayName = actorProfile.name || actor;
+    const senderDisplayName = actorProfile.name
+      ? `${actorProfile.name} (via ${reg.logoLabel ?? appName})`
+      : reg.logoLabel
+        ? `Agent-Native ${reg.logoLabel}`
+        : appName;
+    const fromAddress = withSenderDisplayName(
+      reg.fromAddress,
+      senderDisplayName,
+    );
+    const subject = `${actorDisplayName} shared "${resourceTitle}" with you on ${appName}`;
     const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
     const logoUrl = reg.logoPath
       ? new URL(appPath(reg.logoPath), appUrl).toString()
@@ -310,17 +359,20 @@ async function sendShareNotificationEmail(params: {
           recipientEmail: principalId,
         })
       : undefined;
+    const preheader = resource
+      ? ((await reg.getPreheader?.(resource)) ?? subject)
+      : subject;
     const messageId = shareNotificationMessageId(
       resourceType,
       resourceId,
       principalId,
     );
     const { html, text } = renderEmail({
-      preheader: subject,
+      preheader,
       logoUrl,
       logoLabel: reg.logoLabel,
       imageUrl,
-      heading: `${actor} shared "${resourceTitle}" with you`,
+      heading: `${actorDisplayName} shared "${resourceTitle}" with you`,
       paragraphs: [],
       cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
       secondaryCta,
@@ -331,14 +383,14 @@ async function sendShareNotificationEmail(params: {
           }
         : undefined,
       tagline: secondaryCta?.tagline,
-      footer: `Just reply to this email if you want to get back to ${actor} directly.`,
+      footer: `Just reply to this email if you want to get back to ${actorDisplayName} directly.`,
     });
     await sendEmail({
       to: principalId,
       subject,
       html,
       text,
-      from: reg.fromAddress,
+      from: fromAddress ?? reg.fromAddress,
       replyTo: actor,
       messageId,
     });

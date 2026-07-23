@@ -79,6 +79,15 @@ export interface ShareableResourceRegistration {
     | undefined
     | Promise<{ label: string; url: string; tagline?: string } | undefined>;
   /**
+   * Optional 80-120 character preheader summarizing the specific resource
+   * (e.g. a video's actual content) for the "shared with you" notification
+   * email. Shown by email clients next to the subject line in the inbox
+   * list. Falls back to the generic subject line when omitted.
+   */
+  getPreheader?: (
+    resource: any,
+  ) => string | undefined | Promise<string | undefined>;
+  /**
    * Drizzle DB accessor from the template's server/db/index.ts. Required —
    * the framework-level share actions and access helpers call this to reach
    * the right DB instance (schema is template-specific).
