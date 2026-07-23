@@ -21,7 +21,7 @@
  *   <AgentChatSurface mode="page" className="h-screen" />
  */
 
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import {
   IconMessageCircle,
   IconMessageDots,
@@ -58,13 +58,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-  normalizeTooltipText,
-} from "./components/ui/tooltip.js";
+import { normalizeTooltipText } from "./components/ui/tooltip.js";
 import { ErrorReportActions } from "./ErrorReportActions.js";
 import { FeedbackButton, resolveFeedbackUrl } from "./FeedbackButton.js";
 import { RunsTrayMenuItem } from "./progress/RunsTray.js";
@@ -276,24 +270,16 @@ function IconTooltip({
   children,
 }: {
   content: string;
-  children: React.ReactNode;
+  children: React.ReactElement;
 }) {
   return (
-    <TooltipPrimitive.Provider delayDuration={250}>
-      <TooltipPrimitive.Root>
-        <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
-        <TooltipPrimitive.Portal>
-          <TooltipPrimitive.Content
-            side="bottom"
-            sideOffset={8}
-            className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
-          >
-            {normalizeTooltipText(content)}
-            <TooltipPrimitive.Arrow className="fill-popover" />
-          </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
-      </TooltipPrimitive.Root>
-    </TooltipPrimitive.Provider>
+    <DesignSystemTooltip
+      trigger={children}
+      content={normalizeTooltipText(content)}
+      placement="bottom"
+      delayMs={250}
+      className="z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md"
+    />
   );
 }
 
@@ -1070,73 +1056,75 @@ function AgentPanelInner({
 
   const renderModeButtons = useCallback(
     (activeMode: PanelMode) => (
-      <TooltipProvider delayDuration={200}>
-        <div className="flex shrink-0 items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
+      <div className="flex shrink-0 items-center gap-1">
+        <DesignSystemTooltip
+          trigger={
+            <button
+              onClick={() => switchMode("chat")}
+              aria-label={t("agentPanel.chatMode")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                activeMode === "chat"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              style={AGENT_PANEL_CONTROL_STYLE}
+            >
+              <IconMessageCircle size={14} />
+              {t("agentPanel.chat")}
+            </button>
+          }
+          content={t("agentPanel.chatMode")}
+          delayMs={200}
+        />
+        {showCliMode && (
+          <DesignSystemTooltip
+            trigger={
               <button
-                onClick={() => switchMode("chat")}
-                aria-label={t("agentPanel.chatMode")}
+                onClick={() => switchMode("cli")}
+                aria-label={t("agentPanel.cliTerminalMode")}
                 className={cn(
                   "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-                  activeMode === "chat"
+                  activeMode === "cli"
                     ? "bg-accent text-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
                 style={AGENT_PANEL_CONTROL_STYLE}
               >
-                <IconMessageCircle size={14} />
-                {t("agentPanel.chat")}
+                <IconTerminal2 size={14} />
+                {t("agentPanel.cli")}
               </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("agentPanel.chatMode")}</TooltipContent>
-          </Tooltip>
-          {showCliMode && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => switchMode("cli")}
-                  aria-label={t("agentPanel.cliTerminalMode")}
-                  className={cn(
-                    "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-                    activeMode === "cli"
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                  style={AGENT_PANEL_CONTROL_STYLE}
-                >
-                  <IconTerminal2 size={14} />
-                  {t("agentPanel.cli")}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-[260px]">
-                {codeAccessEnabled
-                  ? t("agentPanel.cliTerminalMode")
-                  : codeUnavailableDescription}
-              </TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => switchMode("resources")}
-                aria-label={t("agentPanel.workspaceMode")}
-                className={cn(
-                  "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
-                  activeMode === "resources"
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-                style={AGENT_PANEL_CONTROL_STYLE}
-              >
-                <IconLayoutGrid size={14} />
-                {t("agentPanel.workspace")}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("agentPanel.workspaceMode")}</TooltipContent>
-          </Tooltip>
-        </div>
-      </TooltipProvider>
+            }
+            content={
+              codeAccessEnabled
+                ? t("agentPanel.cliTerminalMode")
+                : codeUnavailableDescription
+            }
+            className="max-w-[260px]"
+            delayMs={200}
+          />
+        )}
+        <DesignSystemTooltip
+          trigger={
+            <button
+              onClick={() => switchMode("resources")}
+              aria-label={t("agentPanel.workspaceMode")}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-2 py-1 text-[12px] leading-none",
+                activeMode === "resources"
+                  ? "bg-accent text-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+              style={AGENT_PANEL_CONTROL_STYLE}
+            >
+              <IconLayoutGrid size={14} />
+              {t("agentPanel.workspace")}
+            </button>
+          }
+          content={t("agentPanel.workspaceMode")}
+          delayMs={200}
+        />
+      </div>
     ),
     [codeAccessEnabled, codeUnavailableDescription, showCliMode, t],
   );
@@ -2624,11 +2612,9 @@ export function AgentPanel(props: AgentPanelProps) {
     setResetKey((key) => key + 1);
   }, [props.storageKey]);
   return (
-    <TooltipProvider delayDuration={200}>
-      <AgentPanelErrorBoundary onReset={resetPanel}>
-        <AgentPanelInner key={resetKey} {...props} />
-      </AgentPanelErrorBoundary>
-    </TooltipProvider>
+    <AgentPanelErrorBoundary onReset={resetPanel}>
+      <AgentPanelInner key={resetKey} {...props} />
+    </AgentPanelErrorBoundary>
   );
 }
 
@@ -2687,7 +2673,7 @@ export function AgentChatSurface({
   const defaultShowPageNewChatButton =
     shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
-  return (
+  const panel = (
     <AgentPanel
       {...props}
       defaultMode={defaultMode}
@@ -2710,6 +2696,14 @@ export function AgentChatSurface({
         chatViewTransition ? getAgentChatViewTransitionStyle(style) : style
       }
     />
+  );
+
+  if (!pageMode) return panel;
+  return (
+    <>
+      <URLSync browserTabId={props.browserTabId} />
+      {panel}
+    </>
   );
 }
 
@@ -3457,25 +3451,22 @@ export function AgentToggleButton({ className }: { className?: string }) {
   // own close button.
   if (open) return null;
   return (
-    <TooltipProvider delayDuration={200}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Toggle agent"
-            onClick={() =>
-              window.dispatchEvent(new Event("agent-panel:toggle"))
-            }
-            className={cn(
-              "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              className,
-            )}
-          >
-            <IconMessageDots size={20} aria-hidden />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>Toggle agent</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <DesignSystemTooltip
+      trigger={
+        <button
+          type="button"
+          aria-label="Toggle agent"
+          onClick={() => window.dispatchEvent(new Event("agent-panel:toggle"))}
+          className={cn(
+            "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            className,
+          )}
+        >
+          <IconMessageDots size={20} aria-hidden />
+        </button>
+      }
+      content="Toggle agent"
+      delayMs={200}
+    />
   );
 }

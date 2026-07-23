@@ -490,14 +490,17 @@ function ComposerPlusMenuFull({
       <Popover open={open} onOpenChange={setOpen}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <IconPlus className="h-4 w-4" />
-              </button>
-            </PopoverTrigger>
+            <span className="inline-flex shrink-0">
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Add..."
+                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <IconPlus className="h-4 w-4" />
+                </button>
+              </PopoverTrigger>
+            </span>
           </TooltipTrigger>
           <TooltipContent>Add...</TooltipContent>
         </Tooltip>

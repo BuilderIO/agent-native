@@ -951,6 +951,26 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getRealtimeClientConfigScript() {
+  // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
+  // server/sentry-config.ts (worker bundles a string copy; it can't import it).
+  // Fail closed: require BOTH hosted transport AND an explicit gateway URL — no
+  // production default, since this ships into the CDN-cached shell.
+  const env = globalThis.process?.env || {};
+  if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
+    return null;
+  }
+  const gatewayBaseUrl = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  if (!gatewayBaseUrl) return null;
+  const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
+  return (
+    '<script data-agent-native-realtime-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -1102,7 +1122,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
 }
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -1129,7 +1152,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(request, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,
@@ -1782,7 +1805,8 @@ async function buildCloudflarePages() {
   // fails: context-xray token counts fall back to char/4 estimates and the
   // OG image route falls back to SVG.
   const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
-    (p) => !Object.hasOwn(CLOUDFLARE_WORKER_STUB_MODULES, p),
+    (p) =>
+      !Object.prototype.hasOwnProperty.call(CLOUDFLARE_WORKER_STUB_MODULES, p),
   ).map((p) => `--external:${p}`);
 
   execFileSync(

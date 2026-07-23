@@ -16,7 +16,7 @@ import {
   IconMenu2,
   IconX,
   IconMessageCircle,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconForms,
   IconLayoutSidebarLeftCollapse,
@@ -289,7 +289,7 @@ export function Sidebar() {
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                <IconBrain className="h-4 w-4" />
+                <IconHierarchy2 className="h-4 w-4" />
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -445,7 +445,7 @@ export function Sidebar() {
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
         >
-          <IconBrain size={14} className="shrink-0" />
+          <IconHierarchy2 size={14} className="shrink-0" />
           <span>{t("navigation.agent")}</span>
         </Link>
 

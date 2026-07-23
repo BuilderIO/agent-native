@@ -24,6 +24,10 @@ registerShareableResource({
   },
   getDb,
   publicAccessRole: publicDesignAccessRole,
+  // A design remains owned by its creator when they switch active orgs. The
+  // design URL and owner identity are the authority for this resource; org
+  // membership still scopes org visibility and explicit shares.
+  ownerAccessIgnoresOrg: true,
 });
 
 registerShareableResource({

@@ -299,6 +299,7 @@ export default defineAction({
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
         const { html, text } = renderEmail({
+          brandName: appName,
           preheader: subject,
           heading: "You've been given access",
           paragraphs: [

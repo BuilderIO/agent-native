@@ -69,6 +69,15 @@ export async function getActiveFileUploadProviderForRequest(): Promise<FileUploa
   if (builderFileUploadProvider.isConfigured()) {
     return builderFileUploadProvider;
   }
+  try {
+    const { resolveHasBuilderPrivateKey } =
+      await import("../server/credential-provider.js");
+    if (await resolveHasBuilderPrivateKey()) {
+      return builderFileUploadProvider;
+    }
+  } catch {
+    // Treat failed scoped credential lookups as unavailable.
+  }
   return null;
 }
 

@@ -484,6 +484,75 @@ export function createRealtimeVoiceGreetingStarter(
   };
 }
 
+export interface RealtimeVoiceResponseCoordinator {
+  request: (event?: Record<string, unknown>) => void;
+  handleEvent: (event: RealtimeServerEvent) => void;
+  handleError: (message?: string) => boolean;
+  reset: () => void;
+}
+
+export function createRealtimeVoiceResponseCoordinator(
+  send: (event: Record<string, unknown>) => void,
+): RealtimeVoiceResponseCoordinator {
+  let active = false;
+  let requestInFlight = false;
+  let pending: Record<string, unknown> | undefined;
+
+  const flush = () => {
+    if (active || requestInFlight || !pending) return;
+    const event = pending;
+    pending = undefined;
+    requestInFlight = true;
+    send(event);
+  };
+
+  return {
+    request(event = { type: "response.create" }) {
+      pending = event;
+      flush();
+    },
+    handleEvent(event) {
+      if (event.type === "response.created") {
+        active = true;
+        requestInFlight = false;
+        return;
+      }
+      if (
+        event.type === "response.done" ||
+        event.type === "response.cancelled" ||
+        event.type === "response.failed"
+      ) {
+        active = false;
+        requestInFlight = false;
+        const response = event.response;
+        const status =
+          response && typeof response === "object"
+            ? (response as { status?: unknown }).status
+            : undefined;
+        if (event.type === "response.failed" || status === "failed") {
+          pending = undefined;
+          return;
+        }
+        flush();
+      }
+    },
+    handleError(message) {
+      if (!message || !/active response.*in progress/i.test(message)) {
+        return false;
+      }
+      pending ??= { type: "response.create" };
+      requestInFlight = false;
+      active = true;
+      return true;
+    },
+    reset() {
+      active = false;
+      requestInFlight = false;
+      pending = undefined;
+    },
+  };
+}
+
 /**
  * Voice mode owns the chat only temporarily. Restore the captured transcript
  * when it is still the user's active thread (or the chat has no active thread)
@@ -949,9 +1018,28 @@ export function extractRealtimeVoiceFunctionCalls(
       },
     ];
   }
+  if (event.type === "response.output_item.done") {
+    const item = event.item;
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    if (record.type !== "function_call") return [];
+    const name = typeof record.name === "string" ? record.name : "";
+    const callId = typeof record.call_id === "string" ? record.call_id : "";
+    if (!name || !callId) return [];
+    return [
+      {
+        name,
+        callId,
+        argumentsText:
+          typeof record.arguments === "string" ? record.arguments : "{}",
+      },
+    ];
+  }
   if (event.type !== "response.done") return [];
   const response = event.response;
   if (!response || typeof response !== "object") return [];
+  const status = (response as { status?: unknown }).status;
+  if (status !== undefined && status !== "completed") return [];
   const output = (response as { output?: unknown }).output;
   if (!Array.isArray(output)) return [];
   return output.flatMap((item) => {
@@ -1141,12 +1229,23 @@ function useRealtimeVoiceModeController(
   const preferencesHydratedRef = useRef(false);
   const preferencesEditedRef = useRef(false);
   const preferenceWriteChainRef = useRef<Promise<void>>(Promise.resolve());
-  const toolManifestCoordinator = useMemo(
+  const responseCoordinator = useMemo(
     () =>
-      createRealtimeVoiceToolManifestCoordinator((event) => {
+      createRealtimeVoiceResponseCoordinator((event) => {
         sendDataChannelEvent(channelRef.current, event);
       }),
     [],
+  );
+  const toolManifestCoordinator = useMemo(
+    () =>
+      createRealtimeVoiceToolManifestCoordinator((event) => {
+        if (event.type === "response.create") {
+          responseCoordinator.request(event);
+        } else {
+          sendDataChannelEvent(channelRef.current, event);
+        }
+      }),
+    [responseCoordinator],
   );
   const switchMicrophoneRef = useRef<
     (deviceId: string, force?: boolean) => Promise<void>
@@ -1461,8 +1560,9 @@ function useRealtimeVoiceModeController(
     if (audioContext) void audioContext.close().catch(() => undefined);
     audioLevels.reset();
     handledCallsRef.current.clear();
+    responseCoordinator.reset();
     toolManifestCoordinator.reset();
-  }, [audioLevels, toolManifestCoordinator]);
+  }, [audioLevels, responseCoordinator, toolManifestCoordinator]);
 
   const fail = useCallback(
     (message: string, options?: { openKeySettings?: boolean }) => {
@@ -1537,13 +1637,14 @@ function useRealtimeVoiceModeController(
   const greetingStarter = useMemo(
     () =>
       createRealtimeVoiceGreetingStarter((event) => {
-        sendDataChannelEvent(channelRef.current, event);
+        responseCoordinator.request(event);
       }),
-    [],
+    [responseCoordinator],
   );
 
   const handleServerEvent = useCallback(
     (event: RealtimeServerEvent) => {
+      responseCoordinator.handleEvent(event);
       transcriptSequencer.handle(event);
       const sessionTools = extractRealtimeVoiceSessionTools(event);
       if (sessionTools) toolManifestCoordinator.setSessionTools(sessionTools);
@@ -1562,6 +1663,7 @@ function useRealtimeVoiceModeController(
         transition("listening");
       } else if (event.type === "input_audio_buffer.speech_stopped") {
         transition("working");
+        responseCoordinator.request();
       } else if (event.type === "response.created") {
         // From this point onward the response is committed to audio output, so
         // changing voices risks violating Realtime's per-session voice lock.
@@ -1593,12 +1695,20 @@ function useRealtimeVoiceModeController(
             ? (response as { status?: unknown }).status
             : undefined;
         if (status === "failed") {
-          fail(
-            copy?.errors.responseFailed ??
-              "OpenAI could not complete the voice response.",
-          );
+          transportGenerationRef.current += 1;
+          handledCallsRef.current.clear();
+          responseCoordinator.reset();
+          toolManifestCoordinator.reset();
+          transition("listening");
           return;
         }
+      } else if (event.type === "response.failed") {
+        transportGenerationRef.current += 1;
+        handledCallsRef.current.clear();
+        responseCoordinator.reset();
+        toolManifestCoordinator.reset();
+        transition("listening");
+        return;
       } else if (event.type === "error") {
         const detail = event.error;
         const message =
@@ -1617,6 +1727,10 @@ function useRealtimeVoiceModeController(
             message,
           )
         ) {
+          return;
+        }
+        if (responseCoordinator.handleError(message)) {
+          transition("working");
           return;
         }
         fail(
@@ -1641,6 +1755,7 @@ function useRealtimeVoiceModeController(
       syncAppState,
       transcriptSequencer,
       transition,
+      responseCoordinator,
       toolManifestCoordinator,
       updateLivePreferences,
     ],

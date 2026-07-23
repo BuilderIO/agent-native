@@ -1,3 +1,7 @@
+import {
+  DASHBOARD_REPORT_READY_TIMEOUT_MS,
+  FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+} from "@shared/dashboard-report-timeouts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +17,10 @@ vi.mock("./cost-tracker", () => ({
   addBytesProcessed: mocks.addBytesProcessed,
 }));
 
-import { executeSqlQuery } from "./sql-query";
+import {
+  DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+  executeSqlQuery,
+} from "./sql-query";
 
 describe("executeSqlQuery", () => {
   beforeEach(() => {
@@ -55,5 +62,29 @@ describe("executeSqlQuery", () => {
       { signal: controller.signal },
     );
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
+  });
+
+  it("ends report screenshot panel actions before the capture readiness deadline", async () => {
+    const controller = new AbortController();
+    mocks.callAction.mockResolvedValue({ rows: [] });
+
+    await executeSqlQuery("SELECT 1", "first-party", controller.signal, {
+      reportScreenshot: true,
+    });
+
+    expect(FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS).toBeLessThan(
+      DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+    );
+    expect(DASHBOARD_REPORT_ACTION_TIMEOUT_MS).toBeLessThan(
+      DASHBOARD_REPORT_READY_TIMEOUT_MS,
+    );
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "query-dashboard-panel",
+      { query: "SELECT 1", source: "first-party" },
+      {
+        signal: controller.signal,
+        timeoutMs: DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+      },
+    );
   });
 });

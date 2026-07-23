@@ -26,6 +26,14 @@ vi.mock("./schema.js", () => ({
 import "./index.js";
 
 describe("design share registration", () => {
+  it("keeps owners editable after switching active organizations", () => {
+    const registration = mocks.registerShareableResource.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.type === "design");
+
+    expect(registration?.ownerAccessIgnoresOrg).toBe(true);
+  });
+
   it("never upgrades a public loopback design above viewer", () => {
     const registration = mocks.registerShareableResource.mock.calls
       .map(([value]) => value)
