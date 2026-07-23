@@ -9,6 +9,7 @@ import {
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  AccountSettingsCard,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -1549,7 +1550,7 @@ export function SettingsPage() {
   );
 
   const validSectionIds = useMemo(() => {
-    const ids = new Set<string>(["general", "team", "whats-new"]);
+    const ids = new Set<string>(["general", "account", "team", "whats-new"]);
     for (const tab of extraTabs) ids.add(tab.id);
     return ids;
   }, [extraTabs]);
@@ -1578,6 +1579,7 @@ export function SettingsPage() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       className="flex-1"
       generalLabel={t("settings.general")}
       teamLabel={t("settings.team")}

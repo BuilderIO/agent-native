@@ -175,7 +175,7 @@ function BrainChatsSection() {
   }
 
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
+    <div className="mt-2 ms-4">
       <ChatHistoryRail
         items={chatItems}
         activeId={activeThreadId}

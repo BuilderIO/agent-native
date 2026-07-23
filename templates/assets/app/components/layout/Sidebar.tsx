@@ -240,7 +240,7 @@ function AssetsChatsSection() {
   }
 
   return (
-    <div className="mt-2 border-s border-border/70 ps-3">
+    <div className="mt-2 ms-4">
       <ChatHistoryRail
         items={chatItems}
         activeId={displayedActiveThreadId}
