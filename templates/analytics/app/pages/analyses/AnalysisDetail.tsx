@@ -1,4 +1,5 @@
 import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   callAction,
   useActionMutation,
@@ -18,7 +19,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import { Link, useNavigate } from "react-router";
 
@@ -168,6 +169,11 @@ export default function AnalysisDetail() {
     navigate("/analyses");
   };
 
+  const analysisShareUrl = useMemo(() => {
+    if (!analysis?.id || typeof window === "undefined") return undefined;
+    return window.location.origin + appPath("/analyses/" + analysis.id);
+  }, [analysis?.id]);
+
   useSetPageTitle(
     analysis ? (
       <h1 className="text-lg font-semibold tracking-tight truncate">
@@ -184,6 +190,7 @@ export default function AnalysisDetail() {
           resourceId={analysis.id}
           resourceTitle={analysis.name}
           variant="compact"
+          shareUrl={analysisShareUrl}
         />
         <Button
           variant="outline"
