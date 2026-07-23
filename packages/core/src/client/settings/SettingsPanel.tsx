@@ -850,7 +850,6 @@ function LLMSectionInner({
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -1457,7 +1456,6 @@ function AppModelDefaultsSectionInner({
   onToggle?: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
-  const t = useT();
   const [settings, setSettings] = useState<AppModelDefaultsResponse | null>(
     null,
   );
