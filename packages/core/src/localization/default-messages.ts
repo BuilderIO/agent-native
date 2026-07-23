@@ -18,6 +18,7 @@ const messages = {
   },
   settings: {
     title: "Settings",
+    pageTitle: "Settings",
     description: "Language and workspace preferences for this app.",
     languageTitle: "Language",
     languageDescription:
@@ -337,6 +338,12 @@ const messages = {
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
     connectionUnavailable: "Unable to check AI connection. Click to retry.",
+    delegatedAgent: {
+      asking: "Asking {{name}}...",
+      asked: "Asked {{name}}",
+      error: "Error asking {{name}}",
+      elapsed: "{{duration}} elapsed",
+    },
     voiceMode: {
       entryButtonLabel: "Use microphone",
       promptTitle: "Use your voice",
@@ -806,7 +813,7 @@ const messages = {
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
-    connectWithOAuth: "Connect with OAuth",
+    connectWithOAuth: "Connect",
     useApiToken: "Use API token",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:

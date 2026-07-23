@@ -27,7 +27,6 @@ import {
   IconEyeOff,
   IconBolt,
   IconGauge,
-  IconUserCircle,
   IconApps,
   IconUsersGroup,
 } from "@tabler/icons-react";
@@ -40,10 +39,9 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import { Link } from "react-router";
+import { Link, Navigate } from "react-router";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
-import type { UserProfile } from "../../user-profile/shared.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
@@ -55,14 +53,8 @@ import {
 import { useT } from "../i18n.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
-import {
-  useActionMutation,
-  useActionQuery,
-  callAction,
-} from "../use-action.js";
-import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
+import { callAction } from "../use-action.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 import {
   AGENT_SETTINGS_SECTIONS,
@@ -563,6 +555,7 @@ function UseBuilderCard({
 // ─── Manual setup card ──────────────────────────────────────────────────────
 
 function ManualSetupCard({
+  id,
   hint,
   docsUrl,
   docsLabel = "Read the docs",
@@ -570,6 +563,7 @@ function ManualSetupCard({
   dim,
   sourceBadge,
 }: {
+  id?: string;
   hint?: string;
   docsUrl?: string;
   docsLabel?: string;
@@ -583,6 +577,7 @@ function ManualSetupCard({
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
   return (
     <div
+      id={id}
       className={cn(
         "rounded-md border border-border",
         isPage ? "px-3.5 py-3" : "px-2.5 py-2",
@@ -835,6 +830,7 @@ function LLMSectionInner({
   onToggle?: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
+  const t = useT();
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
@@ -850,6 +846,7 @@ function LLMSectionInner({
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -1118,12 +1115,36 @@ function LLMSectionInner({
             trackingFlow="connect_llm"
             label="Connect Builder.io"
           />
-          {!builderConnected && (
+          {builderConnected && (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="ghost"
+              aria-expanded={manualSetupOpen}
+              aria-controls="llm-manual-setup"
+              onClick={() => setManualSetupOpen((open) => !open)}
+              className={cn(
+                "inline-flex items-center gap-1 px-0.5 text-muted-foreground hover:text-foreground",
+                isPage ? "text-xs" : "text-[10px]",
+              )}
+            >
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+              <IconChevronDown
+                size={isPage ? 14 : 11}
+                className={cn(
+                  "transition-transform",
+                  manualSetupOpen && "rotate-180",
+                )}
+              />
+            </Button>
+          )}
+          {(!builderConnected || manualSetupOpen) && (
             <ManualSetupCard
+              id="llm-manual-setup"
               hint={manualSetupHint}
-              docsUrl={PROVIDER_DOCS[selectedEngine]}
-              sourceBadge={sourceBadge}
-              docsLabel="Get an API key"
+              sourceBadge={builderConnected ? undefined : sourceBadge}
             >
               <div className="space-y-2 mb-1">
                 <SettingsSelect
@@ -1330,6 +1351,20 @@ function LLMSectionInner({
                       "Test"
                     )}
                   </Button>
+                  {PROVIDER_DOCS[selectedEngine] ? (
+                    <a
+                      href={PROVIDER_DOCS[selectedEngine]}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={cn(
+                        pillButtonClass(isPage, "outline"),
+                        "no-underline",
+                      )}
+                    >
+                      Get an API key
+                      <IconExternalLink size={isPage ? 14 : 10} />
+                    </a>
+                  ) : null}
                   {engineChanged && (
                     <Button
                       intent="primary"
@@ -2422,221 +2457,6 @@ function CapabilityStatusStrip({
   );
 }
 
-function AccountSectionInner({
-  open,
-  onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const isPage = useSettingsSurface() === "page";
-  const t = useT();
-  const { session, isLoading } = useSession();
-  const email = session?.email;
-  const profileQuery = useActionQuery<UserProfile>(
-    "get-user-profile",
-    undefined,
-    { enabled: !!email },
-  );
-  const updateProfile = useActionMutation<UserProfile, { name: string }>(
-    "update-user-profile",
-  );
-  const avatarUrl = useAvatarUrl(email);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
-  const [name, setName] = useState("");
-
-  const displayName =
-    profileQuery.data?.name ||
-    session?.name ||
-    email ||
-    t("settings.profileSignedOut");
-  const initials = (displayName || "?")
-    .split(/[ @._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-
-  useEffect(() => {
-    const nextName = profileQuery.data?.name || session?.name;
-    if (nextName) setName(nextName);
-  }, [profileQuery.data?.name, session?.name]);
-
-  const handleAvatarChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || !email) return;
-    setUploading(true);
-    setStatus("idle");
-    try {
-      await uploadAvatar(file, email);
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleProfileSave = () => {
-    const nextName = name.trim();
-    if (!nextName || !email) return;
-    updateProfile.mutate({ name: nextName });
-  };
-
-  return (
-    <SettingsSection
-      id={settingsSectionDomId("account")}
-      icon={<IconUserCircle size={14} />}
-      title={t("settings.profileTitle")}
-      subtitle={t("settings.profileDescription")}
-      open={open}
-      onToggle={onToggle}
-    >
-      <div className="flex items-center gap-3">
-        <div
-          className={cn(
-            "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-accent font-semibold text-muted-foreground",
-            isPage ? "h-14 w-14 text-[15px]" : "h-12 w-12 text-[13px]",
-          )}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            initials
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "truncate font-medium text-foreground",
-              isPage ? "text-sm" : "text-[12px]",
-            )}
-          >
-            {isLoading ? t("settings.profileLoading") : displayName}
-          </p>
-          {email && (
-            <p
-              className={cn(
-                "truncate text-muted-foreground",
-                subTextClass(isPage),
-              )}
-            >
-              {email}
-            </p>
-          )}
-          {status === "saved" && (
-            <p
-              className={cn(
-                "mt-1 text-green-600 dark:text-green-400",
-                subTextClass(isPage),
-              )}
-            >
-              {t("settings.profilePhotoUpdated")}
-            </p>
-          )}
-          {status === "error" && (
-            <p className={cn("mt-1 text-destructive", subTextClass(isPage))}>
-              {t("settings.profilePhotoError")}
-            </p>
-          )}
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleAvatarChange}
-        />
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          disabled={!email || uploading}
-          onClick={() => fileInputRef.current?.click()}
-          className={cn(
-            pillButtonClass(isPage, "outline"),
-            "shrink-0 justify-center",
-          )}
-        >
-          {uploading
-            ? t("settings.profileUploading")
-            : t("settings.profileChangePhoto")}
-        </Button>
-      </div>
-      <form
-        className="space-y-1.5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          handleProfileSave();
-        }}
-      >
-        <label
-          htmlFor="agent-native-profile-name"
-          className={fieldLabelClass(isPage)}
-        >
-          {t("settings.profileNameLabel")}
-        </label>
-        <input
-          id="agent-native-profile-name"
-          type="text"
-          value={name}
-          onChange={(event) => {
-            updateProfile.reset();
-            setName(event.target.value);
-          }}
-          placeholder={t("settings.profileNamePlaceholder")}
-          disabled={!email || profileQuery.isLoading || updateProfile.isPending}
-          maxLength={120}
-          className={textInputClass(isPage)}
-        />
-        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
-          {t("settings.profileNameDescription")}
-        </p>
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="min-h-4">
-            {updateProfile.isSuccess && (
-              <p className="text-green-600 dark:text-green-400">
-                {t("settings.profileSaved")}
-              </p>
-            )}
-            {updateProfile.error && (
-              <p className="text-destructive">
-                {t("settings.profileSaveError")}
-              </p>
-            )}
-          </div>
-          <Button
-            type="submit"
-            intent="primary"
-            emphasis="solid"
-            disabled={
-              !email ||
-              profileQuery.isLoading ||
-              updateProfile.isPending ||
-              !name.trim() ||
-              name.trim() === displayName
-            }
-            className={pillButtonClass(isPage, "solid")}
-          >
-            {updateProfile.isPending
-              ? t("settings.profileSaving")
-              : t("settings.profileSave")}
-          </Button>
-        </div>
-      </form>
-    </SettingsSection>
-  );
-}
-
 interface SettingsPanelContentProps extends SettingsPanelProps {
   sections?: readonly SettingsSectionId[];
   showCapabilityStrip?: boolean;
@@ -2752,14 +2572,6 @@ function SettingsPanelContent({
             builderLoading={builderLoading}
             builderBranchesAvailable={builderBranchesAvailable}
             onOpenLlm={() => openSettingsSection("llm", true)}
-          />
-        )}
-
-        {/* Account */}
-        {shouldShowSection("account") && (
-          <AccountSectionInner
-            open={openSection === "account"}
-            onToggle={() => toggle("account")}
           />
         )}
 
@@ -3134,6 +2946,32 @@ export function ConnectionsSettingsContent({
   );
 }
 
+export function AgentSettingsContent({
+  className,
+}: { className?: string } = {}) {
+  const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const settingsPanelProps = useMemo<SettingsPanelProps>(
+    () => ({
+      isDevMode,
+      onToggleDevMode: () => {
+        void setDevMode(!isDevMode);
+      },
+      showDevToggle: canToggle,
+    }),
+    [canToggle, isDevMode, setDevMode],
+  );
+
+  return (
+    <SettingsPanelContent
+      {...settingsPanelProps}
+      surface="page"
+      sections={AGENT_SETTINGS_SECTIONS}
+      showCapabilityStrip={false}
+      className={cn("mx-auto w-full max-w-2xl", className)}
+    />
+  );
+}
+
 export function useAgentSettingsTabs(): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const baseProps = useMemo<SettingsPanelProps>(
@@ -3165,15 +3003,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ...agent,
         icon: IconHierarchy2,
         group: "agent",
-        content: (
-          <SettingsPanelContent
-            {...baseProps}
-            surface="page"
-            sections={AGENT_SETTINGS_SECTIONS}
-            showCapabilityStrip={false}
-            className="mx-auto w-full max-w-2xl"
-          />
-        ),
+        href: "/agent#settings",
+        searchEntries: undefined,
+        content: <Navigate to="/agent#settings" replace />,
       },
       {
         ...connections,

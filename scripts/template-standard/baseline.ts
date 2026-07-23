@@ -3,8 +3,8 @@
  *
  * Phase 1 turns on a strict, byte/structural-accurate checker on day one,
  * which immediately finds real, pre-existing template drift (missing
- * `_gitignore`/`learnings.defaults.md`, crm's missing CLAUDE.md symlink,
- * chat's unrendered `{{APP_NAME}}`, plus a few templates that intentionally
+ * `_gitignore`/`learnings.defaults.md`, chat's unrendered `{{APP_NAME}}`, plus
+ * a few templates that intentionally
  * customized their `learnings.defaults.md`/`_gitignore` beyond the shared
  * scaffold). Phase 1 must not edit any `templates/*` file, so a failing guard
  * here would break CI on this branch.

@@ -1,5 +1,4 @@
 import {
-  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   sendToAgentChat,
   useChatThreads,
@@ -243,7 +242,7 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
   }
 
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
+    <div className="mt-2 ms-4">
       <ChatHistoryRail
         items={chatItems}
         activeId={activeThreadId}
@@ -316,17 +315,11 @@ function PlansSidebarSection({ collapsed }: { collapsed: boolean }) {
       signInForPlanCreate();
       return;
     }
-    if (location.pathname === "/") {
-      markAgentChatHomeHandoff("plans");
-    }
     navigateWithAgentChatViewTransition(navigate, "/plans?create=1");
   };
 
   const openPlanPath = (event: MouseEvent<HTMLAnchorElement>, path: string) => {
     event.preventDefault();
-    if (location.pathname === "/") {
-      markAgentChatHomeHandoff("plans");
-    }
     navigateWithAgentChatViewTransition(navigate, path);
   };
 
@@ -615,11 +608,6 @@ export function Sidebar({
           const link = (
             <Link
               to={item.href}
-              onClick={() => {
-                if (item.href !== "/" && location.pathname === "/") {
-                  markAgentChatHomeHandoff("plans");
-                }
-              }}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
                 isActive

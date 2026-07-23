@@ -21,12 +21,8 @@ describe("DesignImportPanel", () => {
   });
 
   it("uses canvas paste guidance and offers an experimental .fig upload", () => {
-    expect(source).toContain(
-      "Copy a frame in Figma, then paste into the canvas.",
-    );
-    expect(source).toContain(
-      "Click the canvas first, then paste with the same shortcut you use for copied Design content.",
-    );
+    expect(source).toContain("figmaPasteBodyUnlimited");
+    expect(source).toContain("figmaPasteBodyImages");
     expect(source).not.toContain("paste here");
     expect(source).not.toContain("Paste Figma content here");
     expect(source).toContain('id="fig-file-import"');

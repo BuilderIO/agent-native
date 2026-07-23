@@ -59,7 +59,6 @@ import type {
 } from "./types.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
-const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
@@ -532,31 +531,6 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
-  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
-    if (!resolvedModelStatusChecksEnabled) return true;
-    const state =
-      agentEngineConfigured.state === "missing"
-        ? "missing"
-        : await modelsAdapter.fetchAgentEngineConfiguredState!(
-            resolvedModelStatusChecksEnabled,
-            {
-              timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
-            },
-          );
-    if (state === "missing") {
-      bounceMissingKeySetup();
-      return false;
-    }
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new Event("agent-engine:configured-changed"));
-    }
-    return false;
-  }, [
-    agentEngineConfigured.state,
-    bounceMissingKeySetup,
-    modelsAdapter,
-    resolvedModelStatusChecksEnabled,
-  ]);
   const retryAgentEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
@@ -653,7 +627,6 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
-          onBeforeSubmit={ensureAgentEngineReadyForSubmit}
           clearOnSubmit={!preserveDraftOnSubmit}
           plusMenuMode={
             plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")

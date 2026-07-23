@@ -13,10 +13,12 @@ import React from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { ActionChatUiSurface } from "../chat/action-chat-ui-surface.js";
 import { resolveToolRenderer } from "../chat/tool-render-registry.js";
 import {
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
+  isBuiltinDataWidgetActionRenderer,
 } from "../chat/widgets/builtin-tool-renderers.js";
 import {
   MessageScroller,
@@ -414,7 +416,16 @@ function ConversationToolCall({ tool }: { tool: AgentConversationToolCall }) {
     resolveToolRenderer(nativeToolContext) ??
     resolveBuiltinFallbackToolRenderer(nativeToolContext);
   if (NativeToolRenderer) {
-    return <NativeToolRenderer context={nativeToolContext} />;
+    return (
+      <ActionChatUiSurface
+        context={nativeToolContext}
+        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
+          nativeToolContext,
+        )}
+      >
+        <NativeToolRenderer context={nativeToolContext} />
+      </ActionChatUiSurface>
+    );
   }
 
   const hasDetails = Boolean(tool.input || tool.result || tool.mcpApp);

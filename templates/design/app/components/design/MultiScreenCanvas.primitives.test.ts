@@ -276,8 +276,16 @@ describe("board surface pointer capture", () => {
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
     expect(content).not.toMatch(/<audio|<video|autoplay|http-equiv="refresh"/i);
-    expect(content).not.toMatch(/<link|<meta|<base|@import|url\(/i);
-    expect(content).not.toContain("https://example.test");
+    expect(content).not.toMatch(/<link|<meta|<base|@import/i);
+    // data: and blob: url() are still stripped; https:// passes through for images
+    expect(content).not.toMatch(/url\(\s*["']?data:/i);
+    expect(content).not.toMatch(/url\(\s*["']?blob:/i);
+    // https:// CSS background-image urls survive (CDN images need to render)
+    expect(content).toContain("url(https://example.test/bg.png)");
+    expect(content).toContain("url(https://example.test/inline.png)");
+    // src/href attributes on media elements are still stripped
+    expect(content).not.toMatch(/\ssrc="https:\/\/example\.test/);
+    expect(content).not.toMatch(/\shref="https:\/\/example\.test/);
     expect(content).toContain("animation:none!important");
     expect(content).toContain("transition:none!important");
   });

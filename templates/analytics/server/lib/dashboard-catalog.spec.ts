@@ -19,11 +19,13 @@ import {
   DEPLOYED_RECURRING_USERS_BY_TEMPLATE_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+  LEGACY_DAU_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
   LEGACY_V0_RETENTION_OVER_TIME_SQL,
   LEGACY_V0_SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL,
   LEGACY_V0_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  LEGACY_WAU_BY_TEMPLATE_SQL,
   repairFirstPartyObservedRetentionPanels,
 } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
@@ -269,6 +271,8 @@ describe("dashboard catalog", () => {
     const legacySevenDay = requiredFirstPartyPanel(
       "seven-day-retention-by-template",
     );
+    const legacyDau = requiredFirstPartyPanel("dau-over-time");
+    const legacyWau = requiredFirstPartyPanel("wau-over-time");
     const legacyConfig = {
       name: "Legacy dashboard",
       panels: [
@@ -315,6 +319,14 @@ describe("dashboard catalog", () => {
             description:
               "Selected-range signed-in cohorts by the browser identity's first non-docs app/template. Counts returns to any non-docs app within 7-14 days. Templates with fewer than 20 mature cohort identities are hidden.",
           },
+        },
+        {
+          ...legacyDau,
+          sql: LEGACY_DAU_BY_TEMPLATE_SQL,
+        },
+        {
+          ...legacyWau,
+          sql: LEGACY_WAU_BY_TEMPLATE_SQL,
         },
         {
           id: "recurring-users-by-template-copy",
@@ -371,9 +383,15 @@ describe("dashboard catalog", () => {
         config: { description: panel.config?.description },
       });
     }
+    expect(panels.find((panel) => panel.id === legacyDau.id)).toMatchObject({
+      sql: legacyDau.sql,
+    });
+    expect(panels.find((panel) => panel.id === legacyWau.id)).toMatchObject({
+      sql: legacyWau.sql,
+    });
     expect(
       panels.find((panel) => panel.id === "recurring-users-by-template-copy"),
-    ).toEqual(legacyConfig.panels[5]);
+    ).toEqual(legacyConfig.panels[7]);
 
     const customSql = repairFirstPartyObservedRetentionPanels({
       panels: [
