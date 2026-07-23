@@ -2335,13 +2335,41 @@ function nitroStartupRecovery(): Plugin {
     apply: "serve",
     configureServer(server) {
       if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
-        setTimeout(() => {
+        const logState = () => {
           console.log(
             server.middlewares.stack.map(
               (entry) => (entry.handle as { name?: string }).name,
             ),
           );
-        }, 0);
+          console.log(
+            "nitro input",
+            server.environments?.nitro?.config.build?.rollupOptions?.input,
+          );
+          console.log(
+            "nitro modules",
+            [
+              ...((
+                server.environments?.nitro?.moduleGraph as unknown as {
+                  idToModuleMap?: Map<
+                    string,
+                    {
+                      transformResult?: unknown;
+                      lastInvalidationTimestamp?: number;
+                    }
+                  >;
+                }
+              )?.idToModuleMap?.entries() ?? []),
+            ]
+              .slice(0, 20)
+              .map(([id, mod]) => ({
+                id,
+                transformed: Boolean(mod.transformResult),
+              })),
+          );
+        };
+        for (const delay of [0, 1_000, 3_000, 6_000, 10_000]) {
+          setTimeout(logState, delay);
+        }
       }
       server.middlewares.use(function nitroStartupErrorRecovery(
         error: unknown,

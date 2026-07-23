@@ -1542,6 +1542,7 @@ function SourceListItem({
   onTune: () => void;
 }) {
   const t = useT();
+  const [expanded, setExpanded] = useState(false);
   const Icon = sourceProviderIcon(source.provider);
   const retry = sourceRetryAfter(source);
   const hasSyncNotice = Boolean(
@@ -1552,113 +1553,171 @@ function SourceListItem({
     : null;
   const coverage =
     typeof source.coverage === "number" ? formatPercent(source.coverage) : null;
+  const captureCount = (source.recordCount ?? 0).toLocaleString();
+  const lastSync = shortDate(sourceLastSync(source)) ?? t("sources.never");
 
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardContent className="p-4">
-        <div className="brain-source-card-grid grid gap-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/35">
-              <Icon className="size-4 text-muted-foreground" />
+    <div className="group bg-card transition-colors hover:bg-muted/20">
+      <div className="flex min-w-0 items-center gap-3 px-4 py-3 sm:px-5">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted/35">
+          <Icon className="size-4 text-muted-foreground" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="truncate text-sm font-medium text-foreground sm:text-[0.9375rem]">
+              {sourceName(source)}
+            </h2>
+            <StatusBadge status={sourceHealth(source)} />
+          </div>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span className="capitalize">{sourceType(source)}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {captureCount} {t("sources.captures").toLocaleLowerCase()}
             </span>
-            <div className="min-w-0">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h2 className="truncate text-base font-medium text-foreground">
-                  {sourceName(source)}
-                </h2>
-                <StatusBadge status={sourceHealth(source)} />
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="max-w-full capitalize">
-                  {sourceType(source)}
-                </Badge>
-                {nextSync ? (
-                  <span className="text-xs text-muted-foreground">
-                    {t("sources.nextSync", { date: nextSync })}
+            <span aria-hidden="true">·</span>
+            <span className="truncate">
+              {t("sources.lastSyncWithDate", { date: lastSync })}
+            </span>
+            {hasSyncNotice ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="ms-1 inline-flex size-4 items-center justify-center text-destructive"
+                    aria-label={t("sources.actionFailedTitle")}
+                  >
+                    <IconAlertTriangle className="size-3.5" />
                   </span>
-                ) : null}
-              </div>
-              <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                {sourceDescription(source)}
-              </p>
-            </div>
-          </div>
-
-          <div
-            className={
-              coverage
-                ? "grid grid-cols-2 gap-4 sm:grid-cols-3 xl:min-w-80"
-                : "grid grid-cols-2 gap-4 xl:min-w-64"
-            }
-          >
-            <SourceFact
-              label={t("sources.captures")}
-              value={(source.recordCount ?? 0).toLocaleString()}
-            />
-            <SourceFact
-              label={t("sources.lastSync")}
-              value={shortDate(sourceLastSync(source)) ?? t("sources.never")}
-            />
-            {coverage ? (
-              <SourceFact label={t("sources.coverage")} value={coverage} />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sources.actionFailedTitle")}
+                </TooltipContent>
+              </Tooltip>
             ) : null}
-          </div>
-
-          <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="outline" onClick={onReview}>
-              <IconFileSearch className="size-4" />
-              {t("sources.captures")}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-9"
-                  aria-label={t("sources.moreActionsFor", {
-                    source: sourceName(source),
-                  })}
-                >
-                  <IconDotsVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
-                  <IconRefresh className="size-4" />
-                  {t("sources.syncNow")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={onTune}>
-                  <IconSettings2 className="size-4" />
-                  {t("sources.tuneSource")}
-                </DropdownMenuItem>
-                {onRotateIngestToken ? (
-                  <DropdownMenuItem onSelect={onRotateIngestToken}>
-                    <IconRefresh className="size-4" />
-                    {t("sources.rotateIngestToken")}
-                  </DropdownMenuItem>
-                ) : null}
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
-        {coverage ? (
-          <Progress
-            value={(source.coverage ?? 0) * 100}
-            className="mt-4 h-1.5 bg-muted"
-          />
-        ) : null}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                onClick={onReview}
+                aria-label={`${t("sources.captures")}: ${sourceName(source)}`}
+              >
+                <IconFileSearch className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("sources.captures")}</TooltipContent>
+          </Tooltip>
 
-        {hasSyncNotice ? (
-          <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 px-3 py-2 text-sm">
-            <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <p className="min-w-0 truncate text-muted-foreground">
-              {syncDetail(source, t)}
-            </p>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label={t("sources.moreActionsFor", {
+                  source: sourceName(source),
+                })}
+              >
+                <IconDotsVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
+                <IconRefresh className="size-4" />
+                {t("sources.syncNow")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onTune}>
+                <IconSettings2 className="size-4" />
+                {t("sources.tuneSource")}
+              </DropdownMenuItem>
+              {onRotateIngestToken ? (
+                <DropdownMenuItem onSelect={onRotateIngestToken}>
+                  <IconRefresh className="size-4" />
+                  {t("sources.rotateIngestToken")}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                onClick={() => setExpanded((value) => !value)}
+                aria-expanded={expanded}
+                aria-label={
+                  expanded ? t("sources.hideDetails") : t("sources.details")
+                }
+              >
+                <IconChevronDown
+                  className={cn(
+                    "size-4 transition-transform duration-200 ease-out",
+                    expanded && "rotate-180",
+                  )}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {expanded ? t("sources.hideDetails") : t("sources.details")}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-border/70 px-4 pb-4 pt-3 sm:px-5">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div className="min-w-0">
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                {sourceDescription(source)}
+              </p>
+              {hasSyncNotice ? (
+                <div className="mt-3 flex gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm">
+                  <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                  <p className="min-w-0 text-muted-foreground">
+                    {syncDetail(source, t)}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <div
+              className={cn(
+                "grid grid-cols-2 gap-x-6 gap-y-3 lg:min-w-64",
+                coverage && "lg:grid-cols-3 lg:min-w-80",
+              )}
+            >
+              <SourceFact label={t("sources.captures")} value={captureCount} />
+              <SourceFact label={t("sources.lastSync")} value={lastSync} />
+              {coverage ? (
+                <SourceFact label={t("sources.coverage")} value={coverage} />
+              ) : null}
+            </div>
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
+
+          {coverage ? (
+            <Progress
+              value={(source.coverage ?? 0) * 100}
+              className="mt-4 h-1.5 bg-muted"
+            />
+          ) : null}
+
+          {nextSync ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t("sources.nextSync", { date: nextSync })}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
