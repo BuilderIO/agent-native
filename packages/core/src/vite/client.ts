@@ -2333,7 +2333,6 @@ function nitroStartupRecovery(): Plugin {
   return {
     name: "agent-native-nitro-startup-recovery",
     apply: "serve",
-    enforce: "pre",
     configureServer(server) {
       server.middlewares.use(
         (

@@ -114,6 +114,7 @@ describe("Nitro dev startup recovery", () => {
 
     expect(gateIndex).toBeGreaterThanOrEqual(0);
     expect(gateIndex).toBeGreaterThan(nitroIndex);
+    expect(plugins[gateIndex]?.enforce).toBeUndefined();
   });
 });
 
