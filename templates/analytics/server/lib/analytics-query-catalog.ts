@@ -34,12 +34,14 @@ const STOP_WORDS = new Set([
   "number",
   "of",
   "on",
+  "over",
   "our",
   "please",
   "show",
   "that",
   "the",
   "this",
+  "time",
   "today",
   "total",
   "up",
@@ -165,7 +167,7 @@ function dashboardPanelCandidates(args: {
         : {};
     const panelTitle = text(panel.title) || text(panel.id);
     const panelDescription = text(panelConfig.description);
-    const { score, matchedTerms } = matchScore(args.search, [
+    const { score: rawScore, matchedTerms } = matchScore(args.search, [
       { value: panelTitle, weight: 24 },
       { value: panelDescription, weight: 12 },
       { value: args.dashboardTitle, weight: 10 },
@@ -176,7 +178,17 @@ function dashboardPanelCandidates(args: {
         weight: 2,
       },
     ]);
-    if (!score) return [];
+    const requestedTerms = new Set(searchTerms(args.search));
+    const titleSpecificityPenalty =
+      searchTerms(panelTitle).filter((term) => !requestedTerms.has(term))
+        .length * 12;
+    const aggregateIntent =
+      /\b(how many|count|number|total)\b/i.test(args.search) &&
+      text(panel.chartType) === "metric"
+        ? 20
+        : 0;
+    const score = rawScore - titleSpecificityPenalty + aggregateIntent;
+    if (score <= 0) return [];
 
     return [
       {
