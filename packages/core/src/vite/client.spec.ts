@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,11 +14,133 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _nitroReadinessGate,
+  _waitForNitroDevReady,
   agentNative,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+
+describe("Nitro dev readiness", () => {
+  it("retries only the transient unavailable error until Nitro responds", async () => {
+    let time = 0;
+    const unavailable = Object.assign(
+      new Error('Vite environment "nitro" is unavailable'),
+      { name: "NitroViteError", status: 503 },
+    );
+    const dispatchFetch = vi
+      .fn()
+      .mockRejectedValueOnce(unavailable)
+      .mockRejectedValueOnce(unavailable)
+      .mockResolvedValue(new Response("ok"));
+
+    await _waitForNitroDevReady(
+      { dispatchFetch },
+      {
+        now: () => time,
+        retryDelayMs: 10,
+        sleep: async (delayMs) => {
+          time += delayMs;
+        },
+        timeoutMs: 100,
+      },
+    );
+
+    expect(dispatchFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("releases immediately for genuine Nitro errors", async () => {
+    const dispatchFetch = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("broken import"), { status: 500 }),
+      );
+
+    await _waitForNitroDevReady({ dispatchFetch });
+
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds unavailable retries and reports the timeout", async () => {
+    let time = 0;
+    const onTimeout = vi.fn();
+    const dispatchFetch = vi.fn().mockRejectedValue(
+      Object.assign(new Error('Vite environment "nitro" is unavailable'), {
+        name: "NitroViteError",
+        status: 503,
+      }),
+    );
+
+    await _waitForNitroDevReady(
+      { dispatchFetch },
+      {
+        now: () => time,
+        retryDelayMs: 10,
+        sleep: async (delayMs) => {
+          time += delayMs;
+        },
+        timeoutMs: 25,
+        onTimeout,
+      },
+    );
+
+    expect(dispatchFetch).toHaveBeenCalledTimes(3);
+    expect(onTimeout).toHaveBeenCalledOnce();
+  });
+
+  it("queues startup requests behind one shared readiness probe", async () => {
+    let release: ((response: Response) => void) | undefined;
+    const dispatchFetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    );
+    let middleware:
+      | ((
+          _req: unknown,
+          _res: unknown,
+          next: (error?: unknown) => void,
+        ) => void)
+      | undefined;
+    const next = vi.fn();
+    const plugin = _nitroReadinessGate();
+    plugin.configureServer?.({
+      config: { logger: { warn: vi.fn() } },
+      environments: { nitro: { dispatchFetch } },
+      httpServer: new EventEmitter(),
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    expect(middleware).toBeDefined();
+    middleware?.({}, {}, next);
+    middleware?.({}, {}, next);
+    await Promise.resolve();
+    expect(next).not.toHaveBeenCalled();
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+
+    release?.(new Response("ok"));
+    await vi.waitFor(() => expect(next).toHaveBeenCalledTimes(2));
+  });
+
+  it("registers the readiness gate before Nitro middleware", () => {
+    const plugins = flatPlugins(defineConfig().plugins);
+    const gateIndex = plugins.findIndex(
+      (plugin) => plugin.name === "agent-native-nitro-readiness",
+    );
+    const nitroIndex = plugins.findIndex(
+      (plugin) => plugin.name === "nitro:main",
+    );
+
+    expect(gateIndex).toBeGreaterThanOrEqual(0);
+    expect(nitroIndex).toBeGreaterThan(gateIndex);
+  });
+});
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
