@@ -56,11 +56,12 @@ const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
-// Reserve 120s under Netlify's 300s background-function limit for bounded
-// browser cleanup, provider delivery, and result persistence.
-const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 180_000;
+// Cap browser work separately from the sweep-level delivery deadline.
+const SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS = 150_000;
 const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
-const DASHBOARD_REPORT_EMAIL_TIMEOUT_MS = 12_000;
+const DASHBOARD_REPORT_EMAIL_TIMEOUT_MS = 10_000;
+const DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS = 5_000;
+const MAX_CAPTURE_CLEANUP_RESERVE_MS = BROWSER_CLEANUP_TIMEOUT_MS * 3;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 const MAX_DASHBOARD_REPORT_CHUNKS = 10;
 const MAX_DASHBOARD_REPORT_ATTACHMENT_BYTES = 14 * 1024 * 1024;
@@ -388,6 +389,33 @@ async function runWithinCaptureDeadline<T>(
       new Promise<never>((_, reject) => {
         timeout = setTimeout(
           () => reject(new Error("capture deadline exhausted")),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function runWithinReportDeadline<T>(
+  label: string,
+  operation: () => Promise<T>,
+  deadlineAt?: number,
+): Promise<T> {
+  if (!deadlineAt) return operation();
+  const timeoutMs = deadlineAt - Date.now();
+  if (timeoutMs <= 0)
+    throw new Error(`${label} exceeded the report delivery deadline`);
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(new Error(`${label} exceeded the report delivery deadline`)),
           timeoutMs,
         );
       }),
@@ -822,6 +850,7 @@ async function captureDashboardPngChunks(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
   allowPartialCapture: boolean,
+  totalTimeoutMs?: number,
 ): Promise<DashboardPngCapture> {
   const offsets = reportChunkOffsets(snapshot.panelIds.length);
   if (offsets.length > MAX_DASHBOARD_REPORT_CHUNKS) {
@@ -838,7 +867,7 @@ async function captureDashboardPngChunks(
       ? {
           readyTimeout: DASHBOARD_REPORT_READY_TIMEOUT_MS,
           secondReadyTimeout: 15_000,
-          totalTimeout: SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
+          totalTimeout: totalTimeoutMs ?? SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
         }
       : {}),
   };
@@ -977,12 +1006,21 @@ async function captureDashboardPngWithFallback(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
   allowPartialCapture: boolean,
+  totalTimeoutMs?: number,
 ): Promise<DashboardPngCapture> {
+  if (totalTimeoutMs !== undefined && totalTimeoutMs <= 0) {
+    return {
+      pngs: null,
+      mode: "none",
+      error: `report delivery deadline left no time for capture; ${memoryDiagnostics()}`,
+    };
+  }
   try {
     const capture = await captureDashboardPngChunks(
       sub,
       snapshot,
       allowPartialCapture,
+      totalTimeoutMs,
     );
     if (isServerlessBrowserRuntime()) {
       console.info(
@@ -1099,6 +1137,7 @@ export async function sendDashboardReportSubscription(
   options: {
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
+    deadlineAt?: number;
   } = {},
 ): Promise<{
   dashboardUrl: string;
@@ -1109,11 +1148,26 @@ export async function sendDashboardReportSubscription(
   emailsSent: boolean;
 }> {
   const recipients = normalizeDashboardReportRecipients(sub.recipients);
-  const snapshot = await collectReportSnapshot(sub);
+  const snapshot = await runWithinReportDeadline(
+    "Dashboard report snapshot",
+    () => collectReportSnapshot(sub),
+    options.deadlineAt,
+  );
+  const captureTimeoutMs = options.deadlineAt
+    ? Math.min(
+        SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
+        options.deadlineAt -
+          Date.now() -
+          MAX_CAPTURE_CLEANUP_RESERVE_MS -
+          recipients.length * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS -
+          DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS,
+      )
+    : undefined;
   const capture = await captureDashboardPngWithFallback(
     sub,
     snapshot,
     !options.skipEmailWithoutScreenshot && !options.requireScreenshot,
+    captureTimeoutMs,
   );
   if (capture.mode !== "full" && options.requireScreenshot) {
     throw new Error(
@@ -1143,6 +1197,17 @@ export async function sendDashboardReportSubscription(
   const subject = `Daily dashboard: ${snapshot.title}`;
 
   for (const to of recipients) {
+    const emailTimeoutMs = options.deadlineAt
+      ? Math.min(
+          DASHBOARD_REPORT_EMAIL_TIMEOUT_MS,
+          options.deadlineAt - Date.now(),
+        )
+      : DASHBOARD_REPORT_EMAIL_TIMEOUT_MS;
+    if (emailTimeoutMs <= 0) {
+      throw new Error(
+        "Dashboard email delivery exceeded the report delivery deadline",
+      );
+    }
     await sendEmail({
       to,
       subject,
@@ -1167,7 +1232,7 @@ export async function sendDashboardReportSubscription(
               : [],
           )
         : undefined,
-      timeoutMs: DASHBOARD_REPORT_EMAIL_TIMEOUT_MS,
+      timeoutMs: emailTimeoutMs,
     });
   }
 

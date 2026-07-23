@@ -315,7 +315,7 @@ describe("dashboard report email", () => {
       urls.every((url) => (url ?? "").includes("reportPanelLimit=4")),
     ).toBe(true);
     const email = mocks.sendEmail.mock.calls[0]?.[0];
-    expect(email.timeoutMs).toBe(12_000);
+    expect(email.timeoutMs).toBe(10_000);
     expect(
       email.attachments.map(
         (attachment: { content: Buffer }) => attachment.content,
@@ -330,6 +330,29 @@ describe("dashboard report email", () => {
     );
     for (let index = 1; index <= 10; index++) {
       expect(email.html).toContain(`cid:dashboard-report-snapshot-${index}`);
+    }
+  });
+
+  it("stops before launching Chromium when the report snapshot exhausts the delivery deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getReportDashboard.mockImplementation(() => new Promise(() => {}));
+      const pending = expect(
+        sendDashboardReportSubscription(subscription(), {
+          deadlineAt: Date.now() + 25,
+        }),
+      ).rejects.toThrow(
+        "Dashboard report snapshot exceeded the report delivery deadline",
+      );
+
+      await vi.advanceTimersByTimeAsync(25);
+      await pending;
+
+      expect(mocks.launch).not.toHaveBeenCalled();
+      expect(mocks.launchPersistentContext).not.toHaveBeenCalled();
+      expect(mocks.sendEmail).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -891,9 +914,11 @@ describe("dashboard report email", () => {
       });
       mocks.launchPersistentContext.mockResolvedValue(browser);
 
-      const capture = sendDashboardReportSubscription(subscription());
+      const capture = sendDashboardReportSubscription(subscription(), {
+        deadlineAt: Date.now() + 100_000,
+      });
       await second.readyWaitStarted;
-      await vi.advanceTimersByTimeAsync(180_000);
+      await vi.advanceTimersByTimeAsync(55_000);
       const result = await capture;
 
       expect(first.locator.screenshot).toHaveBeenCalledOnce();
@@ -903,7 +928,7 @@ describe("dashboard report email", () => {
         emailsSent: true,
         screenshotError: expect.stringContaining("lambdaMemoryMb=1024"),
       });
-      expect(result.screenshotError).toContain("capture exceeded 180000ms");
+      expect(result.screenshotError).toContain("capture exceeded 55000ms");
       expect(mocks.sendEmail).toHaveBeenCalledWith(
         expect.objectContaining({
           attachments: [
@@ -946,7 +971,7 @@ describe("dashboard report email", () => {
       const capture = sendDashboardReportSubscription(subscription(), {
         skipEmailWithoutScreenshot: true,
       });
-      await vi.advanceTimersByTimeAsync(180_000);
+      await vi.advanceTimersByTimeAsync(150_000);
       const result = await capture;
       resolveLateLaunch(lateBrowser);
       await Promise.resolve();
