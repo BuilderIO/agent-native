@@ -5,6 +5,8 @@
 // interface covering the shapes both `threadRuntime.export()` and
 // `normalizeThreadRepository()` produce, and use it everywhere instead of `any`.
 
+import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/thread-data-builder.js";
+
 export interface RepoMessageStatus {
   type?: string;
   reason?: string;
@@ -56,8 +58,6 @@ export function getRepoMessage(entry: RepoEntry): RepoMessage | null {
   return (entry?.message ?? entry) as RepoMessage | null;
 }
 
-const AGENT_NATIVE_RUN_DURATION_KEY = "agentNativeRunDurationMs";
-
 export function getAssistantRunDurationMs(
   message:
     | {
@@ -74,7 +74,7 @@ export function getAssistantRunDurationMs(
     metadata?.custom && typeof metadata.custom === "object"
       ? (metadata.custom as Record<string, unknown>)
       : null;
-  const durationMs = custom?.[AGENT_NATIVE_RUN_DURATION_KEY];
+  const durationMs = custom?.[ASSISTANT_RUN_DURATION_METADATA_KEY];
   return typeof durationMs === "number" &&
     Number.isFinite(durationMs) &&
     durationMs >= 0
@@ -117,7 +117,7 @@ export function withLastAssistantRunDuration<T extends NormalizedRepo>(
       ...metadata,
       custom: {
         ...custom,
-        [AGENT_NATIVE_RUN_DURATION_KEY]: durationMs,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
       },
     },
   };

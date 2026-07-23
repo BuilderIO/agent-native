@@ -35,6 +35,7 @@ interface BuildAssistantMessageOptions {
    * overwriting the others.
    */
   turnId?: string;
+  runDurationMs?: number;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -42,6 +43,8 @@ type UserMessage = ReturnType<typeof buildUserMessage>;
 
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
+
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
 /**
@@ -267,6 +270,13 @@ export function buildAssistantMessage(
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
   if (runId) custom.foldedRunIds = [runId];
+  if (
+    typeof options.runDurationMs === "number" &&
+    Number.isFinite(options.runDurationMs) &&
+    options.runDurationMs >= 0
+  ) {
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+  }
   if (continued) custom.continued = true;
   if (runError) {
     custom.runError = {
@@ -1397,6 +1407,17 @@ function foldedRunIdsOf(message: any): string[] {
     : [];
 }
 
+function assistantRunDurationMs(
+  custom: Record<string, unknown>,
+): number | null {
+  const durationMs = custom[ASSISTANT_RUN_DURATION_METADATA_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
+}
+
 /** Rough size of an assistant message's content, used only to pick the larger
  *  of two representations of the same chunk so a fold can never shrink. */
 function assistantContentWeight(content: unknown): number {
@@ -1519,6 +1540,20 @@ export function foldAssistantTurn(
     turnId,
     foldedRunIds: mergedFolded,
   };
+  const existingDurationMs = assistantRunDurationMs(existingCustom);
+  const incomingDurationMs = assistantRunDurationMs(incomingCustom);
+  const mergedDurationMs = runAlreadyFolded
+    ? existingDurationMs == null
+      ? incomingDurationMs
+      : incomingDurationMs == null
+        ? existingDurationMs
+        : Math.max(existingDurationMs, incomingDurationMs)
+    : existingDurationMs == null && incomingDurationMs == null
+      ? null
+      : (existingDurationMs ?? 0) + (incomingDurationMs ?? 0);
+  if (mergedDurationMs != null) {
+    mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
+  }
   // Only the freshest chunk decides whether the turn is still continuing.
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
 

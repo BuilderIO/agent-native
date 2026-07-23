@@ -587,7 +587,11 @@ describe("buildAssistantMessage", () => {
         { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
       ],
       "run-fold-1",
-      { suppressInternalContinuation: true, turnId: "turn-fold" },
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-fold",
+        runDurationMs: 40_000,
+      },
     );
     const secondChunk = buildAssistantMessage(
       [
@@ -595,7 +599,11 @@ describe("buildAssistantMessage", () => {
         { seq: 1, event: { type: "done" } },
       ],
       "run-fold-2",
-      { suppressInternalContinuation: true, turnId: "turn-fold" },
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-fold",
+        runDurationMs: 15_000,
+      },
     );
     expect(firstChunk).not.toBeNull();
     expect(secondChunk).not.toBeNull();
@@ -630,9 +638,18 @@ describe("buildAssistantMessage", () => {
       custom: {
         turnId: "turn-fold",
         foldedRunIds: ["run-fold-1", "run-fold-2"],
+        agentNativeRunDurationMs: 55_000,
       },
     });
     expect(repo.messages[1].message.metadata.custom.continued).toBeUndefined();
+
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold",
+      runId: "run-fold-2",
+    });
+    expect(
+      repo.messages[1].message.metadata.custom.agentNativeRunDurationMs,
+    ).toBe(55_000);
   });
 
   it("keeps tool call ids unique when folding continuation chunks", () => {

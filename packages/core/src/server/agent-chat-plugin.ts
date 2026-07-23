@@ -2250,6 +2250,11 @@ export function createAgentChatPlugin(
                   typeof run.turnId === "string" && run.turnId
                     ? run.turnId
                     : undefined,
+                runDurationMs:
+                  typeof run.startedAt === "number" &&
+                  Number.isFinite(run.startedAt)
+                    ? Math.max(0, Date.now() - run.startedAt)
+                    : undefined,
               },
             );
             if (!assistantMsg) {
