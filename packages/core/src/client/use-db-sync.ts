@@ -659,26 +659,23 @@ class SyncTransport {
     };
     source.onerror = () => {
       this.setSseConnected(false);
-      // When the browser gives up permanently (HTTP error → readyState
-      // CLOSED), it won't auto-reconnect. Drop the ref so a later
-      // connectEvents() (on focus/visibility) can establish a fresh stream;
-      // otherwise the non-null closed `eventSource` blocks reconnection and
-      // we'd be stuck on polling-only forever.
+      if (this.mode === "hosted" && this.gateway) {
+        // Browser auto-reconnect reuses the URL frozen at construction, so it
+        // would replay from a stale `since`. Own the reconnect so the next
+        // connect rebuilds activeSseUrl from the current versionRef. CLOSED also
+        // refreshes the token (expired/rotated/deploy); CONNECTING keeps it. A
+        // successful reconnect resets the count in onopen; a hard-down gateway
+        // trips the threshold and health-gates to local.
+        if (source.readyState === EventSource.CLOSED) this.token = null;
+        this.closeEvents();
+        this.onGatewayTransientFailure();
+        if (this.mode === "hosted") this.scheduleGatewayReconnect();
+        return;
+      }
+      // Local mode: native EventSource reconnect is fine. Drop a CLOSED ref so a
+      // later connectEvents() (focus/visibility) can establish a fresh stream.
       if (source.readyState === EventSource.CLOSED) {
         this.eventSource = null;
-        if (this.mode === "hosted" && this.gateway) {
-          // A closed gateway stream is most likely an expired token or a
-          // request-timeout/deploy cycle. Re-mint and reconnect with jitter;
-          // this is NOT the poll-401 cooldown path. Each closed stream counts
-          // toward the unhealthy threshold so a hard-down gateway (or one
-          // rejecting our tokens) health-gates to local instead of looping
-          // mint+connect forever; a successful reconnect resets the count in
-          // onopen above.
-          this.token = null;
-          this.onGatewayTransientFailure();
-          if (this.mode === "hosted") this.scheduleGatewayReconnect();
-          return;
-        }
       }
       this.schedulePoll();
     };
