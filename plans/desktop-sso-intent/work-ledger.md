@@ -1,8 +1,8 @@
 # Desktop workspace SSO work ledger
 
 ```yaml
-stage: work
-authority-source: "Alice: All right. Log that plan to the vault and work it."
+stage: land
+authority-source: "Alice: $land but don't merge yet."
 authorized-scope:
   repositories:
     - BuilderIO/agent-native
@@ -74,8 +74,8 @@ delegation-ceiling:
 product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
-  status: pending
-  summary: implementation and automated verification are complete; live canary and signed installed-app acceptance remain outstanding
+  status: blocked
+  summary: the PR is approved and mergeable, and the review findings are fixed locally; final-head CI, a fresh signed artifact, and real-app acceptance still block handoff readiness
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -86,6 +86,10 @@ acceptance-state:
     - Dispatch package suite: 269 tests passed; package build and typecheck passed on Framework
     - Dispatch template suite: 40 tests passed; template typecheck passed on Framework
     - production-shaped Netlify bundle changed the valid logged-out identity authorize request from 401 to the expected 302 sign-in redirect
+    - Desktop identity regression suite: 8 tests passed, including sign-out suppression, queued cancellation, cookie-write draining, and immediate explicit reauthentication ordering
+    - final-fix Desktop TypeScript passed
+    - final-fix formatting, focused lint, and git diff checks passed
+    - independent final technical review found no remaining actionable issues after the repeated sign-out concurrency regression was added
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
@@ -97,9 +101,8 @@ acceptance-state:
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
   blockers:
-    - signed packaging depends on the repository's GitHub-hosted Apple signing and notarization secrets
-    - production promotion requires green CI, a successful signed candidate, human review, and freshly captured rollback evidence
-    - the signed installed-app matrix still needs restart, account switch, standalone browser, custom app, local-development, and hostile-flow verification against the canary
+    - final-head CI must pass, including a clean Fast Tests run under the repository's supported Node 22 environment
+    - the material review fixes require a new signed artifact and independent real-app acceptance across the frozen restart, sign-out, account-switch, isolation, and hostile-flow matrix
   last-land-packet: null
 deployment-boundary:
   allowed:
@@ -112,6 +115,6 @@ deployment-boundary:
     - merge or stable Desktop publication without a separate decision
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
-ledger-revision: desktop-sso-work-r5
+ledger-revision: desktop-sso-land-r8
 status: active
 ```

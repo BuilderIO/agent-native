@@ -1042,7 +1042,11 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, (event) => {
 
 ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
   if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  return desktopIdentityBroker.ensureAppSession("dispatch");
+  const targetApp =
+    resolveDesktopIdentityApp("mail") ??
+    listDesktopIdentityApps().find((candidate) => !candidate.identityAuthority);
+  if (!targetApp) return false;
+  return desktopIdentityBroker.signIn(targetApp.id);
 });
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {

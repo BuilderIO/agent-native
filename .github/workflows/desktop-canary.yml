@@ -61,7 +61,12 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: canary
-        run: pnpm build && npx electron-builder --mac --config --publish never
+        run: |
+          node ../../scripts/build-branding-assets.mjs
+          pnpm build:native:mac
+          pnpm build:chrome-extension
+          pnpm build
+          npx electron-builder --mac --config --publish never
 
       - name: Verify candidate provenance and trust
         working-directory: packages/desktop-app
