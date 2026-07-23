@@ -406,6 +406,9 @@ jobs:
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
 
+      - name: Build Content template (Cloudflare Pages preset)
+        run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
+
       # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
       # both real Netlify function artifacts so a core runtime dependency cannot
       # be missing from either deployment's server bundle.

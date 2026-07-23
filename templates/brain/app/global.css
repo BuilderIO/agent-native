@@ -123,11 +123,6 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-.brain-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
-}
-
 .brain-chat-intro {
   display: none;
 }

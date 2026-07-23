@@ -563,6 +563,7 @@ function UseBuilderCard({
 // ─── Manual setup card ──────────────────────────────────────────────────────
 
 function ManualSetupCard({
+  id,
   hint,
   docsUrl,
   docsLabel = "Read the docs",
@@ -570,6 +571,7 @@ function ManualSetupCard({
   dim,
   sourceBadge,
 }: {
+  id?: string;
   hint?: string;
   docsUrl?: string;
   docsLabel?: string;
@@ -583,6 +585,7 @@ function ManualSetupCard({
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
   return (
     <div
+      id={id}
       className={cn(
         "rounded-md border border-border",
         isPage ? "px-3.5 py-3" : "px-2.5 py-2",
@@ -835,6 +838,7 @@ function LLMSectionInner({
   onToggle?: () => void;
 }) {
   const isPage = useSettingsSurface() === "page";
+  const t = useT();
   const [envKeys, setEnvKeys] = useState<
     Array<{ key: string; configured: boolean }>
   >([]);
@@ -850,6 +854,7 @@ function LLMSectionInner({
   const [baseUrlConfigured, setBaseUrlConfigured] = useState(false);
   const [clearBaseUrl, setClearBaseUrl] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [manualSetupOpen, setManualSetupOpen] = useState(false);
   const [applyNote, setApplyNote] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -1118,8 +1123,37 @@ function LLMSectionInner({
             trackingFlow="connect_llm"
             label="Connect Builder.io"
           />
-          {!builderConnected && (
-            <ManualSetupCard hint={manualSetupHint} sourceBadge={sourceBadge}>
+          {builderConnected && (
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="ghost"
+              aria-expanded={manualSetupOpen}
+              aria-controls="llm-manual-setup"
+              onClick={() => setManualSetupOpen((open) => !open)}
+              className={cn(
+                "inline-flex items-center gap-1 px-0.5 text-muted-foreground hover:text-foreground",
+                isPage ? "text-xs" : "text-[10px]",
+              )}
+            >
+              {t("agentPanel.addOwnKeys", {
+                defaultValue: "Add your own keys",
+              })}
+              <IconChevronDown
+                size={isPage ? 14 : 11}
+                className={cn(
+                  "transition-transform",
+                  manualSetupOpen && "rotate-180",
+                )}
+              />
+            </Button>
+          )}
+          {(!builderConnected || manualSetupOpen) && (
+            <ManualSetupCard
+              id="llm-manual-setup"
+              hint={manualSetupHint}
+              sourceBadge={builderConnected ? undefined : sourceBadge}
+            >
               <div className="space-y-2 mb-1">
                 <SettingsSelect
                   label="Provider"

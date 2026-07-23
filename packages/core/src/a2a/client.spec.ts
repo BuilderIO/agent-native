@@ -813,6 +813,49 @@ describe("A2AClient", () => {
     });
   });
 
+  it("tries explicit bearer token fallbacks in order", async () => {
+    const bearerTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerTokens.push(
+          String(new Headers(init.headers).get("authorization") ?? "").replace(
+            /^Bearer\s+/i,
+            "",
+          ),
+        );
+        const body = JSON.parse(String(init.body));
+        if (bearerTokens.length < 3) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32001, message: "Invalid or expired A2A token" },
+            }),
+            { status: 401 },
+          );
+        }
+        return completedResponse(body, "signed with explicit fallback");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        apiKey: "primary-test-key",
+        apiKeyFallbacks: ["first-test-fallback", "second-test-fallback"],
+      }),
+    ).resolves.toBe("signed with explicit fallback");
+
+    expect(bearerTokens).toEqual([
+      "primary-test-key",
+      "first-test-fallback",
+      "second-test-fallback",
+    ]);
+  });
+
   it("retries async task polling with fallback delegated bearer tokens", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
     const calls: Array<{ method: string; token: string }> = [];

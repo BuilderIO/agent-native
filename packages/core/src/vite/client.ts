@@ -2112,6 +2112,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "encodeStateAsUpdate",
     "mergeUpdates",
     "useAui",
+    "useAuiState",
     "useComposer",
     "useComposerRuntime",
     "useCurrentEditor",

@@ -1,7 +1,4 @@
-import {
-  markAgentChatHomeHandoff,
-  navigateWithAgentChatViewTransition,
-} from "@agent-native/core/client/agent-chat";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
@@ -186,7 +183,6 @@ function formsOpenPath(url: URL): string | null {
 }
 
 function OpenLinkInterceptor() {
-  const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -202,9 +198,6 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (location.pathname === "/ask" && path !== "/ask") {
-        markAgentChatHomeHandoff("forms");
-      }
       navigateWithAgentChatViewTransition(navigate, path);
     }
 

@@ -1343,6 +1343,7 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
     expect(code).toContain("export const InputRule = stub;");
+    expect(code).toContain("export const useAuiState = stub;");
     expect(code).toContain("export const useMessagePartReasoning = stub;");
     expect(code).toContain("export const useMessagePartRuntime = stub;");
   });
