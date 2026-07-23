@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: vi.fn(async () => null),
+  putUserSetting: vi.fn(async () => undefined),
+}));
+
 import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { createInboxItem } from "../inbox/store.js";

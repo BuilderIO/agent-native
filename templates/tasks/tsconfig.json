@@ -19,6 +19,5 @@
     "react-router.config.ts",
     ".react-router/types/**/*",
     ".generated/**/*"
-  ],
-  "exclude": ["**/*.test.ts", "**/*.spec.ts"]
+  ]
 }

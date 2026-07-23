@@ -55,6 +55,11 @@ step is still pending. Use `🔴` only when blocked on user input.
   declared through `agent-native.json` may use repo files as the source of truth,
   but app state, auth, settings, and hosted/collaborative mode still use SQL.
   Keep schemas provider-agnostic.
+- Keep app and template database code dialect-agnostic. Never call adapter-only
+  methods such as libSQL/SQLite `run()`, `all()`, or `get()`, or PostgreSQL-only
+  client APIs. Use Drizzle's shared query builder for normal reads and writes
+  and `getDbExec().execute()` for reviewed portable raw SQL; keep dialect
+  branching inside core database helpers.
 - Actions are the single source of truth. Define app operations in `actions/`
   with `defineAction`; the agent calls them as tools and the frontend calls the
   shared action surface through `useActionQuery` / `useActionMutation`.

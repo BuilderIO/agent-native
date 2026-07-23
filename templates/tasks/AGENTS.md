@@ -7,6 +7,11 @@ inventory existing public kits and installed package seams. Use
 `customizing-agent-native` for the configure → compose → eject → propose seam
 ladder.
 
+## Authoritative References
+
+- [Feature docs](./docs/features/README.md) define product behavior and feature status.
+- [Action definitions](./actions/) contain the canonical tool descriptions, input schemas, and implementations.
+
 ## Core Rules
 
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
@@ -16,34 +21,38 @@ ladder.
 - Keep the action surface small: task CRUD actions plus `reorder-tasks`, `view-screen`, and `navigate`.
 - Do not use `db-query` for normal task operations.
 - Call `view-screen` first when the user's visible task context matters (especially on `/tasks`).
+- Tasks are private to each user. Preserve `ownerEmail` scoping unless intentionally implementing sharing.
+- The task detail panel exposes `tasks.task-detail.bottom` as an `ExtensionSlot` with `slotContext` containing `taskId`, `title`, `done`, and `fieldValues`.
 
 ## Actions
 
-| Action                       | Method | Purpose                                                                                      |
-| ---------------------------- | ------ | -------------------------------------------------------------------------------------------- |
-| `list-tasks`                 | GET    | List current user's tasks; `includeDone` and `includeFields` default to false                |
-| `create-task`                | POST   | Create a task with `title`                                                                   |
-| `update-task`                | POST   | Patch `title`, `done`, and/or `fieldValues` by `taskId`                                      |
-| `delete-task`                | POST   | Delete a task by `taskId` (confirm with user first)                                          |
-| `bulk-update-tasks`          | POST   | Patch `title` and/or `done` on multiple tasks by id                                          |
-| `bulk-delete-tasks`          | POST   | Delete multiple tasks by id (confirm with user first)                                        |
-| `reorder-tasks`              | POST   | Reorder visible tasks by id list top-to-bottom                                               |
-| `list-inbox-items`           | GET    | List current user's inbox items                                                              |
-| `create-inbox-item`          | POST   | Create a not-ready inbox item with `title` (default chat capture)                            |
-| `update-inbox-item`          | POST   | Patch inbox item `title` by `inboxItemId`                                                    |
-| `delete-inbox-item`          | POST   | Delete an inbox item (confirm with user first)                                               |
-| `mark-inbox-item-ready`      | POST   | Promote inbox item to an incomplete task                                                     |
-| `reorder-inbox-items`        | POST   | Reorder inbox items by id list top-to-bottom                                                 |
-| `list-custom-fields`         | GET    | List custom field definitions                                                                |
-| `create-custom-field`        | POST   | Create a custom field definition with `title`, `type`, and optional `config`                 |
-| `update-custom-field`        | POST   | Patch a field definition `title` and/or type-compatible `config`; type is immutable          |
-| `delete-custom-field`        | POST   | Delete a field definition and its values on every task (confirm with user first)             |
-| `reorder-custom-fields`      | POST   | Reorder custom field definitions by id list top-to-bottom                                    |
-| `list-visible-task-fields`   | GET    | List custom field ids shown on task cards for the current user                               |
-| `update-visible-task-fields` | POST   | Replace which custom fields appear on task cards (max 3)                                     |
-| `view-screen`                | —      | Read navigation, UI bulk selection, visible tasks, and inbox snapshot                        |
-| `navigate`                   | —      | Move UI to a view: `tasks`, `inbox`, `fields`, `extensions`, `team` (`home`/`ask` → `tasks`) |
-| `render-task-list-inline`    | —      | Render an interactive task-list widget inline in chat without leaving the current view       |
+| Action                        | Method | Purpose                                                                                      |
+| ----------------------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `list-tasks`                  | GET    | List current user's tasks; `includeDone` and `includeFields` default to false                |
+| `create-task`                 | POST   | Create a task with `title`                                                                   |
+| `update-task`                 | POST   | Patch `title`, `done`, and/or `fieldValues` by `taskId`                                      |
+| `delete-task`                 | POST   | Delete a task by `taskId` (confirm with user first)                                          |
+| `bulk-update-tasks`           | POST   | Patch `title` and/or `done` on multiple tasks by id                                          |
+| `bulk-delete-tasks`           | POST   | Delete multiple tasks by id (confirm with user first)                                        |
+| `reorder-tasks`               | POST   | Reorder visible tasks by id list top-to-bottom                                               |
+| `list-inbox-items`            | GET    | List current user's inbox items                                                              |
+| `create-inbox-item`           | POST   | Create a not-ready inbox item with `title` (default chat capture)                            |
+| `update-inbox-item`           | POST   | Patch inbox item `title` by `inboxItemId`                                                    |
+| `delete-inbox-item`           | POST   | Delete an inbox item (confirm with user first)                                               |
+| `bulk-delete-inbox-items`     | POST   | Delete multiple inbox items by id (confirm with user first)                                  |
+| `mark-inbox-item-ready`       | POST   | Promote inbox item to an incomplete task                                                     |
+| `bulk-mark-inbox-items-ready` | POST   | Promote multiple inbox items to incomplete tasks by id                                       |
+| `reorder-inbox-items`         | POST   | Reorder inbox items by id list top-to-bottom                                                 |
+| `list-custom-fields`          | GET    | List custom field definitions                                                                |
+| `create-custom-field`         | POST   | Create a custom field definition with `title`, `type`, and optional `config`                 |
+| `update-custom-field`         | POST   | Patch a field definition `title` and/or type-compatible `config`; type is immutable          |
+| `delete-custom-field`         | POST   | Delete a field definition and its values on every task (confirm with user first)             |
+| `reorder-custom-fields`       | POST   | Reorder custom field definitions by id list top-to-bottom                                    |
+| `list-visible-task-fields`    | GET    | List custom field ids shown on task cards for the current user                               |
+| `update-visible-task-fields`  | POST   | Replace which custom fields appear on task cards (max 3)                                     |
+| `view-screen`                 | —      | Read navigation, UI bulk selection, visible tasks, and inbox snapshot                        |
+| `navigate`                    | —      | Move UI to a view: `tasks`, `inbox`, `fields`, `extensions`, `team` (`home`/`ask` → `tasks`) |
+| `render-task-list-inline`     | —      | Render an interactive task-list widget inline in chat without leaving the current view       |
 
 ## Store Functions And Transactions
 
@@ -77,22 +86,6 @@ export type DbHandle = Pick<
   "select" | "insert" | "update" | "delete" | "transaction"
 >;
 ```
-
-## Commit Message Conventions
-
-- Never include `Made-with: Cursor` in commit messages. Remove it if it appears
-  in a generated message.
-- Use one of these prefixes:
-  - `feature: ...` or `feature(PROJECT): ...`
-  - `fix: ...` or `fix(PROJECT): ...`
-  - `refactor: ...` or `refactor(PROJECT): ...`
-  - `technical: ...` or `technical(PROJECT): ...`
-  - `chore: ...` or `chore(PROJECT): ...`
-- `PROJECT` is optional. If provided, it must be one of `generator` or `web`.
-- Before creating any commit, always:
-  - ask for confirmation,
-  - show the proposed commit message first,
-  - commit only after explicit user approval.
 
 ## Commit Message Conventions
 
