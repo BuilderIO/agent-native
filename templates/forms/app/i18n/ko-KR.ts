@@ -151,6 +151,7 @@ const messages = {
     integrationsTab: "연동",
     settingsSaved: "설정이 저장되었습니다",
     integrationsSaved: "연동이 저장되었습니다",
+    saveFailed: "변경사항을 저장하지 못했습니다",
     formTitlePlaceholder: "양식 제목",
     addDescriptionPlaceholder: "설명 추가...",
     dragToReorder: "드래그하여 순서 변경",

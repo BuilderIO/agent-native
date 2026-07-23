@@ -141,6 +141,7 @@ const messages = {
     integrationsTab: "整合",
     settingsSaved: "設定已儲存",
     integrationsSaved: "整合已儲存",
+    saveFailed: "儲存變更失敗",
     formTitlePlaceholder: "表單標題",
     addDescriptionPlaceholder: "新增描述...",
     dragToReorder: "拖動以重新排序",

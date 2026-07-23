@@ -149,6 +149,7 @@ const messages = {
     integrationsTab: "التكاملات",
     settingsSaved: "تم حفظ الإعدادات",
     integrationsSaved: "تم حفظ التكاملات",
+    saveFailed: "فشل حفظ التغييرات",
     formTitlePlaceholder: "عنوان النموذج",
     addDescriptionPlaceholder: "أضف وصفا...",
     dragToReorder: "اسحب لإعادة الترتيب",

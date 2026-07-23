@@ -154,6 +154,7 @@ const messages = {
     integrationsTab: "連携",
     settingsSaved: "設定を保存しました",
     integrationsSaved: "連携を保存しました",
+    saveFailed: "変更を保存できませんでした",
     formTitlePlaceholder: "フォームタイトル",
     addDescriptionPlaceholder: "説明を追加...",
     dragToReorder: "ドラッグして並べ替え",

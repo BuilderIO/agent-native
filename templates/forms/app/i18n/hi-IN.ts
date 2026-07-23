@@ -152,6 +152,7 @@ const messages = {
     integrationsTab: "इंटीग्रेशन",
     settingsSaved: "सेटिंग्स सहेजी गईं",
     integrationsSaved: "इंटीग्रेशन सहेजे गए",
+    saveFailed: "परिवर्तन सहेजे नहीं जा सके",
     formTitlePlaceholder: "फॉर्म शीर्षक",
     addDescriptionPlaceholder: "विवरण जोड़ें...",
     dragToReorder: "क्रम बदलने के लिए खींचें",

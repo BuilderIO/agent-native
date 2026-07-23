@@ -155,6 +155,7 @@ const messages = {
     integrationsTab: "Intégrations",
     settingsSaved: "Paramètres enregistrés",
     integrationsSaved: "Intégrations enregistrées",
+    saveFailed: "Échec de l’enregistrement des modifications",
     formTitlePlaceholder: "Titre du formulaire",
     addDescriptionPlaceholder: "Ajouter une description...",
     dragToReorder: "Faire glisser pour réordonner",

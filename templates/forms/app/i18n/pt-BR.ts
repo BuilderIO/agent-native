@@ -155,6 +155,7 @@ const messages = {
     integrationsTab: "Integrações",
     settingsSaved: "Configurações salvas",
     integrationsSaved: "Integrações salvas",
+    saveFailed: "Falha ao salvar alterações",
     formTitlePlaceholder: "Título do formulário",
     addDescriptionPlaceholder: "Adicionar uma descrição...",
     dragToReorder: "Arraste para reordenar",

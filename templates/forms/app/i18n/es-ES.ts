@@ -155,6 +155,7 @@ const messages = {
     integrationsTab: "Integraciones",
     settingsSaved: "Ajustes guardados",
     integrationsSaved: "Integraciones guardadas",
+    saveFailed: "No se pudieron guardar los cambios",
     formTitlePlaceholder: "Título del formulario",
     addDescriptionPlaceholder: "Añadir una descripción...",
     dragToReorder: "Arrastra para reordenar",

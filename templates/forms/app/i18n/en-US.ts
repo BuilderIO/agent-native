@@ -154,6 +154,7 @@ const messages = {
     integrationsTab: "Integrations",
     settingsSaved: "Settings saved",
     integrationsSaved: "Integrations saved",
+    saveFailed: "Failed to save changes",
     formTitlePlaceholder: "Form Title",
     addDescriptionPlaceholder: "Add a description...",
     dragToReorder: "Drag to reorder",

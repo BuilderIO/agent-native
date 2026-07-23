@@ -141,6 +141,7 @@ const messages = {
     integrationsTab: "集成",
     settingsSaved: "设置已保存",
     integrationsSaved: "集成已保存",
+    saveFailed: "保存更改失败",
     formTitlePlaceholder: "表单标题",
     addDescriptionPlaceholder: "添加描述...",
     dragToReorder: "拖动以重新排序",
