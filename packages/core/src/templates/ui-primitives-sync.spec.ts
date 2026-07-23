@@ -141,7 +141,6 @@ const EXPECTED_ACTIVE_TEMPLATES = [
   "chat",
   "clips",
   "content",
-  "crm",
   "design",
   "dispatch",
   "forms",
