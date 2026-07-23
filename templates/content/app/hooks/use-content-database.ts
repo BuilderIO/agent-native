@@ -51,7 +51,6 @@ import type {
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
@@ -816,9 +815,6 @@ export function useUpdateContentDatabasePersonalView(
   _databaseId: string | null,
 ) {
   const queryClient = useQueryClient();
-  const latestMutationRef = useRef<{
-    variables: UpdateContentDatabasePersonalViewRequest;
-  } | null>(null);
   return useActionMutation<
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
@@ -830,17 +826,12 @@ export function useUpdateContentDatabasePersonalView(
         "get-content-database-personal-view",
         { databaseId: variables.databaseId },
       ] as const;
-      latestMutationRef.current = {
-        variables,
-      };
       queryClient.setQueryData(queryKey, {
         databaseId: variables.databaseId,
         overrides: variables.overrides,
       });
     },
     onError: (_error, variables) => {
-      const latest = latestMutationRef.current;
-      if (latest?.variables !== variables) return;
       return queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -850,11 +841,6 @@ export function useUpdateContentDatabasePersonalView(
         exact: true,
         refetchType: "all",
       });
-    },
-    onSettled: (_data, _error, variables) => {
-      if (latestMutationRef.current?.variables === variables) {
-        latestMutationRef.current = null;
-      }
     },
   });
 }

@@ -895,6 +895,7 @@ function DatabaseTable({
     databaseId: string;
     overrides: PersonalDatabaseViewOverrides;
   } | null>(null);
+  const unmountingRef = useRef(false);
   const updatePersonalViewRef = useRef(updatePersonalView);
   updatePersonalViewRef.current = updatePersonalView;
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
@@ -1652,9 +1653,16 @@ function DatabaseTable({
   }
 
   const flushPendingPersonalViewSave = useCallback(() => {
+    if (unmountingRef.current) return;
     if (personalViewSaveTimerRef.current) {
       clearTimeout(personalViewSaveTimerRef.current);
       personalViewSaveTimerRef.current = null;
+    }
+    if (updatePersonalViewRef.current.isPending) {
+      personalViewSaveTimerRef.current = setTimeout(() => {
+        flushPendingPersonalViewSave();
+      }, 50);
+      return;
     }
     const pending = pendingPersonalViewSaveRef.current;
     if (!pending) return;
@@ -2229,7 +2237,8 @@ function DatabaseTable({
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      flushPendingPersonalViewSave();
+      sendPendingPersonalViewSaveKeepalive();
+      unmountingRef.current = true;
     };
   }, [flushPendingPersonalViewSave, sendPendingPersonalViewSaveKeepalive]);
 

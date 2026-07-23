@@ -266,6 +266,7 @@ describe("DatabaseView UI regressions", () => {
     });
     personalViewQuery.data = undefined;
     personalViewQuery.isLoading = false;
+    personalViewMutation.isPending = false;
     personalViewMutation.mutate.mockReset();
     updateViewMutation.mutate.mockReset();
     addItemMutation.mutateAsync.mockReset();
@@ -561,6 +562,43 @@ describe("DatabaseView UI regressions", () => {
     });
 
     expect(personalViewMutation.mutate).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("serializes a newer personal override behind an active save", async () => {
+    vi.useFakeTimers();
+    personalViewMutation.isPending = true;
+    await renderDatabaseView();
+    const filterButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter"]',
+    );
+
+    await act(async () => {
+      filterButton?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await Promise.resolve();
+    });
+    const nameItem = [
+      ...document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ].find((item) => item.textContent?.trim() === "Name");
+    expect(nameItem).toBeTruthy();
+
+    await act(async () => {
+      nameItem?.click();
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+    expect(personalViewMutation.mutate).not.toHaveBeenCalled();
+
+    personalViewMutation.isPending = false;
+    await renderDatabaseView();
+    await act(async () => {
+      vi.advanceTimersByTime(50);
+      await Promise.resolve();
+    });
+
+    expect(personalViewMutation.mutate).toHaveBeenCalledTimes(1);
     vi.useRealTimers();
   });
 
