@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.119.4
+
+### Patch Changes
+
+- 4b734be: Preserve completed agent chat work durations when threads reload.
+- 4b734be: Keep durable background agent workers alive until terminal run events and status are persisted.
+- 4b734be: Keep delegated agent tool summaries non-expandable when their private details are unavailable, and prevent missing-response text from flashing between a completed tool and its follow-up answer.
+- 4b734be: Keep transient Nitro environment startup failures as HTTP responses instead of printing benign unhandled rejection errors.
+- 4b734be: Remove the redundant long-running hint from delegated agent chats now that they show live remote tool activity.
+- 4b734be: Persist stopped nested agent activity as terminal so canceled chats do not resume showing a false Thinking state after refresh.
+- Updated dependencies [4b734be]
+  - @agent-native/toolkit@0.10.4
+
 ## 0.119.3
 
 ### Patch Changes

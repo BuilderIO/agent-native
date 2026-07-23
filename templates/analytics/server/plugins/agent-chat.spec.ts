@@ -20,12 +20,12 @@ import {
   analyticsSourceGuidanceOpening,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
+  BOUNDED_STRUCTURED_LOOKUP_GUIDANCE,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
   NON_ANALYTICS_FALLBACK_FINAL_MESSAGE,
   NON_ANALYTICS_FALLBACK_RETRY_MESSAGE,
   NON_ANALYTICS_REQUEST_GUIDANCE,
   realDataFinalGuard,
-  SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE,
 } from "./agent-chat";
 
 type PlanModePolicyEntry = ActionEntry & { allowInPlanMode?: boolean };
@@ -46,16 +46,16 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS).toBe(3 * 60_000);
   });
 
-  it("injects the simple, time-bounded metric fast path into source guidance", () => {
+  it("injects the bounded structured lookup fast path into source guidance", () => {
     const guidance = analyticsSourceGuidanceOpening();
 
     expect(guidance).toContain("<data-source-guidance>");
-    expect(guidance).toContain(SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE);
+    expect(guidance).toContain(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
     expect(guidance).toContain(NON_ANALYTICS_REQUEST_GUIDANCE);
-    expect(guidance).toContain("run one bounded aggregate");
-    expect(guidance).toContain("Once it returns a valid result");
+    expect(guidance).toContain("run one bounded query");
+    expect(guidance).toContain("Once the query succeeds");
     expect(guidance).toContain("does not waive the real-data requirement");
     expect(guidance).toContain(
       "This does not replace or restrict external sources",
@@ -64,6 +64,21 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("[Connect data sources](");
     expect(guidance).toContain(
       "Chat remains available when no external data source is connected",
+    );
+  });
+
+  it("keeps ordinary structured lookups on one authoritative source", () => {
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "search-analytics-query-catalog",
+    );
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "run one bounded query",
+    );
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "do not by themselves make it a corpus investigation",
+    );
+    expect(BOUNDED_STRUCTURED_LOOKUP_GUIDANCE).toContain(
+      "Never repeat an identical invalid or failed tool call",
     );
   });
 
@@ -98,9 +113,11 @@ describe("Analytics agent Plan mode policy", () => {
   it("routes data-dictionary lookup on demand with compact guidance", () => {
     const context = analyticsDataDictionaryRoutingContext();
 
-    expect(context).toContain("available on demand");
+    expect(context).toContain("available through");
     expect(context).toContain("`list-data-dictionary`");
-    expect(context).toContain("focused `search` or `department` filter");
+    expect(context).toContain(
+      "Call `list-data-dictionary` separately only when the user asks",
+    );
     expect(context).toContain("approved entries as canonical");
     expect(context.length).toBeLessThan(1_000);
   });
@@ -164,10 +181,17 @@ describe("Analytics agent Plan mode policy", () => {
     ]);
   });
 
-  it("keeps the generic corpus path and only conceptual provider recipes in the initial tool surface", () => {
+  it("keeps corpus tools discoverable without loading them initially", () => {
     expect(INITIAL_TOOL_NAMES).toEqual(
       expect.arrayContaining([
         "bigquery",
+        "search-analytics-query-catalog",
+        "search-bigquery-schema",
+        "list-data-dictionary",
+      ]),
+    );
+    expect(INITIAL_TOOL_NAMES).not.toEqual(
+      expect.arrayContaining([
         "provider-api-catalog",
         "provider-api-docs",
         "provider-api-request",
@@ -179,10 +203,6 @@ describe("Analytics agent Plan mode policy", () => {
         "gong-calls",
         "gong-native-insights",
         "github-repo-files",
-      ]),
-    );
-    expect(INITIAL_TOOL_NAMES).not.toEqual(
-      expect.arrayContaining([
         "hubspot-deals",
         "hubspot-records",
         "hubspot-pipelines",

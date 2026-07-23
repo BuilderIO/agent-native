@@ -12,7 +12,9 @@ vi.mock("../server/tasks/store.js", () => ({
   },
 }));
 
-import bulkUpdateTasksAction from "./bulk-update-tasks.js";
+import bulkUpdateTasksAction, {
+  bulkUpdateTasksSchema,
+} from "./bulk-update-tasks.js";
 
 describe("bulk-update-tasks", () => {
   beforeEach(() => {
@@ -22,7 +24,7 @@ describe("bulk-update-tasks", () => {
   describe("schema", () => {
     it("accepts taskIds with title and/or done patches", () => {
       expect(
-        bulkUpdateTasksAction.schema.parse({
+        bulkUpdateTasksSchema.parse({
           taskIds: ["t1", "t2"],
           done: true,
         }),
@@ -31,7 +33,7 @@ describe("bulk-update-tasks", () => {
         done: true,
       });
       expect(
-        bulkUpdateTasksAction.schema.parse({
+        bulkUpdateTasksSchema.parse({
           taskIds: ["t1"],
           title: "Updated",
         }),
@@ -40,10 +42,10 @@ describe("bulk-update-tasks", () => {
         title: "Updated",
       });
       expect(() =>
-        bulkUpdateTasksAction.schema.parse({ taskIds: [], done: true }),
+        bulkUpdateTasksSchema.parse({ taskIds: [], done: true }),
       ).toThrow();
       expect(() =>
-        bulkUpdateTasksAction.schema.parse({ taskIds: ["t1"], title: "" }),
+        bulkUpdateTasksSchema.parse({ taskIds: ["t1"], title: "" }),
       ).toThrow();
     });
   });

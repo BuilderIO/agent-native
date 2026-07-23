@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.119.3",
+  "version": "0.119.4",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -373,7 +373,7 @@
     "highlight.js": "catalog:",
     "i18next": "26.3.1",
     "isbot": "^5",
-    "jiti": "^2.6.1",
+    "jiti": "^2.7.0",
     "jose": "^6.2.2",
     "linkedom": "0.18.12",
     "lowlight": "catalog:",
@@ -381,7 +381,7 @@
     "nanoid": "^5.1.9",
     "next-themes": "catalog:",
     "nf3": "0.3.17",
-    "nitro": "3.0.260415-beta",
+    "nitro": "3.0.260610-beta",
     "p-limit": "^7.3.0",
     "prettier": "^3.8.3",
     "react-i18next": "17.0.8",

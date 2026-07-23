@@ -73,6 +73,7 @@ import {
   MarkdownText,
   renderMarkdownToClipboardHtml,
 } from "./markdown-renderer.js";
+import { getAssistantRunDurationMs } from "./repo-helpers.js";
 import {
   ToolCallFallback,
   ToolActivityPresentation,
@@ -989,17 +990,22 @@ export function shouldShowAssistantMessageFooter({
 }
 
 export function shouldShowMissingFinalResponse({
+  isCurrentTurnRunning,
   statusIsTerminal,
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
 }: {
+  isCurrentTurnRunning: boolean;
   statusIsTerminal: boolean;
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
 }): boolean {
+  // A completed tool can make the latest message look terminal before the
+  // active turn attaches its follow-up text.
   return (
+    !isCurrentTurnRunning &&
     statusIsTerminal &&
     !hasAssistantText &&
     !hasUnresolvedTool &&
@@ -1202,6 +1208,7 @@ export function AssistantMessage() {
   const chatRunning = React.useContext(ChatRunningContext);
   const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
+  const persistedDurationMs = getAssistantRunDurationMs(msg);
   const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
     thread.messages.length > 0 &&
@@ -1215,6 +1222,7 @@ export function AssistantMessage() {
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
   const showMissingFinalResponse = shouldShowMissingFinalResponse({
+    isCurrentTurnRunning: isLast && chatRunning,
     statusIsTerminal,
     hasAssistantText: responseConnectionText.trim().length > 0,
     hasUnresolvedTool,
@@ -1370,7 +1378,7 @@ export function AssistantMessage() {
                 if (!showSummary) return <>{children}</>;
                 return (
                   <WorkedForSummary
-                    durationMs={capturedDurationMs}
+                    durationMs={capturedDurationMs ?? persistedDurationMs}
                     defaultOpen={hasCustomUi}
                     autoCollapse={animateCollapse && !hasCustomUi}
                   >
