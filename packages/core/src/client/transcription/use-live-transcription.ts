@@ -188,7 +188,7 @@ export function useLiveTranscription(
     } catch {
       /* browser may block without user gesture */
     }
-  }, [lang]);
+  }, [currentTranscript, lang]);
 
   const stop = useCallback((): string => {
     const text = currentTranscript();
