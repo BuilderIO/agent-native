@@ -194,6 +194,31 @@ describe("dashboard report sweep", () => {
     });
   });
 
+  it("reschedules a partial capture while the complete-report retry window is active", async () => {
+    const sub = subscription();
+    const retryAt = "2026-06-30T11:10:00.000Z";
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
+    mocks.sendDashboardReportSubscription.mockResolvedValue({
+      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+      recipientCount: 1,
+      screenshotAttached: false,
+      screenshotMode: "partial",
+      screenshotError: "part 2 timed out",
+      emailsSent: false,
+    });
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "Dashboard screenshot unavailable: part 2 timed out (retry scheduled)",
+      { nextRunAt: retryAt },
+    );
+  });
+
   it("marks a complete screenshot delivery successful", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
