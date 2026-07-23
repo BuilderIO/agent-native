@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
 
-vi.mock("@agent-native/core/db", () => ({
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
   getDbExec: () => ({ execute }),
 }));
 
