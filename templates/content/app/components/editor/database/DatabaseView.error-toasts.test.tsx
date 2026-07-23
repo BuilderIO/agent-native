@@ -1,7 +1,9 @@
 import type {
   BuilderCmsModelSummary,
+  ContentDatabasePersonalViewResponse,
   ContentDatabaseResponse,
 } from "@shared/api";
+import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "@shared/api";
 // @vitest-environment happy-dom
 //
 // Mount the real DatabaseView with an empty mocked database so UI regressions
@@ -16,6 +18,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
+const keepaliveActionMock = vi.hoisted(() => vi.fn());
+const personalViewQuery = vi.hoisted<{
+  data: ContentDatabasePersonalViewResponse | undefined;
+  isLoading: boolean;
+}>(() => ({ data: undefined, isLoading: false }));
+const personalViewMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+  isPending: false,
+}));
+const updateViewMutation = vi.hoisted(() => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn().mockResolvedValue(undefined),
+  isPending: false,
+}));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/client/hooks")>();
+  return {
+    ...actual,
+    tryCallActionKeepalive: keepaliveActionMock,
+  };
+});
 
 vi.mock("sonner", async (importOriginal) => {
   const actual = await importOriginal<typeof import("sonner")>();
@@ -135,9 +161,9 @@ vi.mock("@/hooks/use-content-database", () => ({
   useExecuteBuilderSourceExecution: () => benignMutation,
   useCancelPreparedBuilderSourceUpdate: () => benignMutation,
   useSetContentDatabaseSourceWriteMode: () => benignMutation,
-  useContentDatabasePersonalView: () => ({ data: undefined, isLoading: false }),
-  useUpdateContentDatabasePersonalView: () => benignMutation,
-  useUpdateContentDatabaseView: () => benignMutation,
+  useContentDatabasePersonalView: () => personalViewQuery,
+  useUpdateContentDatabasePersonalView: () => personalViewMutation,
+  useUpdateContentDatabaseView: () => updateViewMutation,
   useDeleteDatabaseItems: () => benignMutation,
   useDuplicateDatabaseItems: () => benignMutation,
   useMoveDatabaseItem: () => benignMutation,
@@ -229,6 +255,19 @@ describe("DatabaseView UI regressions", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     contentDatabaseQueryMock.mockReset();
+    keepaliveActionMock.mockReset();
+    keepaliveActionMock.mockReturnValue({
+      accepted: true,
+      bodyBytes: 1,
+      completion: Promise.resolve({
+        databaseId: "database-1",
+        overrides: null,
+      }),
+    });
+    personalViewQuery.data = undefined;
+    personalViewQuery.isLoading = false;
+    personalViewMutation.mutate.mockReset();
+    updateViewMutation.mutate.mockReset();
     addItemMutation.mutateAsync.mockReset();
     attachSourceMutation.mutateAsync.mockReset();
     databasePagination.totalItems = 0;
@@ -257,6 +296,7 @@ describe("DatabaseView UI regressions", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.useRealTimers();
     container.remove();
     vi.unstubAllGlobals();
     (
@@ -310,15 +350,20 @@ describe("DatabaseView UI regressions", () => {
 
     expect(sortButton?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector("[role=menu]")).toBeTruthy();
+    const sortPickerInput =
+      document.querySelector<HTMLInputElement>("[role=menu] input");
+    expect(sortPickerInput).toBeTruthy();
 
     await act(async () => {
-      document.activeElement?.dispatchEvent(
+      sortPickerInput?.focus();
+      sortPickerInput?.dispatchEvent(
         new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
       );
       await Promise.resolve();
     });
 
     expect(sortButton?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(sortButton);
 
     await act(async () => {
       filterButton?.dispatchEvent(
@@ -329,6 +374,138 @@ describe("DatabaseView UI regressions", () => {
 
     expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector("[role=menu]")).toBeTruthy();
+
+    const filterPickerInput =
+      document.querySelector<HTMLInputElement>("[role=menu] input");
+    expect(filterPickerInput).toBeTruthy();
+    await act(async () => {
+      filterPickerInput?.focus();
+      filterPickerInput?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(filterButton?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(filterButton);
+  });
+
+  it("does not expose shared database state before personal overrides hydrate", async () => {
+    personalViewQuery.isLoading = true;
+    await renderDatabaseView();
+
+    expect(container.querySelector('button[aria-label="Filter"]')).toBeNull();
+
+    personalViewQuery.data = {
+      databaseId: "database-1",
+      overrides: {
+        version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+        activeViewId: databaseViewConfig.activeViewId,
+        views: databaseViewConfig.views.map((view) => ({
+          id: view.id,
+          sorts: [],
+          filters:
+            view.id === databaseViewConfig.activeViewId
+              ? [
+                  {
+                    key: "name",
+                    label: "Name",
+                    operator: "contains" as const,
+                    value: "Personal only",
+                  },
+                ]
+              : [],
+          filterMode: "and" as const,
+        })),
+      },
+    };
+    personalViewQuery.isLoading = false;
+    await renderDatabaseView();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('button[aria-label="1 active filters"]'),
+    ).toBeTruthy();
+    expect(personalViewMutation.mutate).not.toHaveBeenCalled();
+    expect(updateViewMutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it("opens both toolbar menus with Enter, Space, and ArrowDown", async () => {
+    await renderDatabaseView();
+
+    for (const label of ["Sort", "Filter"]) {
+      for (const key of ["Enter", " ", "ArrowDown"]) {
+        const button = container.querySelector<HTMLButtonElement>(
+          `button[aria-label="${label}"]`,
+        );
+        expect(button).toBeTruthy();
+
+        await act(async () => {
+          button?.focus();
+          button?.dispatchEvent(
+            new KeyboardEvent("keydown", { bubbles: true, key }),
+          );
+          await Promise.resolve();
+        });
+
+        expect(button?.getAttribute("aria-expanded")).toBe("true");
+        const pickerInput =
+          document.querySelector<HTMLInputElement>("[role=menu] input");
+        expect(pickerInput).toBeTruthy();
+        await act(async () => {
+          pickerInput?.focus();
+          pickerInput?.dispatchEvent(
+            new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }),
+          );
+          await Promise.resolve();
+        });
+
+        expect(button?.getAttribute("aria-expanded")).toBe("false");
+        expect(document.activeElement).toBe(button);
+      }
+    }
+  });
+
+  it("persists one personal override and protects a pending reload with keepalive", async () => {
+    vi.useFakeTimers();
+    await renderDatabaseView();
+    const filterButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Filter"]',
+    );
+
+    await act(async () => {
+      filterButton?.dispatchEvent(
+        new KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+      );
+      await Promise.resolve();
+    });
+    const nameItem = [
+      ...document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+    ].find((item) => item.textContent?.trim() === "Name");
+    expect(nameItem).toBeTruthy();
+
+    await act(async () => {
+      nameItem?.click();
+      await Promise.resolve();
+    });
+    window.dispatchEvent(new Event("pagehide"));
+
+    expect(keepaliveActionMock).toHaveBeenCalledTimes(1);
+    expect(keepaliveActionMock).toHaveBeenCalledWith(
+      "update-content-database-personal-view",
+      expect.objectContaining({ databaseId: "database-1" }),
+    );
+    expect(personalViewMutation.mutate).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+    });
+
+    expect(personalViewMutation.mutate).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 
   it("shows a toast and does not create a row when addItem.mutateAsync rejects", async () => {

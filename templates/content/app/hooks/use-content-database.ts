@@ -812,17 +812,21 @@ export function useContentDatabasePersonalView(databaseId: string | null) {
 }
 
 export function useUpdateContentDatabasePersonalView(
-  databaseId: string | null,
+  _databaseId: string | null,
 ) {
   const queryClient = useQueryClient();
   return useActionMutation<
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
+    skipActionQueryInvalidation: true,
     onSuccess: (data) => {
-      if (!databaseId) return;
       queryClient.setQueryData(
-        ["action", "get-content-database-personal-view", { databaseId }],
+        [
+          "action",
+          "get-content-database-personal-view",
+          { databaseId: data.databaseId },
+        ],
         data,
       );
     },

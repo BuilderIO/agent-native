@@ -3,6 +3,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
   setClientAppState,
+  tryCallActionKeepalive,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -23,6 +24,7 @@ import {
   type ProcessBuilderBodyHydrationResponse,
   type SourceJoinSuggestion,
   type ContentDatabasePersonalViewOverrides,
+  type ContentDatabasePersonalViewResponse,
   type ContentDatabaseView,
   type ContentDatabaseViewConfig,
   type ContentDatabaseColumnCalculation,
@@ -103,6 +105,7 @@ import {
   useRef,
   useState,
   type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -680,12 +683,19 @@ export function DatabaseView({
   isActive,
 }: DatabaseViewProps) {
   const { data: document } = useDocument(databaseDocumentId);
+  const personalView = useContentDatabasePersonalView(databaseId);
 
-  if (!document?.database || document.database.id !== databaseId) return null;
+  if (
+    !document?.database ||
+    document.database.id !== databaseId ||
+    personalView.isLoading
+  )
+    return null;
 
   return (
     <DatabaseTable
       document={document}
+      personalView={personalView.data}
       databaseDocumentId={databaseDocumentId}
       databaseId={databaseId}
       hostDocumentId={hostDocumentId}
@@ -698,6 +708,7 @@ export function DatabaseView({
 
 function DatabaseTable({
   document,
+  personalView,
   databaseId: expectedDatabaseId,
   databaseDocumentId,
   hostDocumentId,
@@ -706,6 +717,7 @@ function DatabaseTable({
   isActive,
 }: {
   document: Document;
+  personalView: ContentDatabasePersonalViewResponse | undefined;
   databaseId: string;
   databaseDocumentId: string;
   hostDocumentId: string;
@@ -763,7 +775,6 @@ function DatabaseTable({
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
     : dbText("newPage");
-  const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
   const sources = useMemo(
@@ -821,12 +832,23 @@ function DatabaseTable({
     useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
-  const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
-    defaultDatabaseViewConfig(),
+  const initialSavedViewConfig = normalizeClientDatabaseViewConfig(
+    document.database?.viewConfig,
   );
+  const initialViewConfig = applyPersonalDatabaseViewOverrides(
+    initialSavedViewConfig,
+    normalizePersonalDatabaseViewOverrides(personalView?.overrides),
+  );
+  const [viewConfig, setViewConfig] =
+    useState<ContentDatabaseViewConfig>(initialViewConfig);
   const [savedViewConfig, setSavedViewConfig] =
-    useState<ContentDatabaseViewConfig>(defaultDatabaseViewConfig());
-  const [personalQueryDirty, setPersonalQueryDirty] = useState(false);
+    useState<ContentDatabaseViewConfig>(initialSavedViewConfig);
+  const [personalQueryDirty, setPersonalQueryDirty] = useState(() =>
+    databaseViewHasPersonalQueryChanges(
+      initialViewConfig,
+      initialSavedViewConfig,
+    ),
+  );
   const [dateViewMonth, setDateViewMonth] = useState(() =>
     startOfMonth(new Date()),
   );
@@ -862,11 +884,19 @@ function DatabaseTable({
     () => databaseDateViewRange(activeView.type, dateViewMonth),
     [activeView.type, dateViewMonth],
   );
-  const hydratedViewRef = useRef("");
+  const hydratedViewRef = useRef(
+    databaseViewStateKey(expectedDatabaseId, initialViewConfig),
+  );
   const saveViewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
+  const pendingPersonalViewSaveRef = useRef<{
+    databaseId: string;
+    overrides: PersonalDatabaseViewOverrides;
+  } | null>(null);
+  const updatePersonalViewRef = useRef(updatePersonalView);
+  updatePersonalViewRef.current = updatePersonalView;
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
@@ -1579,6 +1609,7 @@ function DatabaseTable({
         clearTimeout(personalViewSaveTimerRef.current);
         personalViewSaveTimerRef.current = null;
       }
+      pendingPersonalViewSaveRef.current = null;
       updatePersonalView.mutate({ databaseId, overrides: null });
       setSavedViewConfig(nextViewConfig);
       setViewConfig(nextViewConfig);
@@ -1601,6 +1632,7 @@ function DatabaseTable({
       clearTimeout(personalViewSaveTimerRef.current);
       personalViewSaveTimerRef.current = null;
     }
+    pendingPersonalViewSaveRef.current = null;
     setViewConfig((current) => {
       const nextViewConfig = databaseViewConfigWithSavedQueryState(
         current,
@@ -1619,6 +1651,49 @@ function DatabaseTable({
     });
   }
 
+  const flushPendingPersonalViewSave = useCallback(() => {
+    if (personalViewSaveTimerRef.current) {
+      clearTimeout(personalViewSaveTimerRef.current);
+      personalViewSaveTimerRef.current = null;
+    }
+    const pending = pendingPersonalViewSaveRef.current;
+    if (!pending) return;
+    pendingPersonalViewSaveRef.current = null;
+    updatePersonalViewRef.current.mutate(pending, {
+      onError: (err) => {
+        toast.error(dbText("failedToSaveView"), {
+          description:
+            err instanceof Error ? err.message : dbText("somethingWentWrong"),
+        });
+      },
+    });
+  }, []);
+
+  const sendPendingPersonalViewSaveKeepalive = useCallback(() => {
+    const pending = pendingPersonalViewSaveRef.current;
+    if (!pending) return;
+    const attempt = tryCallActionKeepalive(
+      "update-content-database-personal-view",
+      pending,
+    );
+    if (!attempt.accepted) {
+      flushPendingPersonalViewSave();
+      return;
+    }
+    if (personalViewSaveTimerRef.current) {
+      clearTimeout(personalViewSaveTimerRef.current);
+      personalViewSaveTimerRef.current = null;
+    }
+    pendingPersonalViewSaveRef.current = null;
+    void attempt.completion.catch(() => {
+      if (pendingPersonalViewSaveRef.current) return;
+      pendingPersonalViewSaveRef.current = pending;
+      personalViewSaveTimerRef.current = setTimeout(() => {
+        flushPendingPersonalViewSave();
+      }, 300);
+    });
+  }, [flushPendingPersonalViewSave]);
+
   function schedulePersonalDatabaseViewOverrideWrite(
     databaseId: string,
     viewConfig: ContentDatabaseViewConfig,
@@ -1627,21 +1702,9 @@ function DatabaseTable({
       clearTimeout(personalViewSaveTimerRef.current);
     }
     const overrides = personalDatabaseViewOverridesFromConfig(viewConfig);
+    pendingPersonalViewSaveRef.current = { databaseId, overrides };
     personalViewSaveTimerRef.current = setTimeout(() => {
-      personalViewSaveTimerRef.current = null;
-      updatePersonalView.mutate(
-        { databaseId, overrides },
-        {
-          onError: (err) => {
-            toast.error(dbText("failedToSaveView"), {
-              description:
-                err instanceof Error
-                  ? err.message
-                  : dbText("somethingWentWrong"),
-            });
-          },
-        },
-      );
+      flushPendingPersonalViewSave();
     }, 300);
   }
 
@@ -2131,13 +2194,12 @@ function DatabaseTable({
   ]);
   useEffect(() => {
     if (!data?.database.id) return;
-    if (personalView.isLoading) return;
     const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
     const nextViewConfig = applyPersonalDatabaseViewOverrides(
       nextSavedViewConfig,
-      normalizePersonalDatabaseViewOverrides(personalView.data?.overrides),
+      normalizePersonalDatabaseViewOverrides(personalView?.overrides),
     );
     const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
     if (hydratedViewRef.current === nextKey) return;
@@ -2151,20 +2213,18 @@ function DatabaseTable({
         ? current
         : nextViewConfig,
     );
-  }, [
-    data?.database.id,
-    data?.database.viewConfig,
-    personalView.data?.overrides,
-    personalView.isLoading,
-  ]);
+  }, [data?.database.id, data?.database.viewConfig, personalView?.overrides]);
 
   useEffect(() => {
-    return () => {
-      if (personalViewSaveTimerRef.current) {
-        clearTimeout(personalViewSaveTimerRef.current);
-      }
+    const handlePageHide = () => {
+      sendPendingPersonalViewSaveKeepalive();
     };
-  }, []);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      flushPendingPersonalViewSave();
+    };
+  }, [flushPendingPersonalViewSave, sendPendingPersonalViewSaveKeepalive]);
 
   useEffect(() => {
     if (!databaseId) return;
@@ -2192,7 +2252,7 @@ function DatabaseTable({
                 ? applyPersonalDatabaseViewOverrides(
                     nextViewConfig,
                     normalizePersonalDatabaseViewOverrides(
-                      personalView.data?.overrides,
+                      personalView?.overrides,
                     ),
                   )
                 : nextViewConfig,
@@ -2210,7 +2270,7 @@ function DatabaseTable({
     canEdit,
     databaseId,
     personalQueryDirty,
-    personalView.data?.overrides,
+    personalView?.overrides,
     savedViewConfig,
     updateView,
     viewConfig,
@@ -10865,7 +10925,7 @@ function DatabasePropertyPickerSearch({
         <Input
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          onKeyDown={(event) => event.stopPropagation()}
+          onKeyDown={stopDatabasePickerKeydownPropagation}
           placeholder={placeholder}
           aria-label={placeholder}
           className="h-6 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
@@ -10873,6 +10933,13 @@ function DatabasePropertyPickerSearch({
       </div>
     </div>
   );
+}
+
+function stopDatabasePickerKeydownPropagation(
+  event: ReactKeyboardEvent<HTMLElement>,
+) {
+  if (event.key === "Escape" || event.key === "Tab") return;
+  event.stopPropagation();
 }
 
 function DatabasePropertyPickerItem({
@@ -16964,7 +17031,7 @@ function SortMenu({
         className={cn("w-[340px]", sorts.length === 0 && "w-64 p-0")}
       >
         {sorts.length === 0 ? (
-          <div onKeyDown={(event) => event.stopPropagation()}>
+          <div onKeyDown={stopDatabasePickerKeydownPropagation}>
             <DatabasePropertyPickerMenuItems
               properties={properties}
               includeName
@@ -17139,7 +17206,7 @@ function FilterMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <div onKeyDown={(event) => event.stopPropagation()}>
+        <div onKeyDown={stopDatabasePickerKeydownPropagation}>
           <DatabasePropertyPickerMenuItems
             properties={properties}
             includeName
