@@ -183,6 +183,7 @@ function formsOpenPath(url: URL): string | null {
 }
 
 function OpenLinkInterceptor() {
+  const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {

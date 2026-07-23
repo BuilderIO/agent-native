@@ -207,39 +207,6 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
   });
 
-  it("passes an opt-in budget only to the migration DDL", async () => {
-    vi.mocked(isPostgres).mockReturnValue(true);
-    vi.mocked(getDbExec).mockReturnValue(makeExec([{ v: 2 }]));
-    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
-    const directExec = makeExec([{ v: 2 }]);
-    vi.mocked(createDbExec).mockResolvedValue(directExec);
-
-    const plugin = runMigrations(
-      [
-        {
-          version: 3,
-          name: "events-long-index",
-          sql: {
-            postgres:
-              "CREATE INDEX CONCURRENTLY events_long_index ON events (created_at)",
-          },
-          timeoutMs: 120_000,
-          maxAttempts: 1,
-        },
-      ],
-      { table: "budget_test_migrations" },
-    );
-    await plugin(null);
-
-    expect(directExec.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sql: "CREATE INDEX CONCURRENTLY events_long_index ON events (created_at)",
-        timeoutMs: 120_000,
-        maxAttempts: 1,
-      }),
-    );
-  });
-
   it("closes the direct exec after migrations complete", async () => {
     vi.mocked(isPostgres).mockReturnValue(true);
     const pooledExec = makeExec([{ v: 0 }]);

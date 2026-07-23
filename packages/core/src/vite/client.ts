@@ -866,6 +866,11 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "@agent-native/core > @assistant-ui/react > assistant-stream",
       packageName: "@agent-native/core",
     },
+    {
+      specifier:
+        "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
+      packageName: "@agent-native/core",
+    },
     { specifier: "@codemirror/lang-sql" },
     { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },
@@ -2101,6 +2106,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "ThreadPrimitive",
     "WebLinksAddon",
     "captureException",
+    "codeToHtml",
     "common",
     "createLowlight",
     "createNodeFromContent",

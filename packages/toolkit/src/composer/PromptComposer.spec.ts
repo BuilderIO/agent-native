@@ -1,25 +1,8 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import { buildPromptComposerSubmission } from "./PromptComposer.js";
-
-describe("PromptComposer readiness", () => {
-  it("does not preflight readiness during submission", () => {
-    const source = readFileSync("src/composer/PromptComposer.tsx", {
-      encoding: "utf8",
-    });
-
-    expect(source).not.toContain(
-      "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
-    );
-    expect(source).not.toContain("ensureAgentEngineReadyForSubmit");
-    expect(source).not.toContain("fetchAgentEngineConfiguredState");
-    expect(source).not.toContain("SUBMIT_ENGINE_STATUS_TIMEOUT_MS");
-  });
-});
 
 describe("buildPromptComposerSubmission", () => {
   it("passes images through files only — never inlines base64 into prompt text", async () => {

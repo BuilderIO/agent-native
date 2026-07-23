@@ -709,6 +709,9 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.optimizeDeps.include).toContain(
       "@agent-native/core > @assistant-ui/react > assistant-stream",
     );
+    expect(config.optimizeDeps.include).toContain(
+      "@agent-native/core > @assistant-ui/react > assistant-stream/utils",
+    );
     expect(config.optimizeDeps.include).toContain("date-fns");
     expect(config.optimizeDeps.exclude).toContain("lodash");
     expect(config.resolve.dedupe).toContain("zustand");
