@@ -111,6 +111,7 @@ const messages = {
     toggleField: "切換 {{name}}",
     creatingDatabase: "正在建立內嵌資料庫...",
     databaseCreated: "內嵌資料庫已建立",
+    emptyBlockPlaceholder: "按「/」使用指令",
     describeWhatToGenerate: "描述要生成什麼...",
     enterToSubmit: "輸入提交",
     failedToCreateDatabase: "建立內嵌資料庫失敗",
