@@ -11,9 +11,10 @@
  * Builder proxy) when Builder is connected; if that model is unavailable in
  * the deployment region, retry the Builder gateway's default model.
  *
- * Clips intentionally does not route recording transcription to OpenAI or
- * Groq. Native macOS/Web Speech output is the primary source; Builder only
- * transcribes the original recording when native text is unavailable.
+ * Clips intentionally does not route recording transcription to third-party
+ * BYOK speech providers. Native macOS/Web Speech output is the primary source;
+ * Builder only transcribes the original recording when native text is
+ * unavailable.
  *
  * Native transcription: the browser's Web Speech API and desktop macOS Speech
  * run during recording and save an instant transcript via

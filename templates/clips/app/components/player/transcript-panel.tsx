@@ -486,7 +486,6 @@ function isTranscriptionSetupNeeded(
   const r = reason.toLowerCase();
   return (
     r.includes("openai_api_key") ||
-    r.includes("groq_api_key") ||
     r.includes("api key") ||
     r.includes("not configured") ||
     r.includes("no transcription") ||
