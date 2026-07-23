@@ -491,6 +491,7 @@ describe("DatabaseView UI regressions", () => {
       nameItem?.click();
       await Promise.resolve();
     });
+    await renderDatabaseView();
     const filterValueInput = container.querySelector<HTMLInputElement>(
       'input[placeholder="Text"]',
     );
