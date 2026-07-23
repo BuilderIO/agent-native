@@ -4183,6 +4183,19 @@ export function LiveCandidatesStage({
           </h3>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             {activeItem?.headerActions}
+            {activeItem?.href ? (
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-xs"
+              >
+                <Link to={activeItem.href}>
+                  <IconArrowUpRight className="h-3.5 w-3.5" />
+                  {t("library.openDetails")}
+                </Link>
+              </Button>
+            ) : null}
             <LiveCandidatesActions
               slots={slots}
               draftAssets={draftAssets}
@@ -4263,40 +4276,6 @@ export function LiveCandidatesStage({
   );
 }
 
-function CandidateStatusPill({ status }: { status: string }) {
-  const t = useT();
-  const normalized = status.toLowerCase();
-  const label =
-    normalized === "pending"
-      ? t("library.generating")
-      : normalized === "ready"
-        ? t("library.ready")
-        : normalized === "failed"
-          ? t("library.failed")
-          : normalized === "draft"
-            ? t("library.draft")
-            : status;
-  const className =
-    normalized === "ready"
-      ? "border-primary/30 bg-primary/10 text-primary"
-      : normalized === "failed"
-        ? "border-destructive/30 bg-destructive/10 text-destructive"
-        : normalized === "pending"
-          ? "border-border bg-muted/70 text-muted-foreground"
-          : "border-border bg-background text-muted-foreground";
-
-  return (
-    <span
-      className={[
-        "inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium",
-        className,
-      ].join(" ")}
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-      <span className="truncate">{label}</span>
-    </span>
-  );
-}
 
 function VariantPreview({
   slot,
