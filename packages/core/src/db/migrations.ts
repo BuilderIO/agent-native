@@ -228,8 +228,39 @@ export interface MigrationEntry {
    * number — see the `runMigrations` doc comment for the full rationale and
    * gating rules. Must be unique across the migration list; a duplicate name
    * throws at startup (programmer error, not a runtime data problem).
-   */
+  */
   name?: string;
+  /**
+   * Optional client-side statement budget for this migration's DDL. Use this
+   * only for a named, idempotent migration such as CREATE INDEX CONCURRENTLY.
+   */
+  timeoutMs?: number;
+  /**
+   * Optional connection-level attempt budget for this migration's DDL,
+   * including the first attempt. Long-running index builds should use one.
+   */
+  maxAttempts?: number;
+}
+
+function migrationStatement(
+  sql: string,
+  migration: MigrationEntry,
+): string | { sql: string; timeoutMs?: number; maxAttempts?: number } {
+  if (
+    migration.timeoutMs === undefined &&
+    migration.maxAttempts === undefined
+  ) {
+    return sql;
+  }
+  return {
+    sql,
+    ...(migration.timeoutMs === undefined
+      ? {}
+      : { timeoutMs: migration.timeoutMs }),
+    ...(migration.maxAttempts === undefined
+      ? {}
+      : { maxAttempts: migration.maxAttempts }),
+  };
 }
 
 function resolveMigrationSql(sql: MigrationSql, pg: boolean): string | null {
@@ -617,7 +648,7 @@ export function runMigrations(
             for (const { sql: stmt, hadIfNotExists } of statements) {
               currentStmt = stmt;
               try {
-                await exec.execute(stmt);
+                await exec.execute(migrationStatement(stmt, m));
               } catch (err) {
                 if (!pg && hadIfNotExists && isDuplicateColumnError(err)) {
                   // IF NOT EXISTS semantic: column already present, skip.
