@@ -136,8 +136,14 @@ export function ContentFilesSidebarView({
     | "scroll"
   >;
 }) {
+  const usableData =
+    data?.database &&
+    Array.isArray(data.items) &&
+    Array.isArray(data.properties)
+      ? data
+      : undefined;
   const viewConfig = applyPersonalSidebarViewOverrides(
-    data?.database?.viewConfig ?? defaultDatabaseViewConfig(),
+    usableData?.database.viewConfig ?? defaultDatabaseViewConfig(),
     overrides,
   );
   const [selectedViewId, setSelectedViewId] = useState(
@@ -154,10 +160,10 @@ export function ContentFilesSidebarView({
   useEffect(() => {
     setConstraintsCleared(false);
   }, [activeFilterKey, activeView.id]);
-  const items = data?.database
+  const items = usableData
     ? applyDatabaseView(
-        data.items,
-        data.properties,
+        usableData.items,
+        usableData.properties,
         "",
         constraintsCleared ? [] : activeView.filters,
         activeView.sorts,
@@ -167,16 +173,18 @@ export function ContentFilesSidebarView({
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(
       items,
-      data?.properties ?? [],
+      usableData?.properties ?? [],
       activeView.groupByPropertyId,
     ),
     activeView.hideEmptyGroups === true,
   );
-  const hasFilesHierarchy = data?.properties.some(
+  const hasFilesHierarchy = usableData?.properties.some(
     (property) => property.definition.systemRole === "files_parent",
   );
   const hierarchyItems = hasFilesHierarchy ? items : undefined;
-  const hierarchyUniverseItems = hasFilesHierarchy ? data?.items : undefined;
+  const hierarchyUniverseItems = hasFilesHierarchy
+    ? usableData?.items
+    : undefined;
   return (
     <div className="min-w-0">
       {viewConfig.views.length > 1 && (
@@ -204,7 +212,10 @@ export function ContentFilesSidebarView({
         {...labels}
         groups={groups}
         grouped={
-          !!databaseViewGroupingProperty(activeView, data?.properties ?? [])
+          !!databaseViewGroupingProperty(
+            activeView,
+            usableData?.properties ?? [],
+          )
         }
         isLoading={isLoading}
         hasActiveConstraints={

@@ -62,12 +62,7 @@ describe("DatabaseSidebarView", () => {
       <MemoryRouter>
         <TooltipProvider>
           <ContentFilesSidebarView
-            data={
-              {
-                items: [],
-                properties: [],
-              } as unknown as ContentDatabaseResponse
-            }
+            data={{} as ContentDatabaseResponse}
             overrides={null}
             isLoading={false}
             labels={{
