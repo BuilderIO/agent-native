@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.119.1
+
+### Patch Changes
+
+- c015dc7: Export shared Figma paint math (gradient geometry from transforms/handles,
+  blend-mode mapping, linear stop remapping) from `@agent-native/core/ingestion`
+  so the REST and `.fig`/clipboard import renderers derive gradients identically.
+
 ## 0.119.0
 
 ### Minor Changes
