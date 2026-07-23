@@ -1333,8 +1333,16 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
     if (!key.startsWith(prefix)) continue;
     const recordingId = key.slice(prefix.length);
     if (!recordingId) continue;
+    // `application_state.updated_at` is epoch-ms (a JS number on SQLite, a
+    // BIGINT string on Postgres), but the staleness cutoffs below are ISO-8601.
+    // Normalize to ISO before comparing — a raw epoch-ms value ("1753…") always
+    // sorts lexically below any "2…" ISO date, which would flag every live
+    // upload as stale and force-fail it.
+    const sessionUpdatedAtMs = Number(row.updated_at);
     const sessionUpdatedAt =
-      typeof row.updated_at === "string" ? row.updated_at : "";
+      Number.isFinite(sessionUpdatedAtMs) && sessionUpdatedAtMs > 0
+        ? new Date(sessionUpdatedAtMs).toISOString()
+        : "";
 
     let shouldSweep = false;
     try {
