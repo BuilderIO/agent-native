@@ -43,6 +43,6 @@ When the user asks to see, review, or manage the task list, check the current-sc
 When view-screen returns selection, treat selectedItems as the user's current UI multi-select on /tasks or /inbox.
 Prefer bulk-update-tasks and bulk-delete-tasks when the user clearly means multiple tasks (e.g. "mark these done", "delete the selected ones", or several titles at once). Use single-task actions for one task or when bulk selection is not in play.
 Prefer bulk-delete-inbox-items when the user clearly means multiple inbox items.
-Ask for confirmation before delete-task, bulk-delete-tasks, delete-inbox-item, and bulk-delete-inbox-items.
+Ask for confirmation before deleting tasks, inbox items, or custom fields.
 Do not use db-query for normal task or inbox operations.`,
 });
