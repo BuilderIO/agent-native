@@ -73,13 +73,13 @@ export function findEnclosingList(
 ): HTMLElement | null {
   let node: HTMLElement | null = el;
   while (node && root.contains(node)) {
-    const parent = node.parentElement;
-    if (!parent) break;
-    if (isBulletRow(node) && isBulletList(parent)) return parent;
+    const parentEl: HTMLElement | null = node.parentElement;
+    if (!parentEl) break;
+    if (isBulletRow(node) && isBulletList(parentEl)) return parentEl;
     // Even from a bullet row whose siblings aren't all bullets, treat the
     // parent as a list once it holds two or more bullet rows.
-    if (isBulletRow(node) && bulletRowCount(parent) >= 2) return parent;
-    node = parent;
+    if (isBulletRow(node) && bulletRowCount(parentEl) >= 2) return parentEl;
+    node = parentEl;
   }
   return null;
 }
