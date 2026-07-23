@@ -531,7 +531,23 @@ describe("DatabaseView UI regressions", () => {
 
     expect(personalViewMutation.mutate).toHaveBeenCalledTimes(1);
     expect(personalViewMutation.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ databaseId: "database-1" }),
+      expect.objectContaining({
+        databaseId: "database-1",
+        overrides: expect.objectContaining({
+          activeViewId: databaseViewConfig.activeViewId,
+          views: expect.arrayContaining([
+            expect.objectContaining({
+              id: databaseViewConfig.activeViewId,
+              filters: [
+                expect.objectContaining({
+                  key: "name",
+                  value: "Personal only",
+                }),
+              ],
+            }),
+          ]),
+        }),
+      }),
       expect.any(Object),
     );
     expect(keepaliveActionMock).not.toHaveBeenCalled();
