@@ -272,6 +272,31 @@ function findViteBin(): string {
   return findBinUpwards("vite") ?? "vite";
 }
 
+/**
+ * Resolve Vite's JS entry so it can be run as `node <flag> <entry>`. The
+ * `node_modules/.bin/vite` shim is a shell script on POSIX (pnpm) and a `.CMD`
+ * on Windows — neither is directly executable by `node` — so the inspect path
+ * needs the real JS file. Vite's `exports` map blocks resolving `./bin/vite.js`
+ * directly, so resolve `vite/package.json` (which is exported) and read its
+ * `bin` field. Returns null if it cannot be resolved, in which case callers
+ * fall back to spawning the shim without the debugger.
+ */
+function findViteJsEntry(): string | null {
+  try {
+    const require = createRequire(path.join(process.cwd(), "package.json"));
+    const pkgJsonPath = require.resolve("vite/package.json");
+    const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8")) as {
+      bin?: string | Record<string, string>;
+    };
+    const rel = typeof pkg.bin === "string" ? pkg.bin : pkg.bin?.vite;
+    if (!rel) return null;
+    const entry = path.join(path.dirname(pkgJsonPath), rel);
+    return fs.existsSync(entry) ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
 function findTsxBin(): string {
   const localTsx = path.resolve("node_modules/.bin/tsx");
   if (fs.existsSync(localTsx)) return localTsx;
@@ -382,15 +407,38 @@ function isWorkspaceRoot(): boolean {
   }
 }
 
+/**
+ * Pull a Node `--inspect` / `--inspect-brk` flag (with optional `=[host:]port`)
+ * out of a dev arg list. Vite does not understand it, so it is stripped from the
+ * args and instead applied to the Vite child's `NODE_OPTIONS`. Setting it only
+ * on the child avoids the parent `pnpm`/`agent-native` Node processes grabbing
+ * the inspector port first.
+ */
+function extractNodeInspectFlag(args: string[]): {
+  inspectFlag: string | null;
+  rest: string[];
+} {
+  const rest: string[] = [];
+  let inspectFlag: string | null = null;
+  for (const arg of args) {
+    if (/^--inspect(-brk)?(=.+)?$/.test(arg)) {
+      inspectFlag = arg;
+      continue;
+    }
+    rest.push(arg);
+  }
+  return { inspectFlag, rest };
+}
+
 function run(
   cmd: string,
   cmdArgs: string[],
-  opts?: { stdio?: "inherit" | "pipe" },
+  opts?: { stdio?: "inherit" | "pipe"; env?: NodeJS.ProcessEnv },
 ) {
   const child = spawn(cmd, cmdArgs, {
     stdio: opts?.stdio ?? "inherit",
     shell: process.platform === "win32",
-    env: process.env,
+    env: opts?.env ?? process.env,
   });
   child.on("exit", (code) => process.exit(code ?? 0));
   // Forward signals to child so Cmd+C doesn't leave zombie processes holding ports
@@ -541,7 +589,47 @@ switch (command) {
       break;
     }
     const vite = findViteBin();
-    run(vite, args);
+    const { inspectFlag, rest } = extractNodeInspectFlag(args);
+    if (!inspectFlag) {
+      run(vite, rest);
+      break;
+    }
+    const viteJsEntry = findViteJsEntry();
+    if (!viteJsEntry) {
+      console.warn(
+        "[agent-native] Could not resolve Vite's JS entry; starting dev " +
+          "server without the debugger.",
+      );
+      run(vite, rest);
+      break;
+    }
+    // API route handlers do NOT run in the Vite process — Nitro runs them in a
+    // separate process spawned by env-runner's node-process runner. To make
+    // exactly that process (and nothing else in the pnpm/CLI/Vite chain)
+    // inspectable on a single known port, we:
+    //   1. select the node-process dev runner (so the server is a real,
+    //      attachable process rather than a worker thread), and
+    //   2. inject NODE_OPTIONS via a preload that runs INSIDE Vite before its
+    //      main module. Vite itself booted without --inspect so it never opens
+    //      an inspector, but the server process it later forks inherits the
+    //      flag and opens the only inspector — on <target>.
+    const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
+    const kind = parsed?.[1] ?? "inspect";
+    const target = parsed?.[2] ?? "9229";
+    const directive = `--${kind}=${target}`;
+    const preload =
+      "data:text/javascript," +
+      encodeURIComponent(
+        `process.env.NODE_OPTIONS=((process.env.NODE_OPTIONS??"")+" ${directive}").trim();`,
+      );
+    const env = {
+      ...process.env,
+      NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
+    };
+    console.log(
+      `[agent-native] API server debugger listening on ${target}`,
+    );
+    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], { env });
     break;
   }
 
