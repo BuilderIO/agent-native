@@ -2331,8 +2331,6 @@ function isNitroEnvironmentUnavailable(error: unknown): boolean {
 
 type NitroModuleNode = {
   id: string | null;
-  importedModules: Set<NitroModuleNode>;
-  info?: { dynamicallyImportedIds?: readonly string[] };
   ssrError?: Error | null;
   transformResult: unknown | null;
 };
@@ -2341,49 +2339,29 @@ type NitroModuleGraph = {
   idToModuleMap: Map<string, NitroModuleNode>;
 };
 
-const NITRO_STARTUP_SETTLE_MS = 500;
+const NITRO_STARTUP_SETTLE_MS = 1_000;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
 
-function nitroStaticImportGraphReady(environment: unknown): boolean {
+function nitroModuleGraphSignature(environment: unknown): string | null {
   const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
     ?.moduleGraph;
-  if (!graph) return false;
+  if (!graph) return null;
 
-  const entry = [...graph.idToModuleMap.values()].find((module) =>
+  const modules = [...graph.idToModuleMap.values()];
+  const entry = modules.find((module) =>
     module.id
       ?.replaceAll("\\", "/")
       .endsWith("/nitro/dist/runtime/internal/vite/dev-entry.mjs"),
   );
-  if (!entry) return false;
+  if (!entry?.transformResult && !entry?.ssrError) return null;
 
-  const seen = new Set<NitroModuleNode>();
-  const visit = (
-    module: NitroModuleNode,
-    importer?: NitroModuleNode,
-  ): boolean => {
-    if (seen.has(module)) return true;
-    seen.add(module);
-    if (module.ssrError) return true;
-    if (!module.transformResult) {
-      if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
-        console.log("pending nitro module", {
-          id: module.id,
-          importer: importer?.id,
-          importerInfo: importer?.info,
-        });
-      }
-      return false;
-    }
-
-    const dynamicImports = new Set(module.info?.dynamicallyImportedIds ?? []);
-    for (const dependency of module.importedModules) {
-      if (dependency.id && dynamicImports.has(dependency.id)) continue;
-      if (!visit(dependency, module)) return false;
-    }
-    return true;
-  };
-
-  return visit(entry);
+  let transformed = 0;
+  let errors = 0;
+  for (const module of modules) {
+    if (module.transformResult) transformed += 1;
+    if (module.ssrError) errors += 1;
+  }
+  return `${modules.length}:${transformed}:${errors}`;
 }
 
 function isHtmlDocumentRequest(req: IncomingMessage): boolean {
@@ -2426,7 +2404,8 @@ function nitroStartupGate(
       const settleMs = options.settleMs ?? NITRO_STARTUP_SETTLE_MS;
       const timeoutMs = options.timeoutMs ?? NITRO_STARTUP_TIMEOUT_MS;
       const startedAt = now();
-      let graphReadyAt: number | undefined;
+      let graphSignature: string | null = null;
+      let graphStableAt: number | undefined;
       let startupComplete = false;
 
       server.middlewares.use((req, res, next) => {
@@ -2442,15 +2421,24 @@ function nitroStartupGate(
           return;
         }
 
-        if (nitroStaticImportGraphReady(server.environments?.nitro)) {
-          graphReadyAt ??= timestamp;
-          if (timestamp - graphReadyAt >= settleMs) {
+        const nextGraphSignature = nitroModuleGraphSignature(
+          server.environments?.nitro,
+        );
+        if (nextGraphSignature) {
+          if (nextGraphSignature !== graphSignature) {
+            graphSignature = nextGraphSignature;
+            graphStableAt = timestamp;
+          } else if (
+            graphStableAt !== undefined &&
+            timestamp - graphStableAt >= settleMs
+          ) {
             startupComplete = true;
             next();
             return;
           }
         } else {
-          graphReadyAt = undefined;
+          graphSignature = null;
+          graphStableAt = undefined;
         }
 
         sendNitroStartingResponse(req, res);
@@ -3272,6 +3260,6 @@ export {
   getReactRouterAliases as _getReactRouterAliases,
   nitroStartupGate as _nitroStartupGate,
   nitroStartupRecovery as _nitroStartupRecovery,
-  nitroStaticImportGraphReady as _nitroStaticImportGraphReady,
+  nitroModuleGraphSignature as _nitroModuleGraphSignature,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };

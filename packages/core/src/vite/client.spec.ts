@@ -13,9 +13,9 @@ import {
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _nitroModuleGraphSignature,
   _nitroStartupGate,
   _nitroStartupRecovery,
-  _nitroStaticImportGraphReady,
   agentNative,
   defineConfig,
   isFrameworkDevPath,
@@ -23,15 +23,13 @@ import {
 } from "./client.js";
 
 describe("Nitro dev startup recovery", () => {
-  it("waits for the static Nitro import graph and a short settle window", () => {
+  it("waits for Nitro's module graph to become stable", () => {
     const dependency = {
       id: "/app/server.ts",
-      importedModules: new Set(),
       transformResult: null,
     };
     const entry = {
       id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
-      importedModules: new Set([dependency]),
       transformResult: { code: "entry" },
     };
     const environment = {
@@ -43,9 +41,9 @@ describe("Nitro dev startup recovery", () => {
       },
     };
 
-    expect(_nitroStaticImportGraphReady(environment)).toBe(false);
+    expect(_nitroModuleGraphSignature(environment)).toBe("2:1:0");
     dependency.transformResult = { code: "server" };
-    expect(_nitroStaticImportGraphReady(environment)).toBe(true);
+    expect(_nitroModuleGraphSignature(environment)).toBe("2:2:0");
 
     let time = 0;
     let middleware:
@@ -71,33 +69,21 @@ describe("Nitro dev startup recovery", () => {
     expect(firstResponse.statusCode).toBe(503);
     expect(next).not.toHaveBeenCalled();
 
-    time = 100;
+    time = 50;
+    middleware?.(
+      request,
+      { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+      next,
+    );
+    expect(next).not.toHaveBeenCalled();
+
+    time = 150;
     middleware?.(
       request,
       { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
       next,
     );
     expect(next).toHaveBeenCalledOnce();
-  });
-
-  it("does not wait for dynamically imported Nitro modules", () => {
-    const dynamicDependency = {
-      id: "/app/lazy.ts",
-      importedModules: new Set(),
-      transformResult: null,
-    };
-    const entry = {
-      id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
-      importedModules: new Set([dynamicDependency]),
-      info: { dynamicallyImportedIds: [dynamicDependency.id] },
-      transformResult: { code: "entry" },
-    };
-
-    expect(
-      _nitroStaticImportGraphReady({
-        moduleGraph: { idToModuleMap: new Map([[entry.id, entry]]) },
-      }),
-    ).toBe(true);
   });
 
   it("turns a transient document error into a quiet retry page", () => {
