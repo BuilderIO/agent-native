@@ -1521,6 +1521,7 @@ type LaneGalleryItem = {
   thumbnail: ReactNode; // i18n-ignore structural preview slot name
   menu?: ReactNode;
   primaryActions?: ReactNode;
+  headerActions?: ReactNode;
   onToggle?: (checked: boolean) => void;
 };
 
@@ -3909,6 +3910,89 @@ export function LiveCandidatesStage({
     );
   }
 
+  function candidateHeaderActions({
+    canUseCandidate,
+    saving,
+    promoting,
+    candidateLibraryId,
+    onSaveCandidate,
+    onAddToReferences,
+    onUseCandidate,
+    onDismiss,
+  }: {
+    canUseCandidate: boolean;
+    saving?: boolean;
+    promoting?: boolean;
+    candidateLibraryId?: string | null;
+    onSaveCandidate?: (folderId: string | null) => void;
+    onAddToReferences?: () => void;
+    onUseCandidate?: () => void;
+    onDismiss: () => void;
+  }) {
+    const busy = saving || promoting || dismissing;
+    const actionLibraryId = candidateLibraryId || libraryId;
+    const candidateFolders =
+      foldersByLibraryId[actionLibraryId] ??
+      (actionLibraryId === libraryId ? folders : []);
+    if (!canUseCandidate) {
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          {t("library.dismiss")}
+        </Button>
+      );
+    }
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {onUseCandidate ? (
+          <Button
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={onUseCandidate}
+            disabled={busy}
+          >
+            {t("library.useCandidate")}
+          </Button>
+        ) : null}
+        <CandidateSaveMenu
+          libraryId={actionLibraryId}
+          folders={candidateFolders}
+          allowCreateFolder={allowCreateFolder}
+          saving={saving}
+          disabled={busy}
+          onSave={(folderId) => onSaveCandidate?.(folderId)}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={onAddToReferences}
+          disabled={busy}
+        >
+          {promoting ? (
+            <Spinner className="h-3.5 w-3.5" />
+          ) : (
+            t("library.addToReferences")
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          {t("library.dismiss")}
+        </Button>
+      </div>
+    );
+  }
+
   function slotItem(slot: VariantSlot): LaneGalleryItem {
     const isFailed = slot.status === "failed";
     const canUseCandidate = slot.status === "ready" && Boolean(slot.assetId);
@@ -3953,6 +4037,21 @@ export function LiveCandidatesStage({
             slot,
           }),
       }),
+      headerActions: candidateHeaderActions({
+        canUseCandidate,
+        saving,
+        promoting,
+        candidateLibraryId: libraryId,
+        onSaveCandidate: (folderId) => onSave(slot, folderId),
+        onAddToReferences: () => onMoveToReferences(slot),
+        onUseCandidate: onUse ? () => onUse(slot) : undefined,
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "slot",
+            title,
+            slot,
+          }),
+      }),
     };
   }
 
@@ -3983,6 +4082,21 @@ export function LiveCandidatesStage({
       preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
       thumbnail: <AssetPreview asset={asset} />,
       primaryActions: candidateActions({
+        canUseCandidate: true,
+        saving,
+        promoting,
+        candidateLibraryId: asset.libraryId,
+        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
+        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "asset",
+            title: assetDisplayTitle(asset),
+            asset,
+          }),
+      }),
+      headerActions: candidateHeaderActions({
         canUseCandidate: true,
         saving,
         promoting,
@@ -4063,13 +4177,12 @@ export function LiveCandidatesStage({
       </AlertDialog>
 
       <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
-        <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
-          <div className="flex min-w-0 flex-1 items-center">
-            <h3 className="shrink-0 text-sm font-semibold">
-              {t("library.candidates")}
-            </h3>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 sm:px-4">
+          <h3 className="shrink-0 text-sm font-semibold">
+            {t("library.candidates")}
+          </h3>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {activeItem?.headerActions}
             <LiveCandidatesActions
               slots={slots}
               draftAssets={draftAssets}
@@ -4077,140 +4190,67 @@ export function LiveCandidatesStage({
             />
           </div>
         </div>
-        <div className="assets-live-candidates-grid grid min-w-0">
-          <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
-            <div
-              className={[
-                "group relative overflow-hidden rounded-lg border border-border bg-background shadow-sm",
-                activeItem?.busy ? "opacity-80" : "",
-              ].join(" ")}
-              aria-busy={activeItem?.busy}
-            >
-              <div className="h-36 bg-muted/30 sm:h-44 lg:h-56 2xl:h-64">
-                {activeItem?.onOpen ? (
-                  <button
-                    type="button"
-                    onClick={activeItem.onOpen}
-                    className="block h-full w-full text-left"
-                  >
-                    {activeItem.preview}
-                  </button>
-                ) : activeItem?.href ? (
-                  <Link to={activeItem.href} className="block h-full w-full">
-                    {activeItem.preview}
-                  </Link>
-                ) : (
-                  activeItem?.preview
-                )}
-              </div>
-              {activeItem?.busy ? (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
-                  <Spinner className="h-5 w-5" />
-                </div>
-              ) : null}
+        <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
+          <div
+            className={[
+              "group relative overflow-hidden rounded-lg border border-border bg-background shadow-sm",
+              activeItem?.busy ? "opacity-80" : "",
+            ].join(" ")}
+            aria-busy={activeItem?.busy}
+          >
+            <div className="h-[min(60vh,30rem)] overflow-hidden bg-muted/30">
               {activeItem?.onOpen ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="absolute right-2 top-2 h-8 gap-1.5 bg-background/85 px-2.5 text-xs opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100"
+                <button
+                  type="button"
                   onClick={activeItem.onOpen}
+                  className="block h-full w-full text-left"
                 >
-                  <IconArrowUpRight className="h-3.5 w-3.5" />
-                  {t("library.details")}
-                </Button>
+                  {activeItem.preview}
+                </button>
               ) : activeItem?.href ? (
-                <Button
-                  asChild
-                  variant="secondary"
-                  size="sm"
-                  className="absolute right-2 top-2 h-8 gap-1.5 bg-background/85 px-2.5 text-xs opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100"
-                >
-                  <Link to={activeItem.href}>
-                    <IconArrowUpRight className="h-3.5 w-3.5" />
-                    {t("library.details")}
-                  </Link>
-                </Button>
-              ) : null}
-            </div>
-            <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1">
-              {items.map((item) => {
-                const active = item.id === activeItem?.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveItemId(item.id)}
-                    className={[
-                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
-                      active
-                        ? "border-primary ring-2 ring-primary/25"
-                        : "border-border/80 hover:border-foreground/30",
-                    ].join(" ")}
-                    aria-label={t("library.showCandidate", {
-                      title: item.title,
-                    })}
-                    aria-pressed={active}
-                  >
-                    {item.thumbnail}
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-background/90 to-transparent" />
-                    {item.busy && item.showBusyOverlay !== false ? (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
-                        <Spinner className="h-3 w-3" />
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <aside className="flex min-w-0 flex-col justify-between gap-3 border-t border-border bg-background p-3 lg:border-l lg:border-t-0 lg:p-4">
-            <div className="min-w-0 space-y-3">
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  {activeItem?.status ? (
-                    <CandidateStatusPill status={activeItem.status} />
-                  ) : null}
-                  {activeItem?.metadata ? (
-                    <Badge
-                      variant="outline"
-                      className="h-6 max-w-full rounded-full px-2 text-[11px]"
-                    >
-                      {activeItem.metadata}
-                    </Badge>
-                  ) : null}
-                </div>
-                <div className="mt-2 truncate text-sm font-semibold">
-                  {activeItem?.title}
-                </div>
-                {activeItem?.subtitle ? (
-                  <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {activeItem.subtitle}
-                  </div>
-                ) : null}
-              </div>
-              {activeItem?.primaryActions ? (
-                <div>{activeItem.primaryActions}</div>
-              ) : null}
-            </div>
-            {activeItem?.onOpen ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-1.5"
-                onClick={activeItem.onOpen}
-              >
-                <IconArrowUpRight className="h-3.5 w-3.5" />
-                {t("library.openDetails")}
-              </Button>
-            ) : activeItem?.href ? (
-              <Button asChild variant="ghost" size="sm" className="gap-1.5">
-                <Link to={activeItem.href}>
-                  <IconArrowUpRight className="h-3.5 w-3.5" />
-                  {t("library.openDetails")}
+                <Link to={activeItem.href} className="block h-full w-full">
+                  {activeItem.preview}
                 </Link>
-              </Button>
+              ) : (
+                activeItem?.preview
+              )}
+            </div>
+            {activeItem?.busy ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                <Spinner className="h-5 w-5" />
+              </div>
             ) : null}
-          </aside>
+          </div>
+          <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1">
+            {items.map((item) => {
+              const active = item.id === activeItem?.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveItemId(item.id)}
+                  className={[
+                    "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                    active
+                      ? "border-primary ring-2 ring-primary/25"
+                      : "border-border/80 hover:border-foreground/30",
+                  ].join(" ")}
+                  aria-label={t("library.showCandidate", {
+                    title: item.title,
+                  })}
+                  aria-pressed={active}
+                >
+                  {item.thumbnail}
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-linear-to-t from-background/90 to-transparent" />
+                  {item.busy && item.showBusyOverlay !== false ? (
+                    <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                      <Spinner className="h-3 w-3" />
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
