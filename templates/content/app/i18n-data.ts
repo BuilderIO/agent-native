@@ -3085,6 +3085,7 @@ const enUS = {
     askAi: "Ask AI",
     resolve: "Resolve",
     resolved: "Resolved ({{count}})",
+    unanchored: "Highlight unavailable",
     reply: "Reply...",
     reopen: "Reopen",
     agentRegardingText: 'Regarding this text: "{{text}}"',

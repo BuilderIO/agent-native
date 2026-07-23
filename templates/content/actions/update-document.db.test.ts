@@ -17,6 +17,7 @@ let schema: Schema;
 let updateDocumentAction: typeof import("./update-document.js").default;
 
 const OWNER = "owner@example.com";
+const EDITOR = "editor@example.com";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -217,5 +218,79 @@ describe("update-document compare-and-swap", () => {
     const current = await documentRow(documentId);
     expect(current.title).toBe("Renamed");
     expect(current.content).toBe("pulled from notion");
+  });
+
+  it("always snapshots the last nonempty body before an intentional clear", async () => {
+    const documentId = await createDocument({ content: "original body" });
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        content: "second body within the snapshot interval",
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({
+        id: documentId,
+        content: "<empty-block/>",
+      }),
+    );
+
+    const versions = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(versions.map((version: any) => version.content)).toEqual(
+      expect.arrayContaining([
+        "original body",
+        "second body within the snapshot interval",
+      ]),
+    );
+    expect(versions).toHaveLength(2);
+  });
+
+  it("targets a shared editor's update audit event to the document owner", async () => {
+    const documentId = await createDocument({ content: "owner body" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: documentId,
+        principalType: "user",
+        principalId: EDITOR,
+        role: "editor",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+
+    const result = await runWithRequestContext({ userEmail: EDITOR }, () =>
+      updateDocumentAction.run(
+        { id: documentId, content: "edited by collaborator" },
+        {
+          caller: "frontend",
+          actionName: "update-document",
+          userEmail: EDITOR,
+        },
+      ),
+    );
+    const { queryAuditEvents } = await import("@agent-native/core/audit");
+    const events = await queryAuditEvents(
+      { userEmail: OWNER },
+      {
+        action: "update-document",
+        targetType: "document",
+        targetId: documentId,
+      },
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      actorEmail: EDITOR,
+      ownerEmail: OWNER,
+      targetType: "document",
+      targetId: documentId,
+      status: "success",
+    });
+    expect(JSON.stringify(result)).not.toContain(OWNER);
   });
 });

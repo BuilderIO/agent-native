@@ -9,6 +9,7 @@ import {
   IconChevronDown,
 } from "@tabler/icons-react";
 import {
+  Fragment,
   useState,
   useRef,
   useEffect,
@@ -95,29 +96,35 @@ function cssEscape(value: string) {
     : value.replace(/["\\]/g, "\\$&");
 }
 
-/**
- * Y offset (relative to the scroll container's visible viewport) of a thread's inline
- * highlight. Prefers the real decoration element rendered by the
- * CommentHighlight plugin (`[data-comment-thread]`); falls back to a text search
- * by quoted text for legacy/unresolved anchors so older comments still line up.
- */
-export function findThreadOffset(
+export type CommentThreadPosition = {
+  documentTop: number;
+  layoutTop: number | null;
+};
+
+export function findThreadPosition(
   threadId: string,
   quotedText: string | null,
   scrollContainer: HTMLElement | null,
-  positionContainer: HTMLElement | null = scrollContainer,
-): number | null {
+  layoutContainer: HTMLElement | null,
+): CommentThreadPosition | null {
   if (!scrollContainer) return null;
-  const containerRect = (
-    positionContainer ?? scrollContainer
-  ).getBoundingClientRect();
+  const documentContent =
+    (scrollContainer.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement | null) ?? scrollContainer;
+  const documentRect = documentContent.getBoundingClientRect();
 
   const marked = scrollContainer.querySelector(
     `[data-comment-thread="${cssEscape(threadId)}"]`,
   ) as HTMLElement | null;
   if (marked) {
     const rect = marked.getBoundingClientRect();
-    return rect.top - containerRect.top;
+    return {
+      documentTop: rect.top - documentRect.top,
+      layoutTop: layoutContainer
+        ? rect.top - layoutContainer.getBoundingClientRect().top
+        : null,
+    };
   }
 
   if (!quotedText) return null;
@@ -135,7 +142,12 @@ export function findThreadOffset(
       const range = window.document.createRange();
       range.selectNode(node);
       const rect = range.getBoundingClientRect();
-      return rect.top - containerRect.top;
+      return {
+        documentTop: rect.top - documentRect.top,
+        layoutTop: layoutContainer
+          ? rect.top - layoutContainer.getBoundingClientRect().top
+          : null,
+      };
     }
   }
   return null;
@@ -157,18 +169,127 @@ export function findPendingCommentOffset(
   return rect.top - containerRect.top;
 }
 
-export function shouldClearSelectedThreadOnScroll(
-  offset: number | null,
-  containerHeight: number,
-  margin = 40,
-) {
-  return (
-    offset == null || offset < -margin || offset > containerHeight + margin
-  );
-}
-
 export function estimateThreadCardHeight(thread: CommentThread) {
   return 80 + Math.max(0, thread.comments.length - 1) * 44;
+}
+
+type CommentLayoutItem = {
+  thread: CommentThread;
+  top: number;
+  marginTop: number;
+  anchorTop: number | null;
+  isOrphaned: boolean;
+};
+
+export function layoutCommentThreads(
+  threads: CommentThread[],
+  positions: Map<string, CommentThreadPosition>,
+  heights: Map<string, number>,
+  selectedThreadId: string | null | undefined,
+  gap = 12,
+): CommentLayoutItem[] {
+  const ordered = [...threads].sort((left, right) => {
+    const leftTop = positions.get(left.threadId)?.documentTop ?? Infinity;
+    const rightTop = positions.get(right.threadId)?.documentTop ?? Infinity;
+    return leftTop - rightTop;
+  });
+  const anchored = ordered.filter(
+    (thread) => positions.get(thread.threadId)?.layoutTop != null,
+  );
+  const sequential = ordered.filter(
+    (thread) => positions.get(thread.threadId)?.layoutTop == null,
+  );
+  const tops = new Map<string, number>();
+  const heightFor = (thread: CommentThread) =>
+    heights.get(thread.threadId) ?? estimateThreadCardHeight(thread);
+  const selectedIndex = anchored.findIndex(
+    (thread) => thread.threadId === selectedThreadId,
+  );
+
+  if (selectedIndex >= 0) {
+    const selected = anchored[selectedIndex];
+    tops.set(
+      selected.threadId,
+      Math.max(0, positions.get(selected.threadId)?.layoutTop ?? 0),
+    );
+    for (let index = selectedIndex - 1; index >= 0; index -= 1) {
+      const thread = anchored[index];
+      const next = anchored[index + 1];
+      const nextTop = tops.get(next.threadId) ?? 0;
+      const target = positions.get(thread.threadId)?.layoutTop ?? 0;
+      tops.set(
+        thread.threadId,
+        Math.min(target, nextTop - gap - heightFor(thread)),
+      );
+    }
+    const firstTop = tops.get(anchored[0]?.threadId ?? "") ?? 0;
+    if (firstTop < 0) {
+      for (let index = 0; index <= selectedIndex; index += 1) {
+        const thread = anchored[index];
+        tops.set(thread.threadId, (tops.get(thread.threadId) ?? 0) - firstTop);
+      }
+    }
+    for (let index = selectedIndex + 1; index < anchored.length; index += 1) {
+      const thread = anchored[index];
+      const previous = anchored[index - 1];
+      const previousBottom =
+        (tops.get(previous.threadId) ?? 0) + heightFor(previous);
+      const target = positions.get(thread.threadId)?.layoutTop ?? 0;
+      tops.set(thread.threadId, Math.max(target, previousBottom + gap));
+    }
+  } else {
+    let cursor = 0;
+    for (const thread of anchored) {
+      const target = positions.get(thread.threadId)?.layoutTop ?? 0;
+      const top = Math.max(target, cursor === 0 ? 0 : cursor + gap);
+      tops.set(thread.threadId, top);
+      cursor = top + heightFor(thread);
+    }
+  }
+
+  let cursor = anchored.reduce(
+    (bottom, thread) =>
+      Math.max(bottom, (tops.get(thread.threadId) ?? 0) + heightFor(thread)),
+    0,
+  );
+  for (const thread of sequential) {
+    const sectionGap = positions.has(thread.threadId) ? gap : gap + 20;
+    const top = cursor === 0 ? 0 : cursor + sectionGap;
+    tops.set(thread.threadId, top);
+    cursor = top + heightFor(thread);
+  }
+
+  let previousBottom = 0;
+  return ordered.map((thread) => {
+    const top = tops.get(thread.threadId) ?? previousBottom;
+    const position = positions.get(thread.threadId);
+    const item = {
+      thread,
+      top,
+      marginTop: Math.max(0, top - previousBottom),
+      anchorTop: position?.layoutTop ?? null,
+      isOrphaned: !position,
+    };
+    previousBottom = top + heightFor(thread);
+    return item;
+  });
+}
+
+export function scrollToCommentAnchor(
+  scrollContainer: HTMLElement | null,
+  documentTop: number | null | undefined,
+  topPadding = 72,
+) {
+  if (!scrollContainer || documentTop == null) return false;
+  const maxScrollTop = Math.max(
+    0,
+    scrollContainer.scrollHeight - scrollContainer.clientHeight,
+  );
+  scrollContainer.scrollTo({
+    top: Math.min(maxScrollTop, Math.max(0, documentTop - topPadding)),
+    behavior: "smooth",
+  });
+  return true;
 }
 
 interface CommentsSidebarProps {
@@ -185,9 +306,11 @@ interface CommentsSidebarProps {
   scrollContainerRef?: RefObject<HTMLDivElement | null>;
   activeThreadId?: string | null;
   selectedThreadId?: string | null;
+  onActivateThread?: (id: string) => void;
   onSelectedThreadChange?: (id: string | null) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   currentUserEmail?: string;
+  alignToAnchors?: boolean;
   forceVisible?: boolean;
 }
 
@@ -200,9 +323,11 @@ export function CommentsSidebar({
   scrollContainerRef,
   activeThreadId,
   selectedThreadId,
+  onActivateThread,
   onSelectedThreadChange,
   onHoveredThreadChange,
   currentUserEmail,
+  alignToAnchors = true,
   forceVisible = false,
 }: CommentsSidebarProps) {
   const t = useT();
@@ -290,12 +415,9 @@ export function CommentsSidebar({
     });
   };
 
-  // Y positions for each open thread, derived from the inline highlight rects.
-  // Recomputed when the thread set changes, when a highlight is (de)emphasized,
-  // and whenever the editor DOM mutates so cards track edits live.
-  const [threadOffsets, setThreadOffsets] = useState<Map<string, number>>(
-    new Map(),
-  );
+  const [threadPositions, setThreadPositions] = useState<
+    Map<string, CommentThreadPosition>
+  >(new Map());
   const [threadCardHeights, setThreadCardHeights] = useState<
     Map<string, number>
   >(new Map());
@@ -319,60 +441,51 @@ export function CommentsSidebar({
   const recomputeOffsets = useCallback(() => {
     const container = scrollContainerRef?.current ?? null;
     if (!container || openThreads.length === 0) {
-      setThreadOffsets((prev) => (prev.size === 0 ? prev : new Map()));
+      setThreadPositions((prev) => (prev.size === 0 ? prev : new Map()));
       setPendingOffset((prev) => {
         const next = pendingComment
-          ? findPendingCommentOffset(container, sidebarRef.current ?? container)
+          ? findPendingCommentOffset(
+              container,
+              alignToAnchors ? sidebarRef.current : null,
+            )
           : null;
         return prev === next ? prev : next;
       });
       return;
     }
-    const positionContainer = sidebarRef.current ?? container;
-    const offsets = new Map<string, number>();
+    const layoutContainer = alignToAnchors ? sidebarRef.current : null;
+    const positions = new Map<string, CommentThreadPosition>();
     for (const thread of openThreads) {
-      const offset = findThreadOffset(
+      const position = findThreadPosition(
         thread.threadId,
         thread.quotedText,
         container,
-        positionContainer,
+        layoutContainer,
       );
-      if (offset != null) offsets.set(thread.threadId, offset);
+      if (position) positions.set(thread.threadId, position);
     }
     const nextPendingOffset = pendingComment
-      ? findPendingCommentOffset(container, positionContainer)
+      ? findPendingCommentOffset(container, layoutContainer)
       : null;
-    setThreadOffsets((prev) => {
+    setThreadPositions((prev) => {
       if (
-        prev.size === offsets.size &&
-        [...offsets].every(([k, v]) => prev.get(k) === v)
+        prev.size === positions.size &&
+        [...positions].every(([key, value]) => {
+          const prior = prev.get(key);
+          return (
+            prior?.documentTop === value.documentTop &&
+            prior?.layoutTop === value.layoutTop
+          );
+        })
       ) {
         return prev;
       }
-      return offsets;
+      return positions;
     });
     setPendingOffset((prev) =>
       prev === nextPendingOffset ? prev : nextPendingOffset,
     );
-    if (
-      selectedThreadId &&
-      shouldClearSelectedThreadOnScroll(
-        offsets.get(selectedThreadId) ?? null,
-        container.clientHeight,
-      )
-    ) {
-      onSelectedThreadChange?.(null);
-      setReplyingThreadId(null);
-      setReplyText("");
-      setReplyMentions([]);
-    }
-  }, [
-    openThreads,
-    onSelectedThreadChange,
-    pendingComment,
-    scrollContainerRef,
-    selectedThreadId,
-  ]);
+  }, [alignToAnchors, openThreads, pendingComment, scrollContainerRef]);
 
   useEffect(() => {
     const container = scrollContainerRef?.current ?? null;
@@ -392,13 +505,17 @@ export function CommentsSidebar({
       subtree: true,
       characterData: true,
     });
-    container.addEventListener("scroll", schedule, { passive: true });
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(schedule);
+    resizeObserver?.observe(container);
     window.addEventListener("resize", schedule);
 
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
-      container.removeEventListener("scroll", schedule);
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", schedule);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -419,48 +536,27 @@ export function CommentsSidebar({
   }, [openThreads]);
 
   useEffect(() => {
-    if (!selectedThreadId) return;
-    if (!openThreads.some((t) => t.threadId === selectedThreadId)) {
+    if (
+      selectedThreadId &&
+      !openThreads.some((thread) => thread.threadId === selectedThreadId)
+    ) {
       onSelectedThreadChange?.(null);
       setReplyingThreadId(null);
       setReplyText("");
       setReplyMentions([]);
-      return;
     }
-    const card = window.document.querySelector(
-      `[data-thread-card="${cssEscape(selectedThreadId)}"]`,
-    );
-    card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [onSelectedThreadChange, selectedThreadId, openThreads]);
 
   const hasContent =
     openThreads.length > 0 || !!pendingComment || resolvedThreads.length > 0;
   if (!hasContent && !isLoading && !forceVisible) return null;
 
-  // Sort open threads by their position in the document.
-  const sortedThreads = [...openThreads].sort((a, b) => {
-    const aOff = threadOffsets.get(a.threadId) ?? Infinity;
-    const bOff = threadOffsets.get(b.threadId) ?? Infinity;
-    return aOff - bOff;
-  });
-
-  // Stack each card to align with its referenced text without overlapping.
-  const items: { thread: CommentThread; marginTop: number }[] = [];
-  let cursor = 0;
-  for (const thread of sortedThreads) {
-    const targetTop = threadOffsets.get(thread.threadId);
-    const marginTop =
-      targetTop != null
-        ? Math.max(0, targetTop - cursor)
-        : cursor === 0
-          ? 0
-          : 12;
-    items.push({ thread, marginTop });
-    cursor +=
-      marginTop +
-      (threadCardHeights.get(thread.threadId) ??
-        estimateThreadCardHeight(thread));
-  }
+  const items = layoutCommentThreads(
+    openThreads,
+    threadPositions,
+    threadCardHeights,
+    selectedThreadId,
+  );
 
   const handleResolve = (thread: CommentThread) => {
     resolveComment.mutate({
@@ -533,41 +629,73 @@ export function CommentsSidebar({
       )}
 
       {/* Open thread cards — positioned to align with their referenced text */}
-      {items.map(({ thread, marginTop }) => (
-        <ThreadView
-          key={thread.threadId}
-          thread={thread}
-          marginTop={marginTop}
-          isActive={activeThreadId === thread.threadId}
-          isExpanded={replyingThreadId === thread.threadId}
-          replyText={replyingThreadId === thread.threadId ? replyText : ""}
-          onHoverChange={(hovered) =>
-            onHoveredThreadChange?.(hovered ? thread.threadId : null)
-          }
-          onExpand={() => {
-            onSelectedThreadChange?.(thread.threadId);
-            setReplyingThreadId((current) =>
-              current === thread.threadId ? null : thread.threadId,
-            );
-            setReplyText("");
-            setReplyMentions([]);
-          }}
-          onCollapse={() => {
-            setReplyingThreadId(null);
-            onSelectedThreadChange?.(null);
-            setReplyText("");
-            setReplyMentions([]);
-          }}
-          onReplyChange={setReplyText}
-          onReplyMentionAdd={(m) => setReplyMentions((prev) => [...prev, m])}
-          onHeightChange={handleThreadCardHeightChange}
-          members={members}
-          onSubmitReply={() => handleReply(thread.threadId)}
-          onResolve={() => handleResolve(thread)}
-          onSendToAI={() => handleSendToAI(thread)}
-          t={t}
-        />
-      ))}
+      {items.map((item, index) => {
+        const { thread, marginTop, top, anchorTop, isOrphaned } = item;
+        const isActive = activeThreadId === thread.threadId;
+        const startsOrphanedSection =
+          isOrphaned &&
+          !items.slice(0, index).some((prior) => prior.isOrphaned);
+        return (
+          <Fragment key={thread.threadId}>
+            {alignToAnchors && anchorTop != null ? (
+              <CommentConnector
+                anchorTop={anchorTop}
+                cardTop={top}
+                active={isActive}
+              />
+            ) : null}
+            {startsOrphanedSection ? (
+              <div
+                className="absolute inset-x-2 flex items-center gap-2 text-[11px] text-muted-foreground"
+                style={{ top: Math.max(0, top - 20) }}
+                data-unanchored-comments
+              >
+                <span className="h-px flex-1 bg-border" />
+                <span>{t("comments.unanchored")}</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+            ) : null}
+            <ThreadView
+              thread={thread}
+              marginTop={marginTop}
+              isActive={isActive}
+              isExpanded={replyingThreadId === thread.threadId}
+              replyText={replyingThreadId === thread.threadId ? replyText : ""}
+              onHoverChange={(hovered) =>
+                onHoveredThreadChange?.(hovered ? thread.threadId : null)
+              }
+              onExpand={() => {
+                onActivateThread?.(thread.threadId);
+                scrollToCommentAnchor(
+                  scrollContainerRef?.current ?? null,
+                  threadPositions.get(thread.threadId)?.documentTop,
+                );
+                setReplyingThreadId((current) =>
+                  current === thread.threadId ? null : thread.threadId,
+                );
+                setReplyText("");
+                setReplyMentions([]);
+              }}
+              onCollapse={() => {
+                setReplyingThreadId(null);
+                onSelectedThreadChange?.(null);
+                setReplyText("");
+                setReplyMentions([]);
+              }}
+              onReplyChange={setReplyText}
+              onReplyMentionAdd={(mention) =>
+                setReplyMentions((prev) => [...prev, mention])
+              }
+              onHeightChange={handleThreadCardHeightChange}
+              members={members}
+              onSubmitReply={() => handleReply(thread.threadId)}
+              onResolve={() => handleResolve(thread)}
+              onSendToAI={() => handleSendToAI(thread)}
+              t={t}
+            />
+          </Fragment>
+        );
+      })}
 
       {/* Resolved comments — collapsible, reopenable */}
       {resolvedThreads.length > 0 && (
@@ -596,6 +724,39 @@ export function CommentsSidebar({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function CommentConnector({
+  anchorTop,
+  cardTop,
+  active,
+}: {
+  anchorTop: number;
+  cardTop: number;
+  active: boolean;
+}) {
+  const cardPoint = cardTop + 20;
+  if (Math.abs(anchorTop - cardPoint) < 6) return null;
+  const top = Math.min(anchorTop, cardPoint);
+  const height = Math.abs(anchorTop - cardPoint);
+  const colorClass = active ? "border-primary/60" : "border-border";
+
+  return (
+    <div aria-hidden data-comment-connector={active ? "active" : "idle"}>
+      <span
+        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
+        style={{ top: anchorTop }}
+      />
+      <span
+        className={`pointer-events-none absolute left-1 border-s ${colorClass}`}
+        style={{ top, height }}
+      />
+      <span
+        className={`pointer-events-none absolute left-1 w-2 border-t ${colorClass}`}
+        style={{ top: cardPoint }}
+      />
     </div>
   );
 }

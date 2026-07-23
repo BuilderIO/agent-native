@@ -299,8 +299,15 @@ export function useCollabReconcile({
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
     if (!collabSynced) return;
+    // An authoritative empty value has nothing to seed. Once the provider has
+    // finished loading, the shared fragment is ready for the first real user
+    // edit; leaving `seededRef` false here would classify every keystroke as
+    // transient pre-seed normalization and suppress the app's durable save.
+    if (!value.trim()) {
+      seededRef.current = true;
+      return;
+    }
     if (!isLeadClient) return;
-    if (!value.trim()) return;
     const fragment = ydoc.getXmlFragment("default");
     const currentMarkdown = getMarkdown(editor);
     // Seed only when the shared doc is genuinely empty — either the fragment has

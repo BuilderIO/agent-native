@@ -231,22 +231,16 @@ describe("document editor layout", () => {
     expect(source).toContain("if (!canEditRef.current) return");
   });
 
-  it("gives viewers live collab while keeping write-only surfaces editor-gated", () => {
+  it("renders viewers from SQL while retaining scoped presence", () => {
     const documentEditorSource = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
       {
         encoding: "utf8",
       },
     );
-    const visualEditorSource = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
 
-    // Viewers join the shared Y.Doc read-only: collab is enabled whenever the
-    // doc is not a local-file doc, regardless of `canEdit`.
+    // Every SQL-backed reader keeps the scoped collaboration subscription for
+    // presence, but only editors bind the rendered body to Yjs.
     expect(documentEditorSource).toContain(
       "const collabEnabled = !isLocalFileDocument;",
     );
@@ -254,11 +248,15 @@ describe("document editor layout", () => {
       'docId: collabEnabled ? documentId : "",',
     );
     expect(documentEditorSource).toContain(
-      "ydoc={collabEnabled ? ydoc : null}",
+      "const collabEditorEnabled = collabEnabled && editorCanEdit;",
     );
     expect(documentEditorSource).toContain(
-      "awareness={collabEnabled ? awareness : null}",
+      "ydoc={collabEditorEnabled ? ydoc : null}",
     );
+    expect(documentEditorSource).toContain(
+      "awareness={collabEditorEnabled ? awareness : null}",
+    );
+    expect(documentEditorSource).toContain("snapshot:${document.updatedAt}");
     expect(documentEditorSource).toContain(
       'awareness.setLocalStateField("canFlushDocument", editorCanEdit)',
     );
@@ -271,15 +269,28 @@ describe("document editor layout", () => {
       "canEdit && !isLocalFileDocument ? documentId : null",
     );
 
-    // A read-only client must never mutate the shared Y.Doc: VisualEditor
-    // neuters seed + reconcile-apply so no local `/update` POST can originate.
-    expect(visualEditorSource).toContain(
-      "setContent: (e, value, options) => {",
+    expect(documentEditorSource).toContain(
+      "canEdit &&\n                    collabLoading",
     );
-    expect(visualEditorSource).toContain("if (!editable) return;");
-    expect(visualEditorSource).toContain(
-      "shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>\n      editable &&",
+  });
+
+  it("opens comments and selects a highlighted thread atomically", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
     );
+    const activationStart = source.indexOf("const activateCommentThread");
+    const activationEnd = source.indexOf(
+      "const handleUtilityPanelChange",
+      activationStart,
+    );
+    const activation = source.slice(activationStart, activationEnd);
+
+    expect(activationStart).toBeGreaterThan(-1);
+    expect(activation).toContain("setSelectedThreadId(threadId)");
+    expect(activation).toContain('setUtilityPanel("comments")');
+    expect(source).toContain("onActivateThread={activateCommentThread}");
+    expect(source).not.toContain("? setSelectedThreadId\n");
   });
 
   it("keeps title and content save watermarks independent after partial saves", () => {

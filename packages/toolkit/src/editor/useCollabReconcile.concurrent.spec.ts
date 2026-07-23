@@ -330,6 +330,38 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     expect(results).toEqual([true]);
   });
 
+  it("allows the first user edit after an authoritative empty doc finishes loading", async () => {
+    let shouldIgnoreUpdate:
+      | ((transaction: Editor["state"]["tr"]) => boolean)
+      | null = null;
+    let editor: Editor | null = null;
+
+    function Probe() {
+      editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+        content: "",
+      });
+      const fakeYdoc = { clientID: 1, getXmlFragment: () => ({ length: 0 }) };
+      const guards = useCollabReconcile({
+        editor,
+        ydoc: fakeYdoc as never,
+        collabSynced: true,
+        value: "",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+      });
+      shouldIgnoreUpdate = guards.shouldIgnoreUpdate;
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+
+    expect(editor).not.toBeNull();
+    expect(shouldIgnoreUpdate).not.toBeNull();
+    expect(shouldIgnoreUpdate!(editor!.state.tr)).toBe(false);
+  });
+
   it("refuses to persist an empty doc in collab mode (registerEmitted guard)", async () => {
     // Directly exercise the guard contract: in collab mode an empty markdown
     // string must not be registered/persisted (would clobber stored content
