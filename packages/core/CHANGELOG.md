@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.120.1
+
+### Patch Changes
+
+- 5477352: Keep Dispatch's overview composer, full-page chat, and side chat on the same selected model.
+- 5477352: Inject the configured Google Analytics tag into framework-owned login and signup pages.
+
 ## 0.120.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.15.17
+
+### Patch Changes
+
+- 5477352: Keep Dispatch's overview composer, full-page chat, and side chat on the same selected model.
+
 ## 0.15.16
 
 ### Patch Changes
