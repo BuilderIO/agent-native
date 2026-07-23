@@ -253,6 +253,14 @@ export function insertBulletAfterCaret(list: HTMLElement): boolean {
     // extractContents() moves the trailing DOM subtree (preserving <strong>/
     // <em>) out of the original row so it can be reparented into the new one.
     tail = tailRange.extractContents();
+    // A caret at the very end of the text (the common case) makes tailRange
+    // collapsed, but extractContents() on a collapsed range still clones the
+    // boundary text node with empty data instead of returning an empty
+    // fragment. Treat that as "no tail" so primeNewRow falls through to the
+    // zero-width-space placeholder — otherwise it moves in an empty text node
+    // with no character to anchor the caret's font to, and typing falls back
+    // to the marker span's formatting instead of the text span's.
+    if (tail.textContent === "") tail = null;
   }
 
   const newRow = row.cloneNode(true) as HTMLElement;

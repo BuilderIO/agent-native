@@ -70,6 +70,26 @@ describe("styled bullet editing", () => {
     expect((newRow as HTMLElement).style.fontSize).toBe("22px");
   });
 
+  it("seeds the new bullet's text span with a real zero-width-space character, not an empty tail node", () => {
+    // Regression test: Range.extractContents() on a collapsed range (caret at
+    // the very end of the text, the common case) still clones the boundary
+    // text node with empty data instead of returning a childless fragment.
+    // If that empty node is mistaken for a real "tail" to move over, the new
+    // row's text span ends up with a contentless text node instead of the
+    // zero-width-space placeholder, and the caret has nothing to anchor its
+    // font to.
+    const { list } = setup();
+    const thirdText = list.children[2].children[1] as HTMLElement;
+    const textNode = thirdText.firstChild as Text;
+    placeCaret(textNode, textNode.length);
+
+    expect(insertBulletAfterCaret(list)).toBe(true);
+    const newTextSpan = list.children[3].children[1] as HTMLElement;
+    expect(newTextSpan.childNodes.length).toBe(1);
+    expect(newTextSpan.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    expect((newTextSpan.firstChild as Text).data).toBe("\u200B");
+  });
+
   it("splits text after the caret into the new bullet", () => {
     const { list } = setup();
     const secondText = list.children[1].children[1] as HTMLElement;
