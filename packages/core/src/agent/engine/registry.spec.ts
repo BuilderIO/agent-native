@@ -472,6 +472,58 @@ describe("AgentEngine registry", () => {
         "moonshot-v1-8k",
       );
     });
+
+    it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        supportedModels: ["gpt-5.5", "gpt-5.6-sol"],
+      } as any;
+
+      // No `preserveCustomModels` flag and no gateway option: an unknown id is
+      // not a valid first-party OpenAI model, so it must normalize to a
+      // supported model rather than being persisted/sent to OpenAI verbatim.
+      expect(normalizeModelForEngine(engine, "gemma4")).toBe("gpt-5.6-sol");
+    });
+
+    it("preserves an unrecognized OpenAI model when the gateway capability is passed", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        supportedModels: ["gpt-5.5", "gpt-5.6-sol"],
+      } as any;
+
+      // An OpenAI-compatible gateway (Ollama/LiteLLM) serves ids outside the
+      // built-in catalog; the settings actions resolve that capability and pass
+      // it here so the id survives save/read.
+      expect(
+        normalizeModelForEngine(engine, "gemma4", {
+          preserveCustomModels: true,
+        }),
+      ).toBe("gemma4");
+    });
+
+    it("does not version-rewrite a gateway model that shares a catalog family", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        supportedModels: ["gpt-5.5", "gpt-5.6-sol"],
+      } as any;
+
+      // Without the capability a version-shaped id is upgraded to the newest
+      // same-family match (correct for first-party OpenAI)...
+      expect(normalizeModelForEngine(engine, "gpt-5.4")).toBe("gpt-5.5");
+      // ...but with the gateway capability the exact id is preserved, proving
+      // the version match never fires before preservation.
+      expect(
+        normalizeModelForEngine(engine, "gpt-5.4", {
+          preserveCustomModels: true,
+        }),
+      ).toBe("gpt-5.4");
+    });
   });
 
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
