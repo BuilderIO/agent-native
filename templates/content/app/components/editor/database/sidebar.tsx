@@ -137,7 +137,7 @@ export function ContentFilesSidebarView({
   >;
 }) {
   const viewConfig = applyPersonalSidebarViewOverrides(
-    data?.database.viewConfig ?? defaultDatabaseViewConfig(),
+    data?.database?.viewConfig ?? defaultDatabaseViewConfig(),
     overrides,
   );
   const [selectedViewId, setSelectedViewId] = useState(
@@ -154,7 +154,7 @@ export function ContentFilesSidebarView({
   useEffect(() => {
     setConstraintsCleared(false);
   }, [activeFilterKey, activeView.id]);
-  const items = data
+  const items = data?.database
     ? applyDatabaseView(
         data.items,
         data.properties,
