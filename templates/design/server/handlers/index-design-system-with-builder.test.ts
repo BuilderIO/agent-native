@@ -1,18 +1,25 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getOrgContext: vi.fn(),
   getRequestHeader: vi.fn(),
   getSession: vi.fn(),
   readMultipartFormData: vi.fn(),
   setResponseStatus: vi.fn(),
   startBuilderDesignSystemIndex: vi.fn(),
   upsertBuilderProxyDesignSystem: vi.fn(),
+  runWithRequestContext: vi.fn((_ctx, fn) => fn()),
+}));
+
+vi.mock("@agent-native/core/org", () => ({
+  getOrgContext: mocks.getOrgContext,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   FeatureNotConfiguredError: class FeatureNotConfiguredError extends Error {},
   getSession: mocks.getSession,
   startBuilderDesignSystemIndex: mocks.startBuilderDesignSystemIndex,
+  runWithRequestContext: mocks.runWithRequestContext,
 }));
 
 vi.mock("h3", () => ({
@@ -35,6 +42,7 @@ describe("Builder .fig multipart preflight", () => {
       email: "designer@example.com",
       orgId: null,
     });
+    mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
     mocks.getRequestHeader.mockReturnValue("1024");
     mocks.readMultipartFormData.mockResolvedValue([
       {
