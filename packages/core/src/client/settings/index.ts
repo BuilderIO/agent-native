@@ -14,6 +14,12 @@ export {
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
 export {
+  AccountSettingsCard,
+  AccountSettingsForm,
+  type AccountSettingsCardProps,
+  type AccountSettingsFormProps,
+} from "./AccountSettingsCard.js";
+export {
   openBuilderConnectPopup,
   useBuilderConnectFlow,
   useBuilderStatus,

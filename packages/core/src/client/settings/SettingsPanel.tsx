@@ -27,7 +27,6 @@ import {
   IconEyeOff,
   IconBolt,
   IconGauge,
-  IconUserCircle,
   IconApps,
   IconUsersGroup,
 } from "@tabler/icons-react";
@@ -43,7 +42,6 @@ import React, {
 import { Link } from "react-router";
 
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
-import type { UserProfile } from "../../user-profile/shared.js";
 import { saveAgentEngineProviderSettings } from "../agent-engine-key.js";
 import { agentNativePath } from "../api-path.js";
 import { BuilderBMark } from "../builder-mark.js";
@@ -60,9 +58,7 @@ import {
   useActionQuery,
   callAction,
 } from "../use-action.js";
-import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
-import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
 import {
   AGENT_SETTINGS_SECTIONS,
@@ -2465,221 +2461,6 @@ function CapabilityStatusStrip({
   );
 }
 
-function AccountSectionInner({
-  open,
-  onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const isPage = useSettingsSurface() === "page";
-  const t = useT();
-  const { session, isLoading } = useSession();
-  const email = session?.email;
-  const profileQuery = useActionQuery<UserProfile>(
-    "get-user-profile",
-    undefined,
-    { enabled: !!email },
-  );
-  const updateProfile = useActionMutation<UserProfile, { name: string }>(
-    "update-user-profile",
-  );
-  const avatarUrl = useAvatarUrl(email);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
-  const [name, setName] = useState("");
-
-  const displayName =
-    profileQuery.data?.name ||
-    session?.name ||
-    email ||
-    t("settings.profileSignedOut");
-  const initials = (displayName || "?")
-    .split(/[ @._-]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-
-  useEffect(() => {
-    const nextName = profileQuery.data?.name || session?.name;
-    if (nextName) setName(nextName);
-  }, [profileQuery.data?.name, session?.name]);
-
-  const handleAvatarChange = async (
-    event: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file || !email) return;
-    setUploading(true);
-    setStatus("idle");
-    try {
-      await uploadAvatar(file, email);
-      setStatus("saved");
-    } catch {
-      setStatus("error");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleProfileSave = () => {
-    const nextName = name.trim();
-    if (!nextName || !email) return;
-    updateProfile.mutate({ name: nextName });
-  };
-
-  return (
-    <SettingsSection
-      id={settingsSectionDomId("account")}
-      icon={<IconUserCircle size={14} />}
-      title={t("settings.profileTitle")}
-      subtitle={t("settings.profileDescription")}
-      open={open}
-      onToggle={onToggle}
-    >
-      <div className="flex items-center gap-3">
-        <div
-          className={cn(
-            "flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-border bg-accent font-semibold text-muted-foreground",
-            isPage ? "h-14 w-14 text-[15px]" : "h-12 w-12 text-[13px]",
-          )}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            initials
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "truncate font-medium text-foreground",
-              isPage ? "text-sm" : "text-[12px]",
-            )}
-          >
-            {isLoading ? t("settings.profileLoading") : displayName}
-          </p>
-          {email && (
-            <p
-              className={cn(
-                "truncate text-muted-foreground",
-                subTextClass(isPage),
-              )}
-            >
-              {email}
-            </p>
-          )}
-          {status === "saved" && (
-            <p
-              className={cn(
-                "mt-1 text-green-600 dark:text-green-400",
-                subTextClass(isPage),
-              )}
-            >
-              {t("settings.profilePhotoUpdated")}
-            </p>
-          )}
-          {status === "error" && (
-            <p className={cn("mt-1 text-destructive", subTextClass(isPage))}>
-              {t("settings.profilePhotoError")}
-            </p>
-          )}
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleAvatarChange}
-        />
-        <Button
-          type="button"
-          intent="neutral"
-          emphasis="outline"
-          disabled={!email || uploading}
-          onClick={() => fileInputRef.current?.click()}
-          className={cn(
-            pillButtonClass(isPage, "outline"),
-            "shrink-0 justify-center",
-          )}
-        >
-          {uploading
-            ? t("settings.profileUploading")
-            : t("settings.profileChangePhoto")}
-        </Button>
-      </div>
-      <form
-        className="space-y-1.5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          handleProfileSave();
-        }}
-      >
-        <label
-          htmlFor="agent-native-profile-name"
-          className={fieldLabelClass(isPage)}
-        >
-          {t("settings.profileNameLabel")}
-        </label>
-        <input
-          id="agent-native-profile-name"
-          type="text"
-          value={name}
-          onChange={(event) => {
-            updateProfile.reset();
-            setName(event.target.value);
-          }}
-          placeholder={t("settings.profileNamePlaceholder")}
-          disabled={!email || profileQuery.isLoading || updateProfile.isPending}
-          maxLength={120}
-          className={textInputClass(isPage)}
-        />
-        <p className={cn("text-muted-foreground", noteTextClass(isPage))}>
-          {t("settings.profileNameDescription")}
-        </p>
-        <div className="flex items-center justify-between gap-3 pt-1">
-          <div className="min-h-4">
-            {updateProfile.isSuccess && (
-              <p className="text-green-600 dark:text-green-400">
-                {t("settings.profileSaved")}
-              </p>
-            )}
-            {updateProfile.error && (
-              <p className="text-destructive">
-                {t("settings.profileSaveError")}
-              </p>
-            )}
-          </div>
-          <Button
-            type="submit"
-            intent="primary"
-            emphasis="solid"
-            disabled={
-              !email ||
-              profileQuery.isLoading ||
-              updateProfile.isPending ||
-              !name.trim() ||
-              name.trim() === displayName
-            }
-            className={pillButtonClass(isPage, "solid")}
-          >
-            {updateProfile.isPending
-              ? t("settings.profileSaving")
-              : t("settings.profileSave")}
-          </Button>
-        </div>
-      </form>
-    </SettingsSection>
-  );
-}
-
 interface SettingsPanelContentProps extends SettingsPanelProps {
   sections?: readonly SettingsSectionId[];
   showCapabilityStrip?: boolean;
@@ -2795,14 +2576,6 @@ function SettingsPanelContent({
             builderLoading={builderLoading}
             builderBranchesAvailable={builderBranchesAvailable}
             onOpenLlm={() => openSettingsSection("llm", true)}
-          />
-        )}
-
-        {/* Account */}
-        {shouldShowSection("account") && (
-          <AccountSectionInner
-            open={openSection === "account"}
-            onToggle={() => toggle("account")}
           />
         )}
 

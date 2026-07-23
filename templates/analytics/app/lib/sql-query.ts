@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { DASHBOARD_REPORT_ACTION_TIMEOUT_MS } from "@shared/dashboard-report-timeouts";
 import { MAX_CONCURRENT_SQL_QUERIES } from "@shared/sql-query-limits";
 import { useQuery } from "@tanstack/react-query";
 
@@ -6,9 +7,7 @@ import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 import { addBytesProcessed } from "./cost-tracker";
 
-// Screenshot captures have a fixed 35s serverless readiness window. End each
-// panel action before that window closes so the capture can surface its error.
-export const DASHBOARD_REPORT_ACTION_TIMEOUT_MS = 30_000;
+export { DASHBOARD_REPORT_ACTION_TIMEOUT_MS };
 
 export interface SqlQueryResult {
   rows: Record<string, unknown>[];

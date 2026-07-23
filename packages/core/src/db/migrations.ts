@@ -198,7 +198,7 @@ export interface RunMigrationsOptions {
    * Use one bookkeeping table per template, e.g. `slides_migrations`. Core
    * feature plugins (e.g. the org module) follow the same convention with
    * their own prefix, e.g. `_org_migrations`.
-  */
+   */
   table: string;
 }
 

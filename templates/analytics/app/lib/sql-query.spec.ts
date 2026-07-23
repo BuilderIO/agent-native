@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  DASHBOARD_REPORT_READY_TIMEOUT_MS,
+  FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS,
+} from "@shared/dashboard-report-timeouts";
 
 const mocks = vi.hoisted(() => ({
   addBytesProcessed: vi.fn(),
@@ -68,7 +72,12 @@ describe("executeSqlQuery", () => {
       reportScreenshot: true,
     });
 
-    expect(DASHBOARD_REPORT_ACTION_TIMEOUT_MS).toBeLessThan(35_000);
+    expect(FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS).toBeLessThan(
+      DASHBOARD_REPORT_ACTION_TIMEOUT_MS,
+    );
+    expect(DASHBOARD_REPORT_ACTION_TIMEOUT_MS).toBeLessThan(
+      DASHBOARD_REPORT_READY_TIMEOUT_MS,
+    );
     expect(mocks.callAction).toHaveBeenCalledWith(
       "query-dashboard-panel",
       { query: "SELECT 1", source: "first-party" },

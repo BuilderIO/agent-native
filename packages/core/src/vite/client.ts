@@ -858,6 +858,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    {
+      specifier: "@assistant-ui/react > assistant-stream",
+      packageName: "@assistant-ui/react",
+    },
     { specifier: "@codemirror/lang-sql" },
     { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },

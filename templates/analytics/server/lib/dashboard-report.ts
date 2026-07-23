@@ -19,6 +19,7 @@ import {
   listReportablePanelIds,
   REPORT_PANEL_CHUNK_SIZE,
 } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
+import { DASHBOARD_REPORT_READY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type {
   DashboardFilter,
   FilterType,
@@ -824,7 +825,7 @@ async function captureDashboardPngChunks(
     captureScale: 0.7,
     ...(serverless
       ? {
-          readyTimeout: 35_000,
+          readyTimeout: DASHBOARD_REPORT_READY_TIMEOUT_MS,
           secondReadyTimeout: 15_000,
           totalTimeout: SERVERLESS_CHUNKED_ATTEMPT_TIMEOUT_MS,
         }
