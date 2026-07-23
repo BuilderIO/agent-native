@@ -1686,6 +1686,7 @@ export default async (nitroApp: any): Promise<void> => {
   sweepOrphanedRecordingChunks().catch((err) => {
     console.warn("[db] chunk sweep failed:", (err as Error)?.message ?? err);
   });
+
   sweepOrphanedResumableSessions().catch((err) => {
     console.warn(
       "[db] resumable-session sweep failed:",
