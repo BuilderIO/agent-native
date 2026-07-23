@@ -85,6 +85,7 @@ import { cn } from "@/lib/utils";
 import {
   documentBodyHydrationIsPending,
   isEffectivelyEmptyDocumentContent,
+  newDocumentPageChoiceIsDisabled,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
@@ -1779,9 +1780,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               type="button"
                               variant="outline"
                               className="justify-start gap-2"
-                              disabled={
-                                !editorCanEdit || createDatabase.isPending
-                              }
+                              disabled={newDocumentPageChoiceIsDisabled({
+                                canEdit,
+                                bodyHydrationPending,
+                                databaseCreationPending:
+                                  createDatabase.isPending,
+                              })}
                               onClick={handleChoosePage}
                             >
                               <IconFileText />
