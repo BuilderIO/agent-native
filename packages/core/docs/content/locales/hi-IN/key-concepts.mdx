@@ -256,8 +256,7 @@ UI कभी भी LLM को सीधे कॉल नहीं करता 
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -308,8 +307,7 @@ export default defineAction({
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -422,7 +420,7 @@ UI इसे मार्ग परिवर्तन पर लिखता ह
 
 ## कार्यस्थान {#workspace}
 
-प्रत्येक उपयोगकर्ता को एक व्यक्तिगत **कार्यक्षेत्र** मिलता है - निर्देश, skills, मेमोरी, कस्टम उप-एजेंट, निर्धारित कार्य और कनेक्टेड MCP सर्वर - सभी फ़ाइलों के बजाय SQL में संग्रहीत होते हैं। यह प्रति उपयोगकर्ता एक कंटेनर को घुमाए बिना बहु-किरायेदार SaaS के अंदर Claude-कोड-स्तरीय अनुकूलन को व्यवहार्य बनाता है। [Workspace](/docs/workspace) देखें.
+प्रत्येक उपयोगकर्ता को एक व्यक्तिगत **कार्यक्षेत्र** मिलता है - निर्देश, skills, मेमोरी, कस्टम उप-एजेंट, निर्धारित कार्य और कनेक्टेड MCP सर्वर - सभी फ़ाइलों के बजाय SQL में संग्रहीत होते हैं। यह प्रति उपयोगकर्ता एक कंटेनर को घुमाए बिना बहु-किरायेदार SaaS के अंदर Claude-कोड-स्तरीय अनुकूलन को व्यवहार्य बनाता है। [एजेंट संसाधन](/docs/agent-resources) देखें.
 
 ## संबंधित भवन ब्लॉक {#building-blocks}
 
@@ -438,7 +436,7 @@ UI इसे मार्ग परिवर्तन पर लिखता ह
 फ्रेमवर्क को अपनाना ज्यादातर इसलिए मूल्यवान है क्योंकि आपको निर्माण करना बंद कर देना चाहिए। जैसे ही आपका ऐप छह नियमों का पालन करता है, आपको यह विरासत में मिलता है:
 
 - **एक क्रिया = प्रत्येक सतह।** `defineAction()` के साथ परिभाषित प्रत्येक क्रिया एक साथ एक एजेंट टूल, एक टाइपसेफ फ्रंटएंड हुक (`useActionQuery` / `useActionMutation`), एक फ्रेमवर्क-स्वामित्व वाली HTTP ट्रांसपोर्ट, एक CLI कमांड, बाहरी क्लाइंट के लिए एक MCP टूल और अन्य एजेंट-मूल ऐप्स के लिए एक A2A टूल है। वैकल्पिक `link` और `mcpApp` मेटाडेटा दूसरे कार्यान्वयन के बिना डीप लिंक और MCP ऐप्स UI जोड़ते हैं।
-- **प्रति उपयोगकर्ता एक पूर्ण कार्यक्षेत्र।** Skills, साझा `LEARNINGS.md`, व्यक्तिगत `memory/MEMORY.md`, `AGENTS.md`, कस्टम उप-एजेंट, निर्धारित नौकरियां, कनेक्टेड MCP सर्वर - सभी SQL-समर्थित, कोई डेव-बॉक्स आवश्यक नहीं है। [Workspace](/docs/workspace) देखें.
+- **प्रति उपयोगकर्ता एक पूर्ण कार्यक्षेत्र।** Skills, साझा `LEARNINGS.md`, व्यक्तिगत `memory/MEMORY.md`, `AGENTS.md`, कस्टम उप-एजेंट, निर्धारित नौकरियां, कनेक्टेड MCP सर्वर - सभी SQL-समर्थित, कोई डेव-बॉक्स आवश्यक नहीं है। [एजेंट संसाधन](/docs/agent-resources) देखें.
 - **ड्रॉप-इन React घटक।** `<AgentPanel />` और `<AgentSidebar />` आपके ऐप में कहीं भी चैट + वर्कस्पेस प्रस्तुत करते हैं। [Drop-in Agent](/docs/drop-in-agent) देखें.
 - **BYO एजेंट चैट रनटाइम।** वही चैट UI OpenAI एजेंट, OpenAI प्रतिक्रियाएं, Claude एजेंट SDK, वर्सेल AI SDK, AG-UI, या आपकी अपनी सामान्यीकृत HTTP स्ट्रीम के शीर्ष पर बैठ सकती है। [Native चैट UI](/docs/native-chat-ui#byo-agent-runtimes) देखें.
 - **एजेंट और UI के बीच लाइव सिंक।** समान प्रक्रिया `/_agent-native/events` पर तुरंत स्ट्रीम लिखती है; एक हल्का पोल सर्वर रहित, क्रॉन और क्रॉस-प्रोसेस लेखन को अभिसरण रखता है। actions को म्यूट करने से एक्शन-समर्थित क्वेरीज़ स्वचालित रूप से अमान्य हो जाती हैं, इसलिए एजेंट द्वारा बनाए गए रिकॉर्ड मैन्युअल रीफ्रेश के बिना दिखाई देते हैं। नीचे [Live Sync](#polling-sync) देखें।

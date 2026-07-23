@@ -6,6 +6,8 @@
 
 mod accessibility;
 mod adhoc_meetings_watcher;
+mod capture_audio_bus;
+mod capture_graph;
 mod clips;
 mod config;
 mod debug;
@@ -18,7 +20,15 @@ mod notifications;
 mod permission_status;
 mod recording_indicator;
 mod remote_flags;
+mod rewind_capture_suspension;
+mod rewind_chapters;
+mod rewind_clip;
+mod rewind_egress;
+mod rewind_local_ask;
+mod rewind_meeting_history;
 mod screen_memory;
+mod screen_memory_ocr;
+mod screen_memory_transcript;
 mod sentry_report;
 mod shortcuts;
 mod silence_detector;
@@ -39,7 +49,7 @@ use state::{
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
-    set_capture_included,
+    set_capture_excluded,
 };
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
@@ -47,6 +57,15 @@ use util::{
 // `tauri.conf.json` tray config points at `icons/tray.png`, which the user
 // should replace with their real icon.
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
+
+fn present_popover(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("popover") {
+        set_capture_excluded(&window);
+        configure_overlay_behavior(&window);
+        position_popover(app, &window);
+        present_interactive_window(&window);
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,16 +76,14 @@ pub fn run() {
             // Second launch just focuses the popover of the already-running
             // instance. Prevents the "two tray icons" UX where clicks fight
             // over focus and neither popover shows.
-            if let Some(window) = app.get_webview_window("popover") {
-                set_capture_included(&window);
-                configure_overlay_behavior(&window);
-                position_popover(app, &window);
-                present_interactive_window(&window);
-            }
+            present_popover(app);
         }))
         .invoke_handler(tauri::generate_handler![
             // clips commands
             clips::show_countdown,
+            clips::finish_countdown_shortcuts,
+            clips::show_preparing,
+            clips::hide_preparing,
             clips::show_finalizing,
             clips::hide_finalizing,
             clips::show_toolbar,
@@ -84,6 +101,8 @@ pub fn run() {
             clips::show_popover,
             clips::park_popover_offscreen,
             clips::open_macos_privacy_settings,
+            clips::choose_rewind_excluded_apps,
+            clips::resolve_rewind_excluded_apps,
             clips::open_local_recording_folder,
             clips::request_macos_screen_recording_access,
             clips::resize_popover,
@@ -128,7 +147,6 @@ pub fn run() {
             native_screen::native_fullscreen_claim_upload_open,
             native_screen::native_fullscreen_recording_warm,
             native_screen::native_fullscreen_recording_begin,
-            native_screen::native_fullscreen_capture_thumbnail,
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_stop_and_save,
             native_screen::native_fullscreen_recording_cancel,
@@ -137,6 +155,8 @@ pub fn run() {
             native_screen::native_fullscreen_recording_rotate_segment,
             native_screen::native_fullscreen_pending_uploads,
             native_screen::native_fullscreen_recording_retry_upload,
+            native_screen::native_fullscreen_recording_mark_upload_error,
+            native_screen::native_fullscreen_recording_clear_upload,
             native_screen::native_fullscreen_recording_dismiss_upload,
             native_screen::native_fullscreen_open_drafts_folder,
             // local-only always-on screen memory compatibility helpers
@@ -144,6 +164,36 @@ pub fn run() {
             screen_memory::screen_memory_delete_all,
             screen_memory::screen_memory_export_recent,
             screen_memory::screen_memory_open_folder,
+            screen_memory::screen_memory_install_agent_connection,
+            screen_memory::screen_memory_next_agent_handoff,
+            screen_memory::screen_memory_update_agent_handoff,
+            screen_memory::screen_memory_due_agent_handoffs,
+            screen_memory::screen_memory_mark_agent_handoff_deleted,
+            screen_memory::screen_memory_cancel_agent_handoff_cleanup,
+            // local-only Rewind evidence policy gate and egress audit trail
+            rewind_egress::rewind_prepare_evidence_egress,
+            rewind_egress::rewind_complete_evidence_egress,
+            rewind_egress::rewind_fail_evidence_egress,
+            rewind_egress::rewind_list_evidence_egress,
+            rewind_local_ask::rewind_local_ask,
+            rewind_local_ask::rewind_replay_moment,
+            rewind_meeting_history::rewind_meeting_history_status,
+            rewind_meeting_history::rewind_meeting_history_prepare,
+            rewind_meeting_history::rewind_meeting_history_collect,
+            rewind_meeting_history::rewind_meeting_history_cancel,
+            rewind_clip::rewind_clip_status,
+            rewind_clip::rewind_clip_prepare,
+            rewind_clip::rewind_clip_start,
+            rewind_clip::rewind_clip_extend,
+            rewind_clip::rewind_clip_pause,
+            rewind_clip::rewind_clip_resume,
+            rewind_clip::rewind_clip_stop_and_upload,
+            rewind_clip::rewind_clip_stop_and_save,
+            rewind_clip::rewind_clip_cancel,
+            rewind_clip::rewind_agent_handoff_upload,
+            rewind_clip::rewind_agent_handoff_preview,
+            rewind_capture_suspension::rewind_capture_suspension_acquire,
+            rewind_capture_suspension::rewind_capture_suspension_release,
             // recording indicator pill
             recording_indicator::recording_pill_show,
             recording_indicator::recording_pill_expand,
@@ -153,6 +203,7 @@ pub fn run() {
             // notifications
             notifications::take_pending_meeting_notification,
             notifications::notify_meeting_starting,
+            notifications::dismiss_meeting_notification,
             // meetings watcher (background poller)
             meetings_watcher::meetings_watcher_set_server_url,
             meetings_watcher::meetings_watcher_set_session,
@@ -180,8 +231,11 @@ pub fn run() {
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
             // whisper model management
+            whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
+            whisper_model::whisper_downloaded_models,
+            whisper_model::whisper_model_delete,
             // permission status (silent checks for all TCC permissions)
             permission_status::check_permission_statuses,
             // persistent log file (production debugging)
@@ -189,6 +243,7 @@ pub fn run() {
             logfile::open_logs,
         ])
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(
@@ -215,6 +270,10 @@ pub fn run() {
         .manage(LastTranscript::default())
         .manage(native_screen::NativeFullscreenRecordingState::default())
         .manage(screen_memory::ScreenMemoryState::default())
+        .manage(capture_graph::CaptureGraphState::default())
+        .manage(rewind_clip::RewindClipState::default())
+        .manage(rewind_meeting_history::RewindMeetingHistoryState::default())
+        .manage(rewind_capture_suspension::RewindCaptureSuspensionState::default())
         .manage(meetings_watcher::MeetingsWatcherState::default())
         .manage(adhoc_meetings_watcher::AdhocMeetingsWatcherState::default())
         .manage(notifications::MeetingNotificationState::default())
@@ -235,6 +294,34 @@ pub fn run() {
                 eprintln!("[clips-tray] popover build failed: {err}");
                 err
             })?;
+
+            // clips:// deep-link handler — a web "Open desktop app" click
+            // launches or focuses the running tray popover (same as a second
+            // launch). macOS registers the scheme via Info.plist at build time;
+            // Windows/Linux register it at runtime below.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let dl_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
+                    dlog!("[clips-tray] deep link opened: {:?}", urls);
+                    present_popover(&dl_handle);
+                    let _ = dl_handle.emit("clips:deep-link", urls);
+                });
+                #[cfg(any(windows, target_os = "linux"))]
+                if let Err(err) = app.deep_link().register_all() {
+                    eprintln!("[clips-tray] deep link register_all failed: {err}");
+                }
+                // On Linux/Windows a cold launch from clips:// arrives as startup
+                // arguments rather than an on_open_url event. Consume it here so
+                // the popover appears and the browser does not hit its fallback.
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
+                    dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
+                    present_popover(app.handle());
+                    let _ = app.handle().emit("clips:deep-link", url_strings);
+                }
+            }
 
             if let Err(err) = notifications::show_meeting_notification_window(app.handle()) {
                 println!("[clips-tray] show meeting notification failed: {err}");
@@ -258,8 +345,8 @@ pub fn run() {
             // toggle is off).
             clips::reconcile_region_guides(app.handle());
             shortcuts::register_shortcuts(app)?;
+            shortcuts::install_countdown_local_key_monitor(app);
             shortcuts::install_popover_dismiss_handler(app);
-            shortcuts::install_countdown_shortcut_handler(app);
 
             // Spawn the upcoming-meetings poller. Idempotent — gated by a
             // OnceLock inside `spawn_watcher`. The frontend wires the
@@ -371,7 +458,16 @@ pub fn run() {
             // login (tagged with `--autostart`) so it doesn't pop up every boot.
             let launched_at_login = std::env::args().any(|arg| arg == "--autostart");
             if !launched_at_login {
-                toggle_popover(app.handle());
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    for _ in 0..8 {
+                        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+                        if tray::refresh_tray_anchor(&app_handle) {
+                            break;
+                        }
+                    }
+                    clips::force_show_popover(&app_handle);
+                });
             }
 
             Ok(())
@@ -383,7 +479,11 @@ pub fn run() {
             // Reopen is macOS-only — gated behind cfg so Windows compiles.
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = _event {
-                toggle_popover(_app_handle);
+                if is_recording_active(_app_handle) {
+                    clips::force_show_popover(_app_handle);
+                } else {
+                    toggle_popover(_app_handle);
+                }
             }
             // `app.exit()` (tray Quit, Cmd+Q, OS shutdown) delivers
             // `ExitRequested` first, then `Exit` unless prevented. A live

@@ -24,6 +24,7 @@ import {
 } from "../server/request-context.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
+import { ExtensionContentEditError } from "./content-patch.js";
 import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import {
   getLocalExtension,
@@ -101,6 +102,10 @@ export function createExtensionsHandler() {
       if (err instanceof ForbiddenError) {
         setResponseStatus(event, 403);
         return { error: err.message };
+      }
+      if (err instanceof ExtensionContentEditError) {
+        setResponseStatus(event, 400);
+        return { error: err.message, errorCode: err.code };
       }
       throw err;
     }
@@ -222,8 +227,8 @@ async function dispatch(
     }
 
     const access = await resolveAccess("extension", parts[0]);
-    const extension = access?.resource;
-    if (!extension) {
+    const extension = access?.resource as ExtensionRow | undefined;
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
@@ -312,11 +317,12 @@ async function dispatch(
     }
 
     const access = await resolveAccess("extension", parts[0]);
-    if (!access) {
+    const extension = access?.resource as ExtensionRow | undefined;
+    if (!access || !extension || extension.archivedAt) {
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return extensionResponse(access.resource as ExtensionRow, access.role);
+    return extensionResponse(extension, access.role);
   }
 
   // POST /:id/hide — remove from the current user's Extensions list/sidebar
@@ -373,6 +379,16 @@ async function dispatch(
     const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
     if (localResponse) return localResponse;
     const body = await readBody(event);
+    if (
+      typeof body.visibility === "string" &&
+      body.visibility.trim().toLowerCase() === "public"
+    ) {
+      setResponseStatus(event, 403);
+      return {
+        error:
+          "Extensions cannot be made public — use private or org visibility instead. No content changes were applied.",
+      };
+    }
     const hasContentUpdate =
       body.content !== undefined ||
       body.patches !== undefined ||
@@ -388,6 +404,9 @@ async function dispatch(
     if (hasContentUpdate) {
       result = await updateExtensionContent(parts[0], {
         content: body.content,
+        allowFullReplacement:
+          body.allowFullReplacement === true ||
+          body.allowFullReplacement === "true",
         patches: body.patches,
         edits: body.edits,
         format: body.format === true || body.format === "true",
@@ -415,7 +434,7 @@ async function dispatch(
       setResponseStatus(event, 404);
       return { error: "Extension not found" };
     }
-    return { ok: true };
+    return { ok: true, archived: true };
   }
 
   setResponseStatus(event, 404);
@@ -644,6 +663,10 @@ async function requireExtensionDataAccess(
   minRole: ShareRole,
 ): Promise<{ ok: true } | { ok: false; response: unknown }> {
   const access = await resolveAccess("extension", extensionId);
+  if (access?.resource && (access.resource as ExtensionRow).archivedAt) {
+    setResponseStatus(event, 404);
+    return { ok: false, response: { error: "Extension not found" } };
+  }
   if (access) {
     if (ROLE_RANK[access.role] < ROLE_RANK[minRole]) {
       setResponseStatus(event, 403);
@@ -964,7 +987,7 @@ export const DESTRUCTIVE_SQL_RE =
 // integrations, notifications, scheduling, sharing/orgs), and Postgres
 // catalogs that would let a extension enumerate or read internals.
 export const SENSITIVE_SQL_RE =
-  /\b(app_secrets|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+  /\b(app_secrets|settings|user|users|session|sessions|account|accounts|verification|oauth_tokens|tools|extensions|tool_shares|tool_slots|tool_slot_installs|tool_hidden_extensions|tool_history|member|organization|invitation|jwks|agent_trace_spans|agent_trace_summaries|agent_feedback|agent_satisfaction_scores|agent_evals|agent_runs|agent_run_events|notifications|progress_runs|integration_configs|integration_pending_tasks|integration_thread_mappings|resources|org_members|org_invitations|bigquery_cache|dashboard_views|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
 
 // Refuses positional INSERTs (no column list). `INSERT INTO recordings VALUES
 // (...)` would let a extension stuff arbitrary owner_email values into a row.

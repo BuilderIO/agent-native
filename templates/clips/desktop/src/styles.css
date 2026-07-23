@@ -142,6 +142,7 @@ body[data-clips-route="recording-pill"] #root {
     100vh - var(--popover-shadow-gutter) - var(--popover-shadow-gutter)
   );
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
 }
 
@@ -149,6 +150,34 @@ body[data-clips-route="recording-pill"] #root {
   gap: 0;
   padding: 0;
   overflow-y: auto;
+}
+
+/* Recorder Home keeps its navigation present even when active-recording
+   content exceeds the restored popover height. Only the content region may
+   scroll; the window shell and bottom destinations stay put. */
+.app-recorder {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.recorder-home-content {
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.app-recorder > .bottom-row {
+  flex: 0 0 auto;
+  padding: 7px 14px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 
 /* Header — logo + mode toggle + close */
@@ -709,6 +738,12 @@ body[data-clips-route="recording-pill"] #root {
   box-shadow: 0 0 0 2px var(--brand-ring);
 }
 
+.switch:disabled {
+  opacity: 0.42;
+  filter: grayscale(0.55);
+  cursor: not-allowed;
+}
+
 .switch-on {
   background: #16a34a;
 }
@@ -853,20 +888,23 @@ body[data-clips-route="recording-pill"] #root {
 /* Readiness disclosure                                                       */
 /* ------------------------------------------------------------------------- */
 
+.recorder-disclosures {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .readiness {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
   flex-shrink: 0;
-  transition:
-    border-color 120ms,
-    background 120ms;
 }
 
 .readiness-open {
-  border-color: var(--border-strong);
-  background: var(--bg);
+  border-color: transparent;
+  background: transparent;
 }
 
 .readiness-summary {
@@ -887,7 +925,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .readiness-summary:hover {
-  background: var(--surface-hover);
+  color: var(--fg-muted);
 }
 
 .readiness-summary:focus-visible {
@@ -897,10 +935,9 @@ body[data-clips-route="recording-pill"] #root {
 
 .readiness-open .readiness-summary {
   min-height: 42px;
-  border-radius: 0;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: transparent;
 }
 
 .readiness-title {
@@ -922,6 +959,12 @@ body[data-clips-route="recording-pill"] #root {
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
+}
+
+.readiness-action svg,
+.rewind-home-state svg {
+  width: 11px;
+  height: 11px;
 }
 
 .readiness-open .readiness-action {
@@ -1070,6 +1113,106 @@ body[data-clips-route="recording-pill"] #root {
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.3);
 }
 
+.active-recording-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.active-recording-dot {
+  margin-top: 4px;
+}
+
+.active-recording-copy strong {
+  display: block;
+  font-size: 13px;
+}
+
+.active-recording-copy p {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.active-recording-stop {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+}
+
+.active-recording-card-compact {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.active-recording-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+
+.active-recording-live-dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.active-recording-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: inherit;
+  animation: active-recording-pulse 1.2s ease-out infinite;
+}
+
+@keyframes active-recording-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  75%,
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.active-recording-card-compact .active-recording-stop {
+  grid-column: auto;
+  margin-top: 0;
+  min-height: 28px;
+  height: 28px;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .active-recording-live-dot::after {
+    animation: none;
+    opacity: 0.65;
+    transform: none;
+  }
+}
+
 /* Active-recording state on the primary button: softened orange-red
    (Tailwind orange-700) — semantic "recording is live" without the harsh
    pure-red assault. White square icon + live pulsing dot still read as
@@ -1192,6 +1335,707 @@ body[data-clips-route="recording-pill"] #root {
 
 .popover-view-link {
   font-size: 11px;
+}
+
+/* Rewind is a calm everyday status first; configuration is a drill-in. */
+.rewind-home-card {
+  display: grid;
+  gap: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.rewind-home-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+  transition: color 120ms;
+}
+
+.rewind-home-summary:hover {
+  color: var(--fg-muted);
+}
+
+.rewind-home-summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.rewind-home-title {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.rewind-home-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.rewind-home-details {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+
+.rewind-home-details p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.rewind-home-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rewind-home-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rewind-docs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rewind-docs-link:hover {
+  color: var(--fg);
+}
+
+.rewind-docs-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+  border-radius: 4px;
+}
+
+.rewind-settings-entry-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+}
+
+.rewind-home-lock-note,
+.rewind-capture-lock-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.rewind-capture-lock-note {
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.rewind-agent-prompt-copy {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.rewind-agent-prompt-copy:hover {
+  color: var(--fg);
+}
+
+.rewind-agent-prompt-copy:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.rewind-home-dot {
+  width: 9px;
+  height: 9px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--fg-subtle);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--fg-subtle) 13%, transparent);
+  flex-shrink: 0;
+}
+
+.rewind-home-dot.is-live {
+  background: var(--status-ok);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-ok) 15%, transparent);
+}
+
+.rewind-home-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.rewind-home-actions button {
+  min-width: 0;
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rewind-home-actions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.rewind-home-actions button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.rewind-home-actions button:focus-visible,
+.rewind-consent-choices button:focus-visible,
+.rewind-consent-primary:focus-visible,
+.rewind-quiet-button:focus-visible,
+.rewind-search-row input:focus-visible,
+.rewind-search-row button:focus-visible,
+.rewind-setting-control:focus-visible,
+.rewind-settings-entry .secondary:focus-visible,
+.rewind-evidence-card .secondary:focus-visible,
+.rewind-memory-empty .secondary:focus-visible,
+.setup-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.rewind-home-actions .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.rewind-consent {
+  min-height: 430px;
+  align-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.rewind-consent-mark {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  background: var(--surface);
+}
+
+.rewind-kicker {
+  margin: -4px 0 -10px;
+  color: var(--fg-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.rewind-consent h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.rewind-consent-copy,
+.rewind-surface-lede {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rewind-consent-choices {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.rewind-consent-choices button {
+  display: grid;
+  gap: 3px;
+  padding: 12px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.rewind-consent-choices button.selected {
+  border-color: var(--fg);
+  box-shadow: 0 0 0 1px var(--fg);
+}
+
+.rewind-consent-choices span {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.rewind-local-promise {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  width: 100%;
+  padding: 11px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg-muted);
+  text-align: left;
+}
+
+.rewind-local-promise p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.rewind-local-promise strong {
+  color: var(--fg);
+}
+
+.rewind-consent-primary {
+  width: 100%;
+  min-height: 42px;
+}
+
+.rewind-quiet-button {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rewind-memory-surface,
+.rewind-settings-surface {
+  gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.rewind-settings-surface {
+  padding-bottom: 18px;
+}
+
+.rewind-search-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding-left: 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 11px;
+  background: var(--bg);
+}
+
+.rewind-search-row input {
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--fg);
+}
+
+.rewind-search-row button {
+  align-self: stretch;
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0 10px 10px 0;
+  background: var(--surface);
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rewind-search-row button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rewind-search-results {
+  display: grid;
+  gap: 8px;
+}
+
+.rewind-result-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+}
+
+.rewind-result-summary strong {
+  color: var(--fg);
+}
+
+.rewind-evidence-card {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.rewind-evidence-card p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.rewind-evidence-meta {
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rewind-memory-empty {
+  margin-top: 4px;
+}
+
+.rewind-coverage-details {
+  margin-top: 2px;
+}
+
+.rewind-setting-row {
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 142px;
+  align-items: center;
+  gap: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewind-setting-row > * {
+  min-width: 0;
+}
+
+.rewind-setting-control {
+  width: 142px;
+  max-width: 100%;
+  padding-right: 28px;
+}
+
+.rewind-settings-status,
+.rewind-boundary-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.rewind-boundary-note {
+  margin: -4px 0 0;
+}
+
+.rewind-settings-status-copy {
+  display: grid;
+  gap: 1px;
+}
+
+.rewind-settings-status-copy strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.rewind-agent-row {
+  border-bottom: none;
+}
+
+.rewind-excluded-apps {
+  display: grid;
+  gap: 9px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewind-excluded-apps-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rewind-choose-apps.secondary {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  font-size: 10.5px;
+}
+
+.rewind-excluded-app-list {
+  display: grid;
+  gap: 5px;
+}
+
+.rewind-excluded-app {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.rewind-excluded-app.is-missing {
+  opacity: 0.62;
+}
+
+.rewind-excluded-app-mark {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--surface-strong);
+  color: var(--fg-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rewind-excluded-app-copy {
+  display: grid;
+  min-width: 0;
+}
+
+.rewind-excluded-app-copy strong,
+.rewind-excluded-app-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rewind-excluded-app-copy strong {
+  font-size: 11px;
+}
+
+.rewind-excluded-app-copy span {
+  color: var(--fg-muted);
+  font-size: 9.5px;
+}
+
+.rewind-excluded-app-remove {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.rewind-excluded-app-remove:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.rewind-agent-guide {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 78%, var(--bg));
+}
+
+.rewind-agent-guide-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--bg);
+}
+
+.rewind-agent-guide p {
+  margin: 2px 0 5px;
+  line-height: 1.45;
+}
+
+.rewind-text-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rewind-text-button:hover {
+  color: var(--fg);
+}
+
+.rewind-detail-label {
+  font-size: 11px;
+}
+
+.rewind-memory-actions {
+  display: grid;
+}
+
+.rewind-memory-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 156px);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewind-memory-action:first-child {
+  padding-top: 2px;
+}
+
+.rewind-memory-action:last-child {
+  padding-bottom: 2px;
+  border-bottom: none;
+}
+
+.rewind-memory-action p {
+  margin: 3px 0 0;
+  color: var(--fg-muted);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.rewind-memory-action-copy {
+  min-width: 0;
+}
+
+.rewind-inline-receipt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  color: #15803d;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.rewind-inline-receipt .rewind-text-button {
+  color: inherit;
+}
+
+.rewind-agent-repair .rewind-memory-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.rewind-agent-repair .secondary {
+  min-width: 0;
+  white-space: normal;
+}
+
+@media (max-width: 420px) {
+  .rewind-setting-row,
+  .rewind-memory-action {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .rewind-setting-control {
+    width: 100%;
+  }
+
+  .rewind-agent-repair .rewind-memory-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rewind-memory-action .secondary {
+  width: 100%;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.rewind-memory-action.is-danger strong {
+  color: #991b1b;
+}
+
+.rewind-danger-button {
+  color: #b91c1c;
+}
+
+.setup .rewind-settings-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.rewind-settings-entry .secondary {
+  width: auto;
+}
+
+.setup .setup-rewind-legacy {
+  display: none;
 }
 
 .popover-empty-card {
@@ -1493,7 +2337,7 @@ body[data-clips-route="recording-pill"] #root {
    content isn't flush with the panel edge. Must follow `.setup` so it wins
    over the shorthand padding above. */
 .setup.popover-view {
-  padding-bottom: 16px;
+  padding-bottom: 32px;
 }
 
 .setup h2 {
@@ -1833,6 +2677,13 @@ body[data-clips-route="recording-pill"] #root {
     5px 5px,
     5px 5px;
   background-repeat: no-repeat;
+}
+
+.setup-select:disabled {
+  opacity: 0.48;
+  color: var(--fg-muted);
+  background-color: var(--surface);
+  cursor: not-allowed;
 }
 
 .setup-grid {
@@ -2572,6 +3423,45 @@ body[data-clips-route="recording-pill"] #root {
 /* Overlay: finalizing spinner                                                */
 /* ------------------------------------------------------------------------- */
 
+.preparing-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 10px;
+  background: transparent;
+}
+
+.preparing-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(20, 22, 28, 0.94);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 14px 40px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.preparing-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #ffffff;
+  animation: finalizing-spin 0.9s linear infinite;
+}
+
 /*
  * Compact transparent window shown after the user clicks Stop. Keeping the OS
  * window close to the card's bounds lets its open/dismiss controls stay
@@ -2962,11 +3852,28 @@ body[data-clips-route="recording-pill"] #root {
 
 .toolbar-v-time {
   flex: 0 0 auto;
+  appearance: none;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 600;
   color: white;
   letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+.toolbar-v-time:hover,
+.toolbar-v-time:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  outline: none;
+}
+
+.toolbar-v-time-preparing {
+  font-size: 9px;
+  letter-spacing: 0;
 }
 
 .toolbar-v-pause {
@@ -3131,25 +4038,27 @@ body[data-clips-route="recording-pill"] #root {
 
 /*
  * The Tauri bubble window is sized (in Rust) to exactly the circle diameter
- * PLUS a `--bubble-controls-budget` strip at the bottom, so the hover pill
+ * PLUS a `--bubble-controls-budget` strip at the top, so the hover pill
  * has real window real-estate to render into. Everything outside window
  * bounds is invisible no matter the CSS `overflow` — you can't paint where
  * the OS hasn't given you pixels — so we build in the budget up front.
  *
  *   ┌──────────────┐
+ *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
+ *   └──────────────┘
+ *   ┌──────────────┐
  *   │ .bubble-root │  ← circle (drag region, data-tauri-drag-region)
  *   │     ◯        │    Canvas lives here with pointer-events: none so
  *   │              │    drags reach the drag-region parent.
- *   └──────────────┘
- *   ┌──────────────┐
- *   │  ·  ●        │  ← .bubble-controls pill (hover-faded)
  *   └──────────────┘
  */
 .bubble-wrapper {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
-  flex-direction: column;
+  /* Reverse the stack so the circle stays at the bottom of the window and
+     the hover pill occupies the reserved space above it. */
+  flex-direction: column-reverse;
   align-items: center;
   /* Transparent background — the Tauri window is `transparent: true`,
      so the circular camera surface below paints through. */
@@ -3159,9 +4068,9 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .bubble-root {
-  /* Circle fills the top of the wrapper. We use `flex: 0 0 auto` + a
+  /* Circle fills the bottom of the wrapper. We use `flex: 0 0 auto` + a
      1:1 aspect-ratio so the circle is always square regardless of the
-     actual window height (which includes the controls budget). */
+     actual window height (which includes the controls budget above it). */
   flex: 0 0 auto;
   aspect-ratio: 1 / 1;
   /* Width = 100% of wrapper → the wrapper is exactly bubble-diameter
@@ -3269,15 +4178,15 @@ body[data-clips-route="recording-pill"] #root {
   color: white;
 }
 
-/* Size-control pill — lives in the bottom strip of the wrapper (beneath
+/* Size-control pill — lives in the top strip of the wrapper (above
    the circle). Centered horizontally, fades in on hover, matches Loom's
    visual weight. Because it's a sibling of `.bubble-root` (not a child),
    the border-radius clipping on the circle can't eat it. */
 .bubble-controls {
-  /* `flex: 0 0 auto` + margin-top creates the small gap between the
-     circle and the pill. */
+  /* `flex: 0 0 auto` + margin-bottom creates the small gap between the
+     pill and the circle. */
   flex: 0 0 auto;
-  margin-top: 8px;
+  margin-bottom: 8px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -4071,11 +4980,31 @@ body[data-clips-route="recording-pill"] #root {
   position: fixed;
   inset: var(--overlay-shadow-gutter);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: flex-end;
+  gap: 6px;
   padding-bottom: 8px;
   background: transparent;
   pointer-events: none;
+}
+
+.flow-bar-transcript-preview {
+  max-width: 560px;
+  max-height: 90px;
+  padding: 5px 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  background: rgba(18, 18, 20, 0.92);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+  word-break: break-word;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .flow-bar {
@@ -4497,16 +5426,32 @@ body[data-clips-route="recording-pill"] #root {
   background: rgba(26, 26, 26, 0.95);
   color: white;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  cursor: grab;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* Collapsed (not expanded). Shrinks to dot + waveform; controls revealed via
-   CSS :hover which works at the WebKit level even when the app is unfocused.
-   Top-anchored (not centered) inside the headroom-sized window so the hover
-   reveal of the drag grip grows the capsule strictly DOWNWARD — centering it
-   would split the growth and raise the top edge, sliding buttons up under the
-   cursor and causing misclicks. */
+.pill-inner:active {
+  cursor: grabbing;
+}
+
+.pill-inner:not(.pill-inner-compact) {
+  animation: pill-transcript-in 180ms ease-out;
+}
+
+@keyframes pill-transcript-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Collapsed (not expanded). Shrinks to logo + waveform; controls revealed via
+   CSS :hover which works at the WebKit level even when the app is unfocused. */
 .pill-inner-compact {
   width: fit-content;
   height: fit-content;
@@ -4569,9 +5514,7 @@ body[data-clips-route="recording-pill"] #root {
   height: 12px;
 }
 
-/* Collapsed = vertical capsule: clips logo on top, waveform below, whole
-   pill clickable to expand. Detached mode keeps its own horizontal layout, so
-   this only applies to the non-detached collapsed pill. */
+/* Collapsed = vertical capsule: logo on top, waveform below. */
 .pill-inner-compact .pill-header.pill-vertical {
   flex-direction: column;
   gap: 0;
@@ -4592,20 +5535,11 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pill-vertical .pill-wave-canvas {
-  height: 18px;
-  width: 18px;
+  height: 22px;
+  width: 22px;
 }
 
-/* Dual-stream (mic + system audio) stacked in the collapsed capsule. */
-.pill-vertical .pill-wave-dual {
-  height: 26px;
-  width: 18px;
-  gap: 1px;
-}
-
-/* Wrapper around logo + waveform. Transparent in row layouts (expanded /
-   detached); a real, clickable box only in the collapsed vertical capsule —
-   clicking it expands the pill, and hovering tints it. */
+/* Wrapper around logo + waveform. */
 .pill-media {
   display: contents;
 }
@@ -4616,9 +5550,7 @@ body[data-clips-route="recording-pill"] #root {
   align-items: center;
   align-self: stretch;
   gap: 5px;
-  /* Padding + equal negative margin: the hover highlight covers the whole
-     upper region (to the top + side edges of the capsule) while leaving the
-     logo/waveform in their original positions. */
+  /* The compact media area is the click-to-expand target. */
   padding: 11px 7px 4px;
   margin: -11px -7px 0;
   border-radius: 18px 18px 0 0;
@@ -4631,60 +5563,10 @@ body[data-clips-route="recording-pill"] #root {
   background: rgba(255, 255, 255, 0.08);
 }
 
-/* Drag grip revealed at the bottom of the collapsed capsule on hover. The
-   pill grows downward to fit it (window is sized with headroom for this).
-   Dragging the pill is wired on the whole window; this is the visible
-   affordance and gets its own hover tint. */
-.pill-vertical .pill-vgrip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 0;
-  margin-top: 0;
-  overflow: hidden;
-  opacity: 0;
-  border-radius: 8px;
-  color: rgba(255, 255, 255, 0.45);
-  cursor: grab;
-  transition:
-    height 140ms ease,
-    margin-top 140ms ease,
-    background 120ms ease,
-    opacity 120ms ease;
-}
-
-.pill-inner-compact:hover .pill-vertical .pill-vgrip,
-.pill-inner-compact.pill-hovered .pill-vertical .pill-vgrip {
-  height: 14px;
-  margin-top: 3px;
-  opacity: 1;
-}
-
-.pill-vertical .pill-vgrip:active {
-  cursor: grabbing;
-}
-
 .pill-timer {
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-}
-
-.pill-wave-dual {
-  display: flex;
-  height: 26px;
-  width: 48px;
-  flex-shrink: 0;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-}
-
-.pill-wave-canvas-half {
-  width: 100%;
-  flex: 1;
-  min-height: 0;
-  display: block;
 }
 
 .pill-wave-canvas {
@@ -4740,24 +5622,6 @@ body[data-clips-route="recording-pill"] #root {
   background: rgba(255, 255, 255, 0.1);
 }
 
-.pill-drag-handle {
-  position: absolute;
-  bottom: 4px;
-  left: 50%;
-  transform: translateX(-50%);
-  height: 4px;
-  width: 40px;
-  cursor: pointer;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.3);
-  border: none;
-  transition: background 120ms;
-}
-
-.pill-drag-handle:hover {
-  background: rgba(255, 255, 255, 0.5);
-}
-
 /* Whisper model status row in Settings */
 
 .whisper-status {
@@ -4811,23 +5675,39 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .whisper-progress-bar {
-  height: 4px;
   width: 100%;
-  border-radius: 999px;
-  background: var(--surface-strong);
-  overflow: hidden;
+  height: 4px;
   margin-top: 4px;
+  border: none;
+  border-radius: 999px;
+  appearance: none;
+  overflow: hidden;
+  background: var(--surface-strong);
+  color: #16a34a;
 }
 
-.whisper-progress-fill {
-  height: 100%;
+.whisper-progress-bar::-webkit-progress-bar {
+  border-radius: inherit;
+  background: var(--surface-strong);
+}
+
+.whisper-progress-bar::-webkit-progress-value {
   border-radius: inherit;
   background: #16a34a;
-  transition: width 300ms ease;
+}
+
+.whisper-progress-bar::-moz-progress-bar {
+  border-radius: inherit;
+  background: #16a34a;
 }
 
 @media (prefers-color-scheme: dark) {
-  .whisper-progress-fill {
+  .whisper-progress-bar {
+    color: #4ade80;
+  }
+
+  .whisper-progress-bar::-webkit-progress-value,
+  .whisper-progress-bar::-moz-progress-bar {
     background: #4ade80;
   }
 }
@@ -4853,6 +5733,63 @@ body[data-clips-route="recording-pill"] #root {
 
 .whisper-download-btn:hover {
   background: var(--surface-hover);
+}
+
+.whisper-other-models {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.whisper-other-model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.whisper-other-model-name {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.whisper-delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition:
+    background 120ms,
+    color 120ms,
+    border-color 120ms;
+}
+
+.whisper-delete-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+@media (prefers-color-scheme: dark) {
+  .whisper-delete-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #f87171;
+  }
 }
 
 /* ---- */
@@ -4881,29 +5818,6 @@ body[data-clips-route="recording-pill"] #root {
   flex: 1;
   display: flex;
   overflow: hidden;
-}
-
-/* Meeting mode: transcript + notes side by side. */
-.pill-split {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.pill-split-pane {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 50%;
-  min-width: 0;
-  min-height: 0;
-}
-
-.pill-split-divider {
-  width: 1px;
-  flex-shrink: 0;
-  margin: 8px 0;
-  background: rgba(255, 255, 255, 0.1);
 }
 
 .pill-pane-label {
@@ -4946,36 +5860,6 @@ body[data-clips-route="recording-pill"] #root {
 .pill-copy-btn:disabled {
   opacity: 0.35;
   cursor: default;
-}
-
-/* In the split, the transcript area should fill its pane below the label. */
-.pill-split-pane .pill-transcript-area {
-  flex: 1;
-  min-height: 0;
-}
-
-.pill-notes-area {
-  min-height: 0;
-  flex: 1;
-  display: flex;
-  overflow: hidden;
-  padding: 4px 12px 8px;
-}
-
-.pill-notes-textarea {
-  flex: 1;
-  background: transparent;
-  border: none;
-  outline: none;
-  resize: none;
-  color: #f5f5f5;
-  font-size: 12px;
-  line-height: 1.5;
-  font-family: inherit;
-}
-
-.pill-notes-textarea::placeholder {
-  color: #71717a;
 }
 
 .pill-saved-bar {

@@ -30,10 +30,10 @@ const messages = {
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    agentTitle: "Configurações do agente",
+    agentTitle: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    openAgentSettings: "Abrir configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    openAgentSettings: "Gerenciar agente",
     editorTitle: "Extensão do VS Code",
     editorDescription:
       "Abra e revise planos em um painel lateral dentro do VS Code em vez de uma aba separada do navegador.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "O que foi lançado na última semana?",
     suggestionUi: "Como esta interface aparece?",
     suggestionApi: "Qual é a estrutura desta API?",
+  },
+  contextXray: {
+    panelTitle: "Raio X de contexto",
+    snapshotsTitle: "Instantâneos",
   },
   sidebar: {
     openNavigation: "Abrir navegação",
@@ -579,6 +583,10 @@ const messages = {
           label: "UI Processo",
           description: "Processo UI - Wireframes e Estados",
         },
+        design: {
+          label: "Design de alta fidelidade",
+          description: "Design de alta fidelidade - telas de marca refinadas",
+        },
         questions: {
           label: "Problema de visualização",
           description: "Visualize o problema - colete requisitos claramente",
@@ -602,6 +610,8 @@ const messages = {
           "# Plano de implementação\n\nCole aqui o plano existente do Codex ou Claude Code e transforme-o em um documento de revisão visual.",
       },
       assessment: {
+        design:
+          "Uma solicitação de alta fidelidade foi detectada automaticamente; o agente criará telas de marca refinadas.",
         ui: "O estado ou processo UI é detectado automaticamente; o agente criará um plano wireframe-first.",
         visual:
           "Permite automaticamente que os agentes criem planos técnicos avançados com diagramas e detalhes de implementação.",

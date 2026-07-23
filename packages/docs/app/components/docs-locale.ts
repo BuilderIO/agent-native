@@ -5,7 +5,7 @@ import {
   normalizeLocaleCode,
   resolveLocaleFromCandidates,
   type LocaleCode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
 
 export type DocsLocale = LocaleCode;
 

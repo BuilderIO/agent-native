@@ -203,12 +203,12 @@ function parseScaffoldArgs(argv: string[]): {
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
-    import("../tracking/registry.js").then((m) => {
-      m.track(event, { command, ...props });
-    });
-    import("../tracking/providers.js").then((m) =>
-      m.registerBuiltinProviders(),
-    );
+    void import("../tracking/registry.js")
+      .then((m) => m.track(event, { command, ...props }))
+      .catch(() => undefined);
+    void import("../tracking/providers.js")
+      .then((m) => m.registerBuiltinProviders())
+      .catch(() => undefined);
   } catch {}
 }
 
@@ -219,7 +219,9 @@ process.on("uncaughtException", (err) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
   Sentry.captureException(err);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 process.on("unhandledRejection", (reason: any) => {
@@ -228,7 +230,9 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: reason?.message ?? String(reason) });
   Sentry.captureException(reason);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 // Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
@@ -961,14 +965,18 @@ switch (command) {
   }
 
   case "setup-agents": {
-    import("./setup-agents.js").then((m) => m.runSetupAgents());
+    import("./setup-agents.js")
+      .then((m) => m.runSetupAgents())
+      .catch(handleScaffoldImportError);
     break;
   }
 
   case "info": {
     // Print read-only info about an installable package (e.g. @agent-native/scheduling).
     // Lists subpath exports, source paths in node_modules, and docs pointers.
-    import("./info.js").then((m) => m.runInfo(args[0]));
+    import("./info.js")
+      .then((m) => m.runInfo(args[0]))
+      .catch(handleScaffoldImportError);
     break;
   }
 
@@ -993,6 +1001,19 @@ switch (command) {
     import("./package-lifecycle.js")
       .then(async (m) => {
         const code = await m.runPackageLifecycle(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "eject": {
+    import("./eject.js")
+      .then(async (m) => {
+        const code = await m.runEject(args);
         process.exit(code);
       })
       .catch((err) => {
@@ -1098,8 +1119,8 @@ Usage:
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
   agent-native content local-files <file-or-folder>
-                                Launch Content in local-file mode for a local
-                                docs/content folder. Use --no-open, --port N,
+                                Connect a local docs/content folder to normal
+                                database-backed Content. Use --no-open, --port N,
                                 or --profile docs/no-bookkeeping as needed.
   agent-native design connect  Start a localhost Design bridge for a running
                                 dev server. Use --url, --port, --root, or
@@ -1135,6 +1156,9 @@ Usage:
                                 Manifest package lifecycle: inspect | add | eject.
                                 add/eject are dry-run unless --apply; --json emits
                                 a machine-readable compatibility/change report.
+  agent-native eject <unit>    Copy a supported feature into app-owned source.
+                                --list discovers units; inspect/diff are read-only;
+                                eject/restore are dry-run unless --apply.
   agent-native changelog <cmd>  Author the app's user-facing changelog.
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in

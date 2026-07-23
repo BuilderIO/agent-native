@@ -240,10 +240,11 @@ export default defineConfig({
 
 ### 3.コラボサーバープラグインを追加します
 
-`resourceType` は、登録されている共有可能なリソースの名前に常に設定します
-`registerShareableResource`経由。これがないと、コラボプッシュイベントが配信されます
-ドキュメントレベルのスコープを持たないすべての認証されたユーザーとサーバー
-1 回限りの警告をログに記録します。
+データモデルに合うアクセスモードを選択してください。所有者がいる、または共有可能な
+レコードでは、`registerShareableResource` で登録した型とともに
+`mode: "resource"` を使います。デプロイ上のすべての認証済みユーザーに
+意図的に公開するレコードでは、`mode: "all-authenticated"` を明示します。
+警告を消すためだけにリソース型を作らないでください。
 
 ```ts
 // server/plugins/collab.ts
@@ -253,14 +254,17 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+`access` の省略は非推奨のレガシー動作です。`all-authenticated` と同じ動作をし、
+警告が記録され、Doctor によって指摘されます。
 
 ### 4. クライアントフックを使用する
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -433,8 +437,7 @@ import {
 リモート参加者の反応リストとローカル プレゼンス ペイロードのセッターを返します。
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -496,8 +499,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 フォローされている参加者のビューポートが変更されるたびにコールバックを呼び出します。
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -531,8 +533,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### 正規化された座標ヘルパー {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,
@@ -604,22 +605,34 @@ try {
 
 ## セキュリティ {#security}
 
-### 常に `resourceType` を設定してください
+### アクセスモデルを明示的に選択する
+
+所有者がいる、または共有可能なリソースでは、
+`registerShareableResource` で登録した型を使います。
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-`resourceType` がない場合、プラグインは警告をログに記録し、コラボ プッシュをブロードキャストします
-展開上のすべての認証済みユーザーに対するドキュメントレベルなしのイベント
-スコープ。非所有者は状態ベクトルのキャッチアップに戻ります (安全だがより高い
-遅延)、`resourceType` が設定されているかどうかに関係ありません。
+デプロイ全体で意図的に共有するリソースの場合：
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+警告を消すために `resourceType` を作らないでください。対応する所有権と共有モデルが
+存在する場合にのみ `resource` モードが正しい選択です。レガシー互換性のため
+`access` の省略は引き続きサポートされますが、`all-authenticated` と同じ動作をし、
+警告が記録され、Doctor によって指摘されます。明示的なアクセス権を持つ非所有者は、
+状態ベクトルによるキャッチアップを使います（安全ですが、遅延は大きくなります）。
 
 ### アクセスチェック
 
-すべてのコラボルートには認証が必要です。 `resourceType` が設定されている場合、
+すべてのコラボルートには認証が必要です。`resource` モードでは、
 少なくとも閲覧者アクセスが必要で、書き込みには編集者アクセスが必要です。
 共有システムと同じ `resolveAccess` / `assertAccess` ヘルパー。 A404
 ドキュメントの存在の漏洩を避けるために、アクセス失敗時に (403 ではなく) が返されます。
@@ -632,7 +645,7 @@ createCollabPlugin({
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -764,7 +777,7 @@ undoManager.redo(); // Shift+Cmd+Z
 - [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
   `updatedAt` バンプ ドライビング エディター調整を提供するシステム。
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  `resourceType` によって参照されるアクセス モデルの場合は `assertAccess`。
+  リソース単位のコラボレーションで使う `assertAccess`。
 - [Sharing](/docs/sharing) — ドキュメントの共有方法とアクセスの許可方法。
 - [Template: Content](/docs/template-content) — のリファレンス実装
   共同リッチテキスト編集。

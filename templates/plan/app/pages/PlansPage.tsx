@@ -1,33 +1,32 @@
 import {
   SIDEBAR_STATE_CHANGE_EVENT,
-  PromptComposer,
   BuilderSetupCard,
-  ErrorReportActions,
-  ShareButton,
-  appPath,
-  agentNativePath,
   sendToAgentChat,
   setAgentChatContextItem,
   useAgentEngineConfigured,
-  useActionQuery,
-  useT,
-  useSession,
-  track,
-  emailToColor,
-  emailToName,
   type AgentSidebarStateChangeDetail,
-  type ErrorReportDebugItem,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { track } from "@agent-native/core/client/analytics";
+import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
+import { emailToColor, emailToName } from "@agent-native/core/client/collab";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useActionQuery, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useAcceptInvitation,
   useJoinByDomain,
   useOrg,
 } from "@agent-native/core/client/org";
+import { ShareButton } from "@agent-native/core/client/sharing";
+import {
+  ErrorReportActions,
+  type ErrorReportDebugItem,
+} from "@agent-native/core/client/ui";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import {
   SOURCE_AUTHOR_COMMENT_MENTION_EMAIL,
   extractCommentMentions,
@@ -241,6 +240,11 @@ import {
   type PublishVisualPlanResult,
 } from "@/hooks/use-plans";
 import {
+  assessPlanPrompt,
+  isProbablyImportedPlan,
+  type CreatePlanKind,
+} from "@/lib/create-plan-routing";
+import {
   getDesktopPlanFiles,
   type DesktopPlanFilesFolder,
 } from "@/lib/desktop-plan-files";
@@ -271,6 +275,7 @@ import {
 } from "@/lib/plan-comment-editor-helpers";
 import { planDocumentTitle } from "@/lib/plan-document-title";
 import {
+  fetchLocalPlanBridgeComments,
   fetchLocalPlanBridgeBundle,
   localNetworkAccessPermissionState,
   localPlanBridgeUrlFromLocation,
@@ -1596,9 +1601,9 @@ function buildPlanAgentContext(input: {
       : [
           "Fast iteration workflow:",
           "1. Call get-visual-plan with this plan ID to read structured content, exported HTML, sections, comments, and activity.",
-          "2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.",
+          '2. Prefer update-visual-plan contentPatches for targeted edits. Examples: update-rich-text for copy, patch-prototype-html / update-prototype-screen for live prototype states, update-wireframe-node for one kit-tree node, update-canvas-frame for frame layout, append-canvas-annotation / update-canvas-annotation for canvas markup, append-block/remove-block for document changes, or replace-block for a single block. When the user asks for higher fidelity, polished mockups, production-like UI, real design, or anything "not sketchy," update this same plan in place: rewrite the relevant screen HTML/CSS and include set-visual-render-mode with renderMode design. Do not create a second plan, put CSS in style tags, or treat the viewer-local Clean toggle as a fidelity upgrade. Use full content only for broad restructuring. Use html only when preserving or importing a legacy standalone HTML artifact.',
           "3. Preserve the user's existing annotation comments and intent unless the user asks to remove or resolve them.",
-          "4. Keep the output as a refined document with rich text, tables, sketch diagrams, wireframes, implementation maps, code tabs, and bounded custom HTML fragments.",
+          "4. Match the requested fidelity: ordinary UI planning can use sketch diagrams and wireframes; high-fidelity requests need the persisted Design surface with deliberate branded HTML/CSS and stable data-design-id targets.",
           "5. After applying feedback, keep the plan scannable, editable, and serious instead of turning it into a marketing page.",
           "6. Work the actionable agent comments first. Treat human-review comments as FYI/questions/approval items; do not silently resolve those unless the user explicitly asks.",
           "7. When visual screenshots are attached, each crop is centered near a comment marker and has a red ring on the exact commented point. Use the comment IDs and anchor details below to connect screenshots to threads. If a visual comment is listed as overflow, rely on its anchorDetails/coordinates and call get-plan-feedback for the full manifest.",
@@ -2083,26 +2088,24 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
   );
   // Bridge bundles carry no comments; load comments.json from the colocated
   // folder so they render and survive refresh in bridge mode too.
-  const localPlanBridgeCommentsQuery = useActionQuery<LocalPlanBundle>(
-    "get-local-plan-folder",
-    localPlanBundleQueryParams(localPlanSlug ?? "", localPlanRepoPath),
-    {
-      enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
-      refetchInterval: false,
-      retry: false,
-    },
-  );
+  const localPlanBridgeCommentsQuery = useQuery<LocalPlanBundle["comments"]>({
+    queryKey: ["local-plan-bridge-comments", localPlanBridgeUrl],
+    enabled: localPlanMode && Boolean(localPlanSlug && localPlanBridgeUrl),
+    refetchInterval: false,
+    retry: false,
+    queryFn: () => fetchLocalPlanBridgeComments(localPlanBridgeUrl ?? ""),
+  });
   const localPlanData = useMemo(
     () =>
       localPlanBridgeUrl
         ? mergeLocalBridgeComments(
             localPlanBridgeQuery.data,
-            localPlanBridgeCommentsQuery.data?.comments,
+            localPlanBridgeCommentsQuery.data,
           )
         : localPlanQuery.data,
     [
       localPlanBridgeQuery.data,
-      localPlanBridgeCommentsQuery.data?.comments,
+      localPlanBridgeCommentsQuery.data,
       localPlanBridgeUrl,
       localPlanQuery.data,
     ],
@@ -4050,6 +4053,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     }
     await updatePlan.mutateAsync({
       planId: bundle.plan.id,
+      expectedUpdatedAt: bundle.plan.updatedAt,
       content,
       note: "Updated structured visual plan content.",
     });
@@ -4081,6 +4085,9 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       await updatePlan.mutateAsync(
         {
           planId: bundle.plan.id,
+          ...(patch.op === "replace-blocks"
+            ? { expectedUpdatedAt: bundle.plan.updatedAt }
+            : {}),
           contentPatches: [patch],
           note:
             patch.op === "update-rich-text"
@@ -6800,6 +6807,7 @@ function PlanLoadError({
 }) {
   const t = useT();
   const [emailOpen, setEmailOpen] = useState(false);
+  const [switchAccountOpen, setSwitchAccountOpen] = useState(false);
   const [emailMode, setEmailMode] = useState<"sign-in" | "create">("sign-in");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -6934,11 +6942,9 @@ function PlanLoadError({
             : t("plansPage.loadError.maybeOtherOrgBody")
           : t("plansPage.loadError.privateBody")
       : message;
-  const reportMessage = `${body}${message && message !== body ? `\n${message}` : ""}`;
-
   return (
     <div className="flex h-full flex-col items-center justify-center bg-background p-8">
-      <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 text-start shadow-sm">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-background p-6 text-start shadow-sm">
         <div className={cn("flex items-start", !showAccessHelp && "gap-3")}>
           {!showAccessHelp && !planMissing && (
             <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-600 dark:text-amber-300">
@@ -6946,14 +6952,14 @@ function PlanLoadError({
             </div>
           )}
           <div className="min-w-0">
-            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
-            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {body}
             </p>
             {showAccessHelp && signedInEmail ? (
-              <div className="mt-3 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
-                <IconAt className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate text-muted-foreground">
+              <div className="mt-3 flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+                <IconAt className="size-4 shrink-0" />
+                <span className="min-w-0 truncate">
                   {t("plansPage.loadError.signedInAs")}{" "}
                   <span className="font-medium text-foreground">
                     {signedInEmail}
@@ -6975,7 +6981,7 @@ function PlanLoadError({
         </div>
 
         {showAccessHelp || !planMissing ? (
-          <div className="mt-5 flex flex-col gap-2">
+          <div className="mt-6 flex flex-col gap-3">
             {showAccessHelp ? (
               <>
                 {signedIn ? (
@@ -7002,24 +7008,57 @@ function PlanLoadError({
                   </Button>
                 )}
                 {signedIn ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => void startGoogle()}
-                      disabled={googlePending}
-                    >
-                      <IconLogin2 className="size-4" />
-                      {t("plansPage.loadError.switchAccount")}
-                    </Button>
-                  </div>
+                  <Collapsible
+                    open={switchAccountOpen}
+                    onOpenChange={setSwitchAccountOpen}
+                  >
+                    <CollapsibleTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-full justify-between px-1.5 text-muted-foreground hover:text-foreground"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <IconLogin2 className="size-4" />
+                          {t("plansPage.loadError.switchAccount")}
+                        </span>
+                        <IconChevronDown
+                          className={cn(
+                            "size-4 transition-transform",
+                            switchAccountOpen ? "rotate-180" : "",
+                          )}
+                        />
+                      </Button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="pt-1">
+                      <Button
+                        type="button"
+                        onClick={() => void startGoogle()}
+                        disabled={googlePending}
+                        className="h-9 w-full gap-2.5 rounded-md bg-white px-2 text-sm font-medium text-black shadow-none hover:bg-[#e5e5e5] hover:text-black dark:bg-white dark:text-black dark:hover:bg-[#e5e5e5]"
+                      >
+                        {googlePending ? (
+                          <IconLoader2 className="size-[18px] animate-spin" />
+                        ) : (
+                          <GoogleLogoIcon className="size-[18px]" />
+                        )}
+                        {t("plansPage.loadError.continueWithGoogle")}
+                      </Button>
+                    </CollapsibleContent>
+                  </Collapsible>
                 ) : null}
-                <Collapsible open={emailOpen} onOpenChange={setEmailOpen}>
+                <Collapsible
+                  open={emailOpen}
+                  onOpenChange={setEmailOpen}
+                  className={cn(signedIn && !switchAccountOpen && "hidden")}
+                >
                   <CollapsibleTrigger asChild>
                     <Button
                       type="button"
                       variant="ghost"
-                      className="w-full justify-between px-2 text-muted-foreground"
+                      size="sm"
+                      className="w-full justify-between px-1.5 text-muted-foreground"
                     >
                       <span className="inline-flex items-center gap-2">
                         <IconMail className="size-4" />
@@ -7035,7 +7074,7 @@ function PlanLoadError({
                   </CollapsibleTrigger>
                   <CollapsibleContent className="pt-2">
                     <form
-                      className="space-y-3 rounded-md border border-border bg-muted/20 p-3"
+                      className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
                       onSubmit={submitEmailAuth}
                     >
                       <div className="space-y-1.5">
@@ -7120,45 +7159,7 @@ function PlanLoadError({
             )}
           </div>
         ) : null}
-        <div className="mt-4 border-t border-border/70 pt-3">
-          <PlanErrorFeedbackActions
-            title={title}
-            message={reportMessage}
-            status={status}
-            extraDebug={[
-              { label: "Plan id", value: planId }, // i18n-ignore debug label
-              accessStatus?.visibility
-                ? {
-                    label: "Plan visibility", // i18n-ignore debug label
-                    value: accessStatus.visibility,
-                  }
-                : {
-                    label: "Plan visibility", // i18n-ignore debug label
-                    value: null,
-                  },
-              accessStatus?.hasAccess !== undefined
-                ? {
-                    label: "Has access", // i18n-ignore debug label
-                    value: accessStatus.hasAccess,
-                  }
-                : {
-                    label: "Has access", // i18n-ignore debug label
-                    value: null,
-                  },
-            ]}
-          />
-        </div>
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onRetry}
-        className="mt-3 gap-1.5 text-muted-foreground hover:text-foreground"
-      >
-        <IconRefresh className="size-3.5" />
-        {t("plansPage.loadError.retry")}
-      </Button>
     </div>
   );
 }
@@ -7243,7 +7244,12 @@ function SignedInPlanAccessActions({
                 })}
         </div>
       ) : null}
-      <Button type="button" onClick={handleOrgAccess} disabled={disabled}>
+      <Button
+        type="button"
+        className="w-full"
+        onClick={handleOrgAccess}
+        disabled={disabled}
+      >
         {pending ? (
           <IconLoader2 className="size-4 animate-spin" />
         ) : orgAccessPrompt?.kind === "domain" ? (
@@ -8322,93 +8328,6 @@ const CREATE_PLAN_PROMPTS = [
   },
 ] as const;
 
-type CreatePlanKind = "auto" | "ui" | "questions" | "visual";
-type ResolvedPlanKind = Exclude<CreatePlanKind, "auto">;
-type AutoPlanKind = Exclude<ResolvedPlanKind, "questions">;
-
-function isProbablyImportedPlan(prompt: string) {
-  const trimmed = prompt.trim();
-  const lines = trimmed.split(/\r?\n/).filter((line) => line.trim());
-  if (trimmed.length > 900 && lines.length > 8) return true;
-  const hasHeading = lines.some((line) => /^#{1,4}\s+\S/.test(line.trim()));
-  const checklistCount = lines.filter((line) =>
-    /^[-*]\s+\[[ x]\]\s+\S/i.test(line.trim()),
-  ).length;
-  const taskCount = lines.filter((line) =>
-    /^([-*]|\d+[.)])\s+\S/.test(line.trim()),
-  ).length;
-  const hasPlanLanguage =
-    /\b(implementation plan|acceptance criteria|milestones?|phases?|risks?|open questions?|test plan)\b/i.test(
-      trimmed,
-    );
-  return (
-    trimmed.includes("```") ||
-    (hasHeading && (taskCount >= 3 || hasPlanLanguage)) ||
-    (checklistCount >= 2 && trimmed.length > 220)
-  );
-}
-
-function assessPlanPrompt(prompt: string): {
-  kind: AutoPlanKind;
-} {
-  let score = 0;
-  let ambiguitySignals = 0;
-
-  const wantsExploration =
-    /\b(ask questions|questions first|intake first|show me options|explore options|help me choose|not sure|unsure|which direction|compare)\b/i.test(
-      prompt,
-    );
-  const exactOrTrivial =
-    /\b(typo|copy tweak|one line|single file|exactly|no questions|don't ask|dont ask|just implement)\b/i.test(
-      prompt,
-    );
-  const uiDirection =
-    /\b(ui|screen|screens|layout|wireframe|mockup|form factor|mobile|desktop|responsive|nav|sidebar|flow|redesign|empty state|loading state|error state)\b/i.test(
-      prompt,
-    );
-  const multipleApproaches =
-    /\b(option|variant|alternative|tradeoff|approach|architecture|data model|permission|auth|integration|migration|state machine)\b/i.test(
-      prompt,
-    );
-  const newSurface =
-    /\b(new surface|multi-screen|workflow|journey|end-to-end|dashboard|settings|checkout|onboarding|review flow)\b/i.test(
-      prompt,
-    );
-  const risky =
-    /\b(auth|permission|billing|migration|schema|integration|oauth|webhook|security|role|privacy|external)\b/i.test(
-      prompt,
-    );
-
-  if (uiDirection) {
-    score += 2;
-    ambiguitySignals += 1;
-  }
-  if (multipleApproaches) {
-    score += 2;
-    ambiguitySignals += 1;
-  }
-  if (newSurface) score += 1;
-  if (risky) score += 1;
-  if (
-    wantsExploration ||
-    /\b(best|better|improve|explore|direction|choose)\b/i.test(prompt)
-  ) {
-    score += 1;
-    ambiguitySignals += 1;
-  }
-  if (exactOrTrivial) score -= 3;
-
-  if (uiDirection) {
-    return {
-      kind: "ui",
-    };
-  }
-
-  return {
-    kind: "visual",
-  };
-}
-
 function sourceOptionDisplayLabel(
   source: PlanSource,
   t: ReturnType<typeof useT>,
@@ -8439,11 +8358,13 @@ function buildCreatePlanAgentMessage({
     planKind === "auto" ? assessPlanPrompt(prompt).kind : planKind;
   const routing = imported
     ? "Build from this existing plan while preserving its intent."
-    : resolvedPlanKind === "ui"
-      ? "Create a UI-first plan with AI-authored wireframes and state coverage."
-      : resolvedPlanKind === "questions"
-        ? "Create visual intake questions before generating the final plan."
-        : "Create a general visual plan with diagrams and implementation detail.";
+    : resolvedPlanKind === "design"
+      ? "Create a design-first plan with full-fidelity branded screens. Use create-plan-design, ground the result in the real app shell and design tokens, and treat the Design tab as the visual source of truth."
+      : resolvedPlanKind === "ui"
+        ? "Create a UI-first plan with AI-authored wireframes and state coverage."
+        : resolvedPlanKind === "questions"
+          ? "Create visual intake questions before generating the final plan."
+          : "Create a general visual plan with diagrams and implementation detail.";
 
   return [
     "Create an Agent-Native Plan from this request.",
@@ -8451,7 +8372,7 @@ function buildCreatePlanAgentMessage({
     routing,
     `Source/provenance: ${sourceOptionDisplayLabel(source, t)}.`,
     "",
-    "Use the Plan actions after you have enough substance. Generate the wireframes, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
+    "Use the Plan actions after you have enough substance. Generate the requested review surface, diagrams, implementation map, review prompts, and concrete file/symbol notes yourself. Do not use placeholder file names, generic scaffold text, or browser-generated fallback sections as the final plan content.",
     "After creating the plan, open the plan link for review.",
     "",
     "Request:",
@@ -8594,11 +8515,13 @@ function CreatePlanDialog({
                             ),
                           })
                         : planKindDisplayLabel("auto", t)
-                      : planKind === "ui"
-                        ? planKindDisplayLabel("ui", t)
-                        : planKind === "questions"
-                          ? planKindDisplayLabel("questions", t)
-                          : planKindDisplayLabel("visual", t)}
+                      : planKind === "design"
+                        ? planKindDisplayLabel("design", t)
+                        : planKind === "ui"
+                          ? planKindDisplayLabel("ui", t)
+                          : planKind === "questions"
+                            ? planKindDisplayLabel("questions", t)
+                            : planKindDisplayLabel("visual", t)}
                   </span>
                   <IconChevronDown
                     className={cn(
@@ -8642,13 +8565,12 @@ function CreatePlanDialog({
                     value={planKind}
                     onValueChange={(value) =>
                       setPlanKind(
-                        value === "auto"
-                          ? "auto"
-                          : value === "visual"
-                            ? "visual"
-                            : value === "questions"
-                              ? "questions"
-                              : "ui",
+                        value === "auto" ||
+                          value === "design" ||
+                          value === "visual" ||
+                          value === "questions"
+                          ? value
+                          : "ui",
                       )
                     }
                   >
@@ -8663,6 +8585,9 @@ function CreatePlanDialog({
                       </SelectItem>
                       <SelectItem value="ui">
                         {t("plansPage.create.kindOptions.ui.description")}
+                      </SelectItem>
+                      <SelectItem value="design">
+                        {t("plansPage.create.kindOptions.design.description")}
                       </SelectItem>
                       <SelectItem value="questions">
                         {t(

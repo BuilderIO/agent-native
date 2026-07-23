@@ -34,10 +34,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
   },
   agent: {
     emptyState: "양식에 대해 무엇이든 물어보세요",
@@ -255,6 +255,8 @@ const messages = {
     duplicated: "양식이 중복되었습니다.",
     duplicateFailed: "양식을 복제하지 못했습니다.",
     movedToArchive: "양식이 아카이브로 이동됨",
+    movingToArchive: "양식을 아카이브로 이동하는 중…",
+    archiveFailed: "양식을 아카이브로 이동하지 못했습니다.",
     restored: "양식이 복원되었습니다.",
     permanentlyDeleted: "양식이 영구적으로 삭제되었습니다.",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

@@ -18,6 +18,14 @@ export type {
   PlatformDeliveryReceipt,
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
+export { mergeIntegrationAdapters } from "./adapter-overrides.js";
+export {
+  deliverJsonWebhook,
+  escapeSlackMrkdwn,
+  isWebhookUrlAllowed,
+  type DeliverJsonWebhookOptions,
+  type JsonWebhookDeliveryResult,
+} from "./webhook-delivery.js";
 
 export { resolveDefaultIntegrationExecutionContext } from "./identity.js";
 export {
@@ -44,6 +52,9 @@ export {
 
 // Plugin
 export {
+  BUILT_IN_INTEGRATION_ADAPTER_FACTORIES,
+  BUILT_IN_INTEGRATION_ADAPTER_IDS,
+  createBuiltInIntegrationAdapters,
   createIntegrationsPlugin,
   defaultIntegrationsPlugin,
   enqueueRemoteCommand,
@@ -84,6 +95,7 @@ export {
   unregisterRemotePushRegistrationForOwner,
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
+export { deliverPendingRemotePushNotifications } from "./remote-push-delivery.js";
 export type {
   ComputerApprovalScope,
   ComputerCommandAction,
@@ -102,7 +114,11 @@ export type {
 } from "./remote-types.js";
 
 // Adapters
-export { slackAdapter } from "./adapters/slack.js";
+export {
+  resolveSlackBotTokenForIncoming,
+  slackAdapter,
+  type SlackAdapterOptions,
+} from "./adapters/slack.js";
 export { telegramAdapter } from "./adapters/telegram.js";
 export { whatsappAdapter } from "./adapters/whatsapp.js";
 export { discordAdapter } from "./adapters/discord.js";
@@ -149,6 +165,8 @@ export type {
 } from "./installations-store.js";
 
 export {
+  SLACK_AUTHORIZE_URL,
+  SLACK_TOKEN_URL,
   assertSlackInstallAccess,
   buildSlackAuthorizeUrl,
   exchangeSlackOAuthCode,
@@ -156,6 +174,7 @@ export {
   slackInstallationKey,
   slackOAuthResponseToInstallation,
   testSlackAuth,
+  type SlackOAuthAccessResponse,
 } from "./slack-oauth.js";
 
 export {
@@ -179,6 +198,12 @@ export type {
   IntegrationScopeAccess,
   IntegrationScopePolicy,
 } from "./scope-store.js";
+
+export {
+  resolveIntegrationSourceContext,
+  sourceContextFromPendingTask,
+  type ResolvedIntegrationSourceContext,
+} from "./pending-tasks-store.js";
 
 export {
   getIntegrationBudgetSnapshot,

@@ -45,6 +45,17 @@ const SLACK_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
 // API blip must not fail-close a sender's identity (and DMs) for 10 minutes.
 const SLACK_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
 const SLACK_IDENTITY_CACHE_MAX_ENTRIES = 1_000;
+const SLACK_TOKEN_IDENTITY_CACHE_TTL_MS = 10 * 60 * 1_000;
+const SLACK_TOKEN_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
+
+type SlackTokenIdentity = {
+  teamId: string | null;
+  appId: string | null;
+  valid: boolean;
+  expiresAt: number;
+};
+
+const slackTokenIdentityCache = new Map<string, SlackTokenIdentity>();
 
 interface SlackUserIdentity {
   email: string | null;
@@ -116,8 +127,7 @@ export function slackAdapter(
 ): PlatformAdapter {
   const resolveBotToken = async (incoming: IncomingMessage) =>
     (await options.resolveBotToken?.(incoming)) ??
-    (await resolveManagedSlackBotToken(incoming)) ??
-    (await resolveSecret("SLACK_BOT_TOKEN")) ??
+    (await resolveSlackBotTokenForIncoming(incoming)) ??
     undefined;
 
   return {
@@ -713,6 +723,19 @@ function parseAllowlistEnv(name: string): Set<string> | null {
   return new Set(values);
 }
 
+export async function resolveSlackBotTokenForIncoming(
+  incoming: IncomingMessage,
+): Promise<string | undefined> {
+  const managedToken = await resolveManagedSlackBotToken(incoming);
+  if (managedToken) return managedToken;
+
+  const legacyToken = await resolveSecret("SLACK_BOT_TOKEN");
+  if (!legacyToken) return undefined;
+  return (await isSlackTokenForIncoming(legacyToken, incoming))
+    ? legacyToken
+    : undefined;
+}
+
 async function resolveManagedSlackBotToken(
   incoming: IncomingMessage,
 ): Promise<string | undefined> {
@@ -736,13 +759,13 @@ async function resolveManagedSlackBotToken(
           slackInstallationKey({ teamId, enterpriseId, apiAppId }),
         )
       : null;
-    if (!installation && teamId) {
+    if (!installation && !apiAppId && teamId) {
       installation = await getActiveIntegrationInstallationForTenant(
         "slack",
         teamId,
       );
     }
-    if (!installation && enterpriseId) {
+    if (!installation && !apiAppId && enterpriseId) {
       installation = await getActiveIntegrationInstallationForTenant(
         "slack",
         enterpriseId,
@@ -755,6 +778,62 @@ async function resolveManagedSlackBotToken(
   } catch {
     return undefined;
   }
+}
+
+async function isSlackTokenForIncoming(
+  token: string,
+  incoming: IncomingMessage,
+): Promise<boolean> {
+  const teamId = slackIdentityValue(incoming.platformContext.teamId);
+  const apiAppId = slackIdentityValue(incoming.platformContext.apiAppId);
+  if (!teamId && !apiAppId) return true;
+
+  const cached = slackTokenIdentityCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return (
+      cached.valid &&
+      (!teamId || cached.teamId === teamId) &&
+      (!apiAppId || cached.appId === apiAppId)
+    );
+  }
+
+  const auth = await slackJson(token, "auth.test", {});
+  const authTeamId = slackIdentityValue(auth?.team_id);
+  const botId = slackIdentityValue(auth?.bot_id);
+  let appId: string | null = null;
+  let valid = !!auth;
+
+  if (valid && apiAppId) {
+    const bot = botId
+      ? await slackJson(token, "bots.info", { bot: botId })
+      : null;
+    appId = slackIdentityValue(bot?.bot?.app_id);
+    valid = !!appId;
+  }
+
+  const identity: SlackTokenIdentity = {
+    teamId: authTeamId,
+    appId,
+    valid,
+    expiresAt:
+      Date.now() +
+      (valid
+        ? SLACK_TOKEN_IDENTITY_CACHE_TTL_MS
+        : SLACK_TOKEN_IDENTITY_NEGATIVE_CACHE_TTL_MS),
+  };
+  slackTokenIdentityCache.set(token, identity);
+
+  return (
+    valid &&
+    (!teamId || identity.teamId === teamId) &&
+    (!apiAppId || identity.appId === apiAppId)
+  );
+}
+
+function slackIdentityValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized && normalized !== "unknown" ? normalized : null;
 }
 
 let _missingAllowlistWarned = false;
@@ -1079,7 +1158,7 @@ async function resolveSlackThreadPermalink(
   if (typeof channelId !== "string" || typeof threadTs !== "string") {
     return undefined;
   }
-  const token = resolvedToken ?? (await resolveSecret("SLACK_BOT_TOKEN"));
+  const token = resolvedToken;
   if (!token) return undefined;
 
   try {

@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -320,7 +323,7 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
               type="button"
               variant="ghost"
               size="sm"
-              aria-label={`View context resources for ${app.name}`}
+              aria-label={`View agent resources for ${app.name}`}
               className={APP_CARD_ACTION_CLASS}
               onClick={(e) => e.stopPropagation()}
             >
@@ -328,20 +331,21 @@ function AppResourcesDialog({ app }: { app: WorkspaceAppSummary }) {
             </Button>
           </DialogTrigger>
         </TooltipTrigger>
-        <TooltipContent>View context</TooltipContent>
+        <TooltipContent>View agent resources</TooltipContent>
       </Tooltip>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{app.name} workspace resources</DialogTitle>
+          <DialogTitle>{app.name} agent resources</DialogTitle>
           <DialogDescription>
-            Workspace-level resources are inherited at runtime. App shared and
-            personal resources can override them locally.
+            Workspace-scope agent resources are inherited at runtime. App shared
+            and personal resources can override them locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-            All-app resources live once at workspace scope and are read by each
-            app agent when it builds context. Nothing is copied into this app.
+            All-app agent resources live once at workspace scope and are read by
+            each app agent when it builds context. Nothing is copied into this
+            app.
           </div>
 
           <div className="flex flex-wrap items-center gap-2">

@@ -40,6 +40,8 @@ import {
   databaseBuilderWriteModeOperationPending,
   databaseCreatedItemForImmediatePreview,
   databaseCreatedItemNeedsPreview,
+  databaseClientQueryExpandedItemLimit,
+  databaseClientQueryExpansionIsPending,
   databaseSearchExpandedItemLimit,
   databaseSearchExpansionIsPending,
   databaseAttachedBuilderSources,
@@ -923,6 +925,33 @@ describe("large database authoring", () => {
       false,
     );
     expect(databaseSearchExpansionIsPending("", 571, 100)).toBe(false);
+  });
+
+  it("expands filtered and OR-filtered views before evaluating them client-side", () => {
+    expect(databaseClientQueryExpandedItemLimit(true, 100, 102)).toBe(102);
+    expect(databaseClientQueryExpandedItemLimit(true, 100, 10_000)).toBe(5_000);
+    expect(databaseClientQueryExpansionIsPending(true, 102, 100)).toBe(true);
+    expect(databaseClientQueryExpansionIsPending(true, 102, 102)).toBe(false);
+  });
+
+  it("restores the manual page limit after personal filters are cleared", () => {
+    const manualLimitAfterLoadMore = 200;
+    const expandedLimit = databaseClientQueryExpandedItemLimit(
+      true,
+      manualLimitAfterLoadMore,
+      4_000,
+    );
+    expect(expandedLimit).toBe(4_000);
+    expect(
+      databaseClientQueryExpandedItemLimit(
+        false,
+        manualLimitAfterLoadMore,
+        4_000,
+      ),
+    ).toBe(200);
+    expect(
+      databaseClientQueryExpansionIsPending(false, expandedLimit, 200),
+    ).toBe(false);
   });
 
   it("builds an immediate preview item when the appended row is outside the returned page", () => {

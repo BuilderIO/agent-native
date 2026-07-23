@@ -79,7 +79,7 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return String(fromEnv);
+  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
   // Best-effort: derive from the inbound request host. This is forgeable
   // (Host-header attack), but only useful as a hint when env-derived URL
   // is unset; the rest of the JWT verification still uses the secret.
@@ -440,6 +440,7 @@ export function mountA2A(
       const bearerToken = extractBearerToken(authHeader);
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
+      let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
       let bearerTokenRejectedByJwt = false;
 
@@ -456,6 +457,14 @@ export function mountA2A(
         const tokenPayload = await verifyA2AToken(bearerToken, event);
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
+        if (verifiedCallerEmail) {
+          try {
+            verifiedAudienceBound =
+              typeof jose.decodeJwt(bearerToken).aud !== "undefined";
+          } catch {
+            verifiedAudienceBound = false;
+          }
+        }
         bearerTokenRejectedByJwt = !verifiedCallerEmail;
       }
 
@@ -531,6 +540,9 @@ export function mountA2A(
       // can set request context from a trusted source instead of metadata
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
+      }
+      if (verifiedAudienceBound) {
+        event.context.__a2aAudienceVerified = true;
       }
       if (verifiedOrgDomain) {
         event.context.__a2aOrgDomain = verifiedOrgDomain;

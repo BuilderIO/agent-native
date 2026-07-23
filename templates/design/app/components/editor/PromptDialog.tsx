@@ -1,21 +1,13 @@
+import { appBasePath } from "@agent-native/core/client/api-path";
 import {
-  appBasePath,
   PromptComposer,
-  useT,
   type PromptComposerSubmitOptions,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@agent-native/toolkit/ui/command";
 import {
   IconApps,
   IconCheck,
@@ -33,6 +25,14 @@ import { toast } from "sonner";
 import { TemplatePreview } from "@/components/templates/TemplatePreview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   Popover,
@@ -1182,7 +1182,7 @@ function PromptAttachmentMenu({
 /**
  * Compact segmented "Design" / "Full app" pill selector shown in the new-design
  * popover title row. Only rendered by the caller when full-app building is
- * flag-enabled (see FULL_APP_BUILDING_ENABLED in shared/full-app.ts) — when
+ * flag-enabled by the Design page — when
  * absent the popover renders with no mode control at all.
  */
 function CreationModeToggle({

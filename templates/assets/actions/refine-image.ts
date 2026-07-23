@@ -28,6 +28,7 @@ export default defineAction({
       .describe(
         "Set by A2A callers (e.g. 'slides', 'design') so audit logs can filter by app.",
       ),
+    contextModeOverride: z.literal("off").optional(),
   }),
   parallelSafe: true,
   run: async ({
@@ -41,6 +42,7 @@ export default defineAction({
     slotId,
     source,
     callerAppId,
+    contextModeOverride,
   }) => {
     const asset = await getAssetOrThrow(assetId);
     if (sessionId) {
@@ -71,6 +73,7 @@ export default defineAction({
       slotId,
       source,
       callerAppId,
+      contextModeOverride,
     });
   },
 });

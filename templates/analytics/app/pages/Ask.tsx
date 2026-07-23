@@ -1,14 +1,12 @@
 import {
   AgentChatSurface,
   useAgentChatContext,
-  useT,
-} from "@agent-native/core/client";
-import { useEffect, useMemo, useState } from "react";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
+import { useEffect, useMemo } from "react";
 
-import {
-  ANALYTICS_CHAT_STORAGE_KEY,
-  hasRecentAnalyticsChat,
-} from "@/lib/chat-handoff";
+import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DASHBOARD_CONTEXT_KEYS = new Set([
@@ -18,7 +16,6 @@ const DASHBOARD_CONTEXT_KEYS = new Set([
 
 export default function AskPage() {
   const t = useT();
-  const [restoreActiveThread] = useState(() => hasRecentAnalyticsChat());
   const { items: chatContextItems, remove: removeChatContextItem } =
     useAgentChatContext();
   const staleDashboardContextKey = useMemo(
@@ -42,7 +39,6 @@ export default function AskPage() {
         className="analytics-chat-panel"
         defaultMode="chat"
         storageKey={ANALYTICS_CHAT_STORAGE_KEY}
-        restoreActiveThread={restoreActiveThread}
         browserTabId={TAB_ID}
         showHeader={false}
         showTabBar={false}
@@ -54,10 +50,13 @@ export default function AskPage() {
         composerLayoutVariant="hero"
         composerPlaceholder={t("common.askPlaceholder")}
         composerSlot={
-          <div className="analytics-chat-intro">
-            <h1>{t("common.askIntroTitle")}</h1>
-            <p>{t("common.askIntroBody")}</p>
-          </div>
+          <>
+            <CreativeContextComposerChip />
+            <div className="analytics-chat-intro">
+              <h1>{t("common.askIntroTitle")}</h1>
+              <p>{t("common.askIntroBody")}</p>
+            </div>
+          </>
         }
       />
     </div>

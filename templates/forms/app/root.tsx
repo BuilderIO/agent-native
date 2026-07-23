@@ -1,19 +1,22 @@
 import {
-  useDbSync,
-  AppProviders,
-  CommandMenu,
-  appPath,
-  createAgentNativeQueryClient,
-  getLocaleInitScript,
-  useCommandMenuShortcut,
-  getThemeInitScript,
-  configureTracking,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  useDbSync,
+  AppProviders,
+  createAgentNativeQueryClient,
   setClientAppState,
-  useT,
-} from "@agent-native/core/client";
-import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -248,7 +251,7 @@ function FormsCommandMenu({
           {t("root.searchForms")}
         </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => navigate("/agent")}>
-          <IconBrain size={16} />
+          <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>
@@ -303,4 +306,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

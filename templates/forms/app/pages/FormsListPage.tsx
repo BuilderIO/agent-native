@@ -1,15 +1,13 @@
-import {
-  VisibilityBadge,
-  callAction,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconPlus,
+  IconLoader2,
   IconDots,
   IconTrash,
   IconCopy,
@@ -103,11 +101,9 @@ export function FormsListPage() {
   }, [forms]);
 
   function handleCreate() {
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("forms.untitled") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -117,16 +113,21 @@ export function FormsListPage() {
     () => (
       <Button
         onClick={handleCreate}
+        disabled={createForm.isPending}
         size="sm"
         className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
       >
-        <IconPlus className="h-3.5 w-3.5" />
+        {createForm.isPending ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconPlus className="h-3.5 w-3.5" />
+        )}
         <span className="hidden sm:inline">{t("forms.newForm")}</span>
         <span className="sm:hidden">{t("forms.new")}</span>
       </Button>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [createForm.isPending],
   );
   useSetHeaderActions(headerActions);
 
@@ -154,11 +155,14 @@ export function FormsListPage() {
     }
   }
 
-  function handleDelete(id: string) {
+  function handleArchive(id: string) {
+    const toastId = toast.loading(t("forms.movingToArchive"));
     deleteForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success(t("forms.movedToArchive")),
+        onSuccess: () =>
+          toast.success(t("forms.movedToArchive"), { id: toastId }),
+        onError: () => toast.error(t("forms.archiveFailed"), { id: toastId }),
       },
     );
   }
@@ -214,6 +218,9 @@ export function FormsListPage() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
+    const toastId = purge
+      ? undefined
+      : toast.loading(t("forms.movingToArchive"));
     setBulkDeletePending(true);
     try {
       await Promise.all(
@@ -238,10 +245,15 @@ export function FormsListPage() {
                 count: ids.length,
                 formattedCount: formatNumber(ids.length),
               }),
+        toastId ? { id: toastId } : undefined,
       );
       setSelectedIds(new Set());
       setSelectionMode(false);
       setBulkPurgeOpen(false);
+    } catch {
+      if (toastId) {
+        toast.error(t("forms.archiveFailed"), { id: toastId });
+      }
     } finally {
       setBulkDeletePending(false);
     }
@@ -406,7 +418,13 @@ export function FormsListPage() {
             }
             disabled={selectedCount === 0 || bulkDeletePending}
           >
-            <IconTrash className="h-3.5 w-3.5" />
+            {bulkDeletePending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isArchive ? (
+              <IconTrash className="h-3.5 w-3.5" />
+            ) : (
+              <IconArchive className="h-3.5 w-3.5" />
+            )}
             {isArchive ? t("forms.deleteForever") : t("forms.moveToArchive")}
           </Button>
           <Button
@@ -672,11 +690,11 @@ export function FormsListPage() {
                                   className="text-destructive"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDelete(form.id);
+                                    handleArchive(form.id);
                                   }}
                                 >
-                                  <IconTrash className="h-4 w-4 me-2" />
-                                  {t("common.delete")}
+                                  <IconArchive className="h-4 w-4 me-2" />
+                                  {t("forms.moveToArchive")}
                                 </DropdownMenuItem>
                               </>
                             );

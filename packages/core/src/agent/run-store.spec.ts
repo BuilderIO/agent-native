@@ -193,6 +193,7 @@ const {
   readLedgerEntry,
   clearLedgerForThread,
   insertRun,
+  insertRunEvent,
   readRunDispatchPayload,
   clearRunDispatchPayload,
   listUnclaimedBackgroundRunIds,
@@ -299,6 +300,28 @@ describe("run store", () => {
     expect(insert?.args[1]).toBe(0);
     expect(typeof insert?.args[2]).toBe("number");
     expect(insert?.args[3]).toBe('{"type":"done"}');
+  });
+
+  it("atomically rejects producer events after the run becomes terminal", async () => {
+    await insertRunEvent(
+      "run-terminal",
+      8,
+      '{"type":"thinking","text":"zombie"}',
+    );
+
+    const insert = execCalls.find((call) =>
+      /INSERT INTO agent_run_events/i.test(call.sql),
+    );
+    expect(insert?.sql).toMatch(
+      /WHERE NOT EXISTS\s*\(\s*SELECT 1 FROM agent_runs\s*WHERE id = \? AND status <> 'running'/i,
+    );
+    expect(insert?.args).toEqual([
+      "run-terminal",
+      8,
+      expect.any(Number),
+      '{"type":"thinking","text":"zombie"}',
+      "run-terminal",
+    ]);
   });
 
   it("never lets an older progress write move the stored timestamp backward", async () => {

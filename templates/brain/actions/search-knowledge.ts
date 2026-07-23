@@ -25,7 +25,7 @@ export default defineAction({
   publicAgent: {
     expose: true,
     readOnly: true,
-    requiresAuth: false,
+    requiresAuth: true,
     isConsequential: false,
   },
   run: async (args) => {

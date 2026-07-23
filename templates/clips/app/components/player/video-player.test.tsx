@@ -17,14 +17,19 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { VideoPlayer, type VideoPlayerHandle } from "./video-player";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/analytics", () => ({
   // Re-exported by `@/lib/utils`, which video-player.tsx (and its children)
   // import `cn` from.
   cn: (...classes: Array<string | false | null | undefined>) =>
     classes.filter(Boolean).join(" "),
-  appBasePath: () => "",
-  agentNativePath: (path: string) => path,
   captureClientException: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  appBasePath: () => "",
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
@@ -149,6 +154,48 @@ describe("VideoPlayer playback", () => {
 
     expect(video.paused).toBe(false);
     expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it("rewinds an ended autoplay player when replay is requested", () => {
+    const video = getVideo();
+    Object.defineProperty(video, "ended", {
+      configurable: true,
+      value: true,
+    });
+    video.currentTime = 10;
+
+    act(() => {
+      handleRef.current?.play();
+    });
+
+    expect(video.currentTime).toBe(0);
+    expect(video.paused).toBe(false);
+  });
+
+  it("replays from the start when the surface is clicked after the clip ended", () => {
+    const surface = getPlayerSurface();
+    const video = getVideo();
+
+    act(() => {
+      surface.click();
+    });
+    expect(video.paused).toBe(false);
+
+    // Reaching end of stream can fire "ended" while the browser leaves paused
+    // false (MSE end-of-stream / DB-duration mismatch). The play button must
+    // still restart from the beginning rather than pausing a finished clip.
+    video.currentTime = 10;
+    Object.defineProperty(video, "ended", { configurable: true, value: true });
+    act(() => {
+      video.dispatchEvent(new Event("ended"));
+    });
+
+    act(() => {
+      surface.click();
+    });
+
+    expect(video.currentTime).toBe(0);
+    expect(video.paused).toBe(false);
   });
 
   it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {

@@ -1,0 +1,10 @@
+---
+title: Doctor
+description: 安全与迁移检查。
+---
+
+# Doctor
+
+`agent-native doctor` 运行 8 个 guard：7 个安全 guard 和 `migration-manifest`。后者查找已安装 `migration-manifest.json` 中的导入，且没有 opt-out。运行 `agent-native doctor --only migration-manifest`，用 `npx @agent-native/core@latest upgrade --codemods` 预览，再用 `--yes` 应用。JSON 的 `guardsRun` 列出全部 8 项。
+
+标记为 `planned` 的条目只会作为警告显示，不会被重写。active 条目会作为问题报告；codemod 仅在目标 export 已安装时才会重写。

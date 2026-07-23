@@ -30,10 +30,10 @@ const messages = {
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    agentTitle: "エージェント設定",
+    agentTitle: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    openAgentSettings: "エージェント設定を開く",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    openAgentSettings: "エージェントを管理",
     editorTitle: "VS Code 拡張機能",
     editorDescription:
       "別のブラウザータブではなく、VS Code のサイドパネルでプランを開いてレビューします。",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "先週リリースされた内容は？",
     suggestionUi: "この UI はどのように見えますか？",
     suggestionApi: "この API の形は？",
+  },
+  contextXray: {
+    panelTitle: "コンテキスト X 線",
+    snapshotsTitle: "スナップショット",
   },
   sidebar: {
     openNavigation: "ナビゲーションを開く",
@@ -564,6 +568,10 @@ const messages = {
           label: "UI 流程",
           description: "UI 流程 - 线框和状态",
         },
+        design: {
+          label: "高忠実度デザイン",
+          description: "高忠実度デザイン - 洗練されたブランド画面",
+        },
         questions: {
           label: "可视化问题",
           description: "可视化问题 - 明确收集需求",
@@ -587,6 +595,8 @@ const messages = {
           "# 実装計画\n\n既存の Codex または Claude Code の計画をここに貼り付け、視覚的なレビュードキュメントに変換します。",
       },
       assessment: {
+        design:
+          "高忠実度の依頼を自動検出しました。エージェントが洗練されたブランド画面を作成します。",
         ui: "自动检测到 UI 状态或流程；代理将创建线框优先的计划。",
         visual: "自动会让代理创建包含图表和实现细节的丰富技术计划。",
       },

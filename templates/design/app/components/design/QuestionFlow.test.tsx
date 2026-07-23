@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";

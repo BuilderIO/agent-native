@@ -9,7 +9,7 @@ Un **trabajo recurrente** es un mensaje que se ejecuta según una programación 
 
 Los trabajos recurrentes se activan en un reloj. Para reaccionar a _eventos_ (una reserva creada, un correo electrónico recibido), el mismo formato de archivo `jobs/` más las condiciones, consulte [Automations](/docs/automations).
 
-Los trabajos se encuentran en [workspace](/docs/workspace) en `jobs/<name>.md`: solo un archivo Markdown con texto frontal de YAML. Sin registro, sin cableado. Suelte el archivo y el marco lo recogerá.
+Los trabajos se encuentran en [Recursos del Agente](/docs/agent-resources) en `jobs/<name>.md`: solo un archivo Markdown con texto frontal de YAML. Sin registro, sin cableado. Suelte el archivo y el marco lo recogerá.
 
 ## Un archivo de trabajo {#job-file}
 
@@ -40,28 +40,46 @@ Los trabajos se encuentran en [workspace](/docs/workspace) en `jobs/<name>.md`: 
     {
       lines: "7-12",
       label: "el aviso",
-      note: "El cuerpo es solo un mensaje: el agente lo ejecuta en cada disparo con todas sus herramientas normales y el contexto del espacio de trabajo.",
+      note: "El cuerpo es solo un mensaje: el agente lo ejecuta en cada disparo con todas sus herramientas normales y el contexto del agente.",
     },
   ]}
 />
 
-Eso es todo. El cuerpo es un mensaje que el agente ejecuta en cada disparo programado. El agente tiene acceso a las mismas herramientas y contexto de espacio de trabajo que tiene en un chat interactivo: actions, skills, memoria, servidores MCP conectados, subagentes.
+Eso es todo. El cuerpo es un mensaje que el agente ejecuta en cada disparo programado. El agente tiene acceso a las mismas herramientas y contexto del agente que tiene en un chat interactivo: actions, skills, memoria, servidores MCP conectados, subagentes.
 
 ## Antecedentes {#frontmatter}
 
-| Campo        | Tipo                          | Predeterminado  | Descripción                                                                                                                                |
-| ------------ | ----------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `schedule`   | expresión cron                | _(obligatorio)_ | Cron estándar de 5 campos. `"0 7 * * *"` = todos los días a las 07:00 horas; `"0 */4 * * *"` = cada 4 horas.                               |
-| `enabled`    | booleano                      | `true`          | Pase a `false` para pausar sin eliminar el trabajo.                                                                                        |
-| `runAs`      | `"creator"` \| `"shared"`     | `"creator"`     | `"creator"` se ejecuta con la identidad del propietario del trabajo y `ANTHROPIC_API_KEY`. `"shared"` utiliza la clave de la organización. |
-| `createdBy`  | correo electrónico            | _(automático)_  | Se completa cuando el trabajo se crea a través del espacio de trabajo UI o por el agente.                                                  |
-| `orgId`      | cadena                        | _(automático)_  | Alcance de la organización; heredado de la organización activa del creador.                                                                |
-| `lastRun`    | Marca de tiempo ISO           | _(gestionado)_  | Escrito por el planificador después de cada ejecución.                                                                                     |
-| `lastStatus` | `"success"` \| `"error"` \| … | _(gestionado)_  | Último resultado.                                                                                                                          |
-| `lastError`  | cadena                        | _(gestionado)_  | Mensaje de error si la última ejecución falló.                                                                                             |
-| `nextRun`    | Marca de tiempo ISO           | _(gestionado)_  | Calculado a partir de `schedule`; utilizado por el programador para decidir cuándo disparar a continuación.                                |
+| Campo        | Tipo                                  | Predeterminado  | Descripción                                                                                                                                |
+| ------------ | ------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `schedule`   | expresión cron                        | _(obligatorio)_ | Cron estándar de 5 campos. `"0 7 * * *"` = todos los días a las 07:00 horas; `"0 */4 * * *"` = cada 4 horas.                               |
+| `enabled`    | booleano                              | `true`          | Pase a `false` para pausar sin eliminar el trabajo.                                                                                        |
+| `runAs`      | `"creator"` \| `"shared"`             | `"creator"`     | `"creator"` se ejecuta con la identidad del propietario del trabajo y `ANTHROPIC_API_KEY`. `"shared"` utiliza la clave de la organización. |
+| `createdBy`  | correo electrónico                    | _(automático)_  | Se completa cuando el trabajo se crea a través del Recursos del Agente UI o por el agente.                                                 |
+| `orgId`      | cadena                                | _(automático)_  | Alcance de la organización; heredado de la organización activa del creador.                                                                |
+| `lastRun`    | Marca de tiempo ISO                   | _(gestionado)_  | Escrito por el planificador después de cada ejecución.                                                                                     |
+| `lastStatus` | `"success"` \| `"error"` \| …         | _(gestionado)_  | Último resultado.                                                                                                                          |
+| `lastError`  | cadena                                | _(gestionado)_  | Mensaje de error si la última ejecución falló.                                                                                             |
+| `nextRun`    | Marca de tiempo ISO                   | _(gestionado)_  | Calculado a partir de `schedule`; utilizado por el programador para decidir cuándo disparar a continuación.                                |
+| `mcpTools`   | matriz de nombres de herramientas MCP | _(ninguno)_     | Lista de permitidos explícita opcional, como `mcp__server__tool`; las credenciales permanecen en la concesión MCP conectada.               |
 
 Los campos `last*` y `nextRun` los escribe el programador. Puedes leerlos para ver el historial, pero no los edites manualmente: la siguiente ejecución los sobrescribirá.
+
+## Conectar herramientas MCP a un trabajo {#connected-mcps}
+
+Los trabajos recurrentes pueden utilizar herramientas MCP remotas o locales que ya estén conectadas a la aplicación. Pide al agente que descubra los nombres exactos con `tool-search` y, a continuación, vincula solo las herramientas que necesita el trabajo mediante `mcpTools`:
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+Busca nuevas grabaciones desde la última ejecución satisfactoria. Extrae solo los seguimientos accionables y, después, llama una sola vez a la acción de importación acotada de la aplicación con identificadores de origen y externos estables, una cita breve y la URL de la grabación. No importes la transcripción completa.
+```
+
+El trabajo almacena nombres de herramientas, no URL de MCP, tokens de acceso ni tokens de actualización de OAuth. En tiempo de ejecución, el framework resuelve la concesión conectada en el contexto de solicitud del creador o de la organización del trabajo y expone solo las herramientas de la lista de permitidos. Mantén la lista reducida y utiliza una acción idempotente de la aplicación para la importación final, de modo que las ejecuciones superpuestas no creen duplicados. Consulta [Clientes MCP](/docs/mcp-clients) para configurar la conexión y OAuth.
 
 ## Sintaxis cron {#cron}
 
@@ -83,7 +101,7 @@ El marco incluye utilidades cron (`isValidCron()` y `describeCron()`) para valid
 
 ### Desde la pestaña Espacio de trabajo
 
-`+` → **Tarea programada** en el panel del espacio de trabajo. Complete el mensaje y el cronograma. Se guarda como `jobs/<slug>.md` y comienza a ejecutarse en el siguiente tick coincidente.
+`+` → **Tarea programada** en el panel del Recursos del Agente. Complete el mensaje y el cronograma. Se guarda como `jobs/<slug>.md` y comienza a ejecutarse en el siguiente tick coincidente.
 
 ### Preguntando al agente
 
@@ -183,7 +201,7 @@ El programador es un complemento de marco (la rutina interna `processRecurringJo
 
 ## Depurar un trabajo {#debugging}
 
-- Abra `jobs/<name>.md` en el espacio de trabajo; el frontmatter muestra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
+- Abra `jobs/<name>.md` en el Recursos del Agente; el frontmatter muestra `lastRun`, `lastStatus`, `lastError`, `nextRun`.
 - **Pruébalo sin esperar:** no hay ninguna herramienta de disparo forzado. Para realizar el mismo trabajo bajo demanda, pegue el mensaje del trabajo en el chat del agente y déjelo ejecutar allí, o configure temporalmente el cronograma para el siguiente minuto para que el programador lo retome en el siguiente tick (luego restaure el cron real).
 - **Pausa:** voltea `enabled: false`. El archivo permanece ahí, simplemente deja de ejecutarse.
 
@@ -191,12 +209,12 @@ El programador es un complemento de marco (la rutina interna `processRecurringJo
 
 Se registra una única herramienta `manage-jobs` en cada plantilla. El parámetro `action` selecciona la operación:
 
-| Acción   | Parámetros                                                           | Propósito                                                                                   |
-| -------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `create` | `name`, `schedule`, `instructions` (obligatorio); `scope`, `runAs`   | Crear un nuevo trabajo recurrente                                                           |
-| `list`   | `scope` (`personal`, `shared` o todos)                               | Enumerar todos los trabajos con estado (programado, habilitado, última/siguiente ejecución) |
-| `update` | `name` (obligatorio); `schedule`, `instructions`, `enabled`, `runAs` | Editar un trabajo existente                                                                 |
-| `delete` | `name` (obligatorio)                                                 | Eliminar un trabajo: confírmalo siempre primero con el usuario                              |
+| Acción   | Parámetros                                                                       | Propósito                                                                                   |
+| -------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `create` | `name`, `schedule`, `instructions` (obligatorio); `scope`, `runAs`, `mcpTools`   | Crear un nuevo trabajo recurrente                                                           |
+| `list`   | `scope` (`personal`, `shared` o todos)                                           | Enumerar todos los trabajos con estado (programado, habilitado, última/siguiente ejecución) |
+| `update` | `name` (obligatorio); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Editar un trabajo existente                                                                 |
+| `delete` | `name` (obligatorio)                                                             | Eliminar un trabajo: confírmalo siempre primero con el usuario                              |
 
 **Ámbito personal versus compartido.** Cada trabajo se encuentra en un ámbito personal (se ejecuta y es visible solo para el creador) o en un ámbito compartido/orgánico (se ejecuta en nombre del creador pero es visible para los miembros de la organización). Los parámetros `scope` y `runAs` controlan esto en el momento de la creación. Los administradores de la organización pueden actualizar o eliminar cualquier trabajo compartido; los miembros no administradores solo pueden administrar los suyos propios.
 
@@ -204,7 +222,7 @@ Se registra una única herramienta `manage-jobs` en cada plantilla. El parámetr
 
 No confunda trabajos recurrentes con `@agent-native/scheduling`:
 
-- **Trabajos recurrentes (esta página)**: _avisos_ programados cron que el agente ejecuta en segundo plano. Nivel de marco. Vive en el espacio de trabajo. Se ejecuta en cualquier aplicación nativa del agente.
+- **Trabajos recurrentes (esta página)**: _avisos_ programados cron que el agente ejecuta en segundo plano. Nivel de marco. Vive en el Recursos del Agente. Se ejecuta en cualquier aplicación nativa del agente.
 - **`@agent-native/scheduling`**: un paquete de dominio reutilizable para crear funciones de calendario/reservas (tipos de eventos, períodos de disponibilidad, reservas). Impulsa la plantilla `calendar` y las superficies de programación personalizadas.
 
 Los trabajos recurrentes son "¿cómo hago para que el agente actúe por sí solo?" El paquete de programación es "¿cómo creo una aplicación de calendario?" Diferentes preocupaciones.
@@ -212,6 +230,6 @@ Los trabajos recurrentes son "¿cómo hago para que el agente actúe por sí sol
 ## ¿Qué sigue?
 
 - [**Automations**](/docs/automations): agregue activadores de eventos y condiciones al mismo formato `jobs/`
-- [**Workspace**](/docs/workspace): donde los trabajos conviven con skills, la memoria y los agentes personalizados
+- [**Recursos del Agente**](/docs/agent-resources): donde los trabajos conviven con skills, la memoria y los agentes personalizados
 - [**Actions**](/docs/actions): las herramientas que requiere un trabajo
 - [**Agent Teams**](/docs/agent-teams): los trabajos a menudo generan subagentes para realizar trabajos paralelos

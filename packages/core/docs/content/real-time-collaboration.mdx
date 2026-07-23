@@ -240,10 +240,11 @@ export default defineConfig({
 
 ### 3. Add the collab server plugin
 
-Always set `resourceType` to the name of the shareable resource registered
-via `registerShareableResource`. Without it, collab push events are delivered
-to all authenticated users without document-level scoping, and the server
-logs a one-time warning.
+Choose the access mode that matches the data model. Owned or shareable records
+use `mode: "resource"` with the type registered via
+`registerShareableResource`. Records deliberately shared with every
+authenticated user on the deployment use explicit `mode: "all-authenticated"`.
+Never invent a resource type merely to silence a warning.
 
 ```ts
 // server/plugins/collab.ts
@@ -253,14 +254,21 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+Omitting `access` is a deprecated legacy behavior. It behaves like
+`all-authenticated`, logs a warning, and is flagged by Doctor.
 
 ### 4. Use the client hook
 
 ```ts
-import { generateTabId, useCollaborativeDoc } from "@agent-native/core/client";
+import {
+  generateTabId,
+} from "@agent-native/core/client/agent-chat"import {
+  useCollaborativeDoc,
+} from "@agent-native/core/client/collab"
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -420,8 +428,7 @@ Awareness state changes propagate at ~150ms instead of waiting for the full poll
 Returns a reactive list of remote participants and a setter for the local presence payload:
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -483,8 +490,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 Invoke a callback whenever the followed participant's viewport changes:
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -518,8 +524,7 @@ The `PresenceBar` component accepts optional follow-mode props:
 ### Normalized coordinate helpers {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,
@@ -589,23 +594,37 @@ plugin:
 
 ## Security {#security}
 
-### Always set `resourceType`
+### Choose the access model explicitly
+
+For owned or shareable resources, use the resource type registered through
+`registerShareableResource`:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-Without `resourceType` the plugin logs a warning and broadcasts collab push
-events to all authenticated users on the deployment without document-level
-scoping. Non-owners fall back to state-vector catch-up (safe but higher
-latency) regardless of whether `resourceType` is set.
+For a resource intentionally shared deployment-wide, say so explicitly:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+Do not invent a `resourceType` to make a warning disappear: resource mode is
+valid only when the corresponding ownership and sharing model exists. Omitting
+`access` is supported for legacy compatibility, behaves like
+`all-authenticated`, logs a warning, and is flagged by Doctor.
+
+Non-owner sharees with explicit access use state-vector catch-up through the
+poll path (safe, higher latency).
 
 ### Access checks
 
-All collab routes require authentication. When `resourceType` is set, reads
-require at least viewer access and writes require editor access, using the
+All collab routes require authentication. In resource mode, reads require at
+least viewer access and writes require editor access, using the
 same `resolveAccess` / `assertAccess` helpers as the sharing system. A 404
 (not 403) is returned on access failures to avoid leaking document existence.
 
@@ -617,7 +636,7 @@ Override per-plugin:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -725,7 +744,7 @@ Key properties:
 - [Real-Time Sync](/docs/client#usedbsync) — the `useDbSync` + `useChangeVersion`
   system that delivers the `updatedAt` bump driving editor reconciliation.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  and `assertAccess` for the access model referenced by `resourceType`.
+  and `assertAccess` for resource-scoped collaboration.
 - [Sharing](/docs/sharing) — how documents are shared and how access is granted.
 - [Template: Content](/docs/template-content) — reference implementation of
   collaborative rich-text editing.

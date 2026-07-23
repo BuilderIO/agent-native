@@ -16,6 +16,11 @@
  *   Userinfo: https://www.googleapis.com/oauth2/v2/userinfo
  */
 
+import {
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  resolveGoogleProviderCredentialCandidatesWithReader,
+} from "@agent-native/core/server";
+
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 export const GOOGLE_USERINFO_URL =
@@ -63,6 +68,7 @@ export interface CalendarEvent {
     email?: string;
     displayName?: string;
     responseStatus?: string;
+    self?: boolean;
   }>;
   conferenceData?: {
     entryPoints?: Array<{
@@ -87,28 +93,13 @@ export interface GoogleOAuthClientCredentials {
   clientSecret: string;
 }
 
-function readCredentialPair(
-  clientIdKey: string,
-  clientSecretKey: string,
-): GoogleOAuthClientCredentials | null {
-  const clientId = process.env[clientIdKey];
-  const clientSecret = process.env[clientSecretKey];
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
-}
-
-export function resolveGoogleOAuthCredentialCandidates(): GoogleOAuthClientCredentials[] {
-  const primary = readCredentialPair(
-    "GOOGLE_CLIENT_ID",
-    "GOOGLE_CLIENT_SECRET",
-  );
-  const legacy = readCredentialPair(
-    "GOOGLE_LEGACY_CLIENT_ID",
-    "GOOGLE_LEGACY_CLIENT_SECRET",
-  );
-  if (!primary) return legacy ? [legacy] : [];
-  if (!legacy || legacy.clientId === primary.clientId) return [primary];
-  return [primary, legacy];
+export async function resolveGoogleOAuthCredentialCandidates(): Promise<
+  GoogleOAuthClientCredentials[]
+> {
+  return resolveGoogleProviderCredentialCandidatesWithReader({
+    readCredential: (key) => process.env[key],
+    credentialKeyPairs: [GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS],
+  });
 }
 
 /** Exchange an authorization code for tokens. Throws on non-2xx. */

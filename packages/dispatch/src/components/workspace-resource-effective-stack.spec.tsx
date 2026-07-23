@@ -14,7 +14,7 @@ const queryState = vi.hoisted(() => ({
   calls: [] as any[],
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (...args: any[]) => {
     queryState.calls.push(args);
     return queryState.result;

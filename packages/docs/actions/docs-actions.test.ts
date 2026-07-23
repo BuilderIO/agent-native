@@ -20,7 +20,7 @@ describe("docs actions", () => {
 
     expect(output).toContain("[Getting Started](/docs)");
     expect(output).toContain("[Onboarding & API Keys](/docs/onboarding)");
-    expect(output).toContain("[Workspace](/docs/workspace)");
+    expect(output).toContain("[Agent Resources](/docs/agent-resources)");
     expect(output).toContain("[Mail](/docs/template-mail)");
   });
 

@@ -39,6 +39,18 @@ const SKIP_FILES = new Set([
  */
 const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
   {
+    name: "get-feature-flags",
+    specifier: "@agent-native/core/feature-flags/actions/get-feature-flags",
+  },
+  {
+    name: "list-feature-flags",
+    specifier: "@agent-native/core/feature-flags/actions/list-feature-flags",
+  },
+  {
+    name: "set-feature-flag",
+    specifier: "@agent-native/core/feature-flags/actions/set-feature-flag",
+  },
+  {
     name: "share-resource",
     specifier: "@agent-native/core/sharing/actions/share-resource",
   },
@@ -175,7 +187,15 @@ function scanActionFiles(actionsDir: string): string[] {
       const content = fs.readFileSync(path.join(actionsDir, f), "utf-8");
       const reexportsDefaultAction =
         /export\s*\{\s*default\s*\}\s*from\s*["'][^"']+["']/.test(content);
-      if (!content.includes("defineAction") && !reexportsDefaultAction) {
+      const exportsActionFactory =
+        /export\s+default\s+(?:create[A-Z][A-Za-z0-9]*Action|defineActionFactory)\s*\(/.test(
+          content,
+        );
+      if (
+        !content.includes("defineAction") &&
+        !reexportsDefaultAction &&
+        !exportsActionFactory
+      ) {
         return false;
       }
     } catch {
@@ -343,6 +363,10 @@ ${typeEntries.join("\n")}
 }
 
 declare module "@agent-native/core/client" {
+  interface ActionRegistry extends AgentNativeActionRegistry {}
+}
+
+declare module "@agent-native/core/client/hooks" {
   interface ActionRegistry extends AgentNativeActionRegistry {}
 }
 

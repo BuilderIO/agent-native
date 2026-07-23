@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 export type FigmaSvgCopyErrorCode =
   | "unsupported"

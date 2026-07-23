@@ -2,14 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockDbExecute = vi.hoisted(() => vi.fn());
+const mockRunWithRequestContext = vi.hoisted(() =>
+  vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
+);
+const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockRecordingRow = vi.hoisted(() => ({
   ownerEmail: "owner@example.com",
   orgId: "org-test",
+  durationMs: 1_592_773,
   videoUrl:
     "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker?apiKey=org-probe&token=asset-worker&alt=media",
 }));
 const mockRecordingRows = vi.hoisted(
   () => [] as Array<typeof mockRecordingRow>,
+);
+const mockRecordingSelectResults = vi.hoisted(
+  () => [] as Array<Array<typeof mockRecordingRow>>,
 );
 const mockUpdateWhere = vi.hoisted(() => vi.fn());
 const mockUpdateSet = vi.hoisted(() =>
@@ -22,7 +31,7 @@ vi.mock("@agent-native/core/application-state", () => ({
 }));
 
 vi.mock("@agent-native/core/db", () => ({
-  getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+  getDbExec: () => ({ execute: mockDbExecute }),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -30,7 +39,8 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: vi.fn(() => "org-test"),
   resolveSecret: vi.fn(async (key: string) => process.env[key] ?? null),
   resolveBuilderPrivateKey: vi.fn(async () => "bpk-test"),
-  runWithRequestContext: vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
+  runWithRequestContext: (ctx: unknown, fn: () => unknown) =>
+    mockRunWithRequestContext(ctx, fn),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -39,9 +49,11 @@ vi.mock("../db/index.js", () => ({
       const builder = {
         from: vi.fn(() => builder),
         where: vi.fn(() => builder),
-        limit: vi.fn(async () => [
-          mockRecordingRows.shift() ?? mockRecordingRow,
-        ]),
+        limit: vi.fn(async () =>
+          mockRecordingSelectResults.length
+            ? (mockRecordingSelectResults.shift() ?? [])
+            : [mockRecordingRows.shift() ?? mockRecordingRow],
+        ),
       };
       return builder;
     }),
@@ -52,7 +64,10 @@ vi.mock("../db/index.js", () => ({
       id: "recordings.id",
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
+      status: "recordings.status",
+      trashedAt: "recordings.trashedAt",
       videoUrl: "recordings.videoUrl",
+      durationMs: "recordings.durationMs",
     },
   },
 }));
@@ -60,17 +75,20 @@ vi.mock("../db/index.js", () => ({
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  isNull: vi.fn((column: unknown) => ({ column, kind: "isNull" })),
 }));
 
 vi.mock("./recordings.js", () => ({
-  ownerEmailMatches: vi.fn(),
+  ownerEmailMatches: (...args: unknown[]) => mockOwnerEmailMatches(...args),
 }));
 
 import {
   applyMediaWorkerCallback,
   builderCompressedMediaUrl,
   extractBuilderMediaTarget,
+  mediaDurationsMateriallyMatch,
   queueBuilderMediaCompression,
+  runBuilderMediaCompressionSweepOnce,
   runBuilderMediaCompressionForRecording,
 } from "./builder-media-compression";
 
@@ -79,12 +97,16 @@ describe("builder-media-compression", () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     mockRecordingRows.length = 0;
+    mockRecordingSelectResults.length = 0;
+    mockDbExecute.mockResolvedValue({ rows: [] });
+    mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockReadAppState.mockResolvedValue(null);
     delete process.env.CLIPS_BUILDER_BACKGROUND_COMPRESSION_MAX_BYTES;
     delete process.env.CLIPS_DISABLE_BUILDER_COMPRESSION;
     delete process.env.CLIPS_MEDIA_WORKER_ENABLED;
     delete process.env.CLIPS_MEDIA_WORKER_URL;
     delete process.env.CLIPS_MEDIA_WORKER_SECRET;
+    delete process.env.APP_URL;
   });
 
   it("derives the deterministic compressed URL for Builder object URLs", () => {
@@ -126,6 +148,11 @@ describe("builder-media-compression", () => {
     expect(
       extractBuilderMediaTarget("https://example.com/assets/org/asset.mp4"),
     ).toBeNull();
+  });
+
+  it("rejects compressed output that is materially shorter than the source", () => {
+    expect(mediaDurationsMateriallyMatch(1_592_773, 483_000)).toBe(false);
+    expect(mediaDurationsMateriallyMatch(1_592_773, 1_593_259)).toBe(true);
   });
 
   it("records a terminal skip instead of retrying videos above the compression size gate", async () => {
@@ -214,13 +241,7 @@ describe("builder-media-compression", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string | URL) => {
-        const href = String(url);
-        if (href.includes("optimized=true")) {
-          return new Response(null, { status: 404 });
-        }
-        return new Response("builder unavailable", { status: 503 });
-      }),
+      vi.fn(async () => new Response("builder unavailable", { status: 503 })),
     );
 
     const result = await runBuilderMediaCompressionForRecording({
@@ -230,6 +251,10 @@ describe("builder-media-compression", () => {
     });
 
     expect(result?.status).toBe("failed");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [requestUrl] = vi.mocked(fetch).mock.calls[0];
+    expect(String(requestUrl)).toContain("/api/v1/compress-media/");
+    expect(String(requestUrl)).not.toContain("/compressed");
     expect(mockWriteAppState).toHaveBeenLastCalledWith(
       "recording-builder-compression-rec-give-up",
       expect.objectContaining({
@@ -240,6 +265,113 @@ describe("builder-media-compression", () => {
         ),
       }),
     );
+  });
+
+  it("keeps polling when Builder returns a URL before duration verification is ready", async () => {
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-pending-duration",
+      ownerEmail: "owner@example.com",
+      sourceUrl:
+        "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-pending?apiKey=org-probe&token=asset-pending&alt=media",
+      compressedUrl:
+        "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-pending%2Fcompressed?apiKey=org-probe&token=asset-pending&alt=media&optimized=true",
+      objectPath: "assets/org-probe/asset-pending",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-pending",
+      status: "queued",
+      attempts: 0,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+      nextAttemptAt: "2026-07-06T00:00:00.000Z",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              url: "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-pending%2Fcompressed",
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    const result = await runBuilderMediaCompressionForRecording({
+      recordingId: "rec-pending-duration",
+      ownerEmail: "owner@example.com",
+      orgId: "org-test",
+    });
+
+    expect(result?.status).toBe("triggered");
+    expect(result?.attempts).toBe(1);
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+    expect(mockWriteAppState).toHaveBeenLastCalledWith(
+      "recording-builder-compression-rec-pending-duration",
+      expect.objectContaining({
+        status: "triggered",
+        attempts: 1,
+        detail: expect.stringContaining("not ready"),
+      }),
+    );
+  });
+
+  it("never probes or publishes a readable partial worker output before the done callback", async () => {
+    const compressedUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true";
+    process.env.CLIPS_MEDIA_WORKER_ENABLED = "true";
+    process.env.CLIPS_MEDIA_WORKER_URL =
+      "https://worker.example.com/media/enqueue";
+    process.env.CLIPS_MEDIA_WORKER_SECRET = "worker-secret-with-enough-length";
+    process.env.APP_URL = "https://clips.example.com";
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      sourceUrl: mockRecordingRow.videoUrl,
+      compressedUrl,
+      objectPath: "assets/org-probe/asset-worker",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-worker",
+      status: "worker-queued",
+      attempts: 1,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+      nextAttemptAt: "2026-07-06T00:00:00.000Z",
+      mediaWorker: {
+        jobId: "rec-1:compress",
+        outputUrl: compressedUrl,
+        callbackUrl: "https://clips.example.com/api/media-worker/callback",
+        attempts: 1,
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === compressedUrl) {
+          return new Response("partial derivative", {
+            status: 206,
+            headers: { "content-range": "bytes 0-1023/183000000" },
+          });
+        }
+        return new Response(null, { status: 202 });
+      }),
+    );
+
+    const result = await runBuilderMediaCompressionForRecording({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-test",
+    });
+
+    expect(result?.status).toBe("worker-queued");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe(
+      "https://worker.example.com/media/enqueue",
+    );
+    expect(fetch).not.toHaveBeenCalledWith(compressedUrl, expect.anything());
+    expect(mockUpdateSet).not.toHaveBeenCalled();
   });
 
   it("rejects media worker callbacks whose output URL is not the expected destination", async () => {
@@ -270,6 +402,7 @@ describe("builder-media-compression", () => {
       jobId: "rec-1:compress",
       status: "done",
       outputUrl: "https://attacker.example.com/video.mp4",
+      durationMs: 1_592_773,
     });
 
     expect(result).toEqual({
@@ -313,6 +446,7 @@ describe("builder-media-compression", () => {
       jobId: "rec-1:compress",
       status: "done",
       outputUrl: compressedUrl,
+      durationMs: 1_592_773,
     });
 
     expect(result).toEqual({
@@ -335,5 +469,121 @@ describe("builder-media-compression", () => {
         status: "skipped-source-changed",
       }),
     );
+  });
+
+  it("runs sweep work only in SQL-verified owner context with a recomputed target", async () => {
+    mockDbExecute.mockResolvedValue({
+      rows: [
+        {
+          session_id: "owner@example.com",
+          key: "recording-builder-compression-rec-1",
+          value: JSON.stringify({
+            recordingId: "rec-1",
+            ownerEmail: "spoofed@example.com",
+            orgId: "spoofed-org",
+            sourceUrl: mockRecordingRow.videoUrl,
+            compressedUrl: "https://attacker.example.com/output.mp4",
+            objectPath: "assets/other-org/other-asset",
+            origin: "https://attacker.example.com",
+            apiKey: "other-org",
+            assetId: "other-asset",
+            status: "retry",
+            attempts: 4,
+            queuedAt: "2026-07-06T00:00:00.000Z",
+            updatedAt: "2026-07-06T00:00:00.000Z",
+            nextAttemptAt: "2026-07-06T00:00:00.000Z",
+          }),
+        },
+      ],
+    });
+    mockRecordingSelectResults.push([mockRecordingRow]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("builder unavailable", { status: 503 })),
+    );
+
+    await runBuilderMediaCompressionSweepOnce();
+
+    expect(mockOwnerEmailMatches).toHaveBeenCalledWith(
+      "recordings.ownerEmail",
+      "owner@example.com",
+    );
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-test" },
+      expect.any(Function),
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+    const [requestUrl] = vi.mocked(fetch).mock.calls[0];
+    expect(String(requestUrl)).toContain(
+      encodeURIComponent("assets/org-probe/asset-worker"),
+    );
+    expect(String(requestUrl)).not.toContain("attacker.example.com");
+    expect(String(requestUrl)).not.toContain("other-asset");
+  });
+
+  it("skips sweep state when the SQL session does not own the recording", async () => {
+    mockDbExecute.mockResolvedValue({
+      rows: [
+        {
+          session_id: "attacker@example.com",
+          key: "recording-builder-compression-rec-1",
+          value: JSON.stringify({
+            recordingId: "rec-1",
+            ownerEmail: "owner@example.com",
+            sourceUrl: mockRecordingRow.videoUrl,
+            compressedUrl:
+              "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true",
+            objectPath: "assets/org-probe/asset-worker",
+            origin: "https://cdn.builder.io",
+            apiKey: "org-probe",
+            assetId: "asset-worker",
+            status: "retry",
+            attempts: 1,
+            queuedAt: "2026-07-06T00:00:00.000Z",
+            updatedAt: "2026-07-06T00:00:00.000Z",
+            nextAttemptAt: "2026-07-06T00:00:00.000Z",
+          }),
+        },
+      ],
+    });
+    mockRecordingSelectResults.push([]);
+    vi.stubGlobal("fetch", vi.fn());
+
+    await runBuilderMediaCompressionSweepOnce();
+
+    expect(mockRunWithRequestContext).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects compression state whose key names another recording", async () => {
+    mockDbExecute.mockResolvedValue({
+      rows: [
+        {
+          session_id: "owner@example.com",
+          key: "recording-builder-compression-rec-2",
+          value: JSON.stringify({
+            recordingId: "rec-1",
+            ownerEmail: "owner@example.com",
+            sourceUrl: mockRecordingRow.videoUrl,
+            compressedUrl:
+              "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true",
+            objectPath: "assets/org-probe/asset-worker",
+            origin: "https://cdn.builder.io",
+            apiKey: "org-probe",
+            assetId: "asset-worker",
+            status: "retry",
+            attempts: 1,
+            queuedAt: "2026-07-06T00:00:00.000Z",
+            updatedAt: "2026-07-06T00:00:00.000Z",
+            nextAttemptAt: "2026-07-06T00:00:00.000Z",
+          }),
+        },
+      ],
+    });
+
+    await runBuilderMediaCompressionSweepOnce();
+
+    expect(mockOwnerEmailMatches).not.toHaveBeenCalled();
+    expect(mockRunWithRequestContext).not.toHaveBeenCalled();
   });
 });

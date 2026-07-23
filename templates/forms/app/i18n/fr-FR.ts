@@ -34,10 +34,10 @@ const messages = {
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
     openTeamSettings: "Ouvrir les paramètres d’équipe",
     openResourceSettings: "Ouvrir les paramètres des ressources",
-    agentTitle: "Paramètres de l’agent",
+    agentTitle: "Gérer l’agent",
     agentDescription:
-      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-    openAgentSettings: "Ouvrir les paramètres de l’agent",
+      "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+    openAgentSettings: "Gérer l’agent",
   },
   agent: {
     emptyState: "Posez-moi vos questions sur vos formulaires",
@@ -270,6 +270,8 @@ const messages = {
     duplicated: "Formulaire dupliqué",
     duplicateFailed: "Échec de la duplication du formulaire",
     movedToArchive: "Formulaire déplacé vers les archives",
+    movingToArchive: "Déplacement du formulaire vers les archives…",
+    archiveFailed: "Impossible de déplacer le formulaire vers les archives",
     restored: "Forme restaurée",
     permanentlyDeleted: "Formulaire définitivement supprimé",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

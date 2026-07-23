@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppStateByPrefix = vi.hoisted(() => vi.fn());
+const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
@@ -33,6 +34,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
   deleteAppStateByPrefix: (...args: unknown[]) =>
@@ -109,6 +111,7 @@ describe("/api/uploads/:recordingId/abort route", () => {
     });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockDeleteAppStateByPrefix.mockResolvedValue(2);
+    mockDeleteAppState.mockResolvedValue(true);
     mockDeleteResumableSession.mockResolvedValue(undefined);
     mockGetResumableSession.mockResolvedValue(null);
     mockAbortSession.mockResolvedValue(undefined);
@@ -150,6 +153,9 @@ describe("/api/uploads/:recordingId/abort route", () => {
         hasCamera: false,
       }),
     );
+    expect(mockDeleteAppState).toHaveBeenCalledWith(
+      "recording-media-verification-rec-1",
+    );
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -159,6 +165,34 @@ describe("/api/uploads/:recordingId/abort route", () => {
         }),
       ]),
     );
+  });
+
+  it("does not let an older client abort durable media verification", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "processing",
+        videoUrl: "https://cdn.example.com/rec-1",
+        failureReason: null,
+      },
+    ];
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "processing",
+      pendingMediaVerification: true,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      verificationPending: true,
+      chunksCleared: 0,
+    });
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDeleteAppState).not.toHaveBeenCalled();
+    expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
   });
 
   it("clears buffered chunks for ordinary abort failures", async () => {

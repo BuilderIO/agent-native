@@ -1,5 +1,11 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  recordGenerationCreativeContext,
+  resolveGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import {
@@ -57,6 +63,12 @@ const schema = z.object({
     .string()
     .optional()
     .describe("Calling app id, for audit grouping, e.g. design."),
+  contextModeOverride: z
+    .literal("off")
+    .optional()
+    .describe(
+      "Disable Creative Context for this picker generation only without changing the saved preference.",
+    ),
 });
 
 type ActionWithToolParameters = {
@@ -122,6 +134,42 @@ const action = defineAction({
     };
   },
   run: async (args, context?: ActionRunContext) => {
+    const creativeContext = await resolveGenerationCreativeContext({
+      query: args.prompt,
+      role: "assets",
+      contextModeOverride: args.contextModeOverride,
+    });
+    const reuseLabels =
+      creativeContext.reuseLabels as CreativeContextReuseLabel[];
+    const creativeContextProvenance = {
+      contextMode: creativeContext.contextMode,
+      contextPackId: creativeContext.contextPackId,
+      reuseLabels,
+    };
+    const creativeContextRequestId = nanoid();
+    await recordGenerationCreativeContext({
+      appId: "assets",
+      artifactType: "generation-request",
+      artifactId: creativeContextRequestId,
+      ...creativeContextProvenance,
+      elementProvenance: reuseLabels.length
+        ? reuseLabels.map((label) => ({
+            elementId: creativeContextRequestId,
+            influence: label.influence ?? ("reference-conditioned" as const),
+            ...(label.itemId ? { itemId: label.itemId } : {}),
+            ...(label.itemVersionId
+              ? { itemVersionId: label.itemVersionId }
+              : {}),
+            label: label.label,
+          }))
+        : [
+            {
+              elementId: creativeContextRequestId,
+              influence: "generated",
+              label: "Asset generation request",
+            },
+          ],
+    });
     if (args.mediaType === "video") {
       const picker = (await openAssetPicker.run(
         {
@@ -131,6 +179,7 @@ const action = defineAction({
           libraryHint: args.libraryHint,
           count: args.count,
           callerAppId: args.callerAppId,
+          creativeContextRequestId,
         },
         context,
       )) as Record<string, unknown>;
@@ -139,6 +188,7 @@ const action = defineAction({
         generated: false,
         message:
           "Assets video picker is ready. Generate or select the video in the picker, then choose the asset to send it back.",
+        ...creativeContextProvenance,
       };
     }
 
@@ -156,6 +206,7 @@ const action = defineAction({
         styleStrength: args.styleStrength,
         includeLogo: args.includeLogo,
         callerAppId: args.callerAppId,
+        creativeContextRequestId,
       },
       context,
     )) as Record<string, unknown>;
@@ -166,6 +217,7 @@ const action = defineAction({
       generationMode: "picker-auto-generate",
       message:
         "Assets picker is ready and will start image generation inside the picker. If this org has no libraries yet, the picker will create a starter library first. Ask the user to pick one candidate; preserve the chosen assetId, runId, and URLs exactly.",
+      ...creativeContextProvenance,
     };
   },
 });

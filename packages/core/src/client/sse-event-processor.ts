@@ -974,6 +974,73 @@ function completedToolOnlyMessage(toolNames: string[]): string | null {
   return `The agent completed ${label}, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.`;
 }
 
+function hasCompletedCustomUi(content: ContentPart[]): boolean {
+  const lastTextIndex = lastAssistantTextIndex(content);
+  let lastCompletedToolIsCustomUi = false;
+  let hasCompletedTool = false;
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part?.type !== "tool-call" ||
+      part.activity === true ||
+      part.result === undefined ||
+      part.isError === true
+    ) {
+      continue;
+    }
+    hasCompletedTool = true;
+    lastCompletedToolIsCustomUi =
+      part.chatUI !== undefined || part.mcpApp !== undefined;
+  }
+  return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
+export function appendMissingFinalResponseWarning(
+  content: ContentPart[],
+  completedToolNames?: Iterable<string>,
+): { message: string; errorCode: string; recoverable: true } | null {
+  const lastTextIndex = lastAssistantTextIndex(content);
+  const successfulToolNames = [
+    ...new Set(
+      completedToolNames ?? completedToolNamesAfterLastAssistantText(content),
+    ),
+  ];
+  let lastToolIndex = -1;
+  const materializedToolNames = new Set<string>();
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      lastToolIndex = index;
+      materializedToolNames.add(part.toolName);
+    }
+  }
+  if (hasCompletedCustomUi(content)) return null;
+  if (successfulToolNames.length === 0 && lastTextIndex > lastToolIndex) {
+    return null;
+  }
+  const completedToolMessage = completedToolOnlyMessage(successfulToolNames);
+  const message = completedToolMessage
+    ? completedToolMessage
+    : materializedToolNames.size > 0
+      ? `The agent stopped after ${formatToolNames([...materializedToolNames])} without sending a final message. Review the tool card above or ask the agent to continue.`
+      : "The agent stopped without sending a final message. Ask the agent to continue or retry.";
+  if (!content.some((part) => part.type === "text" && part.text === message)) {
+    content.push({ type: "text", text: message });
+  }
+  return {
+    message,
+    errorCode:
+      successfulToolNames.length > 0 || materializedToolNames.size > 0
+        ? "final_response_missing_after_tool"
+        : "final_response_missing",
+    recoverable: true,
+  };
+}
+
 interface ProcessEventState {
   completedToolsAfterLastAssistantText: Set<string>;
   /** Set once `agent-chat:stream-progress` has been dispatched for the
@@ -1305,6 +1372,7 @@ export function processEvent(
         toolName: `agent:${agentName}`,
         argsText: "",
         args: {},
+        activity: true,
       });
     } else if (ev.status === "done" || ev.status === "error") {
       for (let i = content.length - 1; i >= 0; i--) {
@@ -1535,16 +1603,11 @@ export function processEvent(
         } as ChatModelRunResult,
       };
     }
-    const toolOnlyMessage = completedToolOnlyMessage(
-      state
-        ? [...state.completedToolsAfterLastAssistantText]
-        : completedToolNamesAfterLastAssistantText(content),
+    const runWarning = appendMissingFinalResponseWarning(
+      content,
+      state ? state.completedToolsAfterLastAssistantText : undefined,
     );
-    if (toolOnlyMessage) {
-      content.push({
-        type: "text",
-        text: toolOnlyMessage,
-      });
+    if (runWarning) {
       return {
         action: "done",
         result: {
@@ -1552,11 +1615,7 @@ export function processEvent(
           status: { type: "complete" as const, reason: "stop" as const },
           metadata: {
             custom: {
-              runWarning: {
-                message: toolOnlyMessage,
-                errorCode: "final_response_missing_after_tool",
-                recoverable: true,
-              },
+              runWarning,
             },
           },
         } as ChatModelRunResult,

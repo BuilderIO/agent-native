@@ -1,5 +1,5 @@
 /**
- * Update a meeting's metadata. Editor access required.
+ * Update meeting content or owner/admin-managed sharing settings.
  */
 
 import { defineAction } from "@agent-native/core";
@@ -9,10 +9,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { booleanParam } from "./lib/cli-params.js";
 
 export default defineAction({
   description:
-    "Partially update a meeting (title, schedule, notes, summary, action items). Only provided fields are updated.",
+    "Partially update a meeting's content. Owners and share admins can also control visibility and whether share links include the transcript.",
   schema: z.object({
     id: z.string().describe("Meeting id"),
     title: z.string().optional(),
@@ -41,10 +42,17 @@ export default defineAction({
       .optional()
       .describe("Replace the action item set on the meetings row JSON"),
     transcriptStatus: z.enum(["idle", "pending", "ready", "failed"]).optional(),
+    shareTranscript: booleanParam
+      .optional()
+      .describe(
+        "Include the linked recording transcript on meeting share pages",
+      ),
     visibility: z.enum(["private", "org", "public"]).optional(),
   }),
   run: async (args) => {
-    await assertAccess("meeting", args.id, "editor");
+    const updatesSharing =
+      args.shareTranscript !== undefined || args.visibility !== undefined;
+    await assertAccess("meeting", args.id, updatesSharing ? "admin" : "editor");
     const db = getDb();
 
     const patch: Record<string, unknown> = {
@@ -67,6 +75,8 @@ export default defineAction({
     if (args.actionItems)
       patch.actionItemsJson = JSON.stringify(args.actionItems);
     if (args.transcriptStatus) patch.transcriptStatus = args.transcriptStatus;
+    if (args.shareTranscript !== undefined)
+      patch.shareTranscript = args.shareTranscript;
     if (args.visibility) patch.visibility = args.visibility;
 
     await db

@@ -138,6 +138,14 @@ export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
     "export default { Resvg };",
     "",
   ].join("\n"),
+  playwright: [
+    "const unavailable = async () => { throw new Error('playwright unavailable in Cloudflare Pages worker'); };",
+    "export const chromium = { launch: unavailable, connect: unavailable, connectOverCDP: unavailable };",
+    "export const firefox = { launch: unavailable, connect: unavailable };",
+    "export const webkit = { launch: unavailable, connect: unavailable };",
+    "export default { chromium, firefox, webkit };",
+    "",
+  ].join("\n"),
   "playwright-core": [
     "const unavailable = async () => { throw new Error('playwright-core unavailable in Cloudflare Pages worker'); };",
     "export const chromium = { launch: unavailable };",
@@ -186,6 +194,50 @@ export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
   "@excalidraw/mermaid-to-excalidraw":
     "export default async () => ({ elements: [], files: {} });\n",
 };
+
+export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
+  "pdf-parse/worker": [
+    "const unavailable = async () => { throw new Error('pdf-parse/worker unavailable in Cloudflare Pages worker'); };",
+    "export class CanvasFactory {}",
+    "export const getData = unavailable;",
+    "export default { CanvasFactory, getData };",
+    "",
+  ].join("\n"),
+};
+
+export function cloudflareWorkerStubAliasArgs(stubDir: string): string[] {
+  const subpathAliases = Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES)
+    .sort((a, b) => b.length - a.length)
+    .map(
+      (mod) =>
+        `--alias:${mod}=${path.join(stubDir, `${mod.replace(/\//g, "__")}.js`)}`,
+    );
+  const packageAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES)
+    .sort((a, b) => b.length - a.length)
+    .map((mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`);
+  return [...subpathAliases, ...packageAliases];
+}
+
+export function assertNoCloudflareWorkerStubDynamicImports(
+  code: string,
+  sourceName: string,
+): void {
+  const stubbedModules = [
+    ...Object.keys(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES),
+    ...Object.keys(CLOUDFLARE_WORKER_STUB_MODULES),
+  ];
+  const pattern = stubbedModules
+    .sort((a, b) => b.length - a.length)
+    .map((moduleName) => moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const unresolvedImport = code.match(
+    new RegExp(`\\bimport\\s*\\(\\s*(["'])(${pattern})\\1\\s*\\)`),
+  );
+  if (!unresolvedImport) return;
+  throw new Error(
+    `Cloudflare worker output ${sourceName} retained a dynamic import for stubbed module "${unresolvedImport[2]}". Use a literal import so the worker bundler can apply its fail-closed stub.`,
+  );
+}
 
 function cloudflareNodeBuiltinStubSource(
   moduleName: string,
@@ -899,6 +951,26 @@ function getSentryClientConfigScript() {
   );
 }
 
+function getRealtimeClientConfigScript() {
+  // MUST stay byte-for-byte consistent with resolveRealtimeClientConfig in
+  // server/sentry-config.ts (worker bundles a string copy; it can't import it).
+  // Fail closed: require BOTH hosted transport AND an explicit gateway URL — no
+  // production default, since this ships into the CDN-cached shell.
+  const env = globalThis.process?.env || {};
+  if (firstNonEmpty(env.AGENT_NATIVE_REALTIME_TRANSPORT) !== "hosted") {
+    return null;
+  }
+  const gatewayBaseUrl = firstNonEmpty(env.AGENT_NATIVE_REALTIME_GATEWAY_URL);
+  if (!gatewayBaseUrl) return null;
+  const config = { realtime: { transport: "hosted", gatewayBaseUrl } };
+  return (
+    '<script data-agent-native-realtime-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -1050,7 +1122,10 @@ function applyImmutableAssetCacheHeaders(response, request) {
 }
 
 async function rewriteMountedResponse(response, basePath, pathname, request) {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -1077,7 +1152,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(request, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,
@@ -1188,7 +1263,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -1666,9 +1741,15 @@ async function buildCloudflarePages() {
       JSON.stringify({ name: mod, main: "index.js", type: "module" }),
     );
   }
-  const stubAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES).map(
-    (mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`,
-  );
+  for (const [mod, source] of Object.entries(
+    CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
+  )) {
+    fs.writeFileSync(
+      path.join(stubDir, `${mod.replace(/\//g, "__")}.js`),
+      source,
+    );
+  }
+  const stubAliases = cloudflareWorkerStubAliasArgs(stubDir);
   const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
   fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
   const nodeBuiltinStubAliases: string[] = [];
@@ -1724,7 +1805,8 @@ async function buildCloudflarePages() {
   // fails: context-xray token counts fall back to char/4 estimates and the
   // OG image route falls back to SVG.
   const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
-    (p) => !Object.hasOwn(CLOUDFLARE_WORKER_STUB_MODULES, p),
+    (p) =>
+      !Object.prototype.hasOwnProperty.call(CLOUDFLARE_WORKER_STUB_MODULES, p),
   ).map((p) => `--external:${p}`);
 
   execFileSync(
@@ -1849,6 +1931,8 @@ async function buildCloudflarePages() {
         (match) => match + timerRestore,
       );
     }
+
+    assertNoCloudflareWorkerStubDynamicImports(code, jsFile);
 
     fs.writeFileSync(jsFile, code);
   }
@@ -2285,6 +2369,83 @@ export function isDurableBackgroundDeployEnabled(): boolean {
   return v === "1" || v === "true" || v === "yes" || v === "on";
 }
 
+const NETLIFY_KEEP_WARM_FUNCTION_NAME = "agent-native-keep-warm";
+
+/**
+ * Emit a site-local Netlify Scheduled Function that wakes the public server
+ * function and its database every minute. GitHub Actions schedules can be
+ * delayed by tens of minutes, which is longer than a scale-to-zero database's
+ * autosuspend window and leaves the next visitor to pay the cold-start cost.
+ */
+export function emitSingleTemplateNetlifyKeepWarmFunction(
+  projectCwd: string,
+): void {
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverBundle = path.join(internalDir, "server", "main.mjs");
+  if (!fs.existsSync(serverBundle)) {
+    console.warn(
+      "[build] Keep-warm emit skipped: expected Nitro Netlify function at " +
+        ".netlify/functions-internal/server/main.mjs was not found.",
+    );
+    return;
+  }
+
+  const dest = path.join(internalDir, NETLIFY_KEEP_WARM_FUNCTION_NAME);
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+
+  const entry = `const HEALTH_PATH = "/_agent-native/health";
+const REQUEST_TIMEOUT_MS = 25_000;
+
+function siteOrigin(request) {
+  const configured = process.env.URL || process.env.DEPLOY_URL;
+  if (configured) return configured;
+  return new URL(request.url).origin;
+}
+
+export default async function handler(request) {
+  const url = new URL(HEALTH_PATH, siteOrigin(request));
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { "user-agent": "agent-native-netlify-keep-warm" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (error) {
+    console.error("[agent-native-keep-warm] Health request failed:", url.toString(), error);
+    throw error;
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      "[agent-native-keep-warm] Health request failed with " +
+        response.status +
+        ": " +
+        body.slice(0, 500),
+    );
+  }
+
+  console.log("[agent-native-keep-warm] Warmed", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: "agent-native server keep warm",
+  generator: "agent-native build",
+  schedule: "* * * * *",
+};
+`;
+
+  fs.writeFileSync(
+    path.join(dest, `${NETLIFY_KEEP_WARM_FUNCTION_NAME}.mjs`),
+    entry,
+  );
+  console.log(
+    `[build] Emitted Netlify scheduled keep-warm function "${NETLIFY_KEEP_WARM_FUNCTION_NAME}".`,
+  );
+}
+
 /**
  * Single-template Netlify build: emit an async (background) function INSIDE the
  * scanned functions dir so the chat `_process-run` worker runs on Netlify's
@@ -2513,9 +2674,32 @@ function hasBareYjsRuntimeImport(source: string): boolean {
   );
 }
 
+const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
+  "fast-xml-parser",
+  "jszip",
+  "officeparser",
+  "pdf-parse",
+  "pdfjs-dist",
+] as const;
+
+function hasBareRuntimeImport(source: string, packageName: string): boolean {
+  const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
+  ).test(source);
+}
+
 function hasUnsupportedYjsSubpathImport(source: string): boolean {
   return /\b(?:from\s*|import\s*\(\s*|import\s*)["']yjs\/[^"']*["']/.test(
     source,
+  );
+}
+
+function hasBundledVitestRuntime(source: string): boolean {
+  return (
+    /["'`]@vitest\//.test(source) ||
+    /["'`]vitest\/(?:dist|src)\//.test(source) ||
+    /__vitest_\d+__/.test(source)
   );
 }
 
@@ -2714,6 +2898,23 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
+  const bareIngestionImports: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    for (const dependency of NETLIFY_BUNDLED_INGESTION_DEPENDENCIES) {
+      if (hasBareRuntimeImport(source, dependency)) {
+        bareIngestionImports.push(
+          `${dependency} in ${path.relative(projectCwd, filePath)}`,
+        );
+      }
+    }
+  });
+  if (bareIngestionImports.length > 0) {
+    failures.push(
+      `Netlify server bundle leaves ingestion dependencies as runtime imports: ${bareIngestionImports.join(", ")}`,
+    );
+  }
+
   // Nitro's `_libs/yjs.mjs` is a private tree-shaken chunk, not a package
   // facade. Repointing a prebuilt SSR chunk at it can request public exports
   // (notably `Text`) that the private chunk did not retain. The controlled
@@ -2731,6 +2932,21 @@ export function assertSingleTemplateNetlifyBuildOutput(
   if (privateYjsImports.length > 0) {
     failures.push(
       `Netlify server bundle imports Nitro's internal tree-shaken _libs/yjs.mjs: ${privateYjsImports.join(", ")}`,
+    );
+  }
+
+  // React Router's filesystem route discovery can accidentally treat a
+  // co-located *.test.ts route as production code. That bundles Vitest into
+  // SSR and only fails when the first request executes the test helpers.
+  const bundledVitestRuntime: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    if (hasBundledVitestRuntime(fs.readFileSync(filePath, "utf-8"))) {
+      bundledVitestRuntime.push(path.relative(projectCwd, filePath));
+    }
+  });
+  if (bundledVitestRuntime.length > 0) {
+    failures.push(
+      `Netlify server bundle contains Vitest test runtime code: ${bundledVitestRuntime.join(", ")}`,
     );
   }
 
@@ -3364,6 +3580,9 @@ export default bundle;
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
+        process.env.CONTEXT?.trim() || "",
+      ),
     },
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
@@ -3410,24 +3629,26 @@ export default bundle;
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
-  // Durable background agent runs (default-OFF / opt-in; enable with a truthy
-  // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
-  // function whose name ends in `-background` re-exporting the same handler
-  // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
-  // function. When not opted in this is a no-op and the single-function
-  // deploy is byte-for-byte unchanged.
-  if (preset === "netlify" && isDurableBackgroundDeployEnabled()) {
-    try {
-      emitSingleTemplateNetlifyBackgroundFunction(cwd);
-    } catch (err) {
-      console.warn(
-        "[build] Failed to emit durable-background Netlify function (non-fatal):",
-        err instanceof Error ? err.message : err,
-      );
-    }
-  }
-
   if (preset === "netlify") {
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    // Durable background agent runs (default-OFF / opt-in; enable with a truthy
+    // AGENT_CHAT_DURABLE_BACKGROUND). Additive ONLY: emits a SECOND Netlify
+    // function whose name ends in `-background` re-exporting the same handler
+    // bundle, so the chat `_process-run` POST lands on Netlify's async (15-min)
+    // function. When not opted in this is a no-op and the single-function
+    // deploy is byte-for-byte unchanged.
+    if (isDurableBackgroundDeployEnabled()) {
+      try {
+        emitSingleTemplateNetlifyBackgroundFunction(cwd);
+      } catch (err) {
+        console.warn(
+          "[build] Failed to emit durable-background Netlify function (non-fatal):",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     writeSingleTemplateNetlifyRedirects(cwd);
     assertSingleTemplateNetlifyBuildOutput(cwd);
   }

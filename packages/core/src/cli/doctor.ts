@@ -4,7 +4,7 @@
  * itself via `scripts/guard-*.mjs` (see
  * `advisor-plans/reports/005-doctor-design.md` for the full design and
  * `advisor-plans/015-doctor-v1-implementation.md` for the implementation
- * plan). v1 ships 7 of those guards, ported to work against a single
+ * plan). v1 ships 9 of those guards, ported to work against a single
  * generated app root instead of this monorepo's multi-template layout —
  * see `../guards/index.ts`.
  *
@@ -28,11 +28,17 @@ import {
   scanDrizzlePush,
   scanEnvCredentials,
   scanEnvMutation,
+  scanExplicitCollabAccess,
   scanLocalhostFallback,
   scanUnscopedCredentials,
   scanUnscopedQueries,
 } from "../guards/index.js";
-import type { GuardResult } from "../guards/index.js";
+import type { GuardFinding, GuardResult } from "../guards/index.js";
+import {
+  AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND,
+  scanDeprecatedImports,
+  type MigrationManifest,
+} from "../package-lifecycle/index.js";
 
 export type GuardName =
   | "no-drizzle-push"
@@ -41,7 +47,9 @@ export type GuardName =
   | "no-env-credentials"
   | "db-tool-scoping"
   | "no-env-mutation"
-  | "no-localhost-fallback";
+  | "no-localhost-fallback"
+  | "explicit-collab-access"
+  | "migration-manifest";
 
 export const ALL_GUARD_NAMES: GuardName[] = [
   "no-drizzle-push",
@@ -51,6 +59,8 @@ export const ALL_GUARD_NAMES: GuardName[] = [
   "db-tool-scoping",
   "no-env-mutation",
   "no-localhost-fallback",
+  "explicit-collab-access",
+  "migration-manifest",
 ];
 
 export interface DoctorConfig {
@@ -75,7 +85,12 @@ export interface DoctorFinding {
 export interface DoctorReport {
   ok: boolean;
   findings: DoctorFinding[];
+  warnings: DoctorFinding[];
   guardsRun: string[];
+}
+
+interface DoctorGuardResult extends GuardResult {
+  warnings?: GuardFinding[];
 }
 
 /**
@@ -118,7 +133,8 @@ function runGuard(
   name: GuardName,
   root: string,
   config: DoctorConfig,
-): GuardResult {
+  migrationManifests?: MigrationManifest[],
+): DoctorGuardResult {
   switch (name) {
     case "no-drizzle-push":
       return scanDrizzlePush({ root });
@@ -137,6 +153,31 @@ function runGuard(
       return scanEnvMutation({ root });
     case "no-localhost-fallback":
       return scanLocalhostFallback({ root, extraExemptPaths: [] });
+    case "explicit-collab-access":
+      return scanExplicitCollabAccess({ root });
+    case "migration-manifest": {
+      const imports = scanDeprecatedImports({
+        root,
+        manifests: migrationManifests,
+      });
+      return {
+        name,
+        findings: imports
+          .filter((finding) => finding.status === "active")
+          .map((finding) => ({
+            file: path.relative(root, finding.file),
+            line: finding.line,
+            message: `${finding.from} moves to ${finding.to.join(", ")}. Run: ${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}`,
+          })),
+        warnings: imports
+          .filter((finding) => finding.status === "planned")
+          .map((finding) => ({
+            file: path.relative(root, finding.file),
+            line: finding.line,
+            message: `${finding.from} is planned to move to ${finding.to.join(", ")} in a future release. No rewrite is available yet.`,
+          })),
+      };
+    }
   }
 }
 
@@ -147,6 +188,7 @@ export interface RunDoctorScanOptions {
    * are silently ignored here — the CLI layer (`runDoctor`) validates
    * `--only` and reports a usage error before calling this. */
   only?: string[];
+  migrationManifests?: MigrationManifest[];
 }
 
 /** Pure scan orchestrator: runs the selected guards against `root` and
@@ -167,8 +209,9 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
   }
 
   const findings: DoctorFinding[] = [];
+  const warnings: DoctorFinding[] = [];
   for (const name of names) {
-    const result = runGuard(name, root, config);
+    const result = runGuard(name, root, config, options.migrationManifests);
     for (const f of result.findings) {
       findings.push({
         guard: name,
@@ -177,9 +220,22 @@ export function runDoctorScan(options: RunDoctorScanOptions): DoctorReport {
         message: f.message,
       });
     }
+    for (const warning of result.warnings ?? []) {
+      warnings.push({
+        guard: name,
+        file: warning.file,
+        line: warning.line,
+        message: warning.message,
+      });
+    }
   }
 
-  return { ok: findings.length === 0, findings, guardsRun: names };
+  return {
+    ok: findings.length === 0,
+    findings,
+    warnings,
+    guardsRun: names,
+  };
 }
 
 /** Pure escalation rule shared by the CLI (`--strict`) and the `build`
@@ -213,6 +269,14 @@ function formatDoctorHuman(report: DoctorReport, root: string): string {
     lines.push(`${report.findings.length} finding(s):`);
     for (const f of report.findings) {
       lines.push(`  [${f.guard}] ${f.file}:${f.line} — ${f.message}`);
+    }
+  }
+  if (report.warnings.length > 0) {
+    lines.push(`${report.warnings.length} warning(s):`);
+    for (const warning of report.warnings) {
+      lines.push(
+        `  [${warning.guard}] ${warning.file}:${warning.line} — ${warning.message}`,
+      );
     }
   }
   return lines.join("\n");
@@ -264,7 +328,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
     [
       "Usage:",
       "  agent-native doctor                        Scan app source for security-critical guard violations",
-      "  agent-native doctor --json                 Machine-readable report: { ok, findings, guardsRun, strict }",
+      "  agent-native doctor --json                 Machine-readable report: { ok, findings, warnings, guardsRun, strict }",
       "  agent-native doctor --only <guard,guard>   Run only the named guard(s)",
       "  agent-native doctor --strict                Escalate findings to a hard failure when used by `agent-native build --strict`",
       "  agent-native doctor --cwd <dir>             Run against a project root other than the current directory",
@@ -281,6 +345,7 @@ export function printDoctorHelp(io: Pick<DoctorIo, "log"> = defaultIo): void {
       "",
       "For dependency-pin health (framework overrides/patches, stale",
       "@agent-native/* pins), run `agent-native upgrade check` instead.",
+      `For import migrations, run \`${AGENT_NATIVE_UPGRADE_CODEMOD_COMMAND}\`.`,
     ].join("\n"),
   );
 }
@@ -385,6 +450,16 @@ export async function runDoctorBuildHook(
     );
     for (const f of report.findings) {
       io.err(`  [${f.guard}] ${f.file}:${f.line} — ${f.message}`);
+    }
+  }
+  if (report.warnings.length > 0) {
+    io.err(
+      `\n[doctor] ${report.warnings.length} planned migration warning(s) — no rewrite is available yet.`,
+    );
+    for (const warning of report.warnings) {
+      io.err(
+        `  [${warning.guard}] ${warning.file}:${warning.line} — ${warning.message}`,
+      );
     }
   }
 

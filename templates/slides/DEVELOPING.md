@@ -59,8 +59,8 @@ actions/                       # Shared app operations (defineAction; UI uses ac
 ├── run.ts                     # Script dispatcher
 ├── generate-image.ts          # Image generation with style references
 ├── image-gen-status.ts        # Check API key status
-├── image-search.ts            # Google Image search
-└── logo-lookup.ts             # Clearbit logo URL lookup
+├── search-images.ts           # Canonical Google image search
+└── search-logos.ts            # Canonical company/logo search
 ```
 
 ## Framework Basics (Nitro + @agent-native/core)

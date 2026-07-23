@@ -1,21 +1,22 @@
 import {
   useSendToAgentChat,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconArrowUp,
   IconPlus,
+  IconLoader2,
   IconMenu2,
   IconX,
   IconMessageCircle,
-  IconBrain,
+  IconHierarchy2,
   IconSettings,
   IconForms,
   IconLayoutSidebarLeftCollapse,
@@ -88,11 +89,9 @@ export function Sidebar() {
 
   function handleSkip() {
     setPopoverOpen(false);
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("sidebar.untitledForm") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -171,7 +170,11 @@ export function Sidebar() {
             size="sm"
             className="min-h-10 px-2 text-xs text-muted-foreground active:scale-[0.96] transition-[background-color,color,transform]"
             onClick={handleSkip}
+            disabled={createForm.isPending}
           >
+            {createForm.isPending && (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            )}
             {t("sidebar.skipPrompt")}
           </Button>
           <span className="text-[11px] text-muted-foreground/70">
@@ -286,7 +289,7 @@ export function Sidebar() {
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
-                <IconBrain className="h-4 w-4" />
+                <IconHierarchy2 className="h-4 w-4" />
               </Link>
             </TooltipTrigger>
             <TooltipContent side="right">
@@ -442,7 +445,7 @@ export function Sidebar() {
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
         >
-          <IconBrain size={14} className="shrink-0" />
+          <IconHierarchy2 size={14} className="shrink-0" />
           <span>{t("navigation.agent")}</span>
         </Link>
 
@@ -470,7 +473,7 @@ export function Sidebar() {
       <div className="shrink-0 space-y-2 px-3 py-2">
         <OrgSwitcher />
         <DevDatabaseLink />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2">
           <FeedbackButton className="min-w-0 flex-1" />
           <ThemeToggle className="h-9 w-9 shrink-0" />
         </div>

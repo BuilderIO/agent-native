@@ -1,19 +1,22 @@
-import { useDbSync } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath, appApiPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
+  createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import {
   DEFAULT_LOCALE,
-  ErrorReportActions,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
-  appPath,
-  appApiPath,
-  createAgentNativeQueryClient,
   getLocaleInitScript,
-  getThemeInitScript,
   normalizeLocaleCode,
   type LocaleCode,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import {

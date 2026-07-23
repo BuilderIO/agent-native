@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 
+import accountDeepDive from "../../actions/account-deep-dive";
 import getErrorIssue from "../../actions/get-error-issue";
 import getSessionReplaySummary from "../../actions/get-session-replay-summary";
 import getSessionReplayTimeline from "../../actions/get-session-replay-timeline";
+import gongCalls from "../../actions/gong-calls";
+import gongNativeInsights from "../../actions/gong-native-insights";
 import listErrorIssues from "../../actions/list-error-issues";
 import listSessionRecordings from "../../actions/list-session-recordings";
 import queryAgentNativeAnalytics from "../../actions/query-agent-native-analytics";
 import { ANALYTICS_CONNECTOR_CATALOG } from "./analytics-connector-catalog";
 
-const INCIDENT_READ_ACTIONS = {
+const CONNECTOR_READ_ACTIONS = {
+  "account-deep-dive": accountDeepDive,
+  "gong-calls": gongCalls,
+  "gong-native-insights": gongNativeInsights,
   "list-session-recordings": listSessionRecordings,
   "get-session-replay-summary": getSessionReplaySummary,
   "get-session-replay-timeline": getSessionReplayTimeline,
@@ -18,7 +24,7 @@ const INCIDENT_READ_ACTIONS = {
 } as const;
 
 type ActionDefinition =
-  (typeof INCIDENT_READ_ACTIONS)[keyof typeof INCIDENT_READ_ACTIONS];
+  (typeof CONNECTOR_READ_ACTIONS)[keyof typeof CONNECTOR_READ_ACTIONS];
 
 function parameterNames(action: ActionDefinition): string[] {
   const properties = action.tool.parameters?.properties;
@@ -28,8 +34,11 @@ function parameterNames(action: ActionDefinition): string[] {
 }
 
 describe("Analytics MCP connector catalog", () => {
-  it("contains only the incident-focused read actions", () => {
+  it("contains only the bounded authenticated connector reads", () => {
     expect(ANALYTICS_CONNECTOR_CATALOG).toEqual([
+      "account-deep-dive",
+      "gong-calls",
+      "gong-native-insights",
       "list-session-recordings",
       "get-session-replay-summary",
       "get-session-replay-timeline",
@@ -47,18 +56,18 @@ describe("Analytics MCP connector catalog", () => {
     expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain("save-analysis");
   });
 
-  it("maps one-to-one to the six authenticated incident-read action definitions", () => {
-    expect(Object.keys(INCIDENT_READ_ACTIONS)).toEqual([
+  it("maps one-to-one to authenticated read-only action definitions", () => {
+    expect(Object.keys(CONNECTOR_READ_ACTIONS)).toEqual([
       ...ANALYTICS_CONNECTOR_CATALOG,
     ]);
 
-    for (const [name, action] of Object.entries(INCIDENT_READ_ACTIONS)) {
+    for (const [name, action] of Object.entries(CONNECTOR_READ_ACTIONS)) {
       if (name === "query-agent-native-analytics") {
         // Raw-SQL action: no HTTP route (SQL must not land in GET query
         // strings/access logs). It is MCP-callable only through this
         // explicit catalog, not the auto-derived authenticated-read policy.
         expect(action.http).toBe(false);
-      } else {
+      } else if (name !== "gong-calls" && name !== "gong-native-insights") {
         expect(action.http).toEqual({ method: "GET" });
       }
       expect(action.readOnly).toBe(true);

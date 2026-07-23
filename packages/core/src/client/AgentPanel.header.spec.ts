@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
+  AgentChatSurface,
+  getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
   resolveAgentPanelChatSurface,
@@ -13,6 +15,7 @@ import {
   shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
+  shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
   shouldShowAgentPanelModeButtons,
 } from "./AgentPanel.js";
@@ -39,6 +42,43 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("keeps the active tab clear of the overflow edges", () => {
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 280, right: 340 },
+      ),
+    ).toBe(64);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 70, right: 140 },
+      ),
+    ).toBe(-54);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 140, right: 260 },
+      ),
+    ).toBe(0);
+  });
+
+  it("hides sidebar chat tabs until a second main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+    expect(
+      shouldShowAgentPanelSidebarChatTabs([
+        chatTab("main"),
+        chatTab("follow-up"),
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not render a sidebar chat tab strip without a main tab", () => {
+    expect(
+      shouldShowAgentPanelSidebarChatTabs([chatTab("research", "main")]),
+    ).toBe(false);
+  });
+
   it("hides the chat tab strip for a single main tab", () => {
     expect(shouldShowAgentPanelChatTabBar([chatTab("main")], "main")).toBe(
       false,
@@ -151,6 +191,37 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
       false,
     );
+  });
+});
+
+describe("AgentChatSurface chrome defaults", () => {
+  it("hides the legacy header and chat tab row by default", () => {
+    const surface = AgentChatSurface({ mode: "page" });
+    const panel = surface.props.children[1];
+
+    expect(panel.props.showHeader).toBe(false);
+    expect(panel.props.showTabBar).toBe(false);
+  });
+
+  it("mounts URL command sync for a full-page chat surface", () => {
+    const surface = AgentChatSurface({
+      mode: "page",
+      browserTabId: "tab-one",
+    });
+
+    expect(surface.props.children[0].type.name).toBe("URLSync");
+    expect(surface.props.children[0].props.browserTabId).toBe("tab-one");
+  });
+
+  it("allows an embedded host to opt back into the header chrome", () => {
+    const surface = AgentChatSurface({
+      mode: "panel",
+      showHeader: true,
+      showTabBar: true,
+    });
+
+    expect(surface.props.showHeader).toBe(true);
+    expect(surface.props.showTabBar).toBe(true);
   });
 });
 

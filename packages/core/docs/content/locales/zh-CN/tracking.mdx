@@ -176,8 +176,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +195,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 Agent Native 应用无需添加第二个分析 SDK，即可接入第一方浏览器会话重放功能。在浏览器根部调用一次 `configureTracking()`，并传入 Analytics 公钥和采集端点：
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",

@@ -5,4 +5,4 @@ export {
   formatPromptWithAttachments as formatCodeAgentPromptWithAttachments,
   isInlineableAgentPromptFile as isInlineableCodeAgentFile,
   readAgentPromptAttachment as readCodeAgentPromptAttachment,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/composer";

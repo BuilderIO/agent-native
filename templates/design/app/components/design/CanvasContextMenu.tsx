@@ -92,6 +92,7 @@ export type CanvasContextMenuAction =
   | "add-auto-layout"
   | "suggest-auto-layout"
   | "create-component"
+  | "reprompt"
   | "go-to-main-component"
   | "swap-instance"
   | "detach-instance"
@@ -105,6 +106,7 @@ export type CanvasContextMenuAction =
   | "copy-as-code"
   | "copy-as-svg"
   | "copy-as-png"
+  | "rotate-clockwise"
   | "flip-horizontal"
   | "flip-vertical"
   | "toggle-ui"
@@ -135,6 +137,7 @@ export type CanvasContextMenuActionHandler = (
 
 export interface CanvasContextMenuLabels {
   selectLayer: string;
+  reprompt: string;
   pasteHere: string;
   selectAll: string;
   zoomToFit: string;
@@ -174,6 +177,7 @@ export interface CanvasContextMenuLabels {
   copyAsCode: string;
   copyAsSvg: string;
   copyAsPng: string;
+  rotateClockwise: string;
   flipHorizontal: string;
   flipVertical: string;
   toggleUiShow: string;
@@ -217,6 +221,7 @@ export interface CanvasContextMenuShortcuts {
   copyAsCode: string;
   copyAsSvg: string;
   copyAsPng: string;
+  rotateClockwise: string;
   flipHorizontal: string;
   flipVertical: string;
   toggleUi: string;
@@ -231,6 +236,10 @@ export interface CanvasContextMenuProps {
   selectedCount?: number;
   layerCandidates?: readonly CanvasLayerHitCandidate[];
   onSelectLayer?: (candidate: CanvasLayerHitCandidate) => void;
+  onRepromptLayer?: (
+    candidate: CanvasLayerHitCandidate,
+    details: CanvasContextMenuActionDetails,
+  ) => void;
   hasClipboard?: boolean;
   hasPropsClipboard?: boolean;
   hasAnimationClipboard?: boolean;
@@ -261,6 +270,7 @@ export interface CanvasContextMenuProps {
   canAddAutoLayout?: boolean;
   canSuggestAutoLayout?: boolean;
   canCreateComponent?: boolean;
+  canReprompt?: boolean;
   // Whether the current selection IS a component instance — gates the
   // whole Go to main component / Swap instance / Detach instance cluster on
   // (rather than showing them permanently disabled for non-instance
@@ -289,6 +299,7 @@ export interface CanvasContextMenuProps {
   canCopyAsCode?: boolean;
   canCopyAsSvg?: boolean;
   canCopyAsPng?: boolean;
+  canRotateClockwise?: boolean;
   canFlipHorizontal?: boolean;
   canFlipVertical?: boolean;
   canToggleUi?: boolean;
@@ -330,6 +341,7 @@ export interface CanvasContextMenuProps {
   onAddAutoLayout?: CanvasContextMenuActionHandler;
   onSuggestAutoLayout?: CanvasContextMenuActionHandler;
   onCreateComponent?: CanvasContextMenuActionHandler;
+  onReprompt?: CanvasContextMenuActionHandler;
   onGoToMainComponent?: CanvasContextMenuActionHandler;
   onSwapInstance?: CanvasContextMenuActionHandler;
   onDetachInstance?: CanvasContextMenuActionHandler;
@@ -348,6 +360,7 @@ export interface CanvasContextMenuProps {
   onCopyAsCode?: CanvasContextMenuActionHandler;
   onCopyAsSvg?: CanvasContextMenuActionHandler;
   onCopyAsPng?: CanvasContextMenuActionHandler;
+  onRotateClockwise?: CanvasContextMenuActionHandler;
   onFlipHorizontal?: CanvasContextMenuActionHandler;
   onFlipVertical?: CanvasContextMenuActionHandler;
   onToggleUi?: CanvasContextMenuActionHandler;
@@ -361,6 +374,7 @@ export interface CanvasContextMenuProps {
 
 const DEFAULT_LABELS: CanvasContextMenuLabels = {
   selectLayer: "Select layer",
+  reprompt: "Regenerate…",
   pasteHere: "Paste here",
   selectAll: "Select all",
   zoomToFit: "Zoom to fit",
@@ -400,6 +414,7 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
   copyAsCode: "Copy as code",
   copyAsSvg: "Copy as SVG",
   copyAsPng: "Copy as PNG",
+  rotateClockwise: "Rotate 90° clockwise",
   flipHorizontal: "Flip horizontal",
   flipVertical: "Flip vertical",
   toggleUiShow: "Show UI",
@@ -443,6 +458,7 @@ const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
   copyAsCode: "",
   copyAsSvg: "",
   copyAsPng: "⇧⌘C",
+  rotateClockwise: "",
   flipHorizontal: "⇧H",
   flipVertical: "⇧V",
   toggleUi: "⌘\\",
@@ -455,7 +471,7 @@ type ActionCallbackMap = Partial<
 
 // design-editor menu chrome: compact, dark-border, subtle shadow, no animation jitter
 const MENU_CONTENT_CLASS =
-  "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none";
+  "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:!animate-none data-[state=closed]:!animate-none";
 // design row height ~28px, full-width highlight on hover, no icon gap waste
 const MENU_ITEM_CLASS =
   "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
@@ -481,6 +497,7 @@ export const CanvasContextMenu = forwardRef<
     selectedCount = 0,
     layerCandidates = [],
     onSelectLayer,
+    onRepromptLayer,
     hasClipboard = false,
     hasPropsClipboard = false,
     hasAnimationClipboard = false,
@@ -500,6 +517,7 @@ export const CanvasContextMenu = forwardRef<
     canAddAutoLayout = selectedCount > 0,
     canSuggestAutoLayout = false,
     canCreateComponent = selectedCount > 0,
+    canReprompt = selectedCount > 0 || layerCandidates.length > 0,
     isComponentInstance = false,
     canGoToMainComponent = isComponentInstance,
     canSwapInstance = isComponentInstance,
@@ -514,6 +532,7 @@ export const CanvasContextMenu = forwardRef<
     canCopyAsCode = selectedCount > 0,
     canCopyAsSvg = selectedCount > 0,
     canCopyAsPng = selectedCount > 0,
+    canRotateClockwise = false,
     canFlipHorizontal = selectedCount > 0,
     canFlipVertical = selectedCount > 0,
     canToggleUi = true,
@@ -540,6 +559,7 @@ export const CanvasContextMenu = forwardRef<
     onAddAutoLayout,
     onSuggestAutoLayout,
     onCreateComponent,
+    onReprompt,
     onGoToMainComponent,
     onSwapInstance,
     onDetachInstance,
@@ -553,6 +573,7 @@ export const CanvasContextMenu = forwardRef<
     onCopyAsCode,
     onCopyAsSvg,
     onCopyAsPng,
+    onRotateClockwise,
     onFlipHorizontal,
     onFlipVertical,
     onToggleUi,
@@ -624,6 +645,7 @@ export const CanvasContextMenu = forwardRef<
       "add-auto-layout": onAddAutoLayout,
       "suggest-auto-layout": onSuggestAutoLayout,
       "create-component": onCreateComponent,
+      reprompt: onReprompt,
       "go-to-main-component": onGoToMainComponent,
       "swap-instance": onSwapInstance,
       "detach-instance": onDetachInstance,
@@ -637,6 +659,7 @@ export const CanvasContextMenu = forwardRef<
       "copy-as-code": onCopyAsCode,
       "copy-as-svg": onCopyAsSvg,
       "copy-as-png": onCopyAsPng,
+      "rotate-clockwise": onRotateClockwise,
       "flip-horizontal": onFlipHorizontal,
       "flip-vertical": onFlipVertical,
       "toggle-ui": onToggleUi,
@@ -652,8 +675,10 @@ export const CanvasContextMenu = forwardRef<
       onCopyAsCode,
       onCopyAsPng,
       onCopyAsSvg,
+      onRotateClockwise,
       onCopyProps,
       onCreateComponent,
+      onReprompt,
       onDetachInstance,
       onFlipHorizontal,
       onFlipVertical,
@@ -768,6 +793,62 @@ export const CanvasContextMenu = forwardRef<
                   ))}
                 </ContextMenuSubContent>
               </ContextMenuSub>
+            </ContextMenuGroup>
+            <CanvasMenuSeparator />
+          </>
+        ) : null}
+        {canReprompt && (onReprompt || onRepromptLayer) ? (
+          <>
+            <ContextMenuGroup>
+              {layerCandidates.length > 1 && onRepromptLayer ? (
+                <ContextMenuSub>
+                  <ContextMenuSubTrigger className={MENU_SUB_TRIGGER_CLASS}>
+                    {labels.reprompt}
+                  </ContextMenuSubTrigger>
+                  <ContextMenuSubContent
+                    className={cn(MENU_CONTENT_CLASS, "w-56")}
+                  >
+                    {layerCandidates.map((candidate) => (
+                      <CanvasLayerCandidateItem
+                        key={`reprompt:${candidate.key}`}
+                        candidate={candidate}
+                        onSelect={(event) => {
+                          onRepromptLayer(candidate, {
+                            action: "reprompt",
+                            point,
+                            selectedCount,
+                            originalEvent: event,
+                          });
+                          handleOpenChange(false);
+                        }}
+                      />
+                    ))}
+                  </ContextMenuSubContent>
+                </ContextMenuSub>
+              ) : (
+                <CanvasMenuItem
+                  hidden={isHiddenAction("reprompt")}
+                  disabled={
+                    !canReprompt ||
+                    (!onReprompt &&
+                      !(onRepromptLayer && layerCandidates.length === 1))
+                  }
+                  label={labels.reprompt}
+                  onSelect={(event) => {
+                    const candidate = layerCandidates[0];
+                    if (!onReprompt && onRepromptLayer && candidate) {
+                      onRepromptLayer(candidate, {
+                        action: "reprompt",
+                        point,
+                        selectedCount,
+                        originalEvent: event,
+                      });
+                      return;
+                    }
+                    runAction("reprompt", event);
+                  }}
+                />
+              )}
             </ContextMenuGroup>
             <CanvasMenuSeparator />
           </>
@@ -1004,6 +1085,13 @@ export const CanvasContextMenu = forwardRef<
 
             <ContextMenuGroup>
               <CanvasMenuItem
+                hidden={isHiddenAction("rotate-clockwise")}
+                disabled={!canRun("rotate-clockwise", canRotateClockwise)}
+                label={labels.rotateClockwise}
+                shortcut={shortcuts.rotateClockwise}
+                onSelect={(event) => runAction("rotate-clockwise", event)}
+              />
+              <CanvasMenuItem
                 hidden={isHiddenAction("flip-horizontal")}
                 disabled={!canRun("flip-horizontal", canFlipHorizontal)}
                 label={labels.flipHorizontal}
@@ -1083,7 +1171,7 @@ function CanvasLayerCandidateItem({
   onSelect,
 }: {
   candidate: CanvasLayerHitCandidate;
-  onSelect: () => void;
+  onSelect: (event: Event) => void;
 }) {
   const tag = candidate.info.tagName.toLowerCase();
   const Icon = candidate.info.componentName

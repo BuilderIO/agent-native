@@ -43,8 +43,12 @@ import {
   WriteCell,
   FilesChangedSummary,
 } from "../tool-cells/index.js";
-import { humanizeToolName } from "../tool-display.js";
+import {
+  humanizeToolName,
+  isCallAgentToolCallShadowed,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
+import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
@@ -63,6 +67,8 @@ import {
 
 // Exported so AssistantChatInner can provide a context value.
 export const ChatRunningContext = React.createContext(false);
+export const ChatRunDurationContext = React.createContext<number | null>(null);
+export const ASSISTANT_VISIBLE_TOOL_CALL_LIMIT = 3;
 
 /**
  * Human-in-the-loop approval bridge. `AssistantChatInner` provides a value that
@@ -92,16 +98,22 @@ export const ApprovalContext = React.createContext<ApprovalContextValue | null>(
 
 export const TOOL_LONG_RUNNING_HINT_DELAY_MS = 45_000;
 
-function ToolLongRunningHintShell({
+export function ToolActivityPresentation({
   toolName,
   isRunning,
+  isActiveTail,
   children,
 }: {
   toolName: string;
   isRunning: boolean;
+  isActiveTail: boolean;
   children: React.ReactNode;
 }) {
   const [showLongRunningHint, setShowLongRunningHint] = useState(false);
+  // A batched update can first reveal a tool with its result already attached.
+  // Presentation follows the active chat tail rather than execution state so
+  // that newly revealed completed tools still get their entrance motion.
+  const [animateEntry] = useState(isActiveTail);
 
   useEffect(() => {
     if (!isRunning) {
@@ -116,14 +128,20 @@ function ToolLongRunningHintShell({
   }, [isRunning, toolName]);
 
   return (
-    <>
+    <div
+      className={cn(
+        "agent-tool-call",
+        animateEntry && "agent-tool-call--entering",
+      )}
+      data-running={isRunning ? "true" : undefined}
+    >
       {children}
       {isRunning && showLongRunningHint && (
-        <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
           Still working. Large updates can take a minute or two.
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -540,6 +558,8 @@ export function ToolCallDisplay({
   structuredMeta,
   approval,
   repeatCount,
+  isLatestRunning = isRunning,
+  isActiveTail,
 }: {
   toolName: string;
   argsText?: string;
@@ -551,15 +571,24 @@ export function ToolCallDisplay({
   structuredMeta?: Record<string, unknown>;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
+  /** The latest tool shown while the overall chat turn is still active. */
+  isActiveTail?: boolean;
+  /** @deprecated Use isActiveTail. */
+  isLatestRunning?: boolean;
 }) {
+  const showActiveTail = isActiveTail ?? isLatestRunning;
   // Delegate to bespoke cells when structured metadata is present.
   // These must be separate components so hook order in ToolCallDisplayGeneric
   // is always stable (no conditional hook calls).
   const toolKind = structuredMeta?.toolKind as string | undefined;
   const wrapToolDisplay = (children: React.ReactNode) => (
-    <ToolLongRunningHintShell toolName={toolName} isRunning={isRunning}>
+    <ToolActivityPresentation
+      toolName={toolName}
+      isRunning={isRunning}
+      isActiveTail={showActiveTail}
+    >
       {children}
-    </ToolLongRunningHintShell>
+    </ToolActivityPresentation>
   );
   if (toolKind === "bash") {
     return wrapToolDisplay(
@@ -601,6 +630,7 @@ export function ToolCallDisplay({
       mcpApp={mcpApp}
       chatUI={chatUI}
       isRunning={isRunning}
+      isActiveTail={showActiveTail}
       approval={approval}
       repeatCount={repeatCount}
     />,
@@ -615,6 +645,7 @@ function ToolCallDisplayGeneric({
   mcpApp,
   chatUI,
   isRunning,
+  isActiveTail,
   approval,
   repeatCount,
 }: {
@@ -625,6 +656,7 @@ function ToolCallDisplayGeneric({
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
   isRunning: boolean;
+  isActiveTail: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
 }) {
@@ -716,6 +748,7 @@ function ToolCallDisplayGeneric({
     resultText: result,
     resultJson: parsedResult,
     isRunning,
+    isActiveTail,
     chatUI,
   };
   const skipRegistryRenderer =
@@ -726,7 +759,16 @@ function ToolCallDisplayGeneric({
       (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
       resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
-    return <NativeToolRenderer context={nativeToolContext} />;
+    return (
+      <ActionChatUiSurface
+        context={nativeToolContext}
+        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
+          nativeToolContext,
+        )}
+      >
+        <NativeToolRenderer context={nativeToolContext} />
+      </ActionChatUiSurface>
+    );
   }
 
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
@@ -784,7 +826,14 @@ function ToolCallDisplayGeneric({
             </>
           )}
         </span>
-        <span className="min-w-0 truncate font-normal">{displayName}</span>
+        <span
+          className={cn(
+            "min-w-0 truncate font-normal",
+            isActiveTail && "agent-running-shimmer",
+          )}
+        >
+          {displayName}
+        </span>
         {repeatCount && repeatCount > 1 && (
           <span
             className="shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground"
@@ -862,6 +911,8 @@ export function ToolCallFallback({
   activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
   repeatCount?: number;
+  isLatestRunning?: boolean;
+  isActiveTail?: boolean;
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
   const isRunning =
@@ -882,6 +933,8 @@ export function ToolCallFallback({
       chatUI={rest.chatUI}
       structuredMeta={rest.structuredMeta}
       isRunning={isRunning}
+      isActiveTail={rest.isActiveTail}
+      isLatestRunning={rest.isLatestRunning}
       approval={rest.approval}
       repeatCount={rest.repeatCount}
     />
@@ -898,6 +951,7 @@ export function ReconnectStreamMessage({
   content: ContentPart[];
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  const toolSummary = getReconnectToolSummaryInfo(content);
   const latestReasoningPartIndex = content.reduce(
     (latestIndex, part, index) =>
       part.type === "reasoning" ? index : latestIndex,
@@ -907,60 +961,173 @@ export function ReconnectStreamMessage({
     content.at(-1)?.type === "text" ? content.length - 1 : -1;
   const streamingReasoningPartIndex =
     content.at(-1)?.type === "reasoning" ? content.length - 1 : -1;
+  const latestActiveToolIndex = content.reduce(
+    (latestIndex, part, index) =>
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      (chatRunning || part.activity === true)
+        ? index
+        : latestIndex,
+    -1,
+  );
+
+  const renderPart = (part: ContentPart, i: number) => {
+    if (isCallAgentToolCallShadowed(content, i)) return null;
+    if (part.type === "text") {
+      const partStreaming = chatRunning && i === streamingTextPartIndex;
+      return (
+        <SmoothMarkdownText
+          key={`reconnect-text-${i}`}
+          text={part.text}
+          streaming={partStreaming}
+          resetKey={`reconnect-text-${i}`}
+          statusType={partStreaming ? "running" : "complete"}
+        />
+      );
+    }
+    if (part.type === "reasoning") {
+      return (
+        <ReasoningCell
+          key={`reconnect-reasoning-${i}`}
+          text={part.text}
+          isStreaming={chatRunning && i === streamingReasoningPartIndex}
+          resetKey={`reconnect-reasoning-${i}`}
+          defaultOpen={i === latestReasoningPartIndex}
+          collapseWhenReplaced={i < latestReasoningPartIndex}
+        />
+      );
+    }
+    return (
+      <ToolCallDisplay
+        key={`reconnect-tool-${i}`}
+        toolName={part.toolName}
+        argsText={part.argsText}
+        args={part.args}
+        result={part.result}
+        mcpApp={part.mcpApp}
+        chatUI={part.chatUI}
+        structuredMeta={part.structuredMeta}
+        isRunning={
+          part.result === undefined && (chatRunning || part.activity === true)
+        }
+        isActiveTail={i === latestActiveToolIndex}
+        approval={part.approval}
+        repeatCount={part.repeatCount}
+      />
+    );
+  };
+
+  const renderedParts: React.ReactNode[] = [];
+  let summaryStartIndex = -1;
+  let summaryToolCount = 0;
+  const flushSummary = (endIndex: number) => {
+    if (summaryStartIndex < 0) return;
+    renderedParts.push(
+      <RanToolsSummary
+        key={`reconnect-tool-summary-${summaryStartIndex}`}
+        toolCount={summaryToolCount}
+      >
+        {content
+          .slice(summaryStartIndex, endIndex)
+          .map((part, offset) => renderPart(part, summaryStartIndex + offset))}
+      </RanToolsSummary>,
+    );
+    summaryStartIndex = -1;
+    summaryToolCount = 0;
+  };
+
+  for (let i = 0; i < content.length; i++) {
+    const part = content[i]!;
+    if (isCallAgentToolCallShadowed(content, i)) continue;
+    const isOlderToolWork =
+      toolSummary.startIndex >= 0 &&
+      i < toolSummary.startIndex &&
+      isReconnectToolSummaryPart(content, i, toolSummary.startIndex);
+    if (isOlderToolWork) {
+      summaryStartIndex = summaryStartIndex < 0 ? i : summaryStartIndex;
+      if (part.type === "tool-call") summaryToolCount++;
+      continue;
+    }
+    flushSummary(i);
+    renderedParts.push(renderPart(part, i));
+  }
+  flushSummary(content.length);
 
   return (
     <div className="flex justify-start">
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
-        {content.map((part, i) => {
-          if (part.type === "text") {
-            const partStreaming = chatRunning && i === streamingTextPartIndex;
-            return (
-              <SmoothMarkdownText
-                key={`reconnect-text-${i}`}
-                text={part.text}
-                streaming={partStreaming}
-                resetKey={`reconnect-text-${i}`}
-                statusType={partStreaming ? "running" : "complete"}
-              />
-            );
-          }
-          if (part.type === "reasoning") {
-            return (
-              <ReasoningCell
-                key={`reconnect-reasoning-${i}`}
-                text={part.text}
-                isStreaming={chatRunning && i === streamingReasoningPartIndex}
-                resetKey={`reconnect-reasoning-${i}`}
-                defaultOpen={i === latestReasoningPartIndex}
-                collapseWhenReplaced={i < latestReasoningPartIndex}
-              />
-            );
-          }
-          if (part.type === "tool-call") {
-            return (
-              <ToolCallDisplay
-                key={`reconnect-tool-${i}`}
-                toolName={part.toolName}
-                argsText={part.argsText}
-                args={part.args}
-                result={part.result}
-                mcpApp={part.mcpApp}
-                chatUI={part.chatUI}
-                structuredMeta={part.structuredMeta}
-                isRunning={
-                  part.result === undefined &&
-                  (chatRunning || part.activity === true)
-                }
-                approval={part.approval}
-                repeatCount={part.repeatCount}
-              />
-            );
-          }
-          return null;
-        })}
+        {renderedParts}
       </div>
     </div>
   );
+}
+
+function getReconnectToolSummaryInfo(content: readonly ContentPart[]) {
+  const toolCallIndices = content.reduce<number[]>((indices, part, index) => {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(content, index) &&
+      isReconnectSummarizablePart(part)
+    ) {
+      indices.push(index);
+    }
+    return indices;
+  }, []);
+  if (toolCallIndices.length <= ASSISTANT_VISIBLE_TOOL_CALL_LIMIT) {
+    return { startIndex: -1 };
+  }
+  return {
+    startIndex:
+      toolCallIndices[
+        toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT
+      ]!,
+  };
+}
+
+function isReconnectSummarizablePart(part: ContentPart): boolean {
+  return (
+    part.type === "reasoning" ||
+    (part.type === "tool-call" &&
+      part.toolName !== "connect-builder" &&
+      part.chatUI === undefined &&
+      part.mcpApp === undefined)
+  );
+}
+
+function isReconnectToolSummaryPart(
+  content: readonly ContentPart[],
+  index: number,
+  startIndex: number,
+): boolean {
+  if (startIndex < 0 || index >= startIndex) return false;
+  if (
+    isCallAgentToolCallShadowed(content, index) ||
+    !isReconnectSummarizablePart(content[index]!)
+  ) {
+    return false;
+  }
+
+  let segmentStart = index;
+  while (
+    segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(content, segmentStart - 1) &&
+    isReconnectSummarizablePart(content[segmentStart - 1]!)
+  ) {
+    segmentStart--;
+  }
+
+  let segmentEnd = index + 1;
+  while (
+    segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(content, segmentEnd) &&
+    isReconnectSummarizablePart(content[segmentEnd]!)
+  ) {
+    segmentEnd++;
+  }
+
+  return content
+    .slice(segmentStart, segmentEnd)
+    .some((candidate) => candidate.type === "tool-call");
 }
 
 // ─── Reasoning / Thinking cell ────────────────────────────────────────────────
@@ -1094,22 +1261,28 @@ export function formatWorkedDuration(ms: number): string {
 
 export function WorkedForSummary({
   durationMs,
+  defaultOpen = false,
   autoCollapse = false,
   children,
 }: {
   durationMs?: number | null;
+  /** Keep completed work visible when the turn contains interactive UI. */
+  defaultOpen?: boolean;
   /** When true, close the summary after a run has completed. */
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
-  // Start closed so a remounted completed message never flashes its work
-  // details open while auto-collapse settles. If the summary was already
-  // open when autoCollapse changes, AnimatedCollapse still animates it shut.
-  const [open, setOpen] = useState(false);
+  // Ordinary completed work starts closed so a remount never flashes details
+  // while auto-collapse settles. Interactive UI opts into an open summary.
+  const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    if (autoCollapse) setOpen(false);
-  }, [autoCollapse]);
+    if (defaultOpen) {
+      setOpen(true);
+    } else if (autoCollapse) {
+      setOpen(false);
+    }
+  }, [autoCollapse, defaultOpen]);
 
   const label =
     durationMs != null && durationMs >= 1000
@@ -1136,6 +1309,39 @@ export function WorkedForSummary({
         <WorkSummaryContentContext.Provider value>
           <div className="pt-1">{children}</div>
         </WorkSummaryContentContext.Provider>
+      </AnimatedCollapse>
+    </div>
+  );
+}
+
+export function RanToolsSummary({
+  toolCount,
+  children,
+}: {
+  toolCount: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const label = `Ran ${toolCount} ${toolCount === 1 ? "tool" : "tools"}`;
+
+  return (
+    <div className="my-1 w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 py-0.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span>{label}</span>
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            open && "rotate-90",
+          )}
+        />
+      </button>
+      <AnimatedCollapse open={open}>
+        <div className="pt-1">{children}</div>
       </AnimatedCollapse>
     </div>
   );

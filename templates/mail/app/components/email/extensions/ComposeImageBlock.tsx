@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPhoto, IconLoader2, IconX } from "@tabler/icons-react";
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import { useState, useCallback } from "react";

@@ -1,5 +1,7 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import {
+  IconBolt,
+  IconCalendarEvent,
   IconClock,
   IconEye,
   IconLoader2,
@@ -9,6 +11,7 @@ import {
 } from "@tabler/icons-react";
 import { useState } from "react";
 
+import { AgentAskPopover } from "../AgentAskPopover.js";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +21,12 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useFormatters, useT } from "../i18n.js";
-import { AutomationsList } from "../settings/AutomationsSection.js";
+import {
+  automationCreationContext,
+  AutomationsList,
+} from "../settings/AutomationsSection.js";
+import { AgentEmptyState } from "./AgentEmptyState.js";
+import { AgentTabFrame } from "./AgentTabFrame.js";
 import type { AgentPageTabProps } from "./types.js";
 import {
   useManageRecurringJob,
@@ -26,14 +34,13 @@ import {
   type RecurringJob,
 } from "./use-jobs.js";
 
-export function AgentJobsTab({
-  scope,
-  canManageOrg = false,
-}: AgentPageTabProps) {
+export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
   const t = useT();
   const { formatDate } = useFormatters();
-  const query = useRecurringJobs(scope);
-  const mutation = useManageRecurringJob(scope);
+  const personalQuery = useRecurringJobs("user");
+  const organizationQuery = useRecurringJobs("org");
+  const personalMutation = useManageRecurringJob("user");
+  const organizationMutation = useManageRecurringJob("org");
   const [deleteTarget, setDeleteTarget] = useState<RecurringJob | null>(null);
   const [detailsTarget, setDetailsTarget] = useState<RecurringJob | null>(null);
 
@@ -47,38 +54,25 @@ export function AgentJobsTab({
     });
   };
 
-  const jobs = query.data ?? [];
-
-  return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6 lg:p-10">
-      <header className="space-y-3">
-        <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-          {t("jobs.agent", { defaultValue: "Agent" })}
-        </p>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {t("jobs.pageTitle", { defaultValue: "Jobs" })}
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            {t("jobs.pageDescription", {
-              defaultValue:
-                "See recurring jobs and automations that run work for you.",
-            })}
-          </p>
-        </div>
-      </header>
-
+  const renderRecurringSection = (
+    title: string,
+    scope: "user" | "org",
+    query: ReturnType<typeof useRecurringJobs>,
+    mutation: ReturnType<typeof useManageRecurringJob>,
+  ) => {
+    const jobs = query.data ?? [];
+    return (
       <section className="space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold">
-              {t("jobs.recurringTitle", { defaultValue: "Recurring jobs" })}
+          <div className="min-w-0">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+              {title}
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
               {scope === "org"
                 ? t("jobs.organizationRecurringDescription", {
                     defaultValue:
-                      "Cron jobs shared with this organization. Members can view them; creators and admins can manage them.",
+                      "Jobs shared with this organization. Members can view them; creators and admins can manage them.",
                   })
                 : t("jobs.recurringDescription", {
                     defaultValue:
@@ -110,29 +104,64 @@ export function AgentJobsTab({
             })}
           </p>
         ) : jobs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-6 text-center">
-            <IconClock className="mx-auto size-5 text-muted-foreground" />
-            <p className="mt-2 text-sm text-muted-foreground">
-              {scope === "org"
-                ? t("jobs.organizationEmpty", {
-                    defaultValue: "No organization jobs yet.",
+          <AgentEmptyState
+            icon={IconCalendarEvent}
+            title={
+              scope === "org"
+                ? t("jobs.organizationEmptyTitle", {
+                    defaultValue: "No organization jobs yet",
                   })
-                : t("jobs.recurringEmpty", {
+                : t("jobs.recurringEmptyTitle", {
+                    defaultValue: "No recurring jobs yet",
+                  })
+            }
+            description={
+              scope === "org"
+                ? t("jobs.organizationEmptyDescription", {
                     defaultValue:
-                      "No recurring jobs yet. Ask the agent: “every morning, summarize my inbox”.",
-                  })}
-            </p>
-          </div>
+                      "Describe a shared job for this organization.",
+                  })
+                : t("jobs.recurringEmptyDescription", {
+                    defaultValue: "Describe what should run and when.",
+                  })
+            }
+            action={
+              <AgentAskPopover
+                context={
+                  scope === "org"
+                    ? "The user wants to create an organization recurring job. Create it in the organization jobs resource with the schedule and instructions from their prompt."
+                    : "The user wants to create a personal recurring job. Create it in the personal jobs resource with the schedule and instructions from their prompt."
+                }
+                prompt={
+                  scope === "org"
+                    ? t("jobs.organizationPrompt", {
+                        defaultValue:
+                          "Create a shared organization job that runs on a schedule and does this: ",
+                      })
+                    : t("jobs.recurringPrompt", {
+                        defaultValue:
+                          "Create a recurring job that runs on a schedule and does this: every morning, summarize my inbox.",
+                      })
+                }
+                title={
+                  scope === "org"
+                    ? t("jobs.organizationCreateTitle", {
+                        defaultValue: "Create an organization job",
+                      })
+                    : t("jobs.recurringCreateTitle", {
+                        defaultValue: "Create a recurring job",
+                      })
+                }
+              />
+            }
+          />
         ) : (
-          <div className="space-y-3">
+          <div className="divide-y divide-border/60 border-y border-border/60">
             {jobs.map((job) => {
               const lastRun = formatDateTime(job.lastRun);
               const nextRun = formatDateTime(job.nextRun);
               return (
-                <article
-                  key={job.id}
-                  className="rounded-lg border border-border bg-card p-4"
-                >
+                <article key={job.id} className="py-4 first:pt-5 last:pb-5">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 text-muted-foreground">
                       <IconClock className="size-4" />
@@ -249,40 +278,82 @@ export function AgentJobsTab({
           </p>
         ) : null}
       </section>
+    );
+  };
 
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold">
-            {t("jobs.automationsTitle", { defaultValue: "Automations" })}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {scope === "org"
-              ? t("jobs.organizationAutomationsDescription", {
-                  defaultValue:
-                    "Automations are personal today, so none are shown in the organization view.",
-                })
-              : t("jobs.automationsDescription", {
-                  defaultValue:
-                    "Event-triggered and scheduled agent tasks managed from one place.",
+  const mutationPending =
+    personalMutation.isPending || organizationMutation.isPending;
+  const deleteMutation =
+    deleteTarget?.scope === "organization"
+      ? organizationMutation
+      : personalMutation;
+
+  return (
+    <AgentTabFrame
+      title={t("jobs.pageTitle", { defaultValue: "Jobs" })}
+      description={t("jobs.pageDescription", {
+        defaultValue:
+          "See recurring jobs and automations that run work for you.",
+      })}
+    >
+      <div className="space-y-7">
+        {renderRecurringSection(
+          "Personal",
+          "user",
+          personalQuery,
+          personalMutation,
+        )}
+        {renderRecurringSection(
+          "Organization",
+          "org",
+          organizationQuery,
+          organizationMutation,
+        )}
+
+        <section className="space-y-4 border-t border-border/70 pt-6">
+          <div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+              {t("jobs.automationsTitle", { defaultValue: "Automations" })}
+            </h2>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("jobs.automationsDescription", {
+                defaultValue:
+                  "Event-triggered and scheduled agent tasks managed from one place.",
+              })}
+            </p>
+          </div>
+          <AutomationsList
+            scope="user"
+            emptyState={
+              <AgentEmptyState
+                icon={IconBolt}
+                title={t("jobs.automationsEmptyTitle", {
+                  defaultValue: "No automations yet",
                 })}
-          </p>
-        </div>
-        <AutomationsList
-          scope={scope}
-          emptyMessage={
-            scope === "org"
-              ? t("jobs.automationsPersonalOnly", {
-                  defaultValue: "Automations are personal today.",
-                })
-              : undefined
-          }
-        />
-      </section>
+                description={t("jobs.automationsEmptyDescription", {
+                  defaultValue: "Describe what should happen and when.",
+                })}
+                action={
+                  <AgentAskPopover
+                    context={automationCreationContext()}
+                    prompt={t("jobs.automationPrompt", {
+                      defaultValue: "Create an automation that does this: ",
+                    })}
+                    title={t("jobs.automationsCreateTitle", {
+                      defaultValue: "Create an automation",
+                    })}
+                  />
+                }
+              />
+            }
+          />
+        </section>
+      </div>
 
       <Dialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !mutation.isPending) setDeleteTarget(null);
+          if (!open && !mutationPending) setDeleteTarget(null);
         }}
       >
         <DialogContent>
@@ -304,7 +375,7 @@ export function AgentJobsTab({
               type="button"
               variant="outline"
               className="cursor-pointer"
-              disabled={mutation.isPending}
+              disabled={mutationPending}
               onClick={() => setDeleteTarget(null)}
             >
               {t("jobs.cancel", { defaultValue: "Cancel" })}
@@ -313,10 +384,10 @@ export function AgentJobsTab({
               type="button"
               variant="destructive"
               className="cursor-pointer"
-              disabled={mutation.isPending}
+              disabled={mutationPending}
               onClick={() => {
                 if (!deleteTarget) return;
-                mutation.mutate(
+                deleteMutation.mutate(
                   {
                     operation: "delete",
                     name: deleteTarget.name,
@@ -326,7 +397,7 @@ export function AgentJobsTab({
                 );
               }}
             >
-              {mutation.isPending ? (
+              {mutationPending ? (
                 <IconLoader2 className="size-4 animate-spin" />
               ) : null}
               {t("jobs.delete", { defaultValue: "Delete" })}
@@ -361,10 +432,29 @@ export function AgentJobsTab({
               <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
                 {detailsTarget.instructions}
               </p>
+              {detailsTarget.mcpTools.length > 0 ? (
+                <div className="mt-4">
+                  <p className="text-xs font-medium text-foreground">
+                    {t("jobs.mcpTools", {
+                      defaultValue: "Connected MCP tools",
+                    })}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {detailsTarget.mcpTools.map((toolName) => (
+                      <code
+                        key={toolName}
+                        className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        {toolName}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </DialogContent>
       </Dialog>
-    </div>
+    </AgentTabFrame>
   );
 }

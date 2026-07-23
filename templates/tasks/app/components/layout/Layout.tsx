@@ -1,8 +1,8 @@
 import {
   AgentSidebar,
   focusAgentChat,
-  useAgentChatHomeHandoff,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
@@ -36,15 +36,10 @@ function routeOwnsToolbar(pathname: string): boolean {
 }
 
 export function Layout({ children }: LayoutProps) {
+  const t = useT();
   const location = useLocation();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const chatHomeHandoffActive = useAgentChatHomeHandoff({
-    storageKey: "chat",
-    activePath: location.pathname,
-    enabled: true,
-  });
-
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
@@ -78,7 +73,7 @@ export function Layout({ children }: LayoutProps) {
           <button
             type="button"
             onClick={() => setMobileSidebarOpen(true)}
-            aria-label="Open navigation"
+            aria-label={t("header.openNavigation")}
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <IconMenu2 className="h-4 w-4" />
@@ -104,9 +99,11 @@ export function Layout({ children }: LayoutProps) {
         </div>
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent side="left" className="p-0 w-[260px]">
-            <SheetTitle className="sr-only">Navigation</SheetTitle>
+            <SheetTitle className="sr-only">
+              {t("sidebar.navigationTitle")}
+            </SheetTitle>
             <SheetDescription className="sr-only">
-              App navigation links
+              {t("sidebar.navigationDescription")}
             </SheetDescription>
             <Sidebar collapsed={false} collapsible={false} />
           </SheetContent>
@@ -114,16 +111,15 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           chatViewTransition
-          storageKey="chat"
+          storageKey="tasks"
           browserTabId={TAB_ID}
-          openOnChatRunning={chatHomeHandoffActive}
           onFullscreenRequest={() => focusAgentChat()}
-          emptyStateText="Ask the agent to inspect or change this app."
+          emptyStateText={t("agent.emptyState")}
           dynamicSuggestions={false}
           suggestions={[
-            "Check my calendar and mails - any tasks for today?",
-            "Prioritise my tasks",
-            "I need to clean my house, create a list of tasks for it",
+            t("agent.suggestionCalendar"),
+            t("agent.suggestionPrioritize"),
+            t("agent.suggestionCleanHouse"),
           ]}
         >
           {contentFrame}

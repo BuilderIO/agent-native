@@ -1,16 +1,17 @@
-import { useDbSync } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
-  getLocaleInitScript,
-  getThemeInitScript,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
   useCommandMenuShortcut,
-  useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
-import { IconBrain, IconMoon, IconSun } from "@tabler/icons-react";
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconMoon, IconSun } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -195,7 +196,7 @@ function AppContent() {
               "access",
             ]}
           >
-            <IconBrain size={16} />
+            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
@@ -240,4 +241,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

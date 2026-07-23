@@ -1,9 +1,6 @@
-import {
-  isAgentChatHomeHandoffActive,
-  markAgentChatHomeHandoff,
-  useAgentRouteState,
-  getBrowserTabId,
-} from "@agent-native/core/client";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
 
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
@@ -15,7 +12,8 @@ function optionalParam(params: URLSearchParams, key: string) {
 
 function optionalLibraryTab(params: URLSearchParams) {
   const tab = params.get("tab");
-  return tab === "references" ||
+  return tab === "drafts" ||
+    tab === "references" ||
     tab === "generated" ||
     tab === "runs" ||
     tab === "settings"
@@ -203,8 +201,7 @@ export function useNavigationState() {
     onNavigate: (_command, path) => {
       if (
         isCreatePath(location.pathname) &&
-        !isCreatePath(pathnameFromPath(path)) &&
-        isAgentChatHomeHandoffActive(ASSETS_CHAT_STORAGE_KEY)
+        !isCreatePath(pathnameFromPath(path))
       ) {
         markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
       }

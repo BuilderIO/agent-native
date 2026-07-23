@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,8 +50,16 @@ class MockEventSource {
   }
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+});
+
 function wrapper({ children }: { children: ReactNode }) {
-  return createElement(DeckProvider, null, children);
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(DeckProvider, null, children),
+  );
 }
 
 function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
@@ -163,6 +172,7 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    queryClient.clear();
     MockEventSource.lastInstance = null;
     MockEventSource.instances = [];
   });
@@ -285,6 +295,58 @@ describe("DeckContext deck creation persistence", () => {
     });
 
     expect(result.current.getDeck("shared-deck")?.slides).toEqual([]);
+  });
+
+  it("persists a duplicated slide after the optimistic insert", async () => {
+    window.history.pushState({}, "", "/");
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck("Deck").id;
+    });
+    resolveCreate(new Response("", { status: 200 }));
+
+    const originalSlide = result.current.getDeck(deckId)!.slides[0];
+    vi.useFakeTimers();
+    act(() => {
+      result.current.duplicateSlide(deckId, originalSlide.id);
+    });
+
+    expect(result.current.getDeck(deckId)?.slides).toHaveLength(3);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([url, init]) => {
+      if (!String(url).includes("/_agent-native/actions/patch-deck")) {
+        return false;
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        deckId?: string;
+      };
+      return body.deckId === deckId;
+    });
+    expect(patchCall).toBeTruthy();
+    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+      deckId,
+      operations: [
+        {
+          op: "add-slide",
+          afterSlideId: originalSlide.id,
+          fields: {
+            content: originalSlide.content,
+            notes: originalSlide.notes,
+            layout: originalSlide.layout,
+            background: originalSlide.background,
+          },
+        },
+      ],
+    });
   });
 
   it("records the first edit after reloading over a pending undo skip", async () => {
@@ -856,7 +918,8 @@ describe("DeckContext deck creation persistence", () => {
           await vi.advanceTimersByTimeAsync(1);
         });
         expect(MockEventSource.instances.length).toBe(countBeforeCap + 1);
-        current = MockEventSource.instances.at(-1)!;
+        current =
+          MockEventSource.instances[MockEventSource.instances.length - 1]!;
       }
     });
 
@@ -944,7 +1007,8 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      const reconnected = MockEventSource.instances.at(-1)!;
+      const reconnected =
+        MockEventSource.instances[MockEventSource.instances.length - 1]!;
       expect(reconnected).not.toBe(source);
 
       // Switch back to real timers before using testing-library's `waitFor`,
@@ -1034,7 +1098,8 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      const reconnected = MockEventSource.instances.at(-1)!;
+      const reconnected =
+        MockEventSource.instances[MockEventSource.instances.length - 1]!;
       vi.useRealTimers();
 
       act(() => {
@@ -1144,7 +1209,8 @@ describe("DeckContext deck creation persistence", () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1000);
       });
-      const reconnected = MockEventSource.instances.at(-1)!;
+      const reconnected =
+        MockEventSource.instances[MockEventSource.instances.length - 1]!;
       vi.useRealTimers();
 
       act(() => {

@@ -243,10 +243,11 @@ export default defineConfig({
 
 ### 3. Añade el complemento del servidor de colaboración
 
-Establezca siempre `resourceType` con el nombre del recurso compartido registrado
-a través de `registerShareableResource`. Sin él, se entregan eventos push de colaboración
-a todos los usuarios autenticados sin alcance a nivel de documento y al servidor
-registra una advertencia única.
+Elija el modo de acceso que corresponda al modelo de datos. Los registros con
+propietario o compartibles usan `mode: "resource"` con el tipo registrado mediante
+`registerShareableResource`. Los registros compartidos deliberadamente con todos los
+usuarios autenticados de la implementación usan `mode: "all-authenticated"` explícito.
+Nunca invente un tipo de recurso solo para silenciar una advertencia.
 
 ```ts
 // server/plugins/collab.ts
@@ -256,14 +257,17 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+Omitir `access` es un comportamiento heredado y obsoleto. Se comporta como
+`all-authenticated`, registra una advertencia y Doctor lo señala.
 
 ### 4. Utilice el gancho del cliente
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -436,8 +440,7 @@ Los cambios en el estado de concientización ahora se propagan a ~150 ms en luga
 Devuelve una lista reactiva de participantes remotos y un configurador para la carga útil de presencia local:
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -499,8 +502,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 Invoque una devolución de llamada cada vez que cambie la ventana gráfica del participante seguido:
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -534,8 +536,7 @@ El componente `PresenceBar` ahora acepta accesorios de modo de seguimiento opcio
 ### Ayudantes de coordenadas normalizadas {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,
@@ -607,22 +608,35 @@ complemento:
 
 ## Seguridad {#security}
 
-### Establecer siempre `resourceType`
+### Elija explícitamente el modelo de acceso
+
+Para recursos con propietario o compartibles, use el tipo registrado mediante
+`registerShareableResource`:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-Sin `resourceType`, el complemento registra una advertencia y transmite un push de colaboración
-eventos para todos los usuarios autenticados en la implementación sin nivel de documento
-alcance. Los no propietarios recurren a la recuperación del vector estatal (segura pero mayor
-latencia) independientemente de si está configurado `resourceType`.
+Para un recurso compartido intencionadamente en toda la implementación:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+No invente un `resourceType` para eliminar una advertencia: el modo `resource`
+solo es válido cuando existe el modelo de propiedad y uso compartido correspondiente.
+Omitir `access` se admite por compatibilidad heredada, se comporta como
+`all-authenticated`, registra una advertencia y Doctor lo señala. Los usuarios no
+propietarios con acceso explícito usan la recuperación por vector de estado (segura,
+pero con mayor latencia).
 
 ### Comprobaciones de acceso
 
-Todas las rutas de colaboración requieren autenticación. Cuando se establece `resourceType`, se lee
+Todas las rutas de colaboración requieren autenticación. En modo `resource`, las lecturas
 requieren al menos acceso de espectador y las escrituras requieren acceso de editor, usando el
 los mismos ayudantes `resolveAccess` / `assertAccess` que el sistema para compartir. Un 404
 (no 403) se devuelve en caso de errores de acceso para evitar filtrar la existencia del documento.
@@ -635,7 +649,7 @@ Anular por complemento:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -767,7 +781,7 @@ capas encima del mismo estado de conciencia.
 - [Real-Time Sync](/docs/client#usedbsync): el `useDbSync` + `useChangeVersion`
   sistema que ofrece la conciliación del editor de conducción de golpes `updatedAt`.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  y `assertAccess` para el modelo de acceso al que hace referencia `resourceType`.
+  y `assertAccess` para la colaboración con alcance de recurso.
 - [Sharing](/docs/sharing): cómo se comparten los documentos y cómo se otorga el acceso.
 - [Template: Content](/docs/template-content) — implementación de referencia de
   edición colaborativa de texto enriquecido.

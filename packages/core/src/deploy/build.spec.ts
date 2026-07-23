@@ -11,13 +11,17 @@ import {
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
+  CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES,
+  cloudflareWorkerStubAliasArgs,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
+  emitSingleTemplateNetlifyKeepWarmFunction,
   findInstalledFfmpegStaticPackage,
   findInstalledResvgPackages,
   generateCloudflarePagesStaticShellFromManifest,
@@ -52,6 +56,54 @@ describe("nitroNoExternalsForPreset", () => {
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("cloudflareWorkerStubAliasArgs", () => {
+  it("routes known package subpaths to exact stubs before package aliases", () => {
+    const stubDir = path.join("tmp", "worker-stubs");
+    const aliases = cloudflareWorkerStubAliasArgs(stubDir);
+    const workerAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdf-parse/worker="),
+    );
+    const packageAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdf-parse="),
+    );
+    const playwrightAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:playwright="),
+    );
+
+    expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
+      "pdf-parse/worker",
+    );
+    expect(workerAlias).toBe(
+      `--alias:pdf-parse/worker=${path.join(stubDir, "pdf-parse__worker.js")}`,
+    );
+    expect(packageAlias).toBe(
+      `--alias:pdf-parse=${path.join(stubDir, "pdf-parse", "index.js")}`,
+    );
+    expect(CLOUDFLARE_WORKER_STUB_MODULES).toHaveProperty("playwright");
+    expect(playwrightAlias).toBe(
+      `--alias:playwright=${path.join(stubDir, "playwright", "index.js")}`,
+    );
+    expect(aliases.indexOf(workerAlias!)).toBeLessThan(
+      aliases.indexOf(packageAlias!),
+    );
+  });
+
+  it("rejects dynamic imports that bypass fail-closed package stubs", () => {
+    expect(() =>
+      assertNoCloudflareWorkerStubDynamicImports(
+        'const moduleName = "playwright"; import("playwright");',
+        "worker.js",
+      ),
+    ).toThrow(/stubbed module "playwright"/);
+    expect(() =>
+      assertNoCloudflareWorkerStubDynamicImports(
+        "throw new Error('playwright unavailable in Cloudflare Pages worker')",
+        "worker.js",
+      ),
+    ).not.toThrow();
   });
 });
 
@@ -779,6 +831,8 @@ export default {
     expect(response.status).toBe(204);
     const allowHeaders = response.headers.get("Access-Control-Allow-Headers");
     expect(allowHeaders).toContain("X-Agent-Native-Frontend");
+    expect(allowHeaders).toContain("X-Agent-Native-Client-Compatibility");
+    expect(allowHeaders).toContain("X-Agent-Native-Build-Id");
     expect(allowHeaders).toContain("X-User-Timezone");
   });
 
@@ -1453,6 +1507,39 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   }
 
+  function keepWarmDir(cwd: string): string {
+    return path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "agent-native-keep-warm",
+    );
+  }
+
+  it("emits a site-local scheduled function that warms the real server route", () => {
+    const cwd = setupNetlifyOutput();
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    const entryPath = path.join(keepWarmDir(cwd), "agent-native-keep-warm.mjs");
+    expect(fs.existsSync(entryPath)).toBe(true);
+    const entry = fs.readFileSync(entryPath, "utf8");
+    expect(entry).toContain('const HEALTH_PATH = "/_agent-native/health"');
+    expect(entry).toContain('schedule: "* * * * *"');
+    expect(entry).toContain("await fetch(url");
+    expect(entry).toContain("agent-native-netlify-keep-warm");
+    expect(entry).not.toMatch(/^\s*path:/m);
+  });
+
+  it("does not emit a keep-warm function without Nitro's server bundle", () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-bg-emit-"));
+    dirs.push(cwd);
+
+    emitSingleTemplateNetlifyKeepWarmFunction(cwd);
+
+    expect(fs.existsSync(keepWarmDir(cwd))).toBe(false);
+  });
+
   it("is OFF BY DEFAULT (flag unset) so the -background function is NOT emitted", () => {
     // Default-off (opt-in) matches the runtime gate (isFlagEnabled) — durable is
     // opt-in until the async worker path is proven live, so the 15-min
@@ -1707,6 +1794,72 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   });
 
+  it("fails deploy output with bare ingestion runtime imports", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const ingestionChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "pptx.mjs",
+    );
+    fs.mkdirSync(path.dirname(ingestionChunk), { recursive: true });
+    fs.writeFileSync(
+      ingestionChunk,
+      "export const dependencies = Promise.all([import(`jszip`), import(`fast-xml-parser`)]);\n",
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves ingestion dependencies as runtime imports: jszip .*fast-xml-parser|leaves ingestion dependencies as runtime imports: fast-xml-parser .*jszip/,
+    );
+  });
+
+  it("fails deploy output with bare PDF runtime subpath imports", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const ingestionChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "pdf.mjs",
+    );
+    fs.mkdirSync(path.dirname(ingestionChunk), { recursive: true });
+    fs.writeFileSync(
+      ingestionChunk,
+      'export const dependencies = Promise.all([import("pdf-parse/worker"), import("pdfjs-dist/legacy/build/pdf.mjs")]);\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves ingestion dependencies as runtime imports: pdf-parse .*pdfjs-dist|leaves ingestion dependencies as runtime imports: pdfjs-dist .*pdf-parse/,
+    );
+  });
+
+  it("fails deploy output with bare Office parser runtime imports", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const ingestionChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "office.mjs",
+    );
+    fs.mkdirSync(path.dirname(ingestionChunk), { recursive: true });
+    fs.writeFileSync(
+      ingestionChunk,
+      'export const dependency = import("officeparser");\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /leaves ingestion dependencies as runtime imports: officeparser/,
+    );
+  });
+
   it("fails deploy output wired to Nitro's private tree-shaken Yjs chunk", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
@@ -1726,6 +1879,28 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
       /internal tree-shaken _libs\/yjs\.mjs/,
+    );
+  });
+
+  it("fails deploy output containing the Vitest test runtime", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "server.mjs",
+    );
+    fs.mkdirSync(path.dirname(serverChunk), { recursive: true });
+    fs.writeFileSync(
+      serverChunk,
+      'const runtime = "@vitest/runner"; export { runtime };\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /contains Vitest test runtime code/,
     );
   });
 

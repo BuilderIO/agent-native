@@ -255,8 +255,7 @@ O UI nunca chama um LLM diretamente. Quando um usuário clica em “Gerar gráfi
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -307,8 +306,7 @@ As alterações do banco de dados são sincronizadas com UI por meio de `useDbSy
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -421,7 +419,7 @@ Duas regras arquitetônicas mantêm os aplicativos portáteis entre bancos de da
 
 ## Espaço de trabalho {#workspace}
 
-Cada usuário recebe um **espaço de trabalho** pessoal — instruções, skills, memória, subagentes personalizados, trabalhos agendados e servidores MCP conectados — todos armazenados em SQL em vez de arquivos. Isso torna a personalização em nível de código Claude viável dentro de SaaS multilocatário sem criar um contêiner por usuário. Consulte [Workspace](/docs/workspace).
+Cada usuário recebe um **espaço de trabalho** pessoal — instruções, skills, memória, subagentes personalizados, trabalhos agendados e servidores MCP conectados — todos armazenados em SQL em vez de arquivos. Isso torna a personalização em nível de código Claude viável dentro de SaaS multilocatário sem criar um contêiner por usuário. Consulte [Recursos do Agente](/docs/agent-resources).
 
 ## Blocos de construção relacionados {#building-blocks}
 
@@ -437,7 +435,7 @@ Eles estão no mesmo contrato e têm seus próprios aprofundamentos:
 Adotar o framework é valioso principalmente por causa do que você deixa de ter que construir. No momento em que seu aplicativo seguir as seis regras, você herdará:
 
 - **Uma ação = cada superfície.** Cada ação definida com `defineAction()` é simultaneamente uma ferramenta de agente, um gancho de frontend typesafe (`useActionQuery`/`useActionMutation`), um transporte HTTP de propriedade da estrutura, um comando CLI, uma ferramenta MCP para clientes externos e uma ferramenta A2A para outros aplicativos nativos de agente. Os metadados `link` e `mcpApp` opcionais adicionam links diretos e aplicativos MCP UI sem uma segunda implementação.
-- **Um espaço de trabalho completo por usuário.** Skills, `LEARNINGS.md` compartilhado, `memory/MEMORY.md` pessoal, `AGENTS.md`, subagentes personalizados, trabalhos agendados, servidores MCP conectados — todos com suporte de SQL, sem necessidade de caixa de desenvolvimento. Consulte [Workspace](/docs/workspace).
+- **Um espaço de trabalho completo por usuário.** Skills, `LEARNINGS.md` compartilhado, `memory/MEMORY.md` pessoal, `AGENTS.md`, subagentes personalizados, trabalhos agendados, servidores MCP conectados — todos com suporte de SQL, sem necessidade de caixa de desenvolvimento. Consulte [Recursos do Agente](/docs/agent-resources).
 - **Componentes React integrados.** `<AgentPanel />` e `<AgentSidebar />` renderizam chat + espaço de trabalho em qualquer lugar do seu aplicativo. Consulte [Drop-in Agent](/docs/drop-in-agent).
 - **Tempos de execução de bate-papo do agente BYO.** O mesmo bate-papo UI pode ser colocado sobre Agentes OpenAI, Respostas OpenAI, Agente Claude SDK, Vercel AI SDK, AG-UI ou seu próprio fluxo HTTP normalizado. Consulte [Native Interface de chat](/docs/native-chat-ui#byo-agent-runtimes).
 - **Sincronização ao vivo entre o agente e UI.** O mesmo processo grava fluxo imediatamente em `/_agent-native/events`; uma pesquisa leve mantém as gravações sem servidor, cron e entre processos convergentes. A mutação actions invalida automaticamente as consultas baseadas em ação, de modo que os registros criados pelo agente aparecem sem atualização manual. Veja [Live Sync](#polling-sync) abaixo.

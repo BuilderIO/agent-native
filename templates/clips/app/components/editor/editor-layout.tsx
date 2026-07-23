@@ -1,22 +1,12 @@
-/**
- * Non-destructive editor for a single recording.
- *
- * Three rows, top to bottom:
- *   1. Preview — a simple <video> element plus a side panel for transcript.
- *   2. Transcript editor (middle) + chapters sidebar.
- *   3. Waveform, trim handles, timeline ruler (bottom).
- *
- * All edits (trim, split, thumbnail, chapters, stitch) go through actions so
- * the agent and UI stay in sync via `useDbSync` + the `refresh-signal` poke.
- */
-
 import {
   agentNativePath,
   appBasePath,
+} from "@agent-native/core/client/api-path";
+import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -59,6 +49,7 @@ import {
   readPlaybackSpeedPreference,
   savePlaybackSpeedPreference,
 } from "@/lib/playback-speed";
+import { canOfferRewindHistory } from "@/lib/rewind-visibility";
 import {
   parseEdits,
   getExcludedRanges,
@@ -70,7 +61,9 @@ import { cn } from "@/lib/utils";
 import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 
 import { ChaptersEditor } from "./chapters-editor";
+import { defaultSelectionRange } from "./editor-selection";
 import { EditorToolbar } from "./editor-toolbar";
+import { RewindExtensionDialog } from "./rewind-extension-dialog";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
@@ -228,6 +221,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
 
   const [thumbOpen, setThumbOpen] = useState(false);
   const [stitchOpen, setStitchOpen] = useState(false);
+  const [rewindOpen, setRewindOpen] = useState(false);
   const [chaptersOpen, setChaptersOpen] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -604,10 +598,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   }, [playheadMs, recordingId, selectionRange, split, trim, undo]);
 
   // Default selection window so the TrimHandles have something to render.
-  const effectiveSelection = selectionRange ?? {
-    startMs: 0,
-    endMs: durationMs || 1_000,
-  };
+  const effectiveSelection =
+    selectionRange ?? defaultSelectionRange(playheadMs, durationMs);
 
   if (playerDataQuery.isLoading) {
     return (
@@ -647,6 +639,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenThumbnailPicker={() => setThumbOpen(true)}
         onOpenChapters={() => setChaptersOpen((v) => !v)}
         onOpenStitch={() => setStitchOpen(true)}
+        onOpenRewind={() => setRewindOpen(true)}
+        rewindAlreadyAdded={Boolean(edits.rewindOriginalStartMs)}
+        rewindAvailable={canOfferRewindHistory(playerData?.role)}
+        rewindRequiresPrivate={recording?.visibility !== "private"}
         chaptersOpen={chaptersOpen}
       />
 
@@ -750,6 +746,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   playheadMs={playheadMs}
                   chapters={chapters}
                   splitPoints={splitPoints}
+                  originalStartMs={edits.rewindOriginalStartMs}
                   onSeek={seek}
                   onClickChapter={(c) => seek(c.startMs)}
                 />
@@ -798,6 +795,23 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         onOpenChange={setStitchOpen}
         seedRecordingId={recordingId}
       />
+      {canOfferRewindHistory(playerData?.role) ? (
+        <RewindExtensionDialog
+          open={rewindOpen}
+          onOpenChange={setRewindOpen}
+          recordingId={recordingId}
+          durationMs={durationMs}
+          videoFormat={videoFormat}
+          hasAudio={Boolean(recording.hasAudio)}
+          visibility={recording.visibility}
+          onVisibilityChanged={async () => {
+            await playerDataQuery.refetch();
+          }}
+          onApplied={async () => {
+            await playerDataQuery.refetch();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,9 +1,8 @@
-import {
-  openAgentSidebar,
-  useActionQuery,
-  appApiPath,
-  useT,
-} from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSidebar } from "@agent-native/core/client/navigation";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   useSetPageTitle,
   useSetHeaderActions,
@@ -1130,7 +1129,14 @@ function BuilderIndexPreview({
       <div className="flex items-center gap-2 border-t border-border pt-4">
         {result.builderUrl ? (
           <Button asChild className="cursor-pointer">
-            <a href={result.builderUrl} target="_blank" rel="noreferrer">
+            <a
+              href={withBuilderUtmTrackingParams(result.builderUrl, {
+                campaign: "product",
+                content: "design_system_intelligence",
+              })}
+              target="_blank"
+              rel="noreferrer"
+            >
               <IconExternalLink className="size-4" />
               {"Open in Builder" /* i18n-ignore Builder link action */}
             </a>

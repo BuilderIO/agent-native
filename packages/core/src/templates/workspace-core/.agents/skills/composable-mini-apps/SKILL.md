@@ -42,6 +42,11 @@ The main agent should discover available siblings before assuming capability:
 - In the agent loop, use `call-agent` with the sibling app id when another app
   owns the work or data. Never call the current app through `call-agent`; use
   local actions instead.
+- When the exact sibling-owned read action and input are already known, use
+  `invokeAgentAction()` or `call-agent` with `action` + `input`. This preserves
+  the receiver's credentials and access checks while skipping its second model
+  loop. Use prompt-based `invokeAgent()` only when the sibling must reason,
+  synthesize, mutate, or perform a multi-step workflow.
 
 Send narrow prompts to siblings: name the exact question, relevant ids, date
 ranges, and expected output shape. Preserve returned ids and URLs verbatim.

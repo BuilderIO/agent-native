@@ -130,9 +130,15 @@ export interface MultiScreenCanvasProps {
    * transformed directly from the overview canvas. */
   lockedScreenIds?: ReadonlySet<string> | readonly string[];
   fullViewScreenIds?: string[];
+  /** Screens with generated candidates waiting for explicit review. */
+  pendingReviewScreenIds?: ReadonlySet<string> | readonly string[];
+  /** Opens candidate review for one pending screen. */
+  onReviewPendingScreen?: (screenId: string) => void;
   /** Lets every live frame receive native pointer interaction while the
    * overview camera and frame chrome remain available. */
   interactMode?: boolean;
+  /** Viewer mode keeps selection/inspection available without edit chrome. */
+  readOnly?: boolean;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;

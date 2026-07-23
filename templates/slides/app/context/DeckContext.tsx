@@ -1,12 +1,15 @@
 import {
   agentNativePath,
   appBasePath,
-  callAction,
+} from "@agent-native/core/client/api-path";
+import {
   createLocalOpUndoController,
-  isEmbedAuthActive,
   type LocalOpUndoController,
   type LocalOpUndoEntry,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/collab";
+import { callAction } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useOrg } from "@agent-native/core/client/org";
 import { nanoid } from "nanoid";
 import {
   createContext,
@@ -948,6 +951,7 @@ export const defaultSlideContent: Record<SlideLayout, string> = {
 };
 
 export function DeckProvider({ children }: { children: ReactNode }) {
+  const { data: org } = useOrg();
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -1266,6 +1270,22 @@ export function DeckProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
   }, [resetDeckBaseline]);
+
+  // Switching orgs re-scopes list-decks server-side but leaves this context's
+  // in-memory list untouched, so the previous org's decks linger. Reload when
+  // the org id actually changes; skip the first observed id so we don't double
+  // up on the mount fetch above.
+  const lastOrgIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const orgId = org?.orgId ?? null;
+    if (lastOrgIdRef.current === undefined) {
+      lastOrgIdRef.current = orgId;
+      return;
+    }
+    if (lastOrgIdRef.current === orgId) return;
+    lastOrgIdRef.current = orgId;
+    void reloadDecks();
+  }, [org?.orgId, reloadDecks]);
 
   // Fallback polling for deck list + open-deck changes. SSE is the primary
   // path; this catches agent/db writes that bypass it without hammering idle
@@ -1920,39 +1940,39 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
   const duplicateSlide = useCallback(
     (deckId: string, slideId: string) => {
-      markDeckDirty(deckId);
       const before = decksRef.current.find((d) => d.id === deckId);
-      let copiedSlide: Slide | undefined;
+      const original = before?.slides.find((slide) => slide.id === slideId);
+      if (!before || !original) return;
+
+      markDeckDirty(deckId);
+      const copiedSlide: Slide = { ...original, id: nanoid(8) };
       setDecksLocal((prev) =>
         prev.map((d) => {
           if (d.id !== deckId) return d;
           const idx = d.slides.findIndex((s) => s.id === slideId);
           if (idx === -1) return d;
-          const original = d.slides[idx];
-          const copy: Slide = { ...original, id: nanoid(8) };
-          copiedSlide = copy;
           const slides = [...d.slides];
-          slides.splice(idx + 1, 0, copy);
+          slides.splice(idx + 1, 0, copiedSlide);
           return { ...d, slides, updatedAt: new Date().toISOString() };
         }),
       );
-      if (copiedSlide) {
-        // Granular add-slide op — inserts the copy after the original.
-        const { id: newSlideId, ...rest } = copiedSlide;
-        const op: PatchDeckOp = {
-          op: "add-slide",
-          slideId: newSlideId,
-          afterSlideId: slideId,
-          fields: {
-            content: rest.content,
-            notes: rest.notes,
-            layout: rest.layout,
-            background: rest.background,
-          },
-        };
-        enqueueDeckOp(deckId, op);
-        if (before) recordUndo(before, op, { label: "Duplicate slide" });
-      }
+      // Granular add-slide op — inserts the copy after the original. Build it
+      // from the current deck before scheduling the React state update; the
+      // functional updater runs later and cannot be used to produce the op.
+      const { id: newSlideId, ...rest } = copiedSlide;
+      const op: PatchDeckOp = {
+        op: "add-slide",
+        slideId: newSlideId,
+        afterSlideId: slideId,
+        fields: {
+          content: rest.content,
+          notes: rest.notes,
+          layout: rest.layout,
+          background: rest.background,
+        },
+      };
+      enqueueDeckOp(deckId, op);
+      recordUndo(before, op, { label: "Duplicate slide" });
     },
     [markDeckDirty, recordUndo, setDecksLocal],
   );

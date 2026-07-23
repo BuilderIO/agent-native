@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["ja-JP"],
   root: {
     commandPresentations: "プレゼンテーション",
     searchDecks: "デッキを検索",
@@ -34,10 +37,10 @@ const messages = {
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    agentTitle: "エージェント設定",
+    agentTitle: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    openAgentSettings: "エージェント設定を開く",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    openAgentSettings: "エージェントを管理",
   },
   agent: {
     emptyState: "プレゼンテーションについて何でも聞いてください",

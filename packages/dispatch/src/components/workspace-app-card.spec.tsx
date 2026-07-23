@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "./ui/tooltip";
 import { WorkspaceAppCard } from "./workspace-app-card";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
   useActionQuery: () => ({
     data: { resources: [], counts: {} },
@@ -61,7 +61,7 @@ describe("WorkspaceAppCard", () => {
 
     const actions = [
       container.querySelector<HTMLButtonElement>(
-        'button[aria-label="View context resources for Analytics"]',
+        'button[aria-label="View agent resources for Analytics"]',
       ),
       container.querySelector<HTMLButtonElement>(
         'button[aria-label="Manage keys for Analytics"]',
@@ -80,6 +80,38 @@ describe("WorkspaceAppCard", () => {
       );
       expect(action?.className).not.toContain("opacity-0");
     }
+  });
+
+  it("labels per-app context as agent resources while preserving workspace scope", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceAppCard
+            app={{
+              id: "analytics",
+              name: "Analytics",
+              path: "/analytics",
+              description: "Explore product and growth performance.",
+              status: "ready",
+            }}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const resourcesButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="View agent resources for Analytics"]',
+    );
+
+    await act(async () => resourcesButton?.click());
+
+    expect(document.body.textContent).toContain("Analytics agent resources");
+    expect(document.body.textContent).toContain(
+      "Workspace-scope agent resources are inherited at runtime.",
+    );
+    expect(document.body.textContent).toContain(
+      "All-app agent resources live once at workspace scope",
+    );
   });
 
   it("opens pending Builder apps in a new tab", async () => {

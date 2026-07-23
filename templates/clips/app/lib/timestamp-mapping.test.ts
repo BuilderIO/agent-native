@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { skipExcludedRange } from "./timestamp-mapping";
+import {
+  parseEdits,
+  serializeEdits,
+  skipExcludedRange,
+} from "./timestamp-mapping";
 
 describe("skipExcludedRange", () => {
   const cuts = [
@@ -22,5 +26,29 @@ describe("skipExcludedRange", () => {
     expect(
       skipExcludedRange(4_900, [{ startMs: 4_000, endMs: 6_000 }], 5_000),
     ).toBe(5_000);
+  });
+});
+
+describe("Rewind original-start provenance", () => {
+  it("round-trips a positive countdown-complete boundary", () => {
+    const parsed = parseEdits(
+      serializeEdits({
+        version: 1,
+        trims: [],
+        blurs: [],
+        rewindOriginalStartMs: 30_042.4,
+      }),
+    );
+
+    expect(parsed.rewindOriginalStartMs).toBe(30_042);
+  });
+
+  it("drops invalid or non-positive boundaries", () => {
+    expect(
+      parseEdits('{"rewindOriginalStartMs":0}').rewindOriginalStartMs,
+    ).toBeUndefined();
+    expect(
+      parseEdits('{"rewindOriginalStartMs":"30000"}').rewindOriginalStartMs,
+    ).toBeUndefined();
   });
 });

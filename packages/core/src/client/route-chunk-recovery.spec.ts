@@ -129,6 +129,11 @@ describe("route chunk recovery", () => {
         "Importing a module script failed: https://example.com/assets/foo.js",
       ),
     ).toBe(true);
+    expect(
+      isDynamicImportFailureMessage(
+        "Failed to fetch dynamically imported sql-dashboard chunk",
+      ),
+    ).toBe(true);
     expect(isDynamicImportFailureMessage("plain network error")).toBe(false);
   });
 
@@ -340,6 +345,51 @@ describe("route chunk recovery", () => {
       "https://example.com/dispatch/new-app",
     );
     expect(preventDefault).toHaveBeenCalled();
+
+    const unrelatedPreventDefault = vi.fn();
+    dispatchWindow("error", {
+      message: "Unexpected application error",
+      preventDefault: unrelatedPreventDefault,
+    } as unknown as ErrorEvent);
+
+    expect(unrelatedPreventDefault).not.toHaveBeenCalled();
+    expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("recovers global dynamic import errors using the intended target", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
+      createFakeWindow();
+
+    installRouteChunkRecovery(fakeWindow);
+
+    const anchor = {
+      tagName: "A",
+      href: "https://example.com/dispatch/new-app",
+      hasAttribute: () => false,
+      getAttribute: () => null,
+      parentElement: null,
+    };
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: anchor,
+    } as unknown as MouseEvent);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("error", {
+      error: new TypeError("Importing a module script failed."),
+      message: "Importing a module script failed.",
+      preventDefault,
+    } as unknown as ErrorEvent);
+
+    expect(fakeLocation.assign).toHaveBeenCalledWith(
+      "https://example.com/dispatch/new-app",
+    );
+    expect(preventDefault).toHaveBeenCalled();
   });
 
   it("suppresses unhandled dynamic import navigation inside Agent Native desktop", () => {
@@ -421,7 +471,7 @@ describe("route chunk recovery", () => {
     installRouteChunkRecovery(fakeWindow);
 
     expect(fakeWindow.document.addEventListener).toHaveBeenCalledTimes(1);
-    expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(1);
+    expect(fakeWindow.addEventListener).toHaveBeenCalledTimes(2);
   });
 
   it("falls back to the original reload when there is no fresh target", () => {

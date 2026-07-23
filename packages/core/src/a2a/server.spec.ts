@@ -340,6 +340,28 @@ describe("mountA2A auth", () => {
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
 
+  it("marks a verified audience-bound identity for direct action calls", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://analytics.agent-native.test";
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      aud: "https://analytics.agent-native.test",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://slides.agent-native.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aAudienceVerified).toBe(true);
+  });
+
   it("requires a bearer token on hosted runtimes when A2A_SECRET is configured", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.NODE_ENV = "development";
@@ -571,7 +593,7 @@ describe("verifyA2AToken (exported)", () => {
 
   it("accepts a token whose aud matches the receiver's derived audience", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
-    process.env.APP_URL = "https://receiver.example";
+    process.env.APP_URL = "https://receiver.example/";
     const { verifyA2AToken } = await import("./server.js");
     const token = await signToken("shared-global-secret", {
       sub: "alice@builder.io",

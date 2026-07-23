@@ -502,6 +502,13 @@
     opacity 150ms ease-out;
 }
 
+@starting-style {
+  .agent-chat-collapse[data-state="open"] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
 .agent-chat-collapse[data-state="closed"] {
   grid-template-rows: 0fr;
   opacity: 0;

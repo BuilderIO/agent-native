@@ -99,6 +99,19 @@ index the growing tables first.
   `await`s — each `await` is another round-trip.
 - Prefer **one composed endpoint** over several dependent calls.
 
+For provider wrappers, inspect the upstream API before building a list-then-
+enrich flow. Prefer the richest endpoint that can apply the real filters and
+return the needed associations or participants in one paginated operation.
+Cursor pagination is already serial; adding a serial detail/enrichment request
+to every page doubles its critical path. Exhaustive records belong in corpus
+recipes or data programs with explicit coverage, not one agent tool call per
+page or item.
+
+First-class provider actions should represent one stable conceptual operation.
+Keep arbitrary endpoint, filter, and pagination access in the provider API
+substrate; do not turn a convenience action into a capability ceiling or
+duplicate the provider transport, auth, quota, and cache implementation.
+
 ## 4. Avoid client-side waterfalls
 
 - Don't gate query B on query A's result unless B truly needs it. Fire

@@ -1,3 +1,4 @@
+import { Tabs, useDesignSystem } from "@agent-native/toolkit/design-system";
 import {
   IconHistory,
   IconSearch,
@@ -49,6 +50,8 @@ export interface SettingsTabItem {
   label: string;
   icon?: SettingsTabIcon;
   content: ReactNode;
+  /** Whether a parent surface may expose a personal/organization scope for this tab. */
+  scopeAware?: boolean;
   /**
    * Optional visual navigation group. Adjacent tabs with the same group render
    * together; a quiet divider separates each group on desktop while mobile
@@ -250,7 +253,6 @@ export function SettingsTabsPage({
     : (tabs[0]?.id ?? "general");
   const tabGroups = useMemo(() => {
     const groups: Array<{ id: string; tabs: SettingsTabItem[] }> = [];
-
     for (const tab of tabs) {
       const groupId = tab.group ?? "app";
       const previousGroup = groups.at(-1);
@@ -260,7 +262,6 @@ export function SettingsTabsPage({
         groups.push({ id: groupId, tabs: [tab] });
       }
     }
-
     return groups;
   }, [tabs]);
   const isControlled = value !== undefined;
@@ -269,6 +270,8 @@ export function SettingsTabsPage({
   );
   const activeTab = isControlled ? value : internalTab;
   const [query, setQuery] = useState("");
+  const designSystem = useDesignSystem();
+  const hasCustomTabs = Boolean(designSystem?.components?.Tabs);
 
   const changeTab = useCallback(
     (tabId: string) => {
@@ -515,6 +518,26 @@ export function SettingsTabsPage({
               })
             )}
           </div>
+        ) : hasCustomTabs ? (
+          <Tabs
+            items={tabs.map((tab) => ({
+              value: tab.id,
+              label: tab.label,
+              icon: tab.icon ? <tab.icon className="size-4 shrink-0" /> : null,
+              // The panel stays outside this navigation rail so settings
+              // keeps its existing scroll container and deep-link behavior.
+              content: null,
+            }))}
+            value={activeTab}
+            onChange={(tabId) => {
+              const nextTab = String(tabId);
+              changeTab(nextTab);
+              if (!isControlled) updateHashForTab(nextTab);
+            }}
+            orientation="vertical"
+            aria-label={ariaLabel}
+            className="flex gap-1 overflow-x-auto sm:flex-col sm:overflow-x-visible"
+          />
         ) : (
           <nav
             aria-label={ariaLabel}

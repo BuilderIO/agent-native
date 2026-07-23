@@ -34,10 +34,10 @@ const messages = {
       "Manage team members, organization access, and shared workspace preferences.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
   },
   agent: {
     emptyState: "Ask me anything about your forms",
@@ -259,6 +259,8 @@ const messages = {
     duplicated: "Form duplicated",
     duplicateFailed: "Failed to duplicate form",
     movedToArchive: "Form moved to Archive",
+    movingToArchive: "Moving form to Archive…",
+    archiveFailed: "Failed to move form to Archive",
     restored: "Form restored",
     permanentlyDeleted: "Form permanently deleted",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

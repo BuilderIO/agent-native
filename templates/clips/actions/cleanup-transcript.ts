@@ -53,6 +53,19 @@ const GEMINI_BYOK_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_BYOK_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_BYOK_MODEL}:generateContent`;
 
 const MAX_INPUT_CHARS = 200_000;
+const MAX_CLEANUP_OUTPUT_TOKENS = 32_000;
+
+export function cleanupMaxOutputTokens(
+  task: "cleanup" | "title" | "summary",
+  transcriptLength: number,
+): number {
+  if (task === "title") return 1_024;
+  if (task === "summary") return 4_096;
+  return Math.min(
+    MAX_CLEANUP_OUTPUT_TOKENS,
+    Math.max(1_024, Math.ceil(transcriptLength / 3) + 512),
+  );
+}
 
 const CLIPS_TRANSCRIPT_AGENT_INSTRUCTIONS = [
   "Relevant Clips AGENTS.md rules:",
@@ -117,6 +130,10 @@ export default defineAction({
       language: args.language,
     });
     const wantJson = args.task === "summary";
+    const maxOutputTokens = cleanupMaxOutputTokens(
+      args.task,
+      transcript.length,
+    );
 
     // 1) Builder gateway (preferred — uses Builder.io Connect credentials).
     const builderCreds = await resolveBuilderCredentials();
@@ -133,7 +150,7 @@ export default defineAction({
       try {
         const text = await callBuilderGateway({
           prompt,
-          wantJson,
+          maxOutputTokens,
         });
         if (text.trim()) {
           await clearBuilderCreditsExhausted();
@@ -170,6 +187,7 @@ export default defineAction({
         apiKey: geminiKey,
         prompt,
         wantJson,
+        maxOutputTokens,
       });
       return shapeResult(args.task, text, "gemini-byok", contextPack);
     }
@@ -189,10 +207,10 @@ async function resolveUserGeminiKey(): Promise<string | null> {
 
 async function callBuilderGateway({
   prompt,
-  wantJson,
+  maxOutputTokens,
 }: {
   prompt: { system: string; user: string };
-  wantJson: boolean;
+  maxOutputTokens: number;
 }): Promise<string> {
   const engine = createBuilderEngine();
   const controller = new AbortController();
@@ -213,7 +231,7 @@ async function callBuilderGateway({
       ],
       tools: [],
       abortSignal: controller.signal,
-      maxOutputTokens: wantJson ? 4096 : 1024,
+      maxOutputTokens,
       temperature: 0,
     });
     for await (const event of events) {
@@ -231,6 +249,10 @@ async function callBuilderGateway({
           (event.errorCode
             ? `Builder gateway returned ${event.errorCode}`
             : "Builder gateway returned an error");
+      }
+      if (event.type === "stop" && event.reason === "max_tokens") {
+        terminalError =
+          "Builder gateway truncated transcript cleanup at the output-token limit";
       }
     }
   } finally {
@@ -280,10 +302,12 @@ async function callGeminiByok({
   apiKey,
   prompt,
   wantJson,
+  maxOutputTokens,
 }: {
   apiKey: string;
   prompt: { system: string; user: string };
   wantJson: boolean;
+  maxOutputTokens: number;
 }): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -302,6 +326,7 @@ async function callGeminiByok({
         ],
         generationConfig: {
           temperature: 0,
+          maxOutputTokens,
           ...(wantJson ? { responseMimeType: "application/json" } : {}),
         },
       }),
@@ -314,8 +339,14 @@ async function callGeminiByok({
     const data = (await res.json()) as {
       candidates?: Array<{
         content?: { parts?: Array<{ text?: string }> };
+        finishReason?: string;
       }>;
     };
+    if (data.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      throw new Error(
+        "Gemini truncated transcript cleanup at the output-token limit",
+      );
+    }
     return (
       data.candidates?.[0]?.content?.parts
         ?.map((p) => p.text ?? "")

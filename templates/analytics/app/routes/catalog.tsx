@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconLayoutDashboard } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";

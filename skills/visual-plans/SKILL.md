@@ -191,12 +191,22 @@ forward only the code-research and plan-composition guidance here.
    targeted `contentPatches`.
    Treat the top-level `content` payload as a full replacement, not a merge; do
    not send a partial `content` object to add a canvas or one block. If a full
-   replacement is unavoidable, first read the complete plan source/content, carry
-   forward every existing block and visual surface, and verify the source/export
-   afterward so the document body was not truncated. When the user wants
-   source-control friendly edits, use `patch-visual-plan-source` against the MDX
-   files instead of regenerating the plan.
-7. For hosted plans, export with `export-visual-plan` only when the user wants a
+   replacement or `replace-blocks` is unavoidable, call `get-visual-plan`
+   immediately before the write, pass its `plan.updatedAt` as
+   `expectedUpdatedAt`, and carry forward every existing block and visual
+   surface. Never reuse a revision from an earlier read or feedback payload.
+   For source-control friendly edits, use granular `patch-visual-plan-source`
+   operations against the MDX files instead of regenerating the plan;
+   `replace-file` is also destructive and requires the same fresh
+   `expectedUpdatedAt` fence.
+7. After every hosted-plan write, call `get-visual-plan` again and compare the
+   persisted text, block IDs/counts, canvas frames, and prototype with the
+   intended result. A successful mutation response is not proof that unrelated
+   content survived. If the edit addressed agent-targeted feedback, only after
+   this verification call `resolve-plan-comment` for the thread and
+   `consume-plan-feedback` for its comments; do both so addressed feedback is
+   neither visibly open nor returned as pending work.
+8. For hosted plans, export with `export-visual-plan` only when the user wants a
    shareable receipt or repo-check-in artifacts.
 
 ## Self-Review Before Handoff
@@ -280,6 +290,8 @@ folding framework chrome into the product UI.
   needs to operate the behavior. Keep the static wireframes in
   `content.canvas`, add the aligned functional prototype in
   `content.prototype`, and rely on the top visual tabs to switch between them.
+  When both surfaces are present, open the Wireframes tab by default; the
+  prototype remains available as the interactive follow-up view.
 - **Prototype-first** when the user asks to operate the UI or when interaction is
   the main question. Use `create-prototype-plan`, which still preserves static
   mocks where useful.
@@ -288,6 +300,18 @@ For mixed canvas + prototype plans, reuse the same real labels, app statuses,
 and screen ids across both surfaces. The canvas is the inspectable static reference;
 the prototype is the interactive version of that same flow, not a separate
 design direction.
+
+Treat “higher fidelity,” “pixel-accurate,” “polished mockup,” “production-like,”
+“real design,” and “not a sketch/wireframe” as design-first language even when
+the request also says “mockup.” For a new plan, use `create-plan-design`. For
+an existing plan, keep the same plan id and call `update-visual-plan` with a
+`set-visual-render-mode` patch using `renderMode: "design"` plus the upgraded
+screen HTML/CSS in the same update. Ground the result in the real app shell,
+tokens, typography, spacing, and states, and add stable `data-design-id`
+targets. Put scoped styles in each screen's `css` field, never in a `<style>`
+tag. The viewer-local Clean toggle only changes one browser's wireframe
+preference; it is not a fidelity upgrade. Do not create a duplicate plan to
+handle a fidelity follow-up.
 
 ## Wireframe quality — read `references/wireframe.md`
 
@@ -337,7 +361,9 @@ directory before authoring a plan.
   visual surface, canvas only, or canvas + prototype.
 - `create-ui-plan`: start a UI-first plan when the work is primarily product UI.
 - `create-prototype-plan`: start a prototype-first plan with a functional top
-  review surface.
+  review surface. If the interaction itself must also be high fidelity, set each
+  screen's `renderMode` to `design` and pass scoped styles through `css`;
+  otherwise use `create-plan-design` for design-first review.
 - `create-plan-design`: start a full-fidelity branded Design-tab plan with an
   optional matching Prototype tab.
 - `convert-visual-plan-to-prototype`: convert an existing HTML wireframe canvas
@@ -345,14 +371,23 @@ directory before authoring a plan.
 - `create-visual-questions`: use only when the user explicitly asks for a visual
   intake questionnaire, not as `/visual-plan` preflight.
 - `update-visual-plan`: revise content, status, or comments with targeted
-  `contentPatches` (see Core Workflow step 6).
+  `contentPatches` (see Core Workflow steps 6-7). Use
+  `set-visual-render-mode` with `renderMode: "design"` when promoting an
+  existing plan to high fidelity, together with deliberate screen HTML/CSS;
+  render mode alone only removes sketch treatment. `replace-blocks` and full
+  `content` replacement require `expectedUpdatedAt` from a fresh
+  `get-visual-plan` call.
 - `read-visual-plan-source`: read the normalized plan as `plan.mdx`,
   optional `canvas.mdx`, optional `.plan-state.json`, and JSON.
 - `patch-visual-plan-source`: apply granular MDX AST patches by stable block,
-  artboard, annotation, component, or wireframe-node id.
+  artboard, annotation, component, or wireframe-node id. Prefer those targeted
+  operations; `replace-file` requires `expectedUpdatedAt` from a fresh
+  `get-visual-plan` call.
 - `import-visual-plan-source`: create or replace a plan from an MDX folder.
-- `get-visual-plan`: read the current structured plan, exported HTML, and
-  annotations; it also returns the MDX folder for source workflows.
+- `get-visual-plan`: read the current structured plan, exported HTML,
+  annotations, and `plan.updatedAt`; it also returns the MDX folder for source
+  workflows. Re-read immediately before a destructive write for its concurrency
+  fence and again after every write to verify persisted state.
 - `get-plan-feedback`: read unconsumed human feedback. Use it frequently; it
   returns grouped threads, exact anchor details, expected resolver, and recent
   review-event payloads so agents can act only on the comments meant for them.
@@ -411,7 +446,10 @@ local bridge check/serve/verify command, and report the new local URL.
 - **Two-axis state.** Mark every ingested comment as consumed
   (`consumedCommentIds` on `update-visual-plan`). Set `status=resolved` only on
   agent-targeted comments you actually addressed; leave human-targeted comments
-  open.
+  open. When an edit addresses feedback, first re-read the persisted plan and
+  verify the requested change. Only then call `resolve-plan-comment` for the
+  addressed thread and `consume-plan-feedback` for its comments; never mark
+  addressed feedback along only one axis.
 
 ## Visibility & Sharing
 

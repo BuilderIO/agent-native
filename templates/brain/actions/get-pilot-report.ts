@@ -1,9 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { listAccessibleAudienceIds } from "../server/lib/audiences.js";
 import {
   getAccessibleSource,
   parseJson,
@@ -451,6 +452,22 @@ export default defineAction({
   run: async ({ sourceId, targetChannel }) => {
     const access = await getAccessibleSource(sourceId);
     const db = getDb();
+    const accessibleAudienceIds = await listAccessibleAudienceIds([sourceId]);
+    const accessibleCaptureAudienceFilter = accessibleAudienceIds.length
+      ? inArray(schema.brainCaptureAudiences.audienceId, accessibleAudienceIds)
+      : sql`1=0`;
+    const accessibleDerivedAudienceFilter = or(
+      isNull(schema.brainKnowledge.captureId),
+      accessibleAudienceIds.length
+        ? inArray(schema.brainKnowledge.audienceId, accessibleAudienceIds)
+        : sql`1=0`,
+    )!;
+    const accessibleProposalAudienceFilter = or(
+      isNull(schema.brainProposals.captureId),
+      accessibleAudienceIds.length
+        ? inArray(schema.brainProposals.audienceId, accessibleAudienceIds)
+        : sql`1=0`,
+    )!;
 
     const [latestSyncRun] = await db
       .select()
@@ -465,7 +482,17 @@ export default defineAction({
         status: schema.brainRawCaptures.status,
       })
       .from(schema.brainRawCaptures)
-      .where(eq(schema.brainRawCaptures.sourceId, sourceId));
+      .innerJoin(
+        schema.brainCaptureAudiences,
+        eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
+      )
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+          accessibleCaptureAudienceFilter,
+        ),
+      );
 
     const recentCaptureRows = await db
       .select({
@@ -480,17 +507,24 @@ export default defineAction({
         updatedAt: schema.brainRawCaptures.updatedAt,
       })
       .from(schema.brainRawCaptures)
-      .where(eq(schema.brainRawCaptures.sourceId, sourceId))
+      .innerJoin(
+        schema.brainCaptureAudiences,
+        eq(schema.brainCaptureAudiences.captureId, schema.brainRawCaptures.id),
+      )
+      .where(
+        and(
+          eq(schema.brainRawCaptures.sourceId, sourceId),
+          eq(schema.brainRawCaptures.sensitivityDisposition, "allowed"),
+          accessibleCaptureAudienceFilter,
+        ),
+      )
       .orderBy(desc(schema.brainRawCaptures.capturedAt))
       .limit(RECENT_LIMIT);
 
     const captureIds = captureRows.map((capture) => capture.id);
     const queueSourceFilter = captureIds.length
-      ? or(
-          eq(schema.brainIngestQueue.sourceId, sourceId),
-          inArray(schema.brainIngestQueue.captureId, captureIds),
-        )!
-      : eq(schema.brainIngestQueue.sourceId, sourceId);
+      ? inArray(schema.brainIngestQueue.captureId, captureIds)
+      : sql`1=0`;
 
     const queueRows = await db
       .select({
@@ -532,6 +566,7 @@ export default defineAction({
         and(
           accessFilter(schema.brainKnowledge, schema.brainKnowledgeShares),
           eq(schema.brainKnowledge.sourceId, sourceId),
+          accessibleDerivedAudienceFilter,
         ),
       )
       .orderBy(desc(schema.brainKnowledge.updatedAt));
@@ -556,6 +591,7 @@ export default defineAction({
         and(
           accessFilter(schema.brainProposals, schema.brainProposalShares),
           eq(schema.brainProposals.sourceId, sourceId),
+          accessibleProposalAudienceFilter,
         ),
       )
       .orderBy(desc(schema.brainProposals.updatedAt));

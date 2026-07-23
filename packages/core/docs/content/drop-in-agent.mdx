@@ -1,6 +1,6 @@
 ---
 title: "Drop-in Agent"
-description: "Mount the agent chat + workspace into any React app with <AgentPanel>, <AgentSidebar>, and sendToAgentChat()."
+description: "Mount the agent chat + resources into any React app with <AgentPanel>, <AgentSidebar>, and sendToAgentChat()."
 ---
 
 # Drop-in Agent
@@ -11,7 +11,7 @@ description: "Mount the agent chat + workspace into any React app with <AgentPan
 
 </Callout>
 
-You don't need to build agent-native from scratch. The agent chat, workspace tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
+You don't need to build agent-native from scratch. The agent chat, resources tab, CLI terminal, voice input, and all the related infrastructure ship as a handful of React components you drop into any app.
 
 <Callout tone="info">
 
@@ -25,7 +25,7 @@ You don't need to build agent-native from scratch. The agent chat, workspace tab
 | --------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `<AgentSidebar>`      | Wraps your root app layout and adds a toggleable side panel containing the full agent | You want the agent available alongside your app on every screen |
 | `<AgentToggleButton>` | Opens/closes `<AgentSidebar>` (put it in your header)                                 | Pair with `<AgentSidebar>`                                      |
-| `<AgentPanel>`        | The raw panel itself — chat + CLI + workspace tabs                                    | You want full control over layout, or a dedicated agent page    |
+| `<AgentPanel>`        | The raw panel itself — chat + CLI + resources tabs                                    | You want full control over layout, or a dedicated agent page    |
 | `<AgentChatSurface>`  | A pre-wired panel/page chat surface                                                   | You want chat without the sidebar wrapper                       |
 | `<AssistantChat>`     | Lower-level chat renderer with composer/history hooks                                 | You need custom chrome around the standard conversation UI      |
 | `sendToAgentChat()`   | Programmatically send a message to the chat                                           | A button that hands work to the agent instead of running inline |
@@ -47,7 +47,7 @@ All of these are exported from `@agent-native/core/client`.
       </div>
       <div class="diagram-node panel">
         Agent panel<br /><small class="diagram-muted"
-          >chat &middot; CLI &middot; workspace</small
+          >chat &middot; CLI &middot; resources</small
         >
       </div>
     </div>
@@ -111,7 +111,7 @@ children stays in the main app area. The agent chat is the side panel.
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="How can I help?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="How can I help?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -142,7 +142,7 @@ children stays in the main app area. The agent chat is the side panel.
   ]}
 />
 
-That's it. The user now has a toggleable agent on every page — with chat history, workspace tab, CLI terminal, voice input, and a fullscreen mode. State persists across reloads via `localStorage`.
+That's it. The user now has a toggleable agent on every page — with chat history, resources tab, CLI terminal, voice input, and a fullscreen mode. State persists across reloads via `localStorage`.
 
 ### Props
 
@@ -160,8 +160,7 @@ When you need full control over layout — a dedicated `/chat` route, an embedde
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -171,7 +170,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>` gives you the raw tabs (Chat / CLI / Workspace) without the sidebar wrapper, the collapse button, or any state persistence. Put it wherever you want; you handle the layout.
+`<AgentPanel>` gives you the raw tabs (Chat / CLI / Resources) without the sidebar wrapper, the collapse button, or any state persistence. Put it wherever you want; you handle the layout.
 
 ### Selected props
 
@@ -188,8 +187,7 @@ Full props: `AgentPanelProps` in `@agent-native/core/client`.
 A button that hands work off to the agent (instead of running an inline `llm()` call — the anti-pattern from the [ladder](/docs/what-is-agent-native#the-ladder)):
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -238,8 +236,7 @@ When the same route is embedded as an MCP App, submitted
 If you want a loading state, use the `useSendToAgentChat()` hook — it returns both `send` and `isGenerating`:
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -273,8 +270,7 @@ client code does not learn a second, ad hoc transport.
 When the UI needs to run the same operation an agent tool would run — rung 3 of the [ladder](/docs/what-is-agent-native#rung-three) — use `useActionMutation`:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -304,8 +300,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
@@ -342,5 +337,5 @@ The user sees a chat button in the header, can open it, and can talk to the agen
 
 - [**Actions**](/docs/actions) — `defineAction()` and `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selection, navigation, view-screen
-- [**Workspace**](/docs/workspace) — what the Workspace tab contains (skills, memory, MCP servers, scheduled jobs)
+- [**Agent Resources**](/docs/agent-resources) — what the Resources tab contains (skills, memory, MCP servers, scheduled jobs)
 - [**Voice Input**](/docs/voice-input) — the microphone in the chat composer

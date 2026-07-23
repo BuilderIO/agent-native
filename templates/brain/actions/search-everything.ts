@@ -53,6 +53,15 @@ export default defineAction({
       .enum(["manual", "generic", "clips", "slack", "granola", "github"])
       .optional()
       .describe("Restrict results to one Brain source provider."),
+    kind: z
+      .enum(["transcript", "note", "message", "document", "generic"])
+      .optional()
+      .describe("Restrict capture results to one capture kind."),
+    projectId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Restrict captures to a Brain project."),
     status: z.string().optional().describe("Restrict results to one status."),
     limit: z.coerce.number().int().min(1).max(100).default(25),
   }),
@@ -61,7 +70,7 @@ export default defineAction({
   publicAgent: {
     expose: true,
     readOnly: true,
-    requiresAuth: false,
+    requiresAuth: true,
     isConsequential: false,
   },
   run: async (args) => {

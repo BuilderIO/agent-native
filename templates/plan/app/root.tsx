@@ -1,19 +1,19 @@
-import { useDbSync } from "@agent-native/core/client";
+import { navigateWithAgentChatViewTransition } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
-  getLocaleInitScript,
-  getThemeInitScript,
-  markAgentChatHomeHandoff,
-  navigateWithAgentChatViewTransition,
-  useCommandMenuShortcut,
-  useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
-  IconBrain,
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  IconHierarchy2,
   IconMoon,
   IconScribble,
   IconShape2,
@@ -153,7 +153,6 @@ function AppContent() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   const go = useCallback(
     (path: string) => {
-      if (path !== "/") markAgentChatHomeHandoff("plans");
       navigateWithAgentChatViewTransition(navigate, path);
       setCmdkOpen(false);
     },
@@ -181,7 +180,7 @@ function AppContent() {
             onSelect={() => go("/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
-            <IconBrain size={16} />
+            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
@@ -257,4 +256,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

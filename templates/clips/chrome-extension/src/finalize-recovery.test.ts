@@ -4,6 +4,7 @@ import {
   authenticatedRecordingStatusUrl,
   publicRecordingStatusUrl,
   readyRecordingFromPublicPayload,
+  waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "./finalize-recovery";
 
@@ -103,6 +104,38 @@ describe("finalize upload recovery", () => {
       id: "rec-1",
       status: "ready",
       videoUrl: "https://cdn.example.com/rec-1.webm",
+    });
+  });
+
+  it("accepts a durably queued media verification without waiting for ready", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({
+          recording: {
+            id: "rec-pending",
+            status: "processing",
+            verificationPending: true,
+            videoUrl: "/api/video/rec-pending",
+          },
+        }),
+        { status: 200 },
+      );
+
+    await expect(
+      waitForAcceptedRecordingAfterFinalizeError({
+        uploadUrl: "/api/uploads/rec-pending/chunk",
+        recordingId: "rec-pending",
+        preferAuthenticated: true,
+        fetchImpl,
+        sleepImpl: async () => undefined,
+        timeoutMs: 1,
+        intervalMs: 1,
+      }),
+    ).resolves.toMatchObject({
+      id: "rec-pending",
+      finalized: false,
+      status: "processing",
+      verificationPending: true,
     });
   });
 

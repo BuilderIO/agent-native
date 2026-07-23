@@ -134,7 +134,8 @@ const PLATFORMS: PlatformInfo[] = [
       "Builder.io discovers each agent's skills via A2A",
       "Chat with one agent that can trigger actions across all your apps",
     ],
-    docsUrl: "https://www.builder.io",
+    docsUrl:
+      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
   },
 ];
 
@@ -533,17 +534,19 @@ export function IntegrationsPanel() {
             {t("integrations.chatIntegrationsDescription")}
           </div>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setShowPicker(true)}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <IconPlus size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <IconPlus size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {loading ? (

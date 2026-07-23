@@ -1,4 +1,6 @@
-import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
@@ -19,8 +21,7 @@ import {
   IconCode,
   IconMinus,
   IconTable as TableIcon,
-  IconWand,
-  IconArrowUp,
+  IconHierarchy2,
   IconInfoCircle,
   IconMusic,
   IconPhoto,
@@ -215,18 +216,6 @@ export function parseInlineGeneratePrompt(textBeforeCursor: string) {
   const match = textBeforeCursor.match(/^\/generate\s+([\s\S]+)$/i);
   const prompt = match?.[1]?.trim();
   return prompt || null;
-}
-
-export function shouldOpenGenerateOnSpace(editor: Editor) {
-  const { selection } = editor.state;
-  if (!selection.empty) return false;
-
-  const { $from } = selection;
-  if (!$from.parent.isTextblock) return false;
-  if ($from.parent.type.name !== "paragraph") return false;
-  if ($from.parentOffset !== 0) return false;
-
-  return $from.parent.textContent.trim().length === 0;
 }
 
 export function parseSlashCommandQuery(textBeforeCursor: string) {
@@ -504,7 +493,7 @@ export function SlashCommandMenu({
   onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
-  const { send } = useSendToAgentChat();
+  const { send, isGenerating } = useSendToAgentChat();
   const navigate = useNavigate();
   const createPage = useCreatePage({ navigate: false, awaitPersist: true });
   const createInlineDatabase = useCreateInlineContentDatabase(
@@ -522,11 +511,9 @@ export function SlashCommandMenu({
 
   // Generate prompt popover state
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [generatePrompt, setGeneratePrompt] = useState("");
   const [generatePos, setGeneratePos] = useState<EditorMenuPosition | null>(
     null,
   );
-  const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(
     null,
@@ -551,6 +538,7 @@ export function SlashCommandMenu({
       send({
         message: trimmed,
         context: `The user is asking you to generate content for their document (id: ${documentId}). Use the update-document action to write the generated markdown content. Do NOT use db-exec or raw SQL - use \`update-document --id ${documentId} --content "..."\` (and \`--title\` if appropriate).${content ? `\n\nCurrent document content:\n${content}` : "\n\nThe document is currently empty."}`,
+        submit: true,
       });
     },
     [documentId, editor, send, t],
@@ -575,9 +563,7 @@ export function SlashCommandMenu({
       if (!nextPosition) return false;
 
       setGeneratePos(nextPosition);
-      setGeneratePrompt("");
       setGenerateOpen(true);
-      setTimeout(() => generateTextareaRef.current?.focus(), 0);
       return true;
     },
     [getSelectionMenuPosition],
@@ -601,7 +587,7 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: t("editor.slash.generate"),
     description: t("editor.slash.generateDescription"),
-    icon: IconWand,
+    icon: IconHierarchy2,
     action: () => {
       openGeneratePopover(position);
     },
@@ -911,10 +897,6 @@ export function SlashCommandMenu({
     );
   };
 
-  function handleGenerateSubmit() {
-    submitGeneratePrompt(generatePrompt);
-  }
-
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
       const slashRange =
@@ -939,25 +921,6 @@ export function SlashCommandMenu({
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!isOpen) {
-        if (
-          (e.key === " " || e.code === "Space") &&
-          !e.shiftKey &&
-          !e.metaKey &&
-          !e.ctrlKey &&
-          !e.altKey &&
-          editor.isFocused &&
-          shouldOpenGenerateOnSpace(editor)
-        ) {
-          e.preventDefault();
-          e.stopPropagation();
-          setIsOpen(false);
-          setIsTurnInto(false);
-          setQuery("");
-          slashPosRef.current = null;
-          openGeneratePopover();
-          return;
-        }
-
         if (
           e.key === "Enter" &&
           !e.shiftKey &&
@@ -1194,48 +1157,18 @@ export function SlashCommandMenu({
           <PopoverContent
             align="start"
             side="bottom"
-            className="w-[calc(100vw-2rem)] max-w-80 rounded-xl p-0"
-            onOpenAutoFocus={(e: Event) => {
-              e.preventDefault();
-              generateTextareaRef.current?.focus();
-            }}
+            className="w-[calc(100vw-2rem)] p-3 sm:w-[420px]"
           >
-            <div className="p-4 pb-3">
-              <p className="text-sm font-semibold flex items-center gap-1.5">
-                <IconWand size={14} className="text-muted-foreground" />
-                {t("editor.generateWithAi")}
-              </p>
-              <textarea
-                ref={generateTextareaRef}
-                value={generatePrompt}
-                onChange={(e) => setGeneratePrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                    e.preventDefault();
-                    handleGenerateSubmit();
-                  }
-                  if (e.key === "Escape") {
-                    setGenerateOpen(false);
-                  }
-                }}
-                placeholder={t("editor.describeWhatToGenerate")}
-                className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
-                rows={3}
-              />
-            </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2.5">
-              <span className="text-[11px] text-muted-foreground/70">
-                {/Mac|iPhone|iPad/.test(navigator.userAgent) ? "⌘" : "Ctrl"}
-                {t("editor.enterToSubmit")}
-              </span>
-              <button
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-accent disabled:opacity-30"
-                onClick={handleGenerateSubmit}
-                disabled={!generatePrompt.trim()}
-              >
-                <IconArrowUp size={14} />
-              </button>
-            </div>
+            <p className="px-1 pb-2 text-sm font-semibold text-foreground">
+              {t("editor.generateWithAi")}
+            </p>
+            <PromptComposer
+              autoFocus
+              disabled={isGenerating}
+              placeholder={t("editor.describeWhatToGenerate")}
+              draftScope={`content:generate:${documentId ?? "document"}`}
+              onSubmit={submitGeneratePrompt}
+            />
           </PopoverContent>
         </Popover>
       )}

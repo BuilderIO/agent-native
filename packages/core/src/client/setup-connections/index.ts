@@ -1,7 +1,18 @@
 export {
   BuilderConnectCard,
+  DefaultBuilderConnectCardView,
+  type DefaultBuilderConnectCardViewProps,
   type BuilderConnectCardProps,
+  type BuilderConnectCardRenderContext,
 } from "./BuilderConnectCard.js";
+export {
+  useBuilderConnectCardController,
+  type BuilderConnectCardAction,
+  type BuilderConnectCardControllerOptions,
+  type BuilderConnectCardStatus,
+  type BuilderConnectCardViewModel,
+} from "./useBuilderConnectCardController.js";
+export { BUILT_IN_SETUP_READINESS_UI_IDS } from "./catalog.js";
 export {
   ProviderReadinessBadge,
   type ProviderReadinessBadgeProps,

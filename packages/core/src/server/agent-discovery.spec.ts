@@ -4,6 +4,7 @@ import { TEMPLATES } from "../cli/templates-meta.js";
 import {
   BUILTIN_AGENTS_FOR_SEEDING,
   discoverAgents,
+  findWorkspaceDispatchAgent,
   getBuiltinAgents,
   shouldIncludeRemoteAgentManifest,
 } from "./agent-discovery.js";
@@ -275,6 +276,44 @@ describe("agent discovery", () => {
       description: "Workspace-specific mail app",
       url: "https://workspace.example.test/mail",
     });
+  });
+
+  it("resolves the trusted Dispatch callback only from the workspace manifest", () => {
+    process.env.APP_URL = "https://workspace.example.test";
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "control-plane",
+          name: "Workspace Dispatch",
+          path: "/dispatch",
+          isDispatch: true,
+        },
+        {
+          id: "content",
+          name: "Content",
+          path: "/content",
+          isDispatch: false,
+        },
+      ],
+    });
+
+    expect(findWorkspaceDispatchAgent()).toMatchObject({
+      id: "control-plane",
+      name: "Workspace Dispatch",
+      url: "https://workspace.example.test/dispatch",
+    });
+
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      apps: [
+        {
+          id: "content",
+          name: "Content",
+          path: "/content",
+          isDispatch: false,
+        },
+      ],
+    });
+    expect(findWorkspaceDispatchAgent()).toBeUndefined();
   });
 
   it("uses explicit workspace manifest URLs without falling back to built-ins", async () => {

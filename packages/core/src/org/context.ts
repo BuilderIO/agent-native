@@ -41,7 +41,8 @@ const nanoid = (): string =>
 /**
  * Resolve the current user's organization context from their session.
  *
- * - For users in multiple orgs, honors their `active-org-id` user setting.
+ * - Honors the user's `active-org-id` setting, including an explicit Personal
+ *   context represented by `{ orgId: null }`.
  * - Falls back to the user's first membership.
  * - When the authenticated user has zero memberships, provisions a default org
  *   named after the user ({name}'s workspace, falling back to the email
@@ -63,6 +64,34 @@ export async function getOrgContext(event: H3Event): Promise<OrgContext> {
 type MembershipRow = { orgId: string; role: OrgRole; orgName: string };
 
 const MEMBERSHIPS_CACHE_KEY = "__anOrgMembershipsCache";
+const ACTIVE_ORG_SETTING_CACHE_KEY = "__anActiveOrgSettingCache";
+
+type ActiveOrgSetting = { orgId: string | null } | null;
+
+function loadActiveOrgSettingForEvent(
+  event: H3Event,
+  email: string,
+): Promise<ActiveOrgSetting> {
+  const ctx = event.context as Record<string, unknown>;
+  const cache = ((ctx[ACTIVE_ORG_SETTING_CACHE_KEY] as
+    | Map<string, Promise<ActiveOrgSetting>>
+    | undefined) ??
+    (ctx[ACTIVE_ORG_SETTING_CACHE_KEY] = new Map<
+      string,
+      Promise<ActiveOrgSetting>
+    >())) as Map<string, Promise<ActiveOrgSetting>>;
+  const normalizedEmail = email.toLowerCase();
+  let promise = cache.get(normalizedEmail);
+  if (!promise) {
+    promise = getUserSetting(email, "active-org-id").then((value) => {
+      if (!value || !("orgId" in value)) return null;
+      if (value.orgId === null) return { orgId: null };
+      return typeof value.orgId === "string" ? { orgId: value.orgId } : null;
+    });
+    cache.set(normalizedEmail, promise);
+  }
+  return promise;
+}
 
 /**
  * Per-request memoization of the org_members lookup, keyed by email on
@@ -128,32 +157,29 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  if (memberships.length > 1) {
-    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
-      orgId: string;
-    } | null;
-    if (activeOrgSetting?.orgId) {
-      const active = memberships.find(
-        (m) => m.orgId === activeOrgSetting.orgId,
-      );
-      if (active) {
-        return {
-          email,
-          orgId: active.orgId,
-          orgName: active.orgName,
-          role: active.role,
-        };
-      }
+  const shouldTryDomainAutoJoin =
+    memberships.length === 0 ||
+    (memberships.length === 1 &&
+      isLikelyPersonalWorkspace(memberships[0], email, session));
+  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+  if (activeOrgSetting?.orgId === null) {
+    return { email, orgId: null, orgName: null, role: null };
+  }
+  if (activeOrgSetting?.orgId) {
+    const active = memberships.find((m) => m.orgId === activeOrgSetting.orgId);
+    if (active && !shouldTryDomainAutoJoin) {
+      return {
+        email,
+        orgId: active.orgId,
+        orgName: active.orgName,
+        role: active.role,
+      };
     }
   }
 
   const sessionMembership = sessionOrgId
     ? memberships.find((m) => m.orgId === sessionOrgId)
     : null;
-  const shouldTryDomainAutoJoin =
-    memberships.length === 0 ||
-    (memberships.length === 1 &&
-      isLikelyPersonalWorkspace(memberships[0], email, session));
 
   if (shouldTryDomainAutoJoin) {
     const joined = await autoJoinDomainMatchingOrgs(email, {
@@ -248,7 +274,8 @@ async function loadMemberships(
 /**
  * Resolve the active org ID for a given email — for non-HTTP contexts like
  * the integration webhook handler where we have an email but no event/session.
- * Picks the user's active-org-id setting if set, otherwise the first membership.
+ * Picks the user's active-org-id setting if set, including explicit Personal,
+ * otherwise the first membership.
  * Returns null if the user has no memberships.
  */
 export async function resolveOrgIdForEmail(
@@ -263,10 +290,11 @@ export async function resolveOrgIdForEmail(
     });
     if (rows.length === 0) return null;
     const ids = rows.map((r: any) => String(r.org_id));
-    if (ids.length === 1) return ids[0];
-    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
-      orgId: string;
-    } | null;
+    const activeOrgSetting = (await getUserSetting(
+      email,
+      "active-org-id",
+    )) as ActiveOrgSetting;
+    if (activeOrgSetting?.orgId === null) return null;
     if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
       return activeOrgSetting.orgId;
     }
@@ -291,10 +319,8 @@ export async function resolveOrgIdForEmailViaEvent(
     if (!exec) return null;
     const memberships = await loadMembershipsForEvent(event, exec, email);
     if (!memberships || memberships.length === 0) return null;
-    if (memberships.length === 1) return memberships[0].orgId;
-    const activeOrgSetting = (await getUserSetting(email, "active-org-id")) as {
-      orgId: string;
-    } | null;
+    const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+    if (activeOrgSetting?.orgId === null) return null;
     if (
       activeOrgSetting?.orgId &&
       memberships.some((m) => m.orgId === activeOrgSetting.orgId)

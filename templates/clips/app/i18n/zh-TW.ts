@@ -166,7 +166,7 @@ const messages = {
       "桌面錄影程式已完成並儲存本機副本，但 Clips 無法上傳。您可以從 Clips 選單重試，不需要重新錄製。",
     retryLibrary: "您可以從媒體庫重試。",
     processingStuck:
-      "處理 30 秒後仍未完成（狀態={{status}}）。剪輯可能尚未完成上傳，請查看伺服器記錄中的區塊/完成訊息。",
+      "儲存時間比預期更久（狀態={{status}}）。如果你使用桌面應用程式錄製，請從選單列開啟 Clips 以重試上傳或下載已儲存的本機副本，然後再次檢查。",
     uploadingAssembling: "正在上傳並組裝影片，通常只需要幾秒鐘。",
     connectStorageImportLoom: "連線儲存以匯入這個 Loom。",
     connectStorageFinishClip: "連線儲存以完成此剪輯的儲存。",
@@ -208,6 +208,9 @@ const messages = {
     autoChapters: "自動章節",
     removeFillerWords: "移除口頭禪",
     removeSilences: "消除靜音 (>1.2s)",
+    silenceWorking: "正在消除靜音…",
+    silenceCompleted: "靜音消除完成",
+    silenceFailed: "靜音消除失敗",
     generatePrSummary: "產生 PR 摘要",
     generateSop: "產生 SOP",
     generateSopTooltip:
@@ -462,6 +465,7 @@ const messages = {
     makePublicAndCopy: "公開並複製",
     copy: "複製",
     addPeopleByEmail: "透過電子郵件新增人員",
+    invite: "邀請",
     notifyPeople: "通知成員",
     peopleWithAccess: "有存取權限的人",
     ownerRole: "擁有者",
@@ -518,6 +522,8 @@ const messages = {
     brandingUpdated: "品牌更新",
     saveFailed: "儲存失敗",
     organizationName: "組織名稱",
+    defaultVisibility: "新錄製內容的預設可見性",
+    defaultVisibilityDescription: "套用於新錄製內容，除非你選擇其他可見性。",
     brandColor: "品牌顏色",
     brandColorPicker: "品牌顏色選取器",
     useColor: "使用 {{color}}",
@@ -582,10 +588,9 @@ const messages = {
     pageTitle: "加入團隊 · Clips",
   },
   settings: {
-    openAgentSettings: "開啟代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    agentTitle: "代理設定",
+    openAgentSettings: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    agentTitle: "管理代理",
     title: "設定",
     pageTitle: "設定 · Clips",
     intro: "此 Clips 工作區的偏好設定和已連線服務。",
@@ -593,6 +598,15 @@ const messages = {
     languageDescription:
       "選取此帳號的介面語言。Clips 會在不同設備上記住你的選取。",
     languageLabel: "介面語言",
+    uploadWorkspaceTitle: "目前工作區",
+    uploadWorkspaceDescription:
+      "選擇 Clips 用於新錄製內容（包括桌面上傳）的工作區。",
+    uploadWorkspaceLabel: "目前工作區",
+    uploadWorkspacePlaceholder: "選擇工作區",
+    uploadWorkspaceHint: "切換後，Clips 中與工作區相關的檢視也會更新。",
+    uploadWorkspaceSaving: "正在儲存工作區…",
+    uploadWorkspaceSaved: "目前工作區已更新",
+    uploadWorkspaceSaveFailed: "無法更新目前工作區",
     whatsNew: "最新變化",
     changelogEmpty: "暫無更新。",
     viewAllUpdates: "檢視所有更新",
@@ -779,6 +793,10 @@ const messages = {
     loadFailedTitle: "無法載入你的錄製",
     loadFailedBody: "載入此清單時發生問題。你的錄製是安全的 —— 請重試。",
     retry: "重試",
+    paginationRange: "第 {{start}}–{{end}} 項，共 {{total}} 項",
+    paginationPrevious: "上一頁",
+    paginationNext: "下一頁",
+    paginationPage: "第 {{page}} / {{totalPages}} 頁",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
@@ -871,6 +889,17 @@ const messages = {
     summary: "摘要",
     keyPoints: "要點",
     actionItems: "行動項",
+    sharedContent: "共享內容",
+    summaryIncluded: "摘要、要點和行動項",
+    includeTranscript: "包含完整逐字稿",
+    includeTranscriptDescription:
+      "任何有權存取此會議的人都可以閱讀完整逐字稿。",
+    transcriptUnavailable: "逐字稿尚未準備好。",
+    transcript: "逐字稿",
+    copyTranscript: "複製逐字稿",
+    transcriptCopied: "已複製逐字稿",
+    copyTranscriptFailed: "無法複製逐字稿",
+    updateTranscriptSharingFailed: "無法更新逐字稿分享設定",
   },
   deleteRecordingMenu: {
     movedToTrash: "剪輯已移至廢紙簍",
@@ -1050,6 +1079,7 @@ const messages = {
       "瀏覽器記錄選項已就緒，正在等待 Chrome Web Store URL。",
     desktopTitle: "桌面應用程式",
     desktopDescription: "最適合全域快捷鍵、選單列錄製、會議與重複擷取。",
+    openDesktopApp: "開啟桌面應用程式",
   },
   editableTitle: {
     untitled: "未命名剪輯",
@@ -1288,6 +1318,8 @@ const messages = {
   clipsFinalRaw: {
     splitAtPlayhead: "在播放頭處分割 (S)",
     selectedCount: "已選取 {{count}} 項",
+    selectAll: "全選",
+    deselectAll: "取消全選",
     move: "移動",
     moveSelected: "移動已選取的 {{count}} 項",
     current: "目前",
@@ -1296,7 +1328,8 @@ const messages = {
     savedLocally: "已儲存到本機",
     uploadFailed: "上傳失敗",
     connectStorageToFinish: "開啟以連線儲存並完成儲存。",
-    retryFromClipsMenu: "從 Clips 選單重試；不需要重新錄製。",
+    retryFromClipsMenu:
+      "從選單列開啟 Clips 以重試這個已儲存的上傳；不需要重新錄製。",
     removeFailedClip: "移除此失敗剪輯。",
     remove: "移除",
     viewsCount: "{{count}} 次觀看",
@@ -1404,6 +1437,21 @@ const messages = {
     guideStartDescription:
       "通話開始時，使用桌面提醒或選單列中的 Start Meeting Notes 項目。",
   },
+  rewindExtension: {
+    title: "加入錄製前的內容",
+    description:
+      "從本機 Rewind 選取一段時間並加入此剪輯開頭。不會自動加入任何內容。",
+    progressLabel: "Rewind 記錄處理進度",
+    privateFirstTitle: "先將此剪輯設為私人",
+    privateFirstDescription:
+      "本機 Rewind 記錄可能包含你開始錄製前的內容。此操作會將剪輯設為私人。如果仍有人擁有直接存取權，Clips 會先停止，讓你在分享設定中移除他們。",
+    makePrivateContinue: "設為私人並繼續",
+    add30Seconds: "加入前 30 秒",
+    add5Minutes: "加入前 5 分鐘",
+    add5MinutesDescription: "適合找回較長說明的開頭部分。",
+    privateReady: "此剪輯已設為私人。現在可以加入本機 Rewind 記錄。",
+  },
+  timeline: { clipStartedHere: "剪輯從這裡開始" },
 };
 
 export default messages;

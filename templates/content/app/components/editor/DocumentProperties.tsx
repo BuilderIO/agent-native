@@ -1,9 +1,23 @@
+import { emailToName } from "@agent-native/core/client/collab";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  emailToName,
-  useActionMutation,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   BindContentDatabaseSourceFieldRequest,
@@ -33,6 +47,9 @@ import {
 } from "@shared/properties";
 import {
   IconAlignLeft,
+  IconArrowLeft,
+  IconArrowDown,
+  IconArrowUp,
   IconAt,
   IconCalendar,
   IconCheck,
@@ -45,6 +62,8 @@ import {
   IconEye,
   IconEyeOff,
   IconFileText,
+  IconFilter,
+  IconGripVertical,
   IconHash,
   IconLink,
   IconList,
@@ -52,7 +71,6 @@ import {
   IconNumber,
   IconNumber123,
   IconPaperclip,
-  IconPalette,
   IconPhone,
   IconPlus,
   IconSearch,
@@ -92,6 +110,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -121,6 +140,14 @@ import {
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
 
+import {
+  clearDatabaseFiltersForColumn,
+  clearDatabaseSort,
+  databaseQuickFilterOptionsForColumn,
+  upsertDatabaseQuickFilter,
+  upsertDatabaseSort,
+} from "./database/filter-sort";
+import type { DatabaseFilter, DatabaseSort } from "./database/types";
 import { imageUploadErrorMessage, uploadImageFile } from "./image-upload";
 
 type TFunction = ReturnType<typeof useT>;
@@ -919,7 +946,7 @@ function PropertyRow({
 
   return (
     <div className="grid min-h-8 grid-cols-[160px_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm hover:bg-muted/40">
-      {canEdit ? (
+      {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
@@ -992,6 +1019,12 @@ export function PropertyManagementPopover({
   sourceField,
   sourceAttached = false,
   sources,
+  sorts,
+  filters,
+  onSortsChange,
+  onFiltersChange,
+  onHide,
+  hideDisabled,
 }: {
   property: DocumentProperty;
   documentId: string;
@@ -1002,8 +1035,29 @@ export function PropertyManagementPopover({
   sourceField?: ContentDatabaseSource["fields"][number] | null;
   sourceAttached?: boolean;
   sources?: ContentDatabaseSource[];
+  sorts?: DatabaseSort[];
+  filters?: DatabaseFilter[];
+  onSortsChange?: (sorts: DatabaseSort[]) => void;
+  onFiltersChange?: (filters: DatabaseFilter[]) => void;
+  onHide?: () => void | Promise<void>;
+  hideDisabled?: boolean;
 }) {
   const t = useT();
+  const hasColumnMenu = !!(
+    sorts &&
+    filters &&
+    onSortsChange &&
+    onFiltersChange
+  );
+  const columnKey = property.definition.id;
+  const columnSort =
+    (sorts ?? []).find((sort) => sort.key === columnKey) ?? null;
+  const columnFilterCount = (filters ?? []).filter(
+    (filter) => filter.key === columnKey,
+  ).length;
+  const quickFilters = databaseQuickFilterOptionsForColumn(
+    property.definition.type,
+  );
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
@@ -1070,12 +1124,18 @@ export function PropertyManagementPopover({
     blocksFieldCount,
   });
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"quick" | "edit">(
+    hasColumnMenu ? "quick" : "edit",
+  );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [name, setName] = useState(property.definition.name);
   const [description, setDescription] = useState(
     property.definition.description,
   );
   const [newOption, setNewOption] = useState("");
+  const [optionsDraft, setOptionsDraft] = useState<DocumentPropertyOption[]>(
+    property.definition.options.options ?? [],
+  );
   const persistMetadataSnapshotRef = useRef<
     (metadata: PropertyMetadataSnapshot) => Promise<unknown>
   >(async () => undefined);
@@ -1092,6 +1152,7 @@ export function PropertyManagementPopover({
     ),
   );
   const propertyNameInputRef = useRef<HTMLInputElement>(null);
+  const menuContentRef = useRef<HTMLDivElement>(null);
   const typeIsLocked = isComputedPropertyType(property.definition.type);
   const typeNeedsOptions =
     property.definition.type === "select" ||
@@ -1102,6 +1163,7 @@ export function PropertyManagementPopover({
     setName(property.definition.name);
     setDescription(property.definition.description);
     setNewOption("");
+    setOptionsDraft(property.definition.options.options ?? []);
     metadataUpdateQueueRef.current.replace({
       name: property.definition.name,
       type: property.definition.type,
@@ -1115,12 +1177,18 @@ export function PropertyManagementPopover({
     if (!open) return;
 
     const frame = requestAnimationFrame(() => {
-      propertyNameInputRef.current?.focus();
-      propertyNameInputRef.current?.select();
+      if (view === "edit") {
+        propertyNameInputRef.current?.focus();
+        propertyNameInputRef.current?.select();
+      } else {
+        menuContentRef.current
+          ?.querySelector<HTMLElement>('[role="menuitem"]')
+          ?.focus();
+      }
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, view]);
 
   async function configureProperty(next: {
     name?: string;
@@ -1141,6 +1209,7 @@ export function PropertyManagementPopover({
   async function updateOptions(
     update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
   ) {
+    setOptionsDraft((current) => update(current));
     await metadataUpdateQueueRef.current.enqueue((current) => ({
       ...current,
       options: {
@@ -1155,6 +1224,24 @@ export function PropertyManagementPopover({
       documentId,
       ...metadata,
     });
+
+  const optionDragSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+
+  function handleOptionDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    void updateOptions((options) => {
+      const fromIndex = options.findIndex((option) => option.id === active.id);
+      const toIndex = options.findIndex((option) => option.id === over.id);
+      if (fromIndex < 0 || toIndex < 0) return options;
+      return arrayMove(options, fromIndex, toIndex);
+    });
+  }
 
   async function renameProperty() {
     const nextName = name.trim();
@@ -1242,7 +1329,10 @@ export function PropertyManagementPopover({
       <DropdownMenu
         open={open}
         onOpenChange={(nextOpen) => {
-          if (nextOpen) resetDraft();
+          if (nextOpen) {
+            resetDraft();
+            setView(hasColumnMenu ? "quick" : "edit");
+          }
           setOpen(nextOpen);
         }}
       >
@@ -1263,6 +1353,7 @@ export function PropertyManagementPopover({
                 ? (event) => {
                     event.preventDefault();
                     resetDraft();
+                    setView(hasColumnMenu ? "quick" : "edit");
                     setOpen(true);
                   }
                 : undefined
@@ -1274,292 +1365,443 @@ export function PropertyManagementPopover({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
+          ref={menuContentRef}
           align="start"
           collisionPadding={12}
-          className="relative z-[300] w-72"
+          className="relative z-[300] w-72 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto"
         >
-          <div
-            className="flex items-center gap-2 p-1"
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <IconEdit className="size-4 shrink-0 text-muted-foreground" />
-            <Input
-              ref={propertyNameInputRef}
-              value={name}
-              aria-label={t("editor.properties.propertyName")}
-              onChange={(event) => setName(event.target.value)}
-              onBlur={() => void renameProperty()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
+          {view === "quick" && hasColumnMenu ? (
+            <>
+              <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+                {property.definition.name}
+              </DropdownMenuLabel>
+              <DropdownMenuItem
+                onSelect={(event) => {
                   event.preventDefault();
-                  event.currentTarget.blur();
-                }
-              }}
-              className="h-8"
-            />
-          </div>
-
-          <div
-            className="px-2 pb-2 pt-1"
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <Textarea
-              rows={2}
-              value={description}
-              aria-label={t("editor.properties.description")}
-              placeholder={t("editor.properties.addPropertyDescription")}
-              onChange={(event) => setDescription(event.target.value)}
-              onBlur={() => void updateDescription()}
-              className="block w-full resize-none rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
-            />
-          </div>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <Icon className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">{t("editor.properties.type")}</span>
-              <span className="mr-2 text-muted-foreground">
-                {t(`editor.propertyTypes.${property.definition.type}`)}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-80 w-56 overflow-auto">
-              {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
-                const TypeIcon = TYPE_ICONS[propertyType];
-                const selected = property.definition.type === propertyType;
-                const disabled = typeIsLocked && !selected;
-                return (
-                  <DropdownMenuItem
-                    key={propertyType}
-                    disabled={disabled}
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      void updateType(propertyType);
-                    }}
-                  >
-                    <TypeIcon className="mr-2 size-4 text-muted-foreground" />
-                    <span className="flex-1">
-                      {t(`editor.propertyTypes.${propertyType}`)}
-                    </span>
-                    {selected ? (
-                      <IconCheck className="size-4 text-muted-foreground" />
-                    ) : null}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>
-              <IconEye className="mr-2 size-4 text-muted-foreground" />
-              <span className="flex-1">
-                {t("editor.properties.visibility")}
-              </span>
-              <span className="mr-2 text-muted-foreground">
-                {t(
-                  `editor.propertyVisibility.${property.definition.visibility}`,
-                )}
-              </span>
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-56">
-              {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
-                <DropdownMenuItem
-                  key={visibility}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void updateVisibility(visibility);
-                  }}
-                >
-                  <span className="flex-1">
-                    {t(`editor.propertyVisibility.${visibility}`)}
-                  </span>
-                  {property.definition.visibility === visibility ? (
-                    <IconCheck className="size-4 text-muted-foreground" />
-                  ) : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-
-          {typeNeedsOptions ? (
-            <div className="grid gap-2 px-1 py-2">
-              <div className="px-1 text-xs font-medium text-muted-foreground">
-                {t("editor.properties.options")}
-              </div>
-              <div className="grid gap-1">
-                {(property.definition.options.options ?? []).map((option) => (
-                  <PropertyOptionSettingsRow
-                    key={option.id}
-                    option={option}
-                    disabled={configure.isPending}
-                    onRename={(name) => void renameOption(option.id, name)}
-                    onDescriptionChange={(description) =>
-                      void describeOption(option.id, description)
-                    }
-                    onColorChange={(color) =>
-                      void recolorOption(option.id, color)
-                    }
-                    onRemove={() => void removeOption(option.id)}
-                  />
-                ))}
-              </div>
-              <form
-                className="flex gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void addOption();
+                  onSortsChange?.(
+                    upsertDatabaseSort(
+                      sorts ?? [],
+                      columnKey,
+                      property.definition.name,
+                      "asc",
+                    ),
+                  );
                 }}
               >
+                <IconArrowUp className="mr-2 size-4 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  {t("database.sortAscending")}
+                </span>
+                {columnSort?.direction === "asc" ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onSortsChange?.(
+                    upsertDatabaseSort(
+                      sorts ?? [],
+                      columnKey,
+                      property.definition.name,
+                      "desc",
+                    ),
+                  );
+                }}
+              >
+                <IconArrowDown className="mr-2 size-4 text-muted-foreground" />
+                <span className="min-w-0 flex-1">
+                  {t("database.sortDescending")}
+                </span>
+                {columnSort?.direction === "desc" ? (
+                  <IconCheck className="size-4 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+              {columnSort ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onSortsChange?.(clearDatabaseSort(sorts ?? [], columnKey));
+                  }}
+                >
+                  <IconX className="mr-2 size-4 text-muted-foreground" />
+                  {t("database.clearSort")}
+                </DropdownMenuItem>
+              ) : null}
+              <DropdownMenuSeparator />
+              {quickFilters.map((quickFilter) => (
+                <DropdownMenuItem
+                  key={quickFilter.operator}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onFiltersChange?.(
+                      upsertDatabaseQuickFilter(
+                        filters ?? [],
+                        columnKey,
+                        property.definition.name,
+                        quickFilter.operator,
+                      ),
+                    );
+                  }}
+                >
+                  <IconFilter className="mr-2 size-4 text-muted-foreground" />
+                  {quickFilter.label}
+                </DropdownMenuItem>
+              ))}
+              {columnFilterCount > 0 ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onFiltersChange?.(
+                      clearDatabaseFiltersForColumn(filters ?? [], columnKey),
+                    );
+                  }}
+                >
+                  <IconX className="mr-2 size-4 text-muted-foreground" />
+                  {t("editor.properties.clearFilters", {
+                    count: columnFilterCount,
+                  })}
+                </DropdownMenuItem>
+              ) : null}
+              {onHide ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={hideDisabled}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      void onHide();
+                    }}
+                  >
+                    <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
+                    {t("database.hideInView")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setView("edit");
+                }}
+              >
+                <IconEdit className="mr-2 size-4 text-muted-foreground" />
+                {t("editor.properties.editField")}
+              </DropdownMenuItem>
+            </>
+          ) : (
+            <>
+              {hasColumnMenu ? (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setView("quick");
+                  }}
+                  className="gap-1.5 py-1 text-xs text-muted-foreground focus:text-foreground"
+                >
+                  <IconArrowLeft className="size-3.5" />
+                  {t("editor.properties.backToColumnMenu")}
+                </DropdownMenuItem>
+              ) : null}
+              <div
+                className="flex items-center gap-2 p-1"
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <IconEdit className="size-4 shrink-0 text-muted-foreground" />
                 <Input
-                  value={newOption}
-                  placeholder={t("editor.properties.addOption")}
-                  onChange={(event) => setNewOption(event.target.value)}
-                  onKeyDown={(event) => event.stopPropagation()}
+                  ref={propertyNameInputRef}
+                  value={name}
+                  aria-label={t("editor.properties.propertyName")}
+                  onChange={(event) => setName(event.target.value)}
+                  onBlur={() => void renameProperty()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      event.currentTarget.blur();
+                    }
+                  }}
                   className="h-8"
                 />
-                <Button
-                  type="submit"
-                  size="sm"
-                  variant="secondary"
-                  disabled={!newOption.trim() || configure.isPending}
-                >
-                  {t("editor.properties.add")}
-                </Button>
-              </form>
-            </div>
-          ) : null}
+              </div>
 
-          {showBindingEditor ? (
-            <>
-              <DropdownMenuSeparator />
-              <div className="grid gap-1.5 px-2 py-1.5 text-xs">
-                <div className="font-medium text-foreground">
-                  {t("database.sourcesFeedingThisColumn")}
-                </div>
-                {boundSourceFields.length > 0 ? (
-                  <div className="grid gap-1">
-                    {boundSourceFields.map(({ source: src, field }) => (
-                      <div
-                        key={field.id}
-                        className="flex min-w-0 items-center gap-1.5"
+              <div
+                className="px-2 pb-2 pt-1"
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <Textarea
+                  rows={1}
+                  value={description}
+                  aria-label={t("editor.properties.description")}
+                  placeholder={t("editor.properties.addPropertyDescription")}
+                  onChange={(event) => setDescription(event.target.value)}
+                  onBlur={() => void updateDescription()}
+                  className="block min-h-0 w-full resize-none rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:resize-y focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
+                />
+              </div>
+
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Icon className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1">{t("editor.properties.type")}</span>
+                  <span className="mr-2 text-muted-foreground">
+                    {t(`editor.propertyTypes.${property.definition.type}`)}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="z-[310] max-h-80 w-56 overflow-auto">
+                  {CREATABLE_DOCUMENT_PROPERTY_TYPES.map((propertyType) => {
+                    const TypeIcon = TYPE_ICONS[propertyType];
+                    const selected = property.definition.type === propertyType;
+                    const disabled = typeIsLocked && !selected;
+                    return (
+                      <DropdownMenuItem
+                        key={propertyType}
+                        disabled={disabled}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void updateType(propertyType);
+                        }}
                       >
-                        <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                          <span className="text-foreground">
-                            {src.sourceName}
-                          </span>{" "}
-                          · {field.sourceFieldLabel}
+                        <TypeIcon className="mr-2 size-4 text-muted-foreground" />
+                        <span className="flex-1">
+                          {t(`editor.propertyTypes.${propertyType}`)}
                         </span>
-                        <button
-                          type="button"
-                          aria-label={`Unbind ${field.sourceFieldLabel} from ${src.sourceName}`}
-                          disabled={bindSourceField.isPending}
-                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
-                          onClick={() =>
-                            void bindSourceField.mutateAsync({
-                              documentId,
-                              sourceFieldId: field.id,
-                              propertyId: null,
-                            })
-                          }
-                        >
-                          <IconX className="size-3.5" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-muted-foreground">
-                    {t("database.noSourceFieldsBoundYet")}
-                  </div>
-                )}
-                {bindableSourceFields.length > 0 ? (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="mt-0.5 rounded px-1.5 py-1 text-xs">
-                      <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
-                      {t("database.bindAFieldFromASource")}
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="max-h-80 w-64 overflow-auto">
-                      {bindableSourceFields.map(({ source: src, field }) => (
-                        <DropdownMenuItem
-                          key={field.id}
-                          disabled={bindSourceField.isPending}
-                          onSelect={(event) => {
-                            event.preventDefault();
-                            void bindSourceField.mutateAsync({
-                              documentId,
-                              sourceFieldId: field.id,
-                              propertyId: property.definition.id,
-                            });
-                          }}
-                        >
-                          <IconLink className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate">
-                            {field.sourceFieldLabel}
-                          </span>
-                          <span className="ml-2 shrink-0 truncate text-[11px] text-muted-foreground">
-                            {src.sourceName}
-                          </span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                ) : null}
-              </div>
-            </>
-          ) : sourceAttached ? (
-            <>
-              <DropdownMenuSeparator />
-              <div className="grid gap-1 px-2 py-1.5 text-xs">
-                <div className="font-medium text-foreground">
-                  {t("editor.properties.source")}
-                </div>
-                {sourceField ? (
-                  <>
-                    <div className="min-w-0 break-words text-muted-foreground">
-                      {sourceField.sourceFieldLabel} (
-                      {sourceField.sourceFieldKey})
-                    </div>
-                    <div className="text-muted-foreground">
-                      {sourceField.readOnly
-                        ? t("editor.properties.readOnly")
-                        : sourceField.writeOwner === "source"
-                          ? t("editor.properties.sourceOwned")
-                          : t("editor.properties.localEditsAllowed")}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-muted-foreground">
-                    {t("editor.properties.notMappedToBuilder")}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : null}
+                        {selected ? (
+                          <IconCheck className="size-4 text-muted-foreground" />
+                        ) : null}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
 
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            disabled={duplicate.isPending}
-            onSelect={(event) => {
-              event.preventDefault();
-              void duplicateProperty();
-            }}
-          >
-            <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            {t("editor.properties.duplicateProperty")}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={remove.isPending}
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setOpen(false);
-              setConfirmDeleteOpen(true);
-            }}
-          >
-            <IconTrash className="mr-2 size-4" />
-            {t("editor.properties.deleteProperty")}
-          </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <IconEye className="mr-2 size-4 text-muted-foreground" />
+                  <span className="flex-1">
+                    {t("editor.properties.visibility")}
+                  </span>
+                  <span className="mr-2 text-muted-foreground">
+                    {t(
+                      `editor.propertyVisibility.${property.definition.visibility}`,
+                    )}
+                  </span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="z-[310] w-56">
+                  {DOCUMENT_PROPERTY_VISIBILITIES.map((visibility) => (
+                    <DropdownMenuItem
+                      key={visibility}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        void updateVisibility(visibility);
+                      }}
+                    >
+                      <span className="flex-1">
+                        {t(`editor.propertyVisibility.${visibility}`)}
+                      </span>
+                      {property.definition.visibility === visibility ? (
+                        <IconCheck className="size-4 text-muted-foreground" />
+                      ) : null}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              {typeNeedsOptions ? (
+                <div className="grid gap-2 px-1 py-2">
+                  <div className="px-1 text-xs font-medium text-muted-foreground">
+                    {t("editor.properties.options")}
+                  </div>
+                  <div className="grid gap-1">
+                    <DndContext
+                      sensors={optionDragSensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleOptionDragEnd}
+                    >
+                      <SortableContext
+                        items={optionsDraft.map((option) => option.id)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {optionsDraft.map((option) => (
+                          <PropertyOptionSettingsRow
+                            key={option.id}
+                            option={option}
+                            disabled={configure.isPending}
+                            onRename={(name) =>
+                              void renameOption(option.id, name)
+                            }
+                            onDescriptionChange={(description) =>
+                              void describeOption(option.id, description)
+                            }
+                            onColorChange={(color) =>
+                              void recolorOption(option.id, color)
+                            }
+                            onRemove={() => void removeOption(option.id)}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+                  </div>
+                  <form
+                    className="flex gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void addOption();
+                    }}
+                  >
+                    <Input
+                      value={newOption}
+                      placeholder={t("editor.properties.addOption")}
+                      onChange={(event) => setNewOption(event.target.value)}
+                      onKeyDown={(event) => event.stopPropagation()}
+                      className="h-8"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!newOption.trim() || configure.isPending}
+                    >
+                      {t("editor.properties.add")}
+                    </Button>
+                  </form>
+                </div>
+              ) : null}
+
+              {showBindingEditor ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <div className="grid gap-1.5 px-2 py-1.5 text-xs">
+                    <div className="font-medium text-foreground">
+                      {t("database.sourcesFeedingThisColumn")}
+                    </div>
+                    {boundSourceFields.length > 0 ? (
+                      <div className="grid gap-1">
+                        {boundSourceFields.map(({ source: src, field }) => (
+                          <div
+                            key={field.id}
+                            className="flex min-w-0 items-center gap-1.5"
+                          >
+                            <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
+                            <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                              <span className="text-foreground">
+                                {src.sourceName}
+                              </span>{" "}
+                              · {field.sourceFieldLabel}
+                            </span>
+                            <button
+                              type="button"
+                              aria-label={`Unbind ${field.sourceFieldLabel} from ${src.sourceName}`}
+                              disabled={bindSourceField.isPending}
+                              className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                              onClick={() =>
+                                void bindSourceField.mutateAsync({
+                                  documentId,
+                                  sourceFieldId: field.id,
+                                  propertyId: null,
+                                })
+                              }
+                            >
+                              <IconX className="size-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-muted-foreground">
+                        {t("database.noSourceFieldsBoundYet")}
+                      </div>
+                    )}
+                    {bindableSourceFields.length > 0 ? (
+                      <DropdownMenuSub>
+                        <DropdownMenuSubTrigger className="mt-0.5 rounded px-1.5 py-1 text-xs">
+                          <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
+                          {t("database.bindAFieldFromASource")}
+                        </DropdownMenuSubTrigger>
+                        <DropdownMenuSubContent className="z-[310] max-h-80 w-64 overflow-auto">
+                          {bindableSourceFields.map(
+                            ({ source: src, field }) => (
+                              <DropdownMenuItem
+                                key={field.id}
+                                disabled={bindSourceField.isPending}
+                                onSelect={(event) => {
+                                  event.preventDefault();
+                                  void bindSourceField.mutateAsync({
+                                    documentId,
+                                    sourceFieldId: field.id,
+                                    propertyId: property.definition.id,
+                                  });
+                                }}
+                              >
+                                <IconLink className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                                <span className="min-w-0 flex-1 truncate">
+                                  {field.sourceFieldLabel}
+                                </span>
+                                <span className="ml-2 shrink-0 truncate text-[11px] text-muted-foreground">
+                                  {src.sourceName}
+                                </span>
+                              </DropdownMenuItem>
+                            ),
+                          )}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuSub>
+                    ) : null}
+                  </div>
+                </>
+              ) : sourceAttached ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <div className="grid gap-1 px-2 py-1.5 text-xs">
+                    <div className="font-medium text-foreground">
+                      {t("editor.properties.source")}
+                    </div>
+                    {sourceField ? (
+                      <>
+                        <div className="min-w-0 break-words text-muted-foreground">
+                          {sourceField.sourceFieldLabel} (
+                          {sourceField.sourceFieldKey})
+                        </div>
+                        <div className="text-muted-foreground">
+                          {sourceField.readOnly
+                            ? t("editor.properties.readOnly")
+                            : sourceField.writeOwner === "source"
+                              ? t("editor.properties.sourceOwned")
+                              : t("editor.properties.localEditsAllowed")}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground">
+                        {t("editor.properties.notMappedToBuilder")}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : null}
+
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={duplicate.isPending}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  void duplicateProperty();
+                }}
+              >
+                <IconCopy className="mr-2 size-4 text-muted-foreground" />
+                {t("editor.properties.duplicateProperty")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={remove.isPending}
+                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setOpen(false);
+                  setConfirmDeleteOpen(true);
+                }}
+              >
+                <IconTrash className="mr-2 size-4" />
+                {t("editor.properties.deleteProperty")}
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -1619,6 +1861,14 @@ function PropertyOptionSettingsRow({
   const [draftDescription, setDraftDescription] = useState(
     option.description ?? "",
   );
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: option.id, disabled });
 
   useEffect(() => {
     setDraftName(option.name);
@@ -1637,12 +1887,62 @@ function PropertyOptionSettingsRow({
   }
 
   return (
-    <div className="grid gap-1 rounded px-2 py-1 hover:bg-muted/50">
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "grid gap-1 rounded px-2 py-1 hover:bg-muted/50",
+        isDragging && "relative z-10 bg-muted/50",
+      )}
+    >
       <div className="flex items-center gap-2">
-        <span
-          aria-hidden
-          className={cn("size-3 shrink-0 rounded-full", optionClass(option))}
-        />
+        <button
+          type="button"
+          disabled={disabled}
+          aria-label={t("editor.properties.reorderOption", {
+            name: option.name,
+          })}
+          className="size-5 shrink-0 cursor-grab touch-none rounded text-muted-foreground/60 hover:text-muted-foreground active:cursor-grabbing disabled:opacity-50"
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical className="size-3.5" />
+        </button>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger
+            disabled={disabled}
+            aria-label={t("editor.properties.color")}
+            className="size-5 shrink-0 justify-center rounded-full p-0 [&_svg]:hidden"
+          >
+            <span
+              aria-hidden
+              className={cn("block size-3 rounded-full", optionClass(option))}
+            />
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="z-[310] w-44">
+            {OPTION_COLORS.map((color) => (
+              <DropdownMenuItem
+                key={color}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  onColorChange(color);
+                }}
+              >
+                <span
+                  className={cn(
+                    "inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium capitalize",
+                    OPTION_COLOR_CLASSES[color],
+                  )}
+                >
+                  {t(`editor.propertyOptionColors.${color}`)}
+                </span>
+                {option.color === color ? (
+                  <IconCheck className="ml-auto size-4 shrink-0 text-muted-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         <Input
           value={draftName}
           disabled={disabled}
@@ -1665,52 +1965,16 @@ function PropertyOptionSettingsRow({
           }}
           className="h-7 min-w-0 flex-1 border-0 bg-transparent px-1 text-sm shadow-none focus-visible:bg-background focus-visible:ring-1"
         />
-      </div>
-      <div className="flex items-center justify-between gap-2 pl-5">
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger
-            disabled={disabled}
-            className="h-7 rounded px-1.5 text-xs text-muted-foreground"
-          >
-            <IconPalette className="mr-1.5 size-3.5" />
-            {t("editor.properties.color")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-44">
-            {OPTION_COLORS.map((color) => (
-              <DropdownMenuItem
-                key={color}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  onColorChange(color);
-                }}
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mr-2 size-3 rounded-full",
-                    OPTION_COLOR_CLASSES[color],
-                  )}
-                />
-                <span className="flex-1 capitalize">
-                  {t(`editor.propertyOptionColors.${color}`)}
-                </span>
-                {option.color === color ? (
-                  <IconCheck className="size-4 text-muted-foreground" />
-                ) : null}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
         <button
           type="button"
           aria-label={t("editor.properties.removeOption", {
             name: option.name,
           })}
           disabled={disabled}
-          className="h-7 rounded px-1.5 text-xs text-muted-foreground hover:text-destructive disabled:opacity-50"
+          className="h-7 shrink-0 rounded px-1.5 text-muted-foreground hover:text-destructive disabled:opacity-50"
           onClick={onRemove}
         >
-          {t("editor.properties.remove")}
+          <IconX className="size-3.5" />
         </button>
       </div>
       <Textarea
@@ -1726,7 +1990,7 @@ function PropertyOptionSettingsRow({
             onDescriptionChange(nextDescription);
           }
         }}
-        className="ml-5 block w-[calc(100%-1.25rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:bg-background focus:ring-1 focus:ring-ring"
+        className="block min-h-0 w-full resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:resize-y focus:bg-background focus:ring-1 focus:ring-ring"
       />
     </div>
   );

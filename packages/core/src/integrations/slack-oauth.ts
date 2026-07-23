@@ -14,6 +14,7 @@ export const SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test";
 export const SLACK_AGENT_BOT_SCOPES = [
   "assistant:write",
   "app_mentions:read",
+  "channels:join",
   "channels:read",
   "channels:history",
   "chat:write",

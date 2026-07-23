@@ -13,7 +13,7 @@ Agent-Native는 전체 사이드바를 제공하지만 사이드바는 계약이
 중점 클라이언트 하위 경로에서 브라우저 UI 가져오기:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -173,8 +173,9 @@ BYOD(Bring-Your-Own) 에이전트 엔드포인트의 경우 다음 중 하나를
 
 ## 채팅 필드 및 작성기 {#composer}
 
-동일한 채팅이 필요한 경우 `@agent-native/core/client/composer`를 사용하세요
-사용자 정의 UI 내부 사이드바에서 사용되는 필드
+맞춤 UI에서 사이드바와 같은 채팅 필드가 필요하면 `@agent-native/core/client/composer`를 사용하세요.
+`@agent-native/toolkit/composer`는 이식 가능한 순수 Tiptap 및 UI 구현을 제공합니다. 프레임워크 서비스를
+사용하려면 `ComposerRuntimeAdaptersProvider`로 감싸고 서비스를 제공해야 합니다. Core는 첨부 파일, 멘션, 스킬, 음성 및 모델 선택을 이미 연결한 래퍼입니다.
 
 | API                               | 다음 경우에 사용                                                                                                                                 |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |

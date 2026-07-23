@@ -1,13 +1,16 @@
-import { useDbSync } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
-  configureTracking,
   createAgentNativeQueryClient,
-  getThemeInitScript,
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
   useCommandMenuShortcut,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -17,7 +20,9 @@ import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { i18nCatalog } from "@/i18n";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -35,7 +40,31 @@ export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
 ];
 
-const THEME_INIT_SCRIPT = getThemeInitScript();
+const THEME_INIT_SCRIPT_SELECTOR = "script[data-agent-native-theme-init]";
+const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
+
+function getHydrationStableThemeInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      THEME_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getThemeInitScript();
+}
+
+function getHydrationStableLocaleInitScript() {
+  if (typeof document !== "undefined") {
+    const existing = document.querySelector<HTMLScriptElement>(
+      LOCALE_INIT_SCRIPT_SELECTOR,
+    );
+    if (existing?.innerHTML) return existing.innerHTML;
+  }
+  return getLocaleInitScript();
+}
+
+const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
+const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -47,8 +76,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <script
+          data-agent-native-theme-init
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
+        />
+        <script
+          data-agent-native-locale-init
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
@@ -120,11 +155,13 @@ function AppContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders queryClient={queryClient}>
-      <DbSyncSetup />
-      <AppContent />
+    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppToolkitProvider>
+        <DbSyncSetup />
+        <AppContent />
+      </AppToolkitProvider>
     </AppProviders>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

@@ -327,6 +327,7 @@ export function validateDashboardConfig(
     "first-party",
     "demo",
     "prometheus",
+    "program",
   ]);
   const isValidColumnCount = (v: unknown): v is number =>
     typeof v === "number" &&
@@ -361,7 +362,7 @@ export function validateDashboardConfig(
       }
     }
     if (!isSection && !isExtension && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`;
     }
     if (isExtension) {
       const cfg = p.config as Record<string, unknown> | undefined;
@@ -369,8 +370,12 @@ export function validateDashboardConfig(
         cfg && typeof cfg.extensionId === "string"
           ? cfg.extensionId.trim()
           : "";
-      if (!extensionId) {
-        return `panel[${i}].config.extensionId is required for extension panels (the id of the extension to render inline)`;
+      const extensionSlotId =
+        cfg && typeof cfg.extensionSlotId === "string"
+          ? cfg.extensionSlotId.trim()
+          : "";
+      if (!extensionId && !extensionSlotId) {
+        return `panel[${i}].config.extensionId or config.extensionSlotId is required for extension panels`;
       }
     }
     if (
@@ -387,19 +392,19 @@ export function validateDashboardConfig(
   return null;
 }
 
-/**
- * Dry-run each BigQuery panel's SQL so bad column names or type
- * mismatches fail here, with the full BigQuery error text, rather than
- * silently saving a broken dashboard that crashes on render.
- */
+/** Validate every query panel, or only the supplied ids for a targeted edit. */
 export async function validatePanelSql(
   config: Record<string, unknown>,
+  panelIds?: ReadonlySet<string>,
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
+    if (panelIds && (typeof p.id !== "string" || !panelIds.has(p.id))) {
+      continue;
+    }
     // Sections are layout-only and extensions render their own iframe — neither
     // has SQL to dry-run. heatmap, callout, and other query panels still
     // validate normally below.

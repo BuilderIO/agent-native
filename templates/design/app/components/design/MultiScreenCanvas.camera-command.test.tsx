@@ -13,14 +13,9 @@ import { MultiScreenCanvas } from "./MultiScreenCanvas";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 const viewportRect = {
   x: 0,

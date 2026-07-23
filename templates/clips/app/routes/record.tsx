@@ -1,15 +1,15 @@
+import { captureClientException } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
-  callAction,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {
   isStoredButUnservableFinalizeError,
-  waitForReadyRecordingAfterFinalizeError,
+  waitForAcceptedRecordingAfterFinalizeError,
 } from "@shared/finalize-recovery";
 import {
   chunkUploadParallelism,
@@ -70,10 +70,6 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
-import {
-  captureVideoThumbnailBlob,
-  uploadRecordingThumbnail,
-} from "@/lib/thumbnail-capture";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -535,76 +531,6 @@ function userFacingActionErrorMessage(error: string): string {
   return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
 }
 
-function captureThumbnailFromPreview(
-  video: HTMLVideoElement | null,
-  recordingId: string,
-): void {
-  void captureVideoThumbnailBlob(video)
-    .then((blob) => (blob ? uploadRecordingThumbnail(recordingId, blob) : null))
-    .catch(() => {
-      // best effort — the player has a backfill path if this misses.
-    });
-}
-
-/** Resolve once the off-screen video has a decoded frame, or after a timeout. */
-function waitForVideoFrame(
-  video: HTMLVideoElement,
-  timeoutMs: number,
-): Promise<void> {
-  if (video.videoWidth > 0 && video.readyState >= 2) return Promise.resolve();
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      video.removeEventListener("loadeddata", onReady);
-      video.removeEventListener("canplay", onReady);
-      clearTimeout(timer);
-      resolve();
-    };
-    const onReady = () => {
-      if (video.videoWidth > 0 && video.readyState >= 2) finish();
-    };
-    video.addEventListener("loadeddata", onReady);
-    video.addEventListener("canplay", onReady);
-    const timer = setTimeout(finish, timeoutMs);
-    onReady();
-  });
-}
-
-/**
- * Capture a thumbnail from a MediaStream that isn't bound to a visible element
- * — used for the screen+camera composite so the thumbnail includes the camera
- * bubble. Best effort: if it misses, the player's backfill path (which reads
- * the recorded file, also composited) still produces a face thumbnail.
- */
-function captureThumbnailFromStream(
-  stream: MediaStream,
-  recordingId: string,
-): void {
-  const video = document.createElement("video");
-  video.srcObject = stream;
-  video.muted = true;
-  video.playsInline = true;
-  void (async () => {
-    try {
-      await video.play().catch(() => {});
-      await waitForVideoFrame(video, 1500);
-      const blob = await captureVideoThumbnailBlob(video);
-      if (blob) await uploadRecordingThumbnail(recordingId, blob);
-    } catch {
-      // best effort — the player has a backfill path if this misses.
-    } finally {
-      try {
-        video.pause();
-      } catch {
-        // ignore
-      }
-      video.srcObject = null;
-    }
-  })();
-}
-
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -670,6 +596,7 @@ function DesktopRecorderCallout() {
       <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        downloadedChildren={t("captureInstall.openDesktopApp")}
       >
         {t("recordRoute.downloadDesktopApp")}
       </CaptureInstallButton>
@@ -1158,8 +1085,8 @@ export default function RecordRoute() {
             }).catch(() => {});
           },
           // When the user clicks the browser's native "Stop sharing" button,
-          // delegate to doStop() so the UI runs its full stop flow: thumbnail
-          // capture, transcription flush, state updates, and navigation.
+          // delegate to doStop() so the UI runs its full stop flow:
+          // transcription flush, state updates, and navigation.
           // Using a ref so we always call the latest version of doStop even
           // though startFlow itself has empty deps.
           onDisplayTrackEnded: () => {
@@ -1238,7 +1165,7 @@ export default function RecordRoute() {
               sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
-              visibility: reportContext ? "org" : "public",
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: pickMimeType() || undefined,
@@ -1561,7 +1488,7 @@ export default function RecordRoute() {
               hasAudio: true,
               width: meta.width,
               height: meta.height,
-              visibility: reportContext ? "org" : "public",
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: uploadMimeType,
@@ -1732,7 +1659,7 @@ export default function RecordRoute() {
             createdId &&
             (err as { name?: string } | null)?.name !== "AbortError"
           ) {
-            const recovered = await waitForReadyRecordingAfterFinalizeError({
+            const recovered = await waitForAcceptedRecordingAfterFinalizeError({
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
@@ -1763,7 +1690,7 @@ export default function RecordRoute() {
             chunkRes.status !== 413 &&
             !isUploadSizeError(error.message)
           ) {
-            const recovered = await waitForReadyRecordingAfterFinalizeError({
+            const recovered = await waitForAcceptedRecordingAfterFinalizeError({
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
@@ -2078,18 +2005,6 @@ export default function RecordRoute() {
     }
     setUiState("uploading");
     try {
-      // Capture a still-frame thumbnail while the stream is still live —
-      // otherwise the library would show a blank card until the owner opens the
-      // recording and triggers the player's backfill path. In screen+camera
-      // mode the visible preview is screen-only, so grab the composited stream
-      // (screen + camera bubble) to keep the presenter's face in the thumbnail.
-      const compositeStream = engine.getCompositeStream();
-      if (compositeStream) {
-        captureThumbnailFromStream(compositeStream, pending.id);
-      } else {
-        captureThumbnailFromPreview(previewVideoRef.current, pending.id);
-      }
-
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
       // (from Web Speech API) with no API key required.
@@ -2117,6 +2032,27 @@ export default function RecordRoute() {
             transcriptRes.status,
           );
         }
+      } else {
+        await fetch(
+          agentNativePath("/_agent-native/actions/save-browser-transcript"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: pending.id,
+              fullText: "",
+              source: "web-speech",
+              failureReason: liveTranscription.supported
+                ? "Browser native transcription returned no speech before recording stopped."
+                : "Browser Web Speech recognition is unavailable in this browser.",
+            }),
+          },
+        ).catch((err) => {
+          console.warn(
+            "[recorder] native transcript failure save failed:",
+            err,
+          );
+        });
       }
 
       const stopResult = await engine.stop();

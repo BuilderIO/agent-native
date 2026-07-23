@@ -1,54 +1,17 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  agentNativePath,
   getBrowserTabId,
+  setClientAppState,
+  useSession,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
@@ -112,6 +75,7 @@ import {
   IconEyeOff,
   IconFilter,
   IconFileText,
+  IconFolder,
   IconForms,
   IconGripVertical,
   IconLayoutKanban,
@@ -125,6 +89,7 @@ import {
   IconPencil,
   IconRefresh,
   IconSearch,
+  IconStarOff,
   IconTable,
   IconTimeline,
   IconTrash,
@@ -145,6 +110,54 @@ import {
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import {
+  contentSpaceForCatalogItem,
+  createContentSpaceSelectionQueue,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+  selectContentSpace,
+} from "@/components/sidebar/select-content-space";
+import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
@@ -175,6 +188,10 @@ import {
   useUpdateContentDatabaseView,
 } from "@/hooks/use-content-database";
 import {
+  useContentSpaces,
+  useDeleteContentSpace,
+} from "@/hooks/use-content-spaces";
+import {
   useConfigureDocumentProperty,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
@@ -187,6 +204,7 @@ import {
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
@@ -210,7 +228,6 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
-import { DescriptionField } from "../DescriptionField";
 import { DocumentBlockFields } from "../DocumentBlockFields";
 import {
   AddProperty,
@@ -282,6 +299,26 @@ export function databaseSearchExpansionIsPending(
   return !!searchQuery.trim() && responseLimit < requestedLimit;
 }
 
+export function databaseClientQueryExpandedItemLimit(
+  requiresCompleteDataset: boolean,
+  currentLimit: number,
+  totalItemCount: number,
+) {
+  if (!requiresCompleteDataset) return currentLimit;
+  return Math.max(
+    currentLimit,
+    Math.min(totalItemCount, CONTENT_DATABASE_MAX_ITEM_LIMIT),
+  );
+}
+
+export function databaseClientQueryExpansionIsPending(
+  requiresCompleteDataset: boolean,
+  requestedLimit: number,
+  responseLimit: number,
+) {
+  return requiresCompleteDataset && responseLimit < requestedLimit;
+}
+
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
 export type FilterOperator = ContentDatabaseFilterOperator;
@@ -314,7 +351,8 @@ const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [
 ];
 const DATABASE_FILTER_MODES: DatabaseFilterMode[] = ["and", "or"];
 const DATABASE_ADVANCED_FILTER_GROUP_ID = "advanced";
-export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION = 1;
+export const PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION =
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION;
 export const BUILDER_SOURCE_CONTINUATION_STALL_MS = 5_000;
 export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
 
@@ -348,6 +386,7 @@ export function previewDraftMissingCasRecovery(args: {
 }
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
+type SidebarMessageKey = keyof (typeof messagesByLocale)["en-US"]["sidebar"];
 
 export function dbText(
   key: DatabaseMessageKey,
@@ -366,6 +405,15 @@ export function dbText(
       current.split(`{{${name}}}`).join(String(value)),
     text,
   );
+}
+
+function sidebarText(key: SidebarMessageKey): string {
+  const locale =
+    typeof document === "undefined" ? "en-US" : document.documentElement.lang;
+  const messages =
+    messagesByLocale[locale as keyof typeof messagesByLocale] ??
+    messagesByLocale["en-US"];
+  return messages.sidebar[key] ?? messagesByLocale["en-US"].sidebar[key];
 }
 
 export type CreateDatabaseRowHandler = (
@@ -593,10 +641,12 @@ export function DatabaseItemPageIcon({
   document,
   className,
   fallbackClassName,
+  fallback = "page",
 }: {
   document: Pick<Document, "icon">;
   className?: string;
   fallbackClassName?: string;
+  fallback?: "page" | "folder";
 }) {
   const icon = databaseItemPageIconText(document);
   if (icon) {
@@ -613,8 +663,9 @@ export function DatabaseItemPageIcon({
     );
   }
 
+  const FallbackIcon = fallback === "folder" ? IconFolder : IconFileText;
   return (
-    <IconFileText
+    <FallbackIcon
       className={cn("shrink-0 text-muted-foreground", fallbackClassName)}
     />
   );
@@ -665,10 +716,18 @@ function DatabaseTable({
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [databaseItemLimit, setDatabaseItemLimit] = useState(
+  const contentSpacesQuery = useContentSpaces();
+  const [, setStoredSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
+  const [manualDatabaseItemLimit, setManualDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
-  const database = useContentDatabase(document.id, databaseItemLimit);
+  const [databaseRequestItemLimit, setDatabaseRequestItemLimit] = useState(
+    CONTENT_DATABASE_PAGE_SIZE,
+  );
+  const database = useContentDatabase(document.id, databaseRequestItemLimit);
   const addItem = useAddDatabaseItem(document.id);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
@@ -682,7 +741,6 @@ function DatabaseTable({
   );
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id, document.id);
-  const updateDatabaseDocument = useUpdateDocument();
   const updateView = useUpdateContentDatabaseView(document.id);
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -690,16 +748,21 @@ function DatabaseTable({
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
+  const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
+  const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
   const hasMoreItems =
     data?.pagination?.hasMore === true &&
-    databaseItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
+    databaseRequestItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
   const isLoadingMoreItems =
-    database.isFetching && data?.pagination?.limit !== databaseItemLimit;
+    database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
+  const newDatabaseRowLabel = isWorkspaceCatalog
+    ? t("sidebar.addWorkspace")
+    : dbText("newPage");
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
@@ -724,18 +787,6 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const searchExpandedItemLimit = databaseSearchExpandedItemLimit(
-    searchQuery,
-    databaseItemLimit,
-    totalItemCount,
-  );
-  const isSearchExpansionPending = databaseSearchExpansionIsPending(
-    searchQuery,
-    searchExpandedItemLimit,
-    data?.pagination?.limit ?? items.length,
-  );
-  const isDatabaseViewLoading =
-    isDatabaseInitialLoading || isSearchExpansionPending;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -751,10 +802,6 @@ function DatabaseTable({
   );
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
 
-  useEffect(() => {
-    if (searchExpandedItemLimit === databaseItemLimit) return;
-    setDatabaseItemLimit(searchExpandedItemLimit);
-  }, [databaseItemLimit, searchExpandedItemLimit]);
   const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
     string | null
   >(null);
@@ -793,7 +840,11 @@ function DatabaseTable({
   );
   const sorts = activeView.sorts;
   const filters = activeView.filters;
+  const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
+  const workspaceCreationPropertyValues = isWorkspaceCatalog
+    ? databasePropertyValuesForNewItem(filters, properties, filterMode)
+    : undefined;
   const columnWidths = activeView.columnWidths;
   const databaseGroupProperty = useMemo(
     () => databaseViewGroupingProperty(activeView, orderedProperties),
@@ -820,6 +871,7 @@ function DatabaseTable({
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
+  const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
   const builderReviewGenerationRef = useRef(0);
   const builderReviewSessionRef = useRef<BuilderReviewSession | null>(null);
   const [
@@ -882,6 +934,32 @@ function DatabaseTable({
     sorts,
     filters,
   );
+  const visibleConstraintCount = activeDatabaseConstraintCount(
+    searchQuery,
+    sorts,
+    visibleFilters,
+  );
+  const requiresCompleteClientDataset =
+    activeConstraintCount > 0 ||
+    !!databaseGroupProperty ||
+    activeView.type === "calendar" ||
+    activeView.type === "timeline";
+  const clientQueryExpandedItemLimit = databaseClientQueryExpandedItemLimit(
+    requiresCompleteClientDataset,
+    manualDatabaseItemLimit,
+    totalItemCount,
+  );
+  const isClientQueryExpansionPending = databaseClientQueryExpansionIsPending(
+    requiresCompleteClientDataset,
+    clientQueryExpandedItemLimit,
+    data?.pagination?.limit ?? items.length,
+  );
+  const isDatabaseViewLoading =
+    isDatabaseInitialLoading || isClientQueryExpansionPending;
+  useEffect(() => {
+    if (clientQueryExpandedItemLimit === databaseRequestItemLimit) return;
+    setDatabaseRequestItemLimit(clientQueryExpandedItemLimit);
+  }, [clientQueryExpandedItemLimit, databaseRequestItemLimit]);
   const rowsAreManuallyOrdered =
     !searchQuery.trim() &&
     sorts.length === 0 &&
@@ -1237,6 +1315,7 @@ function DatabaseTable({
   ]);
 
   function previewItemPage(item: ContentDatabaseItem) {
+    if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     if (activeView.openPagesIn === "full_page") {
@@ -1276,9 +1355,48 @@ function DatabaseTable({
   }
 
   function openItemPage(item: ContentDatabaseItem) {
+    if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     navigate(`/page/${item.document.id}`);
+  }
+
+  function openWorkspaceFiles(item: ContentDatabaseItem) {
+    if (data?.database.systemRole !== "workspaces") {
+      return false;
+    }
+    const spacesResponse = contentSpacesQuery.data;
+    if (!spacesResponse) return false;
+    const space = contentSpaceForCatalogItem({
+      databaseId,
+      catalogDatabaseId: spacesResponse.catalogDatabaseId,
+      documentId: item.document.id,
+      spaces: spacesResponse.spaces,
+    });
+    if (!space) return false;
+    void workspaceSelectionQueueRef
+      .current(async () => {
+        await selectContentSpace({
+          space,
+          syncApplicationState: (selected) =>
+            setClientAppState(
+              "content-space",
+              {
+                spaceId: selected.id,
+                name: selected.name,
+                kind: selected.kind,
+                filesDatabaseId: selected.filesDatabaseId,
+              },
+              { requestSource: "content-workspaces-database" },
+            ),
+          persistSelection: setStoredSpaceId,
+          openFiles: (documentId) => navigate(`/page/${documentId}`),
+        });
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : String(error));
+      });
+    return true;
   }
 
   function prioritizeBuilderBodyHydrationForItem(item: ContentDatabaseItem) {
@@ -1307,6 +1425,7 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
+    if (isWorkspaceCatalog) return null;
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -2010,7 +2129,6 @@ function DatabaseTable({
     orderedProperties,
     visibleItems,
   ]);
-
   useEffect(() => {
     if (!data?.database.id) return;
     if (personalView.isLoading) return;
@@ -2132,19 +2250,6 @@ function DatabaseTable({
 
   return (
     <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
-      <DescriptionField
-        description={document.description}
-        canEdit={canEdit}
-        label={t("editor.properties.description")}
-        placeholder={t("editor.properties.addDatabaseDescription")}
-        className="mb-3"
-        onSave={(description) =>
-          updateDatabaseDocument.mutateAsync({
-            id: document.id,
-            description,
-          })
-        }
-      />
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}
@@ -2202,7 +2307,7 @@ function DatabaseTable({
             onSortsChange={setActiveSorts}
           />
           <FilterMenu
-            filters={filters}
+            filters={visibleFilters}
             properties={orderedProperties}
             inlineOpen={inlineFilterControlsOpen}
             open={toolbarFilterOpen}
@@ -2288,15 +2393,29 @@ function DatabaseTable({
               </span>
             ) : null}
           </Button>
-          {canEdit ? (
+          {canEdit && isWorkspaceCatalog ? (
+            <WorkspaceSourceMenu
+              align="end"
+              propertyValues={workspaceCreationPropertyValues}
+            >
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                disabled={!databaseId}
+              >
+                New
+              </Button>
+            </WorkspaceSourceMenu>
+          ) : canEdit ? (
             <Button
               type="button"
               size="sm"
               className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
-              disabled={addItem.isPending || !databaseId}
+              disabled={isCreatingDatabaseItem || !databaseId}
               onClick={() => void createRow()}
             >
-              {addItem.isPending ? (
+              {isCreatingDatabaseItem ? (
                 <Spinner className="mr-1.5 size-3.5" />
               ) : null}
               New
@@ -2313,7 +2432,7 @@ function DatabaseTable({
         filters={filters}
         filterMode={filterMode}
         properties={properties}
-        constraintCount={activeConstraintCount}
+        constraintCount={visibleConstraintCount}
         forceShow={inlineFilterControlsOpen}
         addFilterOpen={inlineAddFilterOpen}
         openSortIndex={inlineSortOpenIndex}
@@ -2412,8 +2531,9 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending || setProperty.isPending}
+          isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
           collapsedGroupIds={activeView.collapsedGroupIds ?? []}
@@ -2440,8 +2560,9 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending}
+          isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
@@ -2463,8 +2584,9 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending}
+          isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           rowsAreManuallyOrdered={rowsAreManuallyOrdered}
@@ -2486,8 +2608,9 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending || setProperty.isPending}
+          isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
@@ -2512,8 +2635,9 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending || setProperty.isPending}
+          isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
           dateProperty={dateViewProperty}
@@ -2539,6 +2663,7 @@ function DatabaseTable({
         />
       ) : (
         <DatabaseTableView
+          newRowLabel={newDatabaseRowLabel}
           properties={tableProperties}
           groupableProperties={orderedProperties}
           items={visibleItems}
@@ -2546,8 +2671,9 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
-          isCreating={addItem.isPending}
+          isCreating={isCreatingDatabaseItem}
           columnWidths={columnWidths}
           sorts={sorts}
           filters={filters}
@@ -2593,7 +2719,7 @@ function DatabaseTable({
         />
       )}
 
-      {hasMoreItems && !isSearchExpansionPending ? (
+      {hasMoreItems && !isClientQueryExpansionPending ? (
         <div className="flex items-center justify-center border-t border-border/45 py-3">
           <Button
             type="button"
@@ -2601,7 +2727,7 @@ function DatabaseTable({
             size="sm"
             disabled={isLoadingMoreItems}
             onClick={() =>
-              setDatabaseItemLimit((current) =>
+              setManualDatabaseItemLimit((current) =>
                 Math.min(
                   current + CONTENT_DATABASE_PAGE_SIZE,
                   totalItemCount,
@@ -2645,7 +2771,9 @@ function DatabaseTable({
       <DatabaseSettingsPanelSheet
         open={settingsOpen}
         panel={settingsPanel}
+        databaseId={databaseId}
         documentId={document.id}
+        isFilesDatabase={document.database?.systemRole === "files"}
         canEdit={canEdit}
         canManage={document.canManage === true}
         activeView={activeView}
@@ -3877,8 +4005,10 @@ function DatabaseItemPreview({
   onOpenPage: () => void;
 }) {
   const queryClient = useQueryClient();
+  const contentSpaces = useContentSpaces();
   const updateDocument = useUpdateDocument();
   const deleteDocument = useDeleteDocument();
+  const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document, isLoading } = useDocument(item.document.id);
   const { data: persistedPreviewDraft } = usePreviewDocumentDraft(
@@ -3945,6 +4075,15 @@ function DatabaseItemPreview({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [openingFullPage, setOpeningFullPage] = useState(false);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const workspaceSpace = contentSpaces.data?.spaces.find(
+    (space) => space.catalogDocumentId === item.document.id,
+  );
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const canDeleteWorkspace =
+    isWorkspaceCatalog && workspaceSpace?.kind === "user";
 
   // The peek's primary title+body save runs through a flush-on-release controller
   // so a pending debounced edit is PERSISTED — not dropped — when the row
@@ -4004,25 +4143,6 @@ function DatabaseItemPreview({
             draftVersionsRef.current.set(documentId, null);
           else if (result.draft) {
             draftVersionsRef.current.set(documentId, result.draft.version);
-            if (
-              previewDraftNeedsConflict({
-                returnedDraft: result.draft,
-                pending: controller.pending,
-              })
-            ) {
-              controller.notifyDraftConflict({
-                lastSaved: snapshot.lastSaved,
-                pending: {
-                  title: result.draft.title,
-                  content: result.draft.content,
-                  loadedUpdatedAt:
-                    result.draft.baseDocumentUpdatedAt ?? undefined,
-                  loadedContentWasEmpty:
-                    result.draft.loadedContentWasEmpty === 1,
-                },
-                deferredReason: "conflict",
-              });
-            }
           } else {
             // Another tab already removed the row. Treat the stale delete as
             // converged instead of retaining a version that can never match.
@@ -4047,24 +4167,6 @@ function DatabaseItemPreview({
           draftVersionsRef.current.set(documentId, result.draft.version);
         } else if (result.draft) {
           draftVersionsRef.current.set(documentId, result.draft.version);
-          if (
-            previewDraftNeedsConflict({
-              returnedDraft: result.draft,
-              pending: controller.pending,
-            })
-          ) {
-            controller.notifyDraftConflict({
-              lastSaved: snapshot.lastSaved,
-              pending: {
-                title: result.draft.title,
-                content: result.draft.content,
-                loadedUpdatedAt:
-                  result.draft.baseDocumentUpdatedAt ?? undefined,
-                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
-              },
-              deferredReason: "conflict",
-            });
-          }
         } else {
           // A competing tab deleted the version we tried to update. Reset to
           // create mode and enqueue the latest pending payload once; keeping
@@ -4159,7 +4261,13 @@ function DatabaseItemPreview({
                 );
                 return;
               }
-              resolve(undefined);
+              resolve({
+                outcome: "saved" as const,
+                loadedUpdatedAt: result.updatedAt,
+                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                  result.content,
+                ),
+              });
             },
             onError: reject,
           },
@@ -4271,6 +4379,8 @@ function DatabaseItemPreview({
       }
       return;
     }
+    const previouslyExpectedVersion =
+      draftVersionsRef.current.get(documentId) ?? null;
     draftVersionsRef.current.set(documentId, draft.version);
     const controller = peekPreviewDocumentSaveController(documentId);
     if (!controller) return;
@@ -4292,8 +4402,19 @@ function DatabaseItemPreview({
           ? draft.deferredReason
           : null,
     } as const;
+    // A poll tick simply confirming a version this client's own debounced
+    // write already advanced the ref to is not an external change — it is
+    // this client's typing racing ahead of its own last round trip. Comparing
+    // that echo against the still-live `pending` would flag a conflict on
+    // almost every keystroke. Only treat the draft as having moved out from
+    // under the user when its version is newer than what this client itself
+    // last recorded.
+    const draftAdvancedExternally =
+      previouslyExpectedVersion !== null &&
+      draft.version > previouslyExpectedVersion;
     if (controllerDirty) {
       if (
+        draftAdvancedExternally &&
         previewDraftNeedsConflict({
           returnedDraft: draft,
           pending: controller.pending,
@@ -4549,7 +4670,14 @@ function DatabaseItemPreview({
     }
 
     try {
-      await deleteDocument.mutateAsync({ id: item.document.id });
+      if (canDeleteWorkspace && workspaceSpace) {
+        await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+      } else {
+        await deleteDocument.mutateAsync({
+          id: item.document.id,
+          databaseDocumentId,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -4634,7 +4762,7 @@ function DatabaseItemPreview({
               )}
               {openingFullPage ? dbText("opening") : dbText("openPage")}
             </Button>
-            {canEdit || canManage ? (
+            {canEdit || canManage || removesFavoriteMembership ? (
               <DropdownMenu
                 open={actionsMenuOpen}
                 onOpenChange={setActionsMenuOpen}
@@ -4655,7 +4783,7 @@ function DatabaseItemPreview({
                   className="w-44"
                   data-database-preview-portal=""
                 >
-                  {canEdit ? (
+                  {canEdit && !isWorkspaceCatalog ? (
                     <DropdownMenuItem
                       disabled={duplicateItem.isPending}
                       onSelect={(event) => {
@@ -4667,8 +4795,24 @@ function DatabaseItemPreview({
                       {dbText("duplicateRow")}
                     </DropdownMenuItem>
                   ) : null}
-                  {canEdit && canManage ? <DropdownMenuSeparator /> : null}
-                  {canManage ? (
+                  {canEdit &&
+                  !isWorkspaceCatalog &&
+                  (canManage || removesFavoriteMembership) ? (
+                    <DropdownMenuSeparator />
+                  ) : null}
+                  {removesFavoriteMembership ? (
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        setActionsMenuOpen(false);
+                        void deletePreviewRow();
+                      }}
+                    >
+                      <IconStarOff className="mr-2 size-4 text-muted-foreground" />
+                      {sidebarText("removeFromFavorites")}
+                    </DropdownMenuItem>
+                  ) : canManage &&
+                    (!isWorkspaceCatalog || canDeleteWorkspace) ? (
                     <DropdownMenuItem
                       className="text-destructive focus:bg-destructive/10 focus:text-destructive"
                       onSelect={(event) => {
@@ -4678,7 +4822,9 @@ function DatabaseItemPreview({
                       }}
                     >
                       <IconTrash className="mr-2 size-4" />
-                      {dbText("deleteRow")}
+                      {canDeleteWorkspace
+                        ? "Delete workspace"
+                        : dbText("deleteRow")}
                     </DropdownMenuItem>
                   ) : null}
                 </DropdownMenuContent>
@@ -4821,23 +4967,45 @@ function DatabaseItemPreview({
           </div>
         </div>
       )}
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog
+        open={
+          !removesFavoriteMembership &&
+          (!isWorkspaceCatalog || canDeleteWorkspace) &&
+          confirmDeleteOpen
+        }
+        onOpenChange={setConfirmDeleteOpen}
+      >
         <AlertDialogContent data-database-preview-portal="">
           <AlertDialogHeader>
-            <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {canDeleteWorkspace ? "Delete workspace?" : dbText("deleteRow2")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{previewTitle}&rdquo; and any sub-pages will be permanently
-              deleted. This cannot be undone.
+              {canDeleteWorkspace ? (
+                <>
+                  &ldquo;{previewTitle}&rdquo; and every page and database
+                  inside it will be permanently deleted. This cannot be undone.
+                </>
+              ) : (
+                <>
+                  &ldquo;{previewTitle}&rdquo; and any sub-pages will be
+                  permanently deleted. This cannot be undone.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={
+                deleteDocument.isPending || deleteContentSpace.isPending
+              }
               onClick={() => void deletePreviewRow()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteDocument.isPending || deleteContentSpace.isPending
+                ? "Deleting..."
+                : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4847,6 +5015,7 @@ function DatabaseItemPreview({
 }
 
 function DatabaseTableView({
+  newRowLabel,
   properties,
   groupableProperties,
   items,
@@ -4854,6 +5023,7 @@ function DatabaseTableView({
   sources,
   databaseDocumentId,
   canEdit,
+  workspaceCreationPropertyValues,
   isLoading,
   isCreating,
   columnWidths,
@@ -4891,6 +5061,7 @@ function DatabaseTableView({
   onDeletedPreviewItems,
   onOpenPage,
 }: {
+  newRowLabel: string;
   properties: DocumentProperty[];
   groupableProperties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -4898,6 +5069,7 @@ function DatabaseTableView({
   sources: ContentDatabaseSource[];
   databaseDocumentId: string;
   canEdit: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   isLoading: boolean;
   isCreating: boolean;
   columnWidths: Record<string, number>;
@@ -4950,6 +5122,7 @@ function DatabaseTableView({
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
   const queryClient = useQueryClient();
+  const contentSpaces = useContentSpaces();
   const moveItem = useMoveDatabaseItem(databaseDocumentId);
   const duplicateItems = useDuplicateDatabaseItems(databaseDocumentId);
   const setProperty = useSetDocumentProperty(databaseDocumentId);
@@ -4970,6 +5143,10 @@ function DatabaseTableView({
   const selectableCount = items.length;
   const selectedIdSet = new Set(selectedItemIds);
   const selectedItems = databaseSelectedItems(items, selectedItemIds);
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
   const bulkEditableProperties = databaseBulkEditableProperties(properties);
   const groups = databaseVisibleGroups(
     databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
@@ -5319,11 +5496,18 @@ function DatabaseTableView({
               deleteItems.isPending
             }
             deleteDisabled={deleteItems.isPending}
+            removesFavoriteMembership={removesFavoriteMembership}
             updateDisabled={setProperty.isPending}
             onClearSelection={onClearSelection}
             onSetPropertyValue={setSelectedPropertyValue}
             onDuplicateSelected={() => void duplicateSelectedRows()}
-            onDeleteSelected={() => setConfirmDeleteSelectedOpen(true)}
+            onDeleteSelected={() => {
+              if (removesFavoriteMembership) {
+                void deleteSelectedRows();
+                return;
+              }
+              setConfirmDeleteSelectedOpen(true);
+            }}
           />
         ) : null}
         <div
@@ -5368,6 +5552,9 @@ function DatabaseTableView({
                 }
                 sorts={sorts}
                 filters={filters}
+                onSortsChange={onSortsChange}
+                onFiltersChange={onFiltersChange}
+                onPropertyHiddenChange={onPropertyHiddenChange}
                 onPointerDown={(event) =>
                   startPropertyPointerDrag(property, event)
                 }
@@ -5427,11 +5614,16 @@ function DatabaseTableView({
                     properties={properties}
                     columnWidths={columnWidths}
                     databaseDocumentId={databaseDocumentId}
+                    workspaceCatalog={isWorkspaceCatalog}
+                    workspaceCreationPropertyValues={
+                      workspaceCreationPropertyValues
+                    }
                     canEdit={canEdit}
                     selectedIdSet={selectedIdSet}
                     wrapCells={wrapCells}
                     rowDensity={rowDensity}
                     isCreating={isCreating}
+                    newRowLabel={newRowLabel}
                     focusedTitleDocumentId={focusedTitleDocumentId}
                     collapsed={databaseGroupIsCollapsed(
                       collapsedGroupIds,
@@ -5454,6 +5646,7 @@ function DatabaseTableView({
                     key={item.id}
                     item={item}
                     databaseDocumentId={databaseDocumentId}
+                    workspaceCatalog={isWorkspaceCatalog}
                     properties={properties}
                     columnWidths={columnWidths}
                     canEdit={canEdit}
@@ -5491,15 +5684,27 @@ function DatabaseTableView({
                   />
                 ))}
             {canEdit && !grouped ? (
-              <NewDatabaseRow
-                properties={properties}
-                columnWidths={columnWidths}
-                rowDensity={rowDensity}
-                disabled={isCreating}
-                isPending={isCreating}
-                onCreate={onCreateRow}
-                actionColumnWidth={actionColumnWidth}
-              />
+              isWorkspaceCatalog ? (
+                <WorkspaceSourceMenuRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  propertyValues={workspaceCreationPropertyValues}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              ) : (
+                <NewDatabaseRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  disabled={isCreating}
+                  isPending={isCreating}
+                  onCreate={onCreateRow}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              )
             ) : null}
             {cleanDefaultTable ? (
               <DatabaseBlankDefaultRows
@@ -5522,7 +5727,7 @@ function DatabaseTableView({
         )}
       </div>
       <AlertDialog
-        open={confirmDeleteSelectedOpen}
+        open={!removesFavoriteMembership && confirmDeleteSelectedOpen}
         onOpenChange={setConfirmDeleteSelectedOpen}
       >
         <AlertDialogContent>
@@ -5608,17 +5813,17 @@ function DatabaseActiveConstraintsBar({
   onResetPersonalChanges: () => void;
   onSaveForEveryone: () => void;
 }) {
+  const filterEntries = filters.map((filter, index) => ({ filter, index }));
   if (
     !forceShow &&
     constraintCount === 0 &&
-    filters.length === 0 &&
+    filterEntries.length === 0 &&
     !hasPersonalQueryChanges
   )
     return null;
   const hasSearchOrSortConstraints =
     searchQuery.trim().length > 0 || sorts.length > 0;
   const showViewActionControls = hasPersonalQueryChanges;
-  const filterEntries = filters.map((filter, index) => ({ filter, index }));
   const advancedFilterEntries = filterEntries.filter(({ filter }) =>
     isAdvancedDatabaseFilter(filter),
   );
@@ -5685,7 +5890,7 @@ function DatabaseActiveConstraintsBar({
       ))}
       <DatabaseAddFilterButton
         open={addFilterOpen}
-        filters={filters}
+        filters={filterEntries.map(({ filter }) => filter)}
         properties={properties}
         onOpenChange={onAddFilterOpenChange}
         onAddFilter={(key, label) => {
@@ -6937,7 +7142,9 @@ function NotionLogoMark({ className }: { className?: string }) {
 function DatabaseSettingsPanelSheet({
   open,
   panel,
+  databaseId,
   documentId,
+  isFilesDatabase,
   canEdit,
   canManage,
   activeView,
@@ -6972,7 +7179,9 @@ function DatabaseSettingsPanelSheet({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
+  databaseId: string;
   documentId: string;
+  isFilesDatabase: boolean;
   canEdit: boolean;
   canManage: boolean;
   activeView: ContentDatabaseView;
@@ -7085,7 +7294,9 @@ function DatabaseSettingsPanelSheet({
           <DatabaseSettingsSourcePanel
             source={source}
             sources={sources}
+            databaseId={databaseId}
             documentId={documentId}
+            isFilesDatabase={isFilesDatabase}
             itemCount={items.length}
             canEdit={canEdit}
             canManage={canManage}
@@ -7467,7 +7678,9 @@ export function buildClientBuilderReviewPayload(
 function DatabaseSettingsSourcePanel({
   source,
   sources,
+  databaseId,
   documentId,
+  isFilesDatabase,
   itemCount,
   canEdit,
   canManage,
@@ -7488,7 +7701,9 @@ function DatabaseSettingsSourcePanel({
 }: {
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
+  databaseId: string;
   documentId: string;
+  isFilesDatabase: boolean;
   itemCount: number;
   canEdit: boolean;
   canManage: boolean;
@@ -7518,6 +7733,7 @@ function DatabaseSettingsSourcePanel({
   sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
   const { isCodeMode } = useCodeMode();
+  const navigate = useNavigate();
   const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
@@ -7564,6 +7780,10 @@ function DatabaseSettingsSourcePanel({
           )
         }
         onOpenNotion={() => onNavPush({ kind: "addSource" })}
+        onOpenLocalFolder={() =>
+          navigate(`/local-files?databaseId=${databaseId}`)
+        }
+        showLocalFolder={isFilesDatabase}
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -7625,20 +7845,19 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onAddDetails={() =>
-          secondary
-            ? onNavPush({
-                kind: "keyConfirm",
-                candidate: {
-                  sourceType: secondary.sourceType,
-                  sourceName: secondary.sourceName,
-                  sourceTable: secondary.sourceTable,
-                  displayName: secondary.sourceName,
-                  existingSourceId: secondary.id,
-                },
-              })
-            : undefined
-        }
+        onAddDetails={() => {
+          if (!secondary || secondary.sourceType === "local-folder") return;
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: secondary.sourceType,
+              sourceName: secondary.sourceName,
+              sourceTable: secondary.sourceTable,
+              displayName: secondary.sourceName,
+              existingSourceId: secondary.id,
+            },
+          });
+        }}
         onAddItems={async () => {
           if (!secondary) return;
           await onChangeSourceRole(secondary.id, "items");
@@ -8151,12 +8370,17 @@ function DatabaseSettingsSourcePanel({
 
         <SourceRoleCard
           source={selectedSource}
-          canAddDetails={sources.some(
-            (item) => item.id !== selectedSource.id && !sourceAddsDetails(item),
-          )}
+          canAddDetails={
+            selectedSource.sourceType !== "local-folder" &&
+            sources.some(
+              (item) =>
+                item.id !== selectedSource.id && !sourceAddsDetails(item),
+            )
+          }
           canEdit={canEdit}
           pending={selectedSourceRoleControlPending}
-          onAddDetails={() =>
+          onAddDetails={() => {
+            if (selectedSource.sourceType === "local-folder") return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -8166,8 +8390,8 @@ function DatabaseSettingsSourcePanel({
                 displayName: selectedSource.sourceName,
                 existingSourceId: selectedSource.id,
               },
-            })
-          }
+            });
+          }}
           onAddItems={async () => {
             await onChangeSourceRole(selectedSource.id, "items");
             onNavReplace([]);
@@ -8219,6 +8443,8 @@ function SourcesListView({
   reviewableCount,
   onOpenBuilder,
   onOpenNotion,
+  onOpenLocalFolder,
+  showLocalFolder,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -8229,9 +8455,12 @@ function SourcesListView({
   reviewableCount: number;
   onOpenBuilder: (source?: ContentDatabaseSource) => void;
   onOpenNotion: () => void;
+  onOpenLocalFolder: () => void;
+  showLocalFolder: boolean;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
+  const t = useT();
   const isBuilderSource = source?.sourceType === "builder-cms";
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
@@ -8307,6 +8536,13 @@ function SourcesListView({
           }
           onClick={onOpenNotion}
         />
+        {showLocalFolder ? (
+          <DatabaseSettingsRow
+            icon={<IconFolder className="size-4" />}
+            label={t("sidebar.localFolder")}
+            onClick={onOpenLocalFolder}
+          />
+        ) : null}
       </div>
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -11363,6 +11599,7 @@ function DatabaseCalendarView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -11382,6 +11619,7 @@ function DatabaseCalendarView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -11420,6 +11658,7 @@ function DatabaseCalendarView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const monthLabel = month.toLocaleDateString(undefined, {
@@ -11812,6 +12051,7 @@ function DatabaseBoardView({
   groupProperty,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   isMoving,
@@ -11835,6 +12075,7 @@ function DatabaseBoardView({
   groupProperty: DocumentProperty | null;
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   isMoving: boolean;
@@ -12141,7 +12382,7 @@ function DatabaseBoardView({
                           {dbText("noMatchingPages")}
                         </div>
                       ) : null}
-                      {canEdit ? (
+                      {canEdit && canCreateItems ? (
                         <NewBoardCard
                           group={group}
                           disabled={isCreating}
@@ -12573,7 +12814,62 @@ function NewBoardCard({
   );
 }
 
+function WorkspaceSourceMenuRow({
+  label,
+  properties,
+  columnWidths,
+  rowDensity,
+  actionColumnWidth = ACTION_COLUMN_WIDTH,
+  propertyValues,
+}: {
+  label: string;
+  properties: DocumentProperty[];
+  columnWidths: Record<string, number>;
+  rowDensity: DatabaseRowDensity;
+  actionColumnWidth?: number;
+  propertyValues?: Record<string, DocumentPropertyValue>;
+}) {
+  return (
+    <WorkspaceSourceMenu propertyValues={propertyValues}>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          databaseTableRowDensityClass(rowDensity),
+        )}
+        style={{
+          gridTemplateColumns: databaseGridColumns(
+            properties,
+            true,
+            columnWidths,
+            actionColumnWidth,
+          ),
+        }}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-2 border-r border-border/35",
+            databaseTableCellDensityClass(rowDensity),
+          )}
+        >
+          <IconPlus className="size-4 shrink-0" />
+          <span className="h-7 min-w-0 flex-1 truncate leading-7">{label}</span>
+        </span>
+        {properties.map((property) => (
+          <span
+            key={property.definition.id}
+            className="border-r border-border/35 last:border-r-0"
+          />
+        ))}
+        <span />
+      </button>
+    </WorkspaceSourceMenu>
+  );
+}
+
 function NewDatabaseRow({
+  label,
   properties,
   columnWidths,
   rowDensity,
@@ -12582,6 +12878,7 @@ function NewDatabaseRow({
   onCreate,
   actionColumnWidth = ACTION_COLUMN_WIDTH,
 }: {
+  label: string;
   properties: DocumentProperty[];
   columnWidths: Record<string, number>;
   rowDensity: DatabaseRowDensity;
@@ -12598,7 +12895,7 @@ function NewDatabaseRow({
   return (
     <button
       type="button"
-      aria-label={dbText("newDatabaseRow")}
+      aria-label={label}
       disabled={disabled}
       className={cn(
         "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60",
@@ -12625,9 +12922,7 @@ function NewDatabaseRow({
         ) : (
           <IconPlus className="size-4 shrink-0" />
         )}
-        <span className="h-7 min-w-0 flex-1 truncate leading-7">
-          {dbText("newPage")}
-        </span>
+        <span className="h-7 min-w-0 flex-1 truncate leading-7">{label}</span>
       </span>
       {properties.map((property) => (
         <span
@@ -12982,6 +13277,7 @@ function normalizeClientDatabaseView(
   value: Partial<ContentDatabaseView> | null | undefined,
 ) {
   if (!value || typeof value.id !== "string" || !value.id.trim()) return null;
+  const retiredSidebar = value.type === "sidebar";
   const type =
     value.type === "board" ||
     value.type === "list" ||
@@ -12992,7 +13288,11 @@ function normalizeClientDatabaseView(
       ? value.type
       : "table";
   return createDatabaseView(
-    typeof value.name === "string" ? value.name : databaseViewDefaultName(type),
+    typeof value.name === "string"
+      ? retiredSidebar && value.name.trim() === "Sidebar"
+        ? "Table"
+        : value.name
+      : databaseViewDefaultName(type),
     value.id,
     {
       sorts: Array.isArray(value.sorts)
@@ -13584,7 +13884,8 @@ export function databaseViewGroupingProperty(
   if (
     view.type !== "table" &&
     view.type !== "list" &&
-    view.type !== "gallery"
+    view.type !== "gallery" &&
+    view.type !== "sidebar"
   ) {
     return null;
   }
@@ -14739,6 +15040,7 @@ function DatabaseSelectionBar({
   selectedItems,
   duplicateDisabled,
   deleteDisabled,
+  removesFavoriteMembership,
   updateDisabled,
   onClearSelection,
   onSetPropertyValue,
@@ -14751,6 +15053,7 @@ function DatabaseSelectionBar({
   selectedItems: ContentDatabaseItem[];
   duplicateDisabled: boolean;
   deleteDisabled: boolean;
+  removesFavoriteMembership: boolean;
   updateDisabled: boolean;
   onClearSelection: () => void;
   onSetPropertyValue: (
@@ -14790,12 +15093,20 @@ function DatabaseSelectionBar({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+              className={cn(
+                "h-7 gap-1.5 px-2 text-xs",
+                !removesFavoriteMembership &&
+                  "text-destructive hover:bg-destructive/10 hover:text-destructive",
+              )}
               disabled={deleteDisabled}
               onClick={onDeleteSelected}
             >
-              <IconTrash className="size-3.5" />
-              Delete
+              {removesFavoriteMembership ? (
+                <IconStarOff className="size-3.5" />
+              ) : (
+                <IconTrash className="size-3.5" />
+              )}
+              {removesFavoriteMembership ? "Remove" : "Delete"}
             </Button>
           </>
         ) : null}
@@ -15472,6 +15783,9 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
+  onSortsChange,
+  onFiltersChange,
+  onPropertyHiddenChange,
   onPointerDown,
   onResize,
 }: {
@@ -15483,10 +15797,14 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
+  const canReorder = canEdit && !property.definition.systemRole;
   const columnState = databaseColumnHeaderState(
     sorts,
     filters,
@@ -15498,14 +15816,14 @@ function DatabasePropertyHeader({
       data-database-property-id={property.definition.id}
       className={cn(
         "group relative flex h-8 min-w-0 items-center border-r border-border/35 px-1 transition-colors",
-        canEdit && "cursor-grab active:cursor-grabbing",
+        canReorder && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-45",
         dropSide && "bg-accent/40",
       )}
-      onPointerDown={onPointerDown}
+      onPointerDown={canReorder ? onPointerDown : undefined}
     >
       <DatabaseDropIndicator side={dropSide} />
-      {canEdit ? (
+      {canEdit && !property.definition.systemRole ? (
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
@@ -15524,6 +15842,11 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sorts={sorts}
+          filters={filters}
+          onSortsChange={onSortsChange}
+          onFiltersChange={onFiltersChange}
+          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -17574,11 +17897,14 @@ function DatabaseGroupedTableSection({
   properties,
   columnWidths,
   databaseDocumentId,
+  workspaceCatalog,
+  workspaceCreationPropertyValues,
   canEdit,
   selectedIdSet,
   wrapCells,
   rowDensity,
   isCreating,
+  newRowLabel,
   focusedTitleDocumentId,
   collapsed,
   onCreateRow,
@@ -17594,11 +17920,14 @@ function DatabaseGroupedTableSection({
   properties: DocumentProperty[];
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
+  workspaceCatalog: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   canEdit: boolean;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
   rowDensity: DatabaseRowDensity;
   isCreating: boolean;
+  newRowLabel: string;
   focusedTitleDocumentId: string | null;
   collapsed: boolean;
   onCreateRow: (
@@ -17630,6 +17959,7 @@ function DatabaseGroupedTableSection({
               key={`${group.id}-${item.id}`}
               item={item}
               databaseDocumentId={databaseDocumentId}
+              workspaceCatalog={workspaceCatalog}
               properties={properties}
               columnWidths={columnWidths}
               canEdit={canEdit}
@@ -17657,14 +17987,36 @@ function DatabaseGroupedTableSection({
             />
           ))}
           {canEdit ? (
-            <NewDatabaseRow
-              properties={properties}
-              columnWidths={columnWidths}
-              rowDensity={rowDensity}
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={(title) => onCreateRow(group, title)}
-            />
+            workspaceCatalog ? (
+              <WorkspaceSourceMenuRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                propertyValues={{
+                  ...workspaceCreationPropertyValues,
+                  ...(group.property && group.value !== BOARD_UNGROUPED_VALUE
+                    ? {
+                        [group.property.definition.id]:
+                          boardGroupValueForProperty(
+                            group.property,
+                            group.value,
+                          ),
+                      }
+                    : {}),
+                }}
+              />
+            ) : (
+              <NewDatabaseRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                disabled={isCreating}
+                isPending={isCreating}
+                onCreate={(title) => onCreateRow(group, title)}
+              />
+            )
           ) : null}
         </>
       ) : null}
@@ -17695,6 +18047,7 @@ function DatabaseTableRow({
   properties,
   columnWidths,
   databaseDocumentId,
+  workspaceCatalog,
   canEdit,
   rowIndex,
   canReorder,
@@ -17720,6 +18073,7 @@ function DatabaseTableRow({
   properties: ContentDatabaseItem["properties"];
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
+  workspaceCatalog: boolean;
   canEdit: boolean;
   rowIndex: number;
   canReorder: boolean;
@@ -17762,6 +18116,7 @@ function DatabaseTableRow({
       <RowNameCell
         item={item}
         databaseDocumentId={databaseDocumentId}
+        workspaceCatalog={workspaceCatalog}
         canEdit={canEdit}
         canDragRow={canDragRow}
         selected={selected}
@@ -17873,11 +18228,22 @@ export function RowActionsCell({
   onOpenPage: () => void;
 }) {
   const queryClient = useQueryClient();
+  const contentSpaces = useContentSpaces();
   const deleteDocument = useDeleteDocument();
+  const deleteContentSpace = useDeleteContentSpace();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const title = item.document.title || "Untitled";
+  const removesFavoriteMembership =
+    contentSpaces.data?.favoritesDocumentId === databaseDocumentId;
+  const workspaceSpace = contentSpaces.data?.spaces.find(
+    (space) => space.catalogDocumentId === item.document.id,
+  );
+  const isWorkspaceCatalog =
+    contentSpaces.data?.catalogDocumentId === databaseDocumentId;
+  const canDeleteWorkspace =
+    isWorkspaceCatalog && workspaceSpace?.kind === "user";
 
   async function duplicateRow() {
     setMenuOpen(false);
@@ -17896,7 +18262,14 @@ export function RowActionsCell({
   async function deleteRow() {
     const previewMoved = onDeletedPreviewItem?.(item) ?? false;
     try {
-      await deleteDocument.mutateAsync({ id: item.document.id });
+      if (canDeleteWorkspace && workspaceSpace) {
+        await deleteContentSpace.mutateAsync({ spaceId: workspaceSpace.id });
+      } else {
+        await deleteDocument.mutateAsync({
+          id: item.document.id,
+          databaseDocumentId,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: [
           "action",
@@ -17939,48 +18312,87 @@ export function RowActionsCell({
             <IconExternalLink className="mr-2 size-4 text-muted-foreground" />
             {dbText("openPage")}
           </DropdownMenuItem>
-          <DropdownMenuItem
-            disabled={duplicateItem.isPending}
-            onSelect={(event) => {
-              event.preventDefault();
-              void duplicateRow();
-            }}
-          >
-            <IconCopy className="mr-2 size-4 text-muted-foreground" />
-            {dbText("duplicateRow")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setMenuOpen(false);
-              setConfirmDeleteOpen(true);
-            }}
-          >
-            <IconTrash className="mr-2 size-4" />
-            {dbText("deleteRow")}
-          </DropdownMenuItem>
+          {!isWorkspaceCatalog ? (
+            <DropdownMenuItem
+              disabled={duplicateItem.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                void duplicateRow();
+              }}
+            >
+              <IconCopy className="mr-2 size-4 text-muted-foreground" />
+              {dbText("duplicateRow")}
+            </DropdownMenuItem>
+          ) : null}
+          {!isWorkspaceCatalog || canDeleteWorkspace ? (
+            <DropdownMenuSeparator />
+          ) : null}
+          {removesFavoriteMembership ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                void deleteRow();
+              }}
+            >
+              <IconStarOff className="mr-2 size-4 text-muted-foreground" />
+              {sidebarText("removeFromFavorites")}
+            </DropdownMenuItem>
+          ) : !isWorkspaceCatalog || canDeleteWorkspace ? (
+            <DropdownMenuItem
+              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+              onSelect={(event) => {
+                event.preventDefault();
+                setMenuOpen(false);
+                setConfirmDeleteOpen(true);
+              }}
+            >
+              <IconTrash className="mr-2 size-4" />
+              {canDeleteWorkspace ? "Delete workspace" : dbText("deleteRow")}
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+      <AlertDialog
+        open={
+          !removesFavoriteMembership &&
+          (!isWorkspaceCatalog || canDeleteWorkspace) &&
+          confirmDeleteOpen
+        }
+        onOpenChange={setConfirmDeleteOpen}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{dbText("deleteRow2")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {canDeleteWorkspace ? "Delete workspace?" : dbText("deleteRow2")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              &ldquo;{title}&rdquo; and any sub-pages will be permanently
-              deleted. This cannot be undone.
+              {canDeleteWorkspace ? (
+                <>
+                  &ldquo;{title}&rdquo; and every page and database inside it
+                  will be permanently deleted. This cannot be undone.
+                </>
+              ) : (
+                <>
+                  &ldquo;{title}&rdquo; and any sub-pages will be permanently
+                  deleted. This cannot be undone.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteDocument.isPending}
+              disabled={
+                deleteDocument.isPending || deleteContentSpace.isPending
+              }
               onClick={() => void deleteRow()}
             >
-              {deleteDocument.isPending ? "Deleting..." : "Delete"}
+              {deleteDocument.isPending || deleteContentSpace.isPending
+                ? "Deleting..."
+                : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -17992,6 +18404,7 @@ export function RowActionsCell({
 function RowNameCell({
   item,
   databaseDocumentId,
+  workspaceCatalog,
   canEdit,
   canDragRow,
   selected,
@@ -18005,6 +18418,7 @@ function RowNameCell({
 }: {
   item: ContentDatabaseItem;
   databaseDocumentId: string;
+  workspaceCatalog: boolean;
   canEdit: boolean;
   canDragRow: boolean;
   selected: boolean;
@@ -18097,6 +18511,7 @@ function RowNameCell({
         document={item.document}
         className="size-4 text-sm"
         fallbackClassName="size-4"
+        fallback={workspaceCatalog ? "folder" : "page"}
       />
       {canEdit && editingTitle ? (
         <input

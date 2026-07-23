@@ -34,4 +34,26 @@ describe("agent-native shell surface tokens", () => {
       /\.agent-frame-main-surface\[data-agent-frame-main-state="open"\] \{[^}]*box-shadow: none;/s,
     );
   });
+
+  it("removes shell transitions while the agent sidebar is being resized", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-sidebar-shell\[data-agent-sidebar-resizing="true"\],\s*\.agent-sidebar-shell\[data-agent-sidebar-resizing="true"\] \* \{[^}]*transition: none !important;/s,
+    );
+  });
+
+  it("keeps the active tool shine clipped to its label text", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain("background-clip: text;");
+    expect(css).not.toContain(
+      '.agent-tool-call[data-active-tail="true"]::after',
+    );
+  });
 });

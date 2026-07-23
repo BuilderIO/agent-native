@@ -16,9 +16,17 @@
  */
 
 import {
+  Command as CommandPrimitive,
+  CommandGroup as CommandGroupPrimitive,
+  CommandInput as CommandInputPrimitive,
+  CommandItem as CommandItemPrimitive,
+  CommandList as CommandListPrimitive,
+  CommandSeparator as CommandSeparatorPrimitive,
+  CommandShortcut as CommandShortcutPrimitive,
+} from "@agent-native/toolkit/ui/command";
+import {
   IconBook2,
   IconExternalLink,
-  IconSearch,
   IconMessage,
   IconHistory,
 } from "@tabler/icons-react";
@@ -36,6 +44,7 @@ import React, {
 import { parseChangelog } from "../changelog/parse.js";
 import { sendToAgentChat } from "./agent-chat.js";
 import { ChangelogDialog, useChangelogSeen } from "./changelog/Changelog.js";
+import { Dialog, DialogContent, DialogTitle } from "./components/ui/dialog.js";
 import { cn } from "./utils.js";
 
 // ─── Context ────────────────────────────────────────────────────────────────
@@ -43,8 +52,6 @@ import { cn } from "./utils.js";
 interface CommandMenuContextValue {
   search: string;
   onOpenChange: (open: boolean) => void;
-  containerRef: React.RefObject<HTMLDivElement | null>;
-  setSelectedIndex: (index: number) => void;
 }
 
 const CommandMenuContext = createContext<CommandMenuContextValue | null>(null);
@@ -71,6 +78,11 @@ export function openAgentSettings(
 
   const normalizedSection =
     typeof section === "string" ? section : section?.section;
+
+  const secretHash = normalizedSection?.replace(/^#/, "");
+  if (secretHash?.toLowerCase().startsWith("secrets:")) {
+    window.location.hash = `#${secretHash}`;
+  }
 
   openAgentSidebar();
   // Voice mode unmounts the chat surface while its dock is collapsed, so its
@@ -117,14 +129,7 @@ interface CommandGroupProps {
 
 function CommandGroup({ heading, children }: CommandGroupProps) {
   return (
-    <div className="overflow-hidden p-1 text-foreground">
-      {heading && (
-        <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-          {heading}
-        </div>
-      )}
-      {children}
-    </div>
+    <CommandGroupPrimitive heading={heading}>{children}</CommandGroupPrimitive>
   );
 }
 
@@ -143,9 +148,7 @@ function CommandItem({
   className,
   deferSelect = true,
 }: CommandItemProps) {
-  const { onOpenChange, containerRef, setSelectedIndex } =
-    useCommandMenuContext();
-  const itemRef = useRef<HTMLDivElement>(null);
+  const { onOpenChange } = useCommandMenuContext();
 
   const handleSelect = () => {
     if (!deferSelect) {
@@ -159,26 +162,13 @@ function CommandItem({
     setTimeout(onSelect, 50);
   };
 
-  const handleMouseEnter = () => {
-    if (!containerRef.current || !itemRef.current) return;
-    const items = containerRef.current.querySelectorAll('[role="option"]');
-    const index = Array.from(items).indexOf(itemRef.current);
-    if (index >= 0) setSelectedIndex(index);
-  };
-
   return (
-    <div
-      ref={itemRef}
-      className={cn(
-        "relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none",
-        className,
-      )}
-      onClick={handleSelect}
-      onMouseEnter={handleMouseEnter}
-      role="option"
+    <CommandItemPrimitive
+      className={cn("cursor-pointer gap-2", className)}
+      onSelect={handleSelect}
     >
       {children}
-    </div>
+    </CommandItemPrimitive>
   );
 }
 
@@ -189,19 +179,14 @@ interface CommandShortcutProps {
 
 function CommandShortcut({ children, className }: CommandShortcutProps) {
   return (
-    <span
-      className={cn(
-        "ms-auto text-xs tracking-widest text-muted-foreground",
-        className,
-      )}
-    >
+    <CommandShortcutPrimitive className={className}>
       {children}
-    </span>
+    </CommandShortcutPrimitive>
   );
 }
 
 function CommandSeparator({ className }: { className?: string }) {
-  return <div className={cn("-mx-1 my-1 h-px bg-border", className)} />;
+  return <CommandSeparatorPrimitive className={cn("my-1", className)} />;
 }
 
 export interface CommandMenuDoc {
@@ -314,7 +299,6 @@ export function CommandMenu({
   changelogKey,
 }: CommandMenuProps) {
   const [search, setSearch] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -344,77 +328,17 @@ export function CommandMenu({
   useEffect(() => {
     if (!open) {
       setSearch("");
-      setSelectedIndex(0);
       return;
     }
 
     if (open) {
       setSearch("");
-      setSelectedIndex(0);
       // Wait for render then focus
       requestAnimationFrame(() => {
         inputRef.current?.focus();
       });
     }
   }, [open]);
-
-  // Reset selection when search changes
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [search]);
-
-  // Keep selected item scrolled into view
-  useEffect(() => {
-    const items = containerRef.current?.querySelectorAll('[role="option"]');
-    if (items && items[selectedIndex]) {
-      items[selectedIndex].scrollIntoView({ block: "nearest" });
-    }
-  }, [selectedIndex]);
-
-  // Apply selected styling directly (can't rely on Tailwind scanning core package)
-  useEffect(() => {
-    const items = containerRef.current?.querySelectorAll('[role="option"]');
-    if (!items) return;
-    items.forEach((item, i) => {
-      const el = item as HTMLElement;
-      if (i === selectedIndex) {
-        el.style.backgroundColor = "hsl(var(--accent))";
-        el.style.color = "hsl(var(--accent-foreground))";
-      } else {
-        el.style.backgroundColor = "";
-        el.style.color = "";
-      }
-    });
-  });
-
-  // Close on escape
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onOpenChange(false);
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onOpenChange]);
-
-  // Close on click outside
-  useEffect(() => {
-    if (!open) return;
-    const handleClick = (e: MouseEvent) => {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        onOpenChange(false);
-      }
-    };
-    // Use capture to handle clicks before they bubble
-    document.addEventListener("mousedown", handleClick, true);
-    return () => document.removeEventListener("mousedown", handleClick, true);
-  }, [open, onOpenChange]);
 
   const handleSubmitToAgent = useCallback(() => {
     onOpenChange(false);
@@ -424,24 +348,6 @@ export function CommandMenu({
     }
     submitToAgent(search.trim());
   }, [search, onOpenChange]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    const items = containerRef.current?.querySelectorAll('[role="option"]');
-    const itemCount = items?.length ?? 0;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % itemCount || 0);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 + itemCount) % itemCount || 0);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (items && items[selectedIndex]) {
-        (items[selectedIndex] as HTMLElement).click();
-      }
-    }
-  };
 
   // The built-in "What's new" row matches changelog-ish search terms.
   const changelogRowMatches =
@@ -523,34 +429,47 @@ export function CommandMenu({
 
   return (
     <>
-      {open && (
-        <div className="fixed inset-0 z-50 bg-black/50">
-          <div
-            ref={containerRef}
-            className={cn(
-              "fixed left-1/2 top-[15vh] -translate-x-1/2 w-full max-w-lg",
-              "rounded-lg border border-border bg-popover text-popover-foreground shadow-lg",
-              className,
-            )}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          ref={containerRef}
+          aria-describedby={undefined}
+          hideClose
+          motion="instant"
+          overlayClassName="fixed inset-0 z-50 bg-black/50 backdrop-blur-none transition-none"
+          overlayStyle={{
+            zIndex: 50,
+            backgroundColor: "rgb(0 0 0 / 0.5)",
+            backdropFilter: "none",
+            animation: "none",
+            transition: "none",
+          }}
+          className={cn(
+            "fixed left-1/2 top-[15vh] !z-50 !max-h-none -translate-x-1/2 !translate-y-0 !gap-0 w-full max-w-lg",
+            "rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-lg",
+            className,
+          )}
+          style={{
+            animation: "none",
+            transition: "none",
+          }}
+        >
+          <DialogTitle className="sr-only">{placeholder}</DialogTitle>
+          <CommandPrimitive
+            loop
+            shouldFilter={false}
+            className="h-auto rounded-lg"
           >
-            <CommandMenuContext.Provider
-              value={{ search, onOpenChange, containerRef, setSelectedIndex }}
-            >
+            <CommandMenuContext.Provider value={{ search, onOpenChange }}>
               {/* Search input */}
-              <div className="flex items-center border-b px-3">
-                <IconSearch className="me-2 h-4 w-4 shrink-0 opacity-50" />
-                <input
-                  ref={inputRef}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={placeholder}
-                  className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                />
-              </div>
+              <CommandInputPrimitive
+                ref={inputRef}
+                value={search}
+                onValueChange={setSearch}
+                placeholder={placeholder}
+              />
 
               {/* Command list */}
-              <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
+              <CommandListPrimitive>
                 {dynamicResults}
                 {hasResults && filteredChildren}
 
@@ -559,21 +478,9 @@ export function CommandMenu({
                   <>
                     {hasResults && <CommandSeparator />}
                     <div className="p-1">
-                      <div
-                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
-                        onClick={openChangelog}
-                        onMouseEnter={(e) => {
-                          const items =
-                            containerRef.current?.querySelectorAll(
-                              '[role="option"]',
-                            );
-                          if (!items) return;
-                          const index = Array.from(items).indexOf(
-                            e.currentTarget,
-                          );
-                          if (index >= 0) setSelectedIndex(index);
-                        }}
-                        role="option"
+                      <CommandItemPrimitive
+                        className="cursor-pointer gap-2 py-2"
+                        onSelect={openChangelog}
                       >
                         <IconHistory className="h-4 w-4 text-muted-foreground" />
                         <span>{changelogLabel}</span>
@@ -583,7 +490,7 @@ export function CommandMenu({
                             aria-label="New updates available"
                           />
                         )}
-                      </div>
+                      </CommandItemPrimitive>
                     </div>
                   </>
                 )}
@@ -595,21 +502,9 @@ export function CommandMenu({
                       <CommandSeparator />
                     )}
                     <div className="p-1">
-                      <div
-                        className="relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-2 text-sm outline-none"
-                        onClick={handleSubmitToAgent}
-                        onMouseEnter={(e) => {
-                          const items =
-                            containerRef.current?.querySelectorAll(
-                              '[role="option"]',
-                            );
-                          if (!items) return;
-                          const index = Array.from(items).indexOf(
-                            e.currentTarget,
-                          );
-                          if (index >= 0) setSelectedIndex(index);
-                        }}
-                        role="option"
+                      <CommandItemPrimitive
+                        className="cursor-pointer gap-2 py-2"
+                        onSelect={handleSubmitToAgent}
                       >
                         <IconMessage className="h-4 w-4 text-muted-foreground" />
                         <span>
@@ -631,15 +526,15 @@ export function CommandMenu({
                             ↵
                           </span>
                         )}
-                      </div>
+                      </CommandItemPrimitive>
                     </div>
                   </>
                 )}
-              </div>
+              </CommandListPrimitive>
             </CommandMenuContext.Provider>
-          </div>
-        </div>
-      )}
+          </CommandPrimitive>
+        </DialogContent>
+      </Dialog>
 
       {hasChangelog && (
         <ChangelogDialog

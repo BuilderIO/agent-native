@@ -1,0 +1,17 @@
+---
+title: "Editor und Arbeitsflächen"
+description: "Wählen Sie wiederverwendbare Oberflächen, ohne Core-Kompatibilität, Template-Muster und Toolkit-Primitiven zu verwechseln."
+---
+
+# Editor und Arbeitsflächen
+
+Editoren und Arbeitsflächen sind verwandte Oberflächen, kein einzelnes Leitfeature.
+
+| Oberfläche          | Aktuelle Zuständigkeit                                                        |
+| ------------------- | ----------------------------------------------------------------------------- |
+| Rich Editor         | Toolkit, mit Kompatibilitäts-Re-Exports aus Core.                             |
+| Blöcke              | In dieser Phase Core.                                                         |
+| Design              | Template-Muster mit `design-tweaks`, kein vollständiger Plug-and-play-Editor. |
+| Canvas-Präsentation | Toolkit- oder App-Komposition.                                                |
+
+Importieren Sie den Editor aus `@agent-native/toolkit/editor`. Die alten Core-Pfade bleiben als Kompatibilitäts-Re-Exports erhalten. Schemata, Befehle und Persistenz bleiben in der App. Blöcke bleiben in Core, werden aber hier dokumentiert, weil der Toolkit-Bereich der Katalog für wiederverwendbare UI ist.

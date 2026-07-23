@@ -248,4 +248,31 @@ describe("saveImportedDesignFiles: node-id annotation", () => {
     };
     expect(insertedValues.content).toBe(cssContent);
   });
+
+  it("preserves compiler-validated native clone HTML byte-for-byte when requested", async () => {
+    const nativeContent =
+      '<!doctype html>\n<html><body><div data-figma-node-id="1:2">Exact clone</div></body></html>';
+
+    await saveImportedDesignFiles({
+      designId: "design-1",
+      sourceType: "creative-context-clone",
+      preserveExactContent: true,
+      files: [
+        {
+          filename: "native-clone.html",
+          fileType: "html",
+          content: nativeContent,
+        },
+      ],
+    });
+
+    const insertedValues = mocks.insertValues.mock.calls[0]![0] as {
+      content: string;
+    };
+    expect(insertedValues.content).toBe(nativeContent);
+    expect(mocks.seedFromText).toHaveBeenCalledWith(
+      expect.any(String),
+      nativeContent,
+    );
+  });
 });

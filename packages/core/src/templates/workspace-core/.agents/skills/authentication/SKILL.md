@@ -156,7 +156,7 @@ resolves the session on the client and redirects signed-out visitors to
 `/_agent-native/sign-in?return=…` before mounting the routed shell:
 
 ```tsx
-import { AppProviders } from "@agent-native/core/client";
+import { AppProviders } from "@agent-native/core/client/hooks";
 
 <AppProviders queryClient={queryClient}>
   <AppLayout>

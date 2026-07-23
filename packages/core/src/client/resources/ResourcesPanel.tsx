@@ -1,3 +1,4 @@
+import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconPlus,
   IconUpload,
@@ -9,9 +10,7 @@ import {
   IconEye,
   IconCode,
   IconClock,
-  IconMessageChatbot,
-  IconExternalLink,
-  IconHelp,
+  IconHierarchy2,
   IconPlugConnected,
 } from "@tabler/icons-react";
 import React, {
@@ -40,12 +39,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import { useUploadResource } from "../uploads/use-upload-resource.js";
 import { cn } from "../utils.js";
 import { BuiltinCapabilityDetail } from "./BuiltinCapabilityDetail.js";
-import { isMcpIntegrationCatalogAvailable } from "./mcp-integration-catalog.js";
+import {
+  isMcpIntegrationCatalogAvailable,
+  type DefaultMcpIntegration,
+} from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
 import { McpServerDetail } from "./McpServerDetail.js";
 import { ResourceEditor } from "./ResourceEditor.js";
@@ -67,16 +70,131 @@ import {
   useCreateResource,
   useUpdateResource,
   useDeleteResource,
-  useUploadResource,
   withMcpServersFolder,
   withAgentScratchFolder,
   type ResourceScope,
   type ResourceMeta,
   type Resource,
+  type TreeNode,
 } from "./use-resources.js";
 
-const WORKSPACE_DOCS_URL = "https://agent-native.com/docs/workspace";
 const LOCAL_WORKSPACE_RESOURCE_METADATA_SOURCE = "local-workspace-resource";
+
+export function normalizeResourceFileName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.endsWith("/")) return "";
+  const finalSegment = trimmed.split("/").pop() ?? "";
+  return /\.[^/]+$/.test(finalSegment) ? trimmed : `${trimmed}.md`;
+}
+
+const EMPTY_RESOURCE_ACTION_LABELS: Record<ResourceView, string> = {
+  files: "Add file",
+  instructions: "Add instructions",
+  agents: "Add agent",
+  memory: "Add memory",
+  skills: "Add skill",
+  learnings: "Add learning",
+  "remote-agents": "Add remote agent",
+};
+
+const EMPTY_RESOURCE_SEEDS: Partial<
+  Record<ResourceView, { path: string; content: string; mimeType?: string }>
+> = {
+  instructions: {
+    path: "AGENTS.md",
+    content: "# Agent Instructions\n\n",
+    mimeType: "text/markdown",
+  },
+  memory: {
+    path: "memory/MEMORY.md",
+    content: "# Memory\n\n",
+    mimeType: "text/markdown",
+  },
+  learnings: {
+    path: "LEARNINGS.md",
+    content: "# Learnings\n\n",
+    mimeType: "text/markdown",
+  },
+  "remote-agents": {
+    path: "remote-agents/new-agent.json",
+    content:
+      '{\n  "id": "new-agent",\n  "name": "New agent",\n  "description": "",\n  "url": "",\n  "color": "#6B7280"\n}\n',
+    mimeType: "application/json",
+  },
+};
+
+export type ResourceView =
+  | "files"
+  | "instructions"
+  | "agents"
+  | "memory"
+  | "skills"
+  | "learnings"
+  | "remote-agents";
+
+export type ResourceTreeVariant = "tree" | "collection";
+
+const SPECIAL_RESOURCE_ROOTS = new Set([
+  "agents",
+  "agent-scratch",
+  "jobs",
+  "memory",
+  "remote-agents",
+  "skills",
+]);
+const SPECIAL_RESOURCE_FILES = new Set(["agents.md", "learnings.md"]);
+
+function normalizedResourcePath(path: string): string {
+  return path.replace(/^\/+/, "").toLowerCase();
+}
+
+function resourceMatchesView(node: TreeNode, view: ResourceView): boolean {
+  const path = normalizedResourcePath(node.path);
+  switch (view) {
+    case "files":
+      return (
+        !SPECIAL_RESOURCE_ROOTS.has(path.split("/", 1)[0]) &&
+        !SPECIAL_RESOURCE_FILES.has(path.split("/").pop() ?? "")
+      );
+    case "instructions":
+      return path.split("/").pop() === "agents.md";
+    case "agents":
+      return node.kind === "agent";
+    case "memory":
+      return path === "memory" || path.startsWith("memory/");
+    case "skills":
+      return node.kind === "skill";
+    case "learnings":
+      return path.split("/").pop() === "learnings.md";
+    case "remote-agents":
+      return node.kind === "remote-agent";
+  }
+}
+
+export function filterResourceTree(
+  tree: TreeNode[],
+  view: ResourceView | undefined,
+): TreeNode[] {
+  if (!view) return tree;
+  return tree.flatMap((node) => {
+    if (node.type === "folder") {
+      if (
+        view === "files" &&
+        (SPECIAL_RESOURCE_ROOTS.has(
+          normalizedResourcePath(node.path).split("/", 1)[0],
+        ) ||
+          SPECIAL_RESOURCE_FILES.has(
+            normalizedResourcePath(node.path).split("/").pop() ?? "",
+          ))
+      ) {
+        return [];
+      }
+      const children = filterResourceTree(node.children ?? [], view);
+      return children.length > 0 ? [{ ...node, children }] : [];
+    }
+    return resourceMatchesView(node, view) ? [node] : [];
+  });
+}
 
 // ─── Create Menu (unified + button) ────────────────────────────────────────
 
@@ -142,6 +260,7 @@ function buildAgentResourceContent({
 
 function CreateMenu({
   scope,
+  resourceFilter,
   onCreateFile,
   onCreateResource,
   onCreateMcpServer,
@@ -149,8 +268,13 @@ function CreateMenu({
   hasOrg,
   onCreated,
   showToast,
+  mcpIntegrations,
+  triggerVariant = "icon",
+  triggerLabel,
+  initialView = "menu",
 }: {
   scope: ResourceScope;
+  resourceFilter?: ResourceView;
   onCreateFile: (name: string) => void;
   onCreateResource: (
     path: string,
@@ -171,19 +295,26 @@ function CreateMenu({
   canCreateOrgMcp: boolean;
   hasOrg: boolean;
   onCreated?: () => void;
+  mcpIntegrations?: DefaultMcpIntegration[];
   showToast?: (
     kind: "ok" | "err",
     message: string,
     opts?: { resourceId?: string; durationMs?: number },
   ) => void;
+  triggerVariant?: "icon" | "outline";
+  triggerLabel?: string;
+  initialView?: CreateMenuView;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<CreateMenuView>("menu");
   const showMcpIntegrations = useMemo(
-    () => isMcpIntegrationCatalogAvailable(),
-    [],
+    () =>
+      mcpIntegrations
+        ? mcpIntegrations.length > 0
+        : isMcpIntegrationCatalogAvailable(),
+    [mcpIntegrations],
   );
   const [value, setValue] = useState("");
   const [agentName, setAgentName] = useState("");
@@ -207,7 +338,11 @@ function CreateMenu({
       window.clearTimeout(skillFlyoutCloseTimerRef.current);
       skillFlyoutCloseTimerRef.current = null;
     }
-    if (rowEl && typeof window !== "undefined") {
+    if (
+      rowEl &&
+      typeof window !== "undefined" &&
+      typeof rowEl.getBoundingClientRect === "function"
+    ) {
       const rect = rowEl.getBoundingClientRect();
       const FLYOUT_WIDTH = 248;
       setSkillFlyoutSide(
@@ -229,7 +364,7 @@ function CreateMenu({
 
   useEffect(() => {
     if (open) {
-      setView("menu");
+      setView(initialView);
       setValue("");
       setAgentName("");
       setAgentDescription("");
@@ -242,7 +377,7 @@ function CreateMenu({
       setSkillUploadFileName("");
       setSkillFlyoutOpen(false);
     }
-  }, [open]);
+  }, [initialView, open]);
 
   useEffect(() => {
     if (view !== "menu" && view !== "agent-form") {
@@ -253,9 +388,9 @@ function CreateMenu({
   }, [view]);
 
   const submitFile = () => {
-    const trimmed = value.trim();
-    if (trimmed) {
-      onCreateFile(trimmed);
+    const normalizedName = normalizeResourceFileName(value);
+    if (normalizedName) {
+      onCreateFile(normalizedName);
       setOpen(false);
     }
   };
@@ -479,14 +614,14 @@ The result should be a reusable agent profile, not a one-off task response.`,
     {
       icon: <IconPlus className="h-3.5 w-3.5" />,
       label: "Create File",
-      desc: "Add a new file at a path",
+      desc: t("agentResources.createFile.menuDescription"),
       action: () => setView("file"),
     },
     {
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
       desc: "Teach the agent a new ability",
-      action: openSkillFlyout,
+      action: () => openSkillFlyout(),
       hoverAction: openSkillFlyout,
     },
     {
@@ -496,7 +631,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
       action: () => setView("job"),
     },
     {
-      icon: <IconMessageChatbot className="h-3.5 w-3.5" />,
+      icon: <IconHierarchy2 className="h-3.5 w-3.5" />,
       label: "Create Custom Agent",
       desc: "Add a reusable sub-agent profile",
       action: () => setView("agent-mode"),
@@ -536,6 +671,13 @@ The result should be a reusable agent profile, not a one-off task response.`,
         ]
       : []),
   ];
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (!resourceFilter || resourceFilter === "files") return true;
+    if (resourceFilter === "agents")
+      return item.label === "Create Custom Agent";
+    if (resourceFilter === "skills") return item.label === "Create Skill";
+    return false;
+  });
 
   return (
     <>
@@ -551,22 +693,36 @@ The result should be a reusable agent profile, not a one-off task response.`,
             e.target.value = "";
           }}
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                  open && "bg-accent/50 text-foreground",
-                )}
-              >
-                <IconPlus className="h-3.5 w-3.5" />
-              </button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Create new...</TooltipContent>
-        </Tooltip>
+        {triggerVariant === "outline" ? (
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 px-2.5 text-xs"
+            >
+              <IconPlus className="size-3.5" />
+              {triggerLabel ?? "Add resource"}
+            </Button>
+          </PopoverTrigger>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                    open && "bg-accent/50 text-foreground",
+                  )}
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                </button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Create new...</TooltipContent>
+          </Tooltip>
+        )}
         <PopoverContent
           align="end"
           sideOffset={6}
@@ -580,7 +736,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         >
           {view === "menu" && (
             <div className="py-1">
-              {menuItems.map((item) => {
+              {visibleMenuItems.map((item) => {
                 const isSkill = item.label === "Create Skill";
                 return (
                   <div
@@ -695,7 +851,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
           {view === "file" && (
             <div className="p-3">
               <label className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                File path
+                {t("agentResources.createFile.nameLabel")}
               </label>
               <input
                 ref={inputRef as React.RefObject<HTMLInputElement>}
@@ -709,12 +865,12 @@ The result should be a reusable agent profile, not a one-off task response.`,
                   }
                 }}
                 className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                placeholder="notes/ideas.md"
+                placeholder={t("agentResources.createFile.namePlaceholder")}
               />
               <div className="mt-2.5 flex justify-end">
                 <button
                   onClick={submitFile}
-                  disabled={!value.trim()}
+                  disabled={!normalizeResourceFileName(value)}
                   className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
                 >
                   Create
@@ -842,7 +998,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
                   onClick={() => setView("agent-form")}
                   className="flex w-full items-start gap-2 rounded-md border border-border px-3 py-2 text-left hover:bg-accent/40"
                 >
-                  <IconMessageChatbot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconHierarchy2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <div>
                     <div className="text-[12px] font-medium text-foreground">
                       Fill Form
@@ -947,6 +1103,7 @@ The result should be a reusable agent profile, not a one-off task response.`,
         hasOrg={hasOrg}
         onCreateMcpServer={onCreateMcpServer}
         onCreated={onCreated}
+        integrations={mcpIntegrations}
       />
     </>
   );
@@ -996,9 +1153,9 @@ Create skill files under \`skills/<name>/SKILL.md\` to give the agent specialize
 |-------|------|-------------|
 | *(use the skill button to create one)* | \`skills/example/SKILL.md\` | |
 
-## Workspace files
+## Agent resource files
 
-Workspace resources are for files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into workspace visibility when a user explicitly asks to keep them.
+Agent resources are files users intentionally add, edit, or manage. Agents may create hidden \`agent_scratch\` resources for temporary working notes, scripts, or intermediate results; only promote those files into the visible agent resources list when a user explicitly asks to keep them.
 `;
 
 const WORKSPACE_RESOURCE_OWNER = "__workspace__";
@@ -1009,6 +1166,14 @@ export interface ResourcesPanelProps {
   showMcpServers?: boolean;
   /** Optional page-level scope to mirror in the resource toolbar. */
   scope?: ResourceScope;
+  /** When set, show only the requested scope instead of both scope sections. */
+  showOnlyRequestedScope?: boolean;
+  /** Limit the tree to one agent-native resource collection. */
+  resourceFilter?: ResourceView;
+  /** Render special collections as cards instead of a nested file tree. */
+  resourceTreeVariant?: ResourceTreeVariant;
+  /** Optional app-owned remote MCP catalog. */
+  mcpIntegrations?: DefaultMcpIntegration[];
 }
 
 export function resolveInitialResourceScope(
@@ -1023,7 +1188,12 @@ export function resolveInitialResourceScope(
 export function ResourcesPanel({
   showMcpServers = true,
   scope: requestedScope,
+  showOnlyRequestedScope = false,
+  resourceFilter,
+  resourceTreeVariant = "tree",
+  mcpIntegrations,
 }: ResourcesPanelProps = {}) {
+  const t = useT();
   const { data: org } = useOrg();
   // Non-admin org members get read-only access to organization resources.
   // Solo deployments (no orgId) behave as owner — users can edit their own.
@@ -1121,6 +1291,27 @@ export function ResourcesPanel({
     { show: showAgentScratch },
   );
   const workspaceTree = workspaceTreeQuery.data ?? [];
+  const visiblePersonalTree = useMemo(
+    () => filterResourceTree(personalTree, resourceFilter),
+    [personalTree, resourceFilter],
+  );
+  const visibleSharedTree = useMemo(
+    () => filterResourceTree(sharedTree, resourceFilter),
+    [resourceFilter, sharedTree],
+  );
+  const visibleWorkspaceTree = useMemo(
+    () => filterResourceTree(workspaceTree, resourceFilter),
+    [resourceFilter, workspaceTree],
+  );
+  const displayedPersonalTree =
+    showOnlyRequestedScope && activeScope !== "personal"
+      ? []
+      : visiblePersonalTree;
+  const displayedSharedTree =
+    showOnlyRequestedScope && activeScope !== "shared" ? [] : visibleSharedTree;
+  const showSharedTree = !showOnlyRequestedScope || activeScope === "shared";
+  const showPersonalTree =
+    !showOnlyRequestedScope || activeScope === "personal";
 
   const orgRole = mcpServersQuery.data?.role ?? org?.role ?? null;
   const hasOrgForMcp = !!(mcpServersQuery.data?.orgId ?? org?.orgId);
@@ -1216,7 +1407,11 @@ export function ResourcesPanel({
 
   const handleCreateFile = useCallback(
     (parentPath: string, name: string, scope: ResourceScope) => {
-      const path = parentPath ? `${parentPath}/${name}` : name;
+      const normalizedName = normalizeResourceFileName(name);
+      if (!normalizedName) return;
+      const path = parentPath
+        ? `${parentPath}/${normalizedName}`
+        : normalizedName;
       createResource.mutate(
         { path, content: "", shared: scope === "shared" },
         {
@@ -1238,9 +1433,15 @@ export function ResourcesPanel({
   );
 
   const handleCreateFromToolbar = useCallback(
-    (name: string) => {
+    (targetScope: ResourceScope, name: string) => {
+      const normalizedName = normalizeResourceFileName(name);
+      if (!normalizedName) return;
       createResource.mutate(
-        { path: name, content: "", shared: activeScope === "shared" },
+        {
+          path: normalizedName,
+          content: "",
+          shared: targetScope === "shared",
+        },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
@@ -1248,11 +1449,12 @@ export function ResourcesPanel({
         },
       );
     },
-    [createResource, activeScope],
+    [createResource],
   );
 
   const handleCreateResourceFromToolbar = useCallback(
     (
+      targetScope: ResourceScope,
       path: string,
       content: string,
       mimeType?: string,
@@ -1262,7 +1464,7 @@ export function ResourcesPanel({
       },
     ) => {
       createResource.mutate(
-        { path, content, mimeType, shared: activeScope === "shared" },
+        { path, content, mimeType, shared: targetScope === "shared" },
         {
           onSuccess: (data) => {
             setSelectedResourceId(data.id);
@@ -1274,7 +1476,7 @@ export function ResourcesPanel({
         },
       );
     },
-    [activeScope, createResource],
+    [createResource],
   );
 
   const handleDelete = useCallback(
@@ -1332,16 +1534,16 @@ export function ResourcesPanel({
   );
 
   const handleUploadFiles = useCallback(
-    (files: FileList) => {
+    (files: FileList, targetScope: ResourceScope) => {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("shared", activeScope === "shared" ? "true" : "false");
+        formData.append("shared", targetScope === "shared" ? "true" : "false");
         uploadResource.mutate(formData);
       }
     },
-    [uploadResource, activeScope],
+    [uploadResource],
   );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -1362,11 +1564,103 @@ export function ResourcesPanel({
       e.stopPropagation();
       setDragOver(false);
       if (e.dataTransfer.files.length > 0) {
-        handleUploadFiles(e.dataTransfer.files);
+        handleUploadFiles(e.dataTransfer.files, activeScope);
       }
     },
-    [handleUploadFiles],
+    [activeScope, handleUploadFiles],
   );
+
+  const renderScopeCreateMenu = (targetScope: ResourceScope) => {
+    if (resourceFilter !== "agents" && resourceFilter !== "skills") {
+      return null;
+    }
+    if (targetScope === "shared" && !canEditOrg) return null;
+    return (
+      <CreateMenu
+        scope={targetScope}
+        resourceFilter={resourceFilter}
+        onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
+        onCreateResource={(path, content, mimeType, opts) =>
+          handleCreateResourceFromToolbar(
+            targetScope,
+            path,
+            content,
+            mimeType,
+            opts,
+          )
+        }
+        onCreateMcpServer={handleCreateMcpServer}
+        canCreateOrgMcp={canCreateOrgMcp}
+        hasOrg={hasOrgForMcp}
+        showToast={showToast}
+        mcpIntegrations={mcpIntegrations}
+      />
+    );
+  };
+
+  const renderEmptyStateAction = (targetScope: ResourceScope) => {
+    if (targetScope === "shared" && !canEditOrg) return null;
+
+    const label = resourceFilter
+      ? EMPTY_RESOURCE_ACTION_LABELS[resourceFilter]
+      : "Add resource";
+
+    if (
+      !resourceFilter ||
+      resourceFilter === "files" ||
+      resourceFilter === "agents" ||
+      resourceFilter === "skills"
+    ) {
+      return (
+        <CreateMenu
+          scope={targetScope}
+          resourceFilter={resourceFilter}
+          onCreateFile={(name) => handleCreateFromToolbar(targetScope, name)}
+          onCreateResource={(path, content, mimeType, opts) =>
+            handleCreateResourceFromToolbar(
+              targetScope,
+              path,
+              content,
+              mimeType,
+              opts,
+            )
+          }
+          onCreateMcpServer={handleCreateMcpServer}
+          canCreateOrgMcp={canCreateOrgMcp}
+          hasOrg={hasOrgForMcp}
+          showToast={showToast}
+          mcpIntegrations={mcpIntegrations}
+          triggerVariant="outline"
+          triggerLabel={label}
+          initialView={resourceFilter === "files" ? "file" : "menu"}
+        />
+      );
+    }
+
+    const seed = EMPTY_RESOURCE_SEEDS[resourceFilter];
+    if (!seed) return null;
+
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 gap-1.5 px-2.5 text-xs"
+        disabled={createResource.isPending}
+        onClick={() =>
+          handleCreateResourceFromToolbar(
+            targetScope,
+            seed.path,
+            seed.content,
+            seed.mimeType,
+          )
+        }
+      >
+        <IconPlus className="size-3.5" />
+        {label}
+      </Button>
+    );
+  };
 
   return (
     <div
@@ -1387,13 +1681,15 @@ export function ResourcesPanel({
                 <TooltipTrigger asChild>
                   <button
                     onClick={handleBack}
-                    aria-label="Back to workspace"
+                    aria-label={t("agentResources.backToResources")}
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
                   >
                     <IconArrowLeft className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Back to workspace</TooltipContent>
+                <TooltipContent>
+                  {t("agentResources.backToResources")}
+                </TooltipContent>
               </Tooltip>
             </TooltipProvider>
             {selectedMcpServer ? (
@@ -1503,73 +1799,73 @@ export function ResourcesPanel({
       ) : (
         /* Floating action buttons — absolute top-right over tree view */
         <div className="absolute top-1 right-1 z-10 flex items-center gap-1">
-          <CreateMenu
-            scope={activeScope}
-            onCreateFile={handleCreateFromToolbar}
-            onCreateResource={handleCreateResourceFromToolbar}
-            onCreateMcpServer={handleCreateMcpServer}
-            canCreateOrgMcp={canCreateOrgMcp}
-            hasOrg={hasOrgForMcp}
-            showToast={showToast}
-          />
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  aria-label="Upload file"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                >
-                  <IconUpload className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Upload file</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setShowAgentScratch((value) => !value)}
-                  aria-label={
-                    showAgentScratch
+          {(!resourceFilter || resourceFilter === "files") && (
+            <CreateMenu
+              scope={activeScope}
+              resourceFilter={resourceFilter}
+              onCreateFile={(name) =>
+                handleCreateFromToolbar(activeScope, name)
+              }
+              onCreateResource={(path, content, mimeType, opts) =>
+                handleCreateResourceFromToolbar(
+                  activeScope,
+                  path,
+                  content,
+                  mimeType,
+                  opts,
+                )
+              }
+              onCreateMcpServer={handleCreateMcpServer}
+              canCreateOrgMcp={canCreateOrgMcp}
+              hasOrg={hasOrgForMcp}
+              showToast={showToast}
+              mcpIntegrations={mcpIntegrations}
+            />
+          )}
+          {(!resourceFilter || resourceFilter === "files") && (
+            <>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      aria-label="Upload file"
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    >
+                      <IconUpload className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Upload file</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setShowAgentScratch((value) => !value)}
+                      aria-label={
+                        showAgentScratch
+                          ? "Hide agent scratch files"
+                          : "Show agent scratch files"
+                      }
+                      className={cn(
+                        "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                        showAgentScratch && "bg-accent/50 text-foreground",
+                      )}
+                    >
+                      <IconEye className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {showAgentScratch
                       ? "Hide agent scratch files"
-                      : "Show agent scratch files"
-                  }
-                  className={cn(
-                    "flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50",
-                    showAgentScratch && "bg-accent/50 text-foreground",
-                  )}
-                >
-                  <IconEye className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {showAgentScratch
-                  ? "Hide agent scratch files"
-                  : "Show agent scratch files"}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <TooltipProvider delayDuration={200}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <a
-                  href={WORKSPACE_DOCS_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Open Workspace docs"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                >
-                  <IconHelp className="h-3.5 w-3.5" />
-                </a>
-              </TooltipTrigger>
-              <TooltipContent side="left" sideOffset={8}>
-                Open Workspace docs
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+                      : "Show agent scratch files"}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -1577,7 +1873,7 @@ export function ResourcesPanel({
             className="hidden"
             onChange={(e) => {
               if (e.target.files && e.target.files.length > 0) {
-                handleUploadFiles(e.target.files);
+                handleUploadFiles(e.target.files, activeScope);
                 e.target.value = "";
               }
             }}
@@ -1622,45 +1918,10 @@ export function ResourcesPanel({
           )
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {!personalTreeQuery.isLoading &&
-              !sharedTreeQuery.isLoading &&
-              !workspaceTreeQuery.isLoading &&
-              workspaceTree.length === 0 &&
-              (personalTreeQuery.data ?? []).length === 0 &&
-              (sharedTreeQuery.data ?? []).length === 0 && (
-                <div className="mx-2 mt-2 rounded-md border border-border bg-muted/30 p-2.5 text-[11px] text-muted-foreground">
-                  <p className="mb-1 font-medium text-foreground">
-                    This is your Workspace
-                  </p>
-                  <p className="mb-1.5 leading-snug">
-                    Files the agent reads and writes — notes, instructions,
-                    skills, custom agents, scheduled jobs, and inherited
-                    workspace context. They live in the database or, in local
-                    file mode, in the attached repo.
-                  </p>
-                  <p className="mb-2 leading-snug">
-                    <span className="text-foreground">Workspace</span> is
-                    inherited from Dispatch or local file mode.{" "}
-                    <span className="text-foreground">Organization</span> is
-                    visible to everyone in your organization
-                    {org?.orgId ? " — only admins can edit. " : ". "}
-                    <span className="text-foreground">Personal</span> is just
-                    for you.
-                  </p>
-                  <a
-                    href={WORKSPACE_DOCS_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-foreground hover:underline"
-                  >
-                    Learn more
-                    <IconExternalLink className="h-3 w-3" />
-                  </a>
-                </div>
-              )}
-            {workspaceTree.length > 0 && (
+            {visibleWorkspaceTree.length > 0 && (
               <ResourceTree
-                tree={workspaceTree}
+                tree={visibleWorkspaceTree}
+                variant={resourceTreeVariant}
                 isLoading={workspaceTreeQuery.isLoading}
                 deletingId={
                   deleteResource.isPending
@@ -1682,60 +1943,70 @@ export function ResourcesPanel({
                 headingHint="Inherited"
               />
             )}
-            <ResourceTree
-              tree={sharedTree}
-              isLoading={sharedTreeQuery.isLoading}
-              deletingId={
-                deleteResource.isPending
-                  ? (deleteResource.variables as string)
-                  : deleteMcpServer.isPending
-                    ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
-                    : null
-              }
-              selectedId={selectedResourceId}
-              onSelect={handleSelect}
-              onCreateFile={(parentPath, name) =>
-                handleCreateFile(parentPath, name, "shared")
-              }
-              onCreateFolder={(parentPath, name) =>
-                handleCreateFolder(parentPath, name, "shared")
-              }
-              onDelete={handleDelete}
-              onRename={handleRename}
-              onDrop={handleUploadFiles}
-              title="Organization"
-              titleTooltip={
-                canEditOrg
-                  ? "Files visible to everyone in your organization"
-                  : "Files visible to everyone in your organization. Read-only — only admins can edit."
-              }
-              readOnly={!canEditOrg}
-              headingHint={!canEditOrg ? "Read only" : undefined}
-            />
-            <ResourceTree
-              tree={personalTree}
-              isLoading={personalTreeQuery.isLoading}
-              deletingId={
-                deleteResource.isPending
-                  ? (deleteResource.variables as string)
-                  : deleteMcpServer.isPending
-                    ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
-                    : null
-              }
-              selectedId={selectedResourceId}
-              onSelect={handleSelect}
-              onCreateFile={(parentPath, name) =>
-                handleCreateFile(parentPath, name, "personal")
-              }
-              onCreateFolder={(parentPath, name) =>
-                handleCreateFolder(parentPath, name, "personal")
-              }
-              onDelete={handleDelete}
-              onRename={handleRename}
-              onDrop={handleUploadFiles}
-              title="Personal"
-              titleTooltip="Files visible only to you"
-            />
+            {showPersonalTree && (
+              <ResourceTree
+                tree={displayedPersonalTree}
+                variant={resourceTreeVariant}
+                isLoading={personalTreeQuery.isLoading}
+                deletingId={
+                  deleteResource.isPending
+                    ? (deleteResource.variables as string)
+                    : deleteMcpServer.isPending
+                      ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                      : null
+                }
+                selectedId={selectedResourceId}
+                onSelect={handleSelect}
+                onCreateFile={(parentPath, name) =>
+                  handleCreateFile(parentPath, name, "personal")
+                }
+                onCreateFolder={(parentPath, name) =>
+                  handleCreateFolder(parentPath, name, "personal")
+                }
+                onDelete={handleDelete}
+                onRename={handleRename}
+                onDrop={(files) => handleUploadFiles(files, "personal")}
+                title="Personal"
+                titleTooltip="Files visible only to you"
+                sectionAction={renderScopeCreateMenu("personal")}
+                emptyStateAction={renderEmptyStateAction("personal")}
+              />
+            )}
+            {showSharedTree && (
+              <ResourceTree
+                tree={displayedSharedTree}
+                variant={resourceTreeVariant}
+                isLoading={sharedTreeQuery.isLoading}
+                deletingId={
+                  deleteResource.isPending
+                    ? (deleteResource.variables as string)
+                    : deleteMcpServer.isPending
+                      ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                      : null
+                }
+                selectedId={selectedResourceId}
+                onSelect={handleSelect}
+                onCreateFile={(parentPath, name) =>
+                  handleCreateFile(parentPath, name, "shared")
+                }
+                onCreateFolder={(parentPath, name) =>
+                  handleCreateFolder(parentPath, name, "shared")
+                }
+                onDelete={handleDelete}
+                onRename={handleRename}
+                onDrop={(files) => handleUploadFiles(files, "shared")}
+                title="Organization"
+                titleTooltip={
+                  canEditOrg
+                    ? "Files visible to everyone in your organization"
+                    : "Files visible to everyone in your organization. Read-only — only admins can edit."
+                }
+                readOnly={!canEditOrg}
+                headingHint={!canEditOrg ? "Read only" : undefined}
+                sectionAction={renderScopeCreateMenu("shared")}
+                emptyStateAction={renderEmptyStateAction("shared")}
+              />
+            )}
           </div>
         )}
       </div>

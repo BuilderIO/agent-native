@@ -29,6 +29,8 @@ import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
+import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import {
   canOpenDirectRecordingPage,
@@ -45,6 +47,7 @@ import {
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
+import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
 
 function safeJsonObject(raw: string | null | undefined) {
   if (!raw) return {};
@@ -90,7 +93,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -105,7 +108,7 @@ export default defineAction({
     }),
   },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {
       throw new ForbiddenError(`No access to recording ${args.recordingId}`);
@@ -119,7 +122,19 @@ export default defineAction({
     }
 
     let hasExplicitShare = access.role === "owner";
-    if (rec.visibility === "public" && access.role !== "owner") {
+    if (
+      rec.visibility === "public" &&
+      access.role !== "owner" &&
+      !rec.password &&
+      isAgentRecordingCaller(ctx?.caller)
+    ) {
+      hasExplicitShare = true;
+    }
+    if (
+      rec.visibility === "public" &&
+      access.role !== "owner" &&
+      !hasExplicitShare
+    ) {
       const userEmail = getRequestUserEmail()?.trim().toLowerCase();
       const orgId = getRequestOrgId();
       const principals = [];
@@ -178,12 +193,20 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    const [cleanupStateRaw, builderCreditsRaw] = await Promise.all([
-      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
-      canEditRecording
-        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    const [cleanupStateRaw, builderCreditsRaw, verificationPending] =
+      await Promise.all([
+        readAppState(`transcript-cleanup-${args.recordingId}`).catch(
+          () => null,
+        ),
+        canEditRecording
+          ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+          : Promise.resolve(null),
+        isMediaVerificationPending({
+          ownerEmail: rec.ownerEmail,
+          recordingId: args.recordingId,
+          recordingStatus: rec.status,
+        }),
+      ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
@@ -280,6 +303,13 @@ export default defineAction({
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    const agentTranscript =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a"
+        ? boundTranscriptForAgent({
+            fullText: transcript?.fullText,
+            segments: transcriptSegments,
+          })
+        : null;
 
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
@@ -326,6 +356,7 @@ export default defineAction({
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
+        verificationPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that
@@ -352,11 +383,19 @@ export default defineAction({
               ? "failed"
               : transcriptPresentation.status,
             language: transcript.language,
-            fullText: transcript.fullText,
+            fullText: agentTranscript?.fullText ?? transcript.fullText,
+            ...(agentTranscript
+              ? {
+                  fullTextLength: agentTranscript.fullTextLength,
+                  segmentCount: agentTranscript.segmentCount,
+                  previewTruncated: agentTranscript.previewTruncated,
+                  note: agentTranscript.note,
+                }
+              : {}),
             failureReason: transcriptReadyButEmpty
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
               : transcriptPresentation.failureReason,
-            segments: transcriptSegments,
+            segments: agentTranscript?.segments ?? transcriptSegments,
             cleanup: cleanupState
               ? {
                   status:

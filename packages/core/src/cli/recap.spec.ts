@@ -1553,6 +1553,24 @@ describe("recap comment body", () => {
     expect(body).not.toContain("javascript:");
   });
 
+  it("does not embed a partial theme pair when screenshot capture was incomplete", () => {
+    const token = "a".repeat(64);
+    const body = buildCommentBody({
+      PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
+      PLAN_RECAP_APP_URL: "https://plan.agent-native.com",
+      RECAP_LIGHT_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
+      RECAP_SHOT_OK: "false",
+      RECAP_SHOT_REASON: "dark: page.waitForSelector: Timeout 30000ms exceeded",
+      HEAD_SHA: "abcdef1",
+    } as NodeJS.ProcessEnv);
+
+    expect(body).toContain("### Visual recap — screenshot failed");
+    expect(body).toContain(
+      "dark: page.waitForSelector: Timeout 30000ms exceeded",
+    );
+    expect(body).not.toContain("<picture>");
+  });
+
   it("drops a recap-image URL whose token is too short for the image route", () => {
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -1899,6 +1917,94 @@ describe("recap screenshot capture", () => {
         timeout: 15_000,
       });
     } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("refuses to capture the app shell while the recap is still on its loading skeleton", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.waitForSelector.mockImplementation(async (selector: string) => {
+      if (selector === "main") return;
+      throw new Error(`missing ${selector}`);
+    });
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-loading",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.waitForSelector).toHaveBeenCalledWith(
+        "[data-plan-document]",
+        {
+          timeout: 30_000,
+          state: "visible",
+        },
+      );
+      expect(page.waitForSelector).toHaveBeenCalledTimes(1);
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        reason: "missing [data-plan-document]",
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("retries once when the recap document readiness wait times out", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.waitForSelector
+      .mockRejectedValueOnce(
+        new Error(
+          "page.waitForSelector: Timeout 30000ms exceeded while waiting for locator('[data-plan-document]')",
+        ),
+      )
+      .mockResolvedValueOnce(undefined);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/plan-retry",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.goto).toHaveBeenCalledTimes(2);
+      expect(page.waitForSelector).toHaveBeenCalledTimes(2);
+      expect(page.screenshot).toHaveBeenCalledWith({ path: out });
+      expect(stderr).toHaveBeenCalledWith(
+        "[recap shot] recap document did not become ready; retrying once\n",
+      );
+    } finally {
+      stderr.mockRestore();
       stdout.mockRestore();
       fs.rmSync(dir, { force: true, recursive: true });
     }
@@ -2837,7 +2943,10 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("Publish recap source");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("recap publish");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "VISUAL_RECAP_REQUIRED_LABELS",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("closed without merge");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("PR_MERGED_AT");
@@ -2974,6 +3083,9 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_PLAYWRIGHT");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("[recap shot] ${label}");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "const hasAllImages = shots.every",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
@@ -2998,11 +3110,47 @@ describe("bundled PR visual recap workflow", () => {
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "    defaults:\n      run:\n        shell: bash",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
     );
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "self-hosted runner mode requires a trusted same-repository PR author",
     );
+  });
+
+  it("short-circuits an absent recap source before deterministic publish in every workflow", () => {
+    const workflows = [
+      PR_VISUAL_RECAP_WORKFLOW_YML,
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-reusable.yml"),
+        "utf8",
+      ),
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-fork.yml"),
+        "utf8",
+      ),
+    ];
+    for (const workflow of workflows) {
+      expect(workflow).toContain("Check recap source");
+      expect(workflow).toContain("id: source_status");
+      expect(workflow).toContain("steps.source_status.outputs.ready == 'true'");
+      expect(workflow).toContain("provider quota was exceeded");
+      expect(workflow).toContain(
+        "OpenAI API project's quota/budget is exhausted",
+      );
+      expect(workflow).toContain(
+        "Add API credits or raise that project's monthly budget, then rerun the workflow.",
+      );
+      expect(workflow).toContain("Anthropic provider quota is exhausted");
+      expect(workflow).toContain(
+        "steps.source_status.outputs.reason || steps.url.outputs.reason",
+      );
+      expect(workflow.indexOf("Check recap source")).toBeLessThan(
+        workflow.indexOf("Publish recap source"),
+      );
+    }
   });
 });
 
@@ -3314,7 +3462,7 @@ describe("reusable caller workflow builder", () => {
     const yml = buildReusableCallerWorkflow();
     // Trigger: same event types as the canonical workflow.
     expect(yml).toContain(
-      "types: [opened, synchronize, reopened, ready_for_review, closed]",
+      "types: [opened, synchronize, reopened, ready_for_review, labeled, closed]",
     );
     // Uses the reusable workflow in the agent-native repo.
     expect(yml).toContain(
@@ -3334,6 +3482,9 @@ describe("reusable caller workflow builder", () => {
     expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(yml).toContain(
       "VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}",
+    );
+    expect(yml).toContain(
+      "required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}",
     );
     expect(yml).toContain(
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
@@ -3538,6 +3689,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain(
       "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
     );
+    expect(content).toContain("    defaults:\n      run:\n        shell: bash");
     expect(content).toContain(
       "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
     );
@@ -3611,6 +3763,18 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain(
       "Visual recap agent failed with a non-retryable provider error",
     );
+    expect(content).toContain("Check recap source");
+    expect(content).toContain("id: source_status");
+    expect(content).toContain("steps.source_status.outputs.ready == 'true'");
+    expect(content).toContain("provider quota was exceeded");
+    expect(content).toContain("OpenAI API project's quota/budget is exhausted");
+    expect(content).toContain(
+      "Add API credits or raise that project's monthly budget, then rerun the workflow.",
+    );
+    expect(content).toContain("Anthropic provider quota is exhausted");
+    expect(content).toContain(
+      "steps.source_status.outputs.reason || steps.url.outputs.reason",
+    );
     expect(content).toContain(
       "GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary",
     );
@@ -3623,6 +3787,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
       "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );
@@ -3980,6 +4145,7 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     expect(content).toContain("RECAP_SHOT_OK:");
     expect(content).toContain("RECAP_SHOT_REASON:");
     expect(content).toContain("[recap shot] ${label}");
+    expect(content).toContain("const hasAllImages = shots.every");
     expect(content).toContain(
       "Visual recap screenshot unavailable; posting screenshot-failed recap comment.",
     );

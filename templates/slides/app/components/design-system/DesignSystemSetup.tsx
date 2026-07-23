@@ -1,11 +1,12 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
-  appApiPath,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSidebar } from "@agent-native/core/client/navigation";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
   IconPalette,
@@ -921,7 +922,14 @@ function BuilderIndexPreview({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
         <Button size="sm" asChild className="cursor-pointer">
-          <a href={result.builderUrl} target="_blank" rel="noreferrer">
+          <a
+            href={withBuilderUtmTrackingParams(result.builderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+          >
             <IconExternalLink className="w-3.5 h-3.5" />
             {t("designSystemSetup.openInBuilder")}
           </a>

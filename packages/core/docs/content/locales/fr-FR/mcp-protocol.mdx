@@ -231,6 +231,15 @@ L'agent exécute la même boucle que le chat interactif : il peut appeler plusi
 
 Appelez `ask_app_status` avec ces arguments jusqu'à ce que la tâche atteigne un état terminal. Le `ask_app` propre à l'application de Dispatch utilise le même contrat de tâche durable et de statut, avec la vérification de l'autorisation de l'application sélectionnée effectuée à la fois lors de la soumission et de l'interrogation.
 
+Si une lecture d'état transitoire et limitée est indisponible, `ask_app_status`
+peut renvoyer `status: "unknown"`, `statusRead: "unavailable"`,
+`retryable: true`, les `app` et `taskId` d'origine, ainsi que `pollAfterMs` /
+`poll`. Cela signifie que la lecture d'état est indisponible, et non que la tâche
+durable a échoué. Réessayez `ask_app_status` avec exactement les mêmes `app` et
+`taskId` ; ne soumettez jamais à nouveau `ask_app` pour récupérer, car la
+soumission peut dupliquer le travail. Les erreurs permanentes d'authentification,
+d'introuvable et de protocole restent des erreurs.
+
 ## Authentification {#authentication}
 
 Le point de terminaison MCP prend en charge le modèle distant standard MCP OAuth, ainsi que le remplacement du jeton de support existant :

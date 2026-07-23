@@ -456,6 +456,19 @@ export default defineAction({
             "SQL editor",
           ],
         },
+        {
+          id: "flags",
+          label: "Feature flags",
+          path: "/agents?view=flags",
+          adminOnly: true,
+          action: "list-workspace-feature-flags",
+          includes: [
+            "workspace app flag definitions",
+            "rollout state",
+            "exact user and organization targeting",
+            "deterministic percentage rollout",
+          ],
+        },
       ];
       if (screen.agentsView === "dashboards") {
         screen.dashboardUsageStatsAction = "list-dashboard-usage-stats";

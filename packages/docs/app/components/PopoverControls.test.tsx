@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import {
   cleanup,
   fireEvent,

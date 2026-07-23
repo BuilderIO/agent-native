@@ -1,10 +1,10 @@
 import {
   AgentChatSurface,
-  getBrowserTabId,
   markAgentChatHomeHandoff,
   sendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
@@ -59,6 +59,13 @@ export default function CreatePage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
   const t = useT();
+  const threadUrlSync = threadId
+    ? {
+        routeThreadId: threadId,
+        getPath: chatThreadPath,
+        navigate,
+      }
+    : undefined;
   const imageModelMenu = useImageModelMenu();
 
   useEffect(() => {
@@ -82,11 +89,7 @@ export default function CreatePage() {
         className="assets-create-chat-panel"
         defaultMode="chat"
         storageKey={ASSETS_CHAT_STORAGE_KEY}
-        threadUrlSync={{
-          routeThreadId: threadId ?? null,
-          getPath: chatThreadPath,
-          navigate,
-        }}
+        threadUrlSync={threadUrlSync}
         browserTabId={getBrowserTabId()}
         threadFooterSlot={({ threadId }) => (
           <GenerationResults threadId={threadId} />

@@ -1,5 +1,62 @@
 # @agent-native/scheduling
 
+## 0.1.32
+
+### Patch Changes
+
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+  - @agent-native/toolkit@0.10.0
+
+## 0.1.31
+
+### Patch Changes
+
+- Updated dependencies [0341a7d]
+  - @agent-native/toolkit@0.9.0
+
+## 0.1.30
+
+### Patch Changes
+
+- 8453025: Add manifest-driven feature ejection with dry-run planning, committed provenance, import rewrites, drift inspection, hash-gated restore, protected-runtime guidance, and complete first-party coverage guards.
+- Updated dependencies [8453025]
+  - @agent-native/toolkit@0.8.0
+
+## 0.1.29
+
+### Patch Changes
+
+- Updated dependencies [e53a34e]
+  - @agent-native/toolkit@0.7.0
+
+## 0.1.28
+
+### Patch Changes
+
+- Updated dependencies [01a3f27]
+  - @agent-native/toolkit@0.6.0
+
+## 0.1.27
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+- Updated dependencies [079e19a]
+  - @agent-native/toolkit@0.5.1
+
+## 0.1.26
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+- Updated dependencies [b6d7f87]
+  - @agent-native/toolkit@0.5.0
+
 ## 0.1.25
 
 ### Patch Changes

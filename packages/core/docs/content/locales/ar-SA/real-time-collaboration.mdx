@@ -236,10 +236,10 @@ export default defineConfig({
 
 ### 3. أضف المكوّن الإضافي لخادم التعاون
 
-قم دائمًا بتعيين `resourceType` على اسم المورد القابل للمشاركة المسجل
-عبر `registerShareableResource`. وبدون ذلك، يتم تسليم أحداث الدفع التعاوني
-لجميع المستخدمين الذين تمت مصادقتهم دون تحديد النطاق على مستوى المستند، والخادم
-يسجل تحذيرًا لمرة واحدة.
+اختر وضع الوصول المطابق لنموذج البيانات. تستخدم السجلات المملوكة أو القابلة
+للمشاركة `mode: "resource"` مع النوع المسجل عبر `registerShareableResource`.
+أما السجلات المتاحة عمدًا لجميع المستخدمين المصادق عليهم في النشر فتستخدم
+`mode: "all-authenticated"` بشكل صريح. لا تخترع نوع مورد لمجرد إسكات تحذير.
 
 ```ts
 // server/plugins/collab.ts
@@ -249,14 +249,17 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+يعد حذف `access` سلوكًا قديمًا ومهملاً. وهو يتصرف مثل `all-authenticated`،
+ويسجل تحذيرًا، ويضع Doctor علامة عليه.
 
 ### 4. استخدم ربط العميل
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -429,8 +432,7 @@ import {
 إرجاع قائمة تفاعلية للمشاركين عن بعد ومحدد لحمولة التواجد المحلي:
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -492,8 +494,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 قم باستدعاء رد الاتصال عندما يتغير إطار عرض المشارك المتابع:
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -527,8 +528,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### مساعدي التنسيق الطبيعي {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,
@@ -600,22 +600,33 @@ try {
 
 ## الأمان {#security}
 
-### اضبط `resourceType` دائمًا
+### اختر نموذج الوصول بشكل صريح
+
+للموارد المملوكة أو القابلة للمشاركة، استخدم النوع المسجل عبر
+`registerShareableResource`:
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-بدون `resourceType`، يقوم المكون الإضافي بتسجيل تحذير ويبث دفعة تعاون
-أحداث لجميع المستخدمين الذين تمت مصادقتهم عند النشر بدون مستوى المستند
-النطاق. يعود غير المالكين إلى اللحاق بناقلات الحالة (آمن ولكن أعلى
-زمن الوصول) بغض النظر عما إذا تم تعيين `resourceType` أم لا.
+للمورد المشترك عمدًا على مستوى النشر كله:
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+لا تخترع `resourceType` لإزالة تحذير؛ يكون وضع `resource` صحيحًا فقط عند وجود
+نموذج الملكية والمشاركة المقابل. يظل حذف `access` مدعومًا للتوافق القديم، لكنه
+يتصرف مثل `all-authenticated` ويسجل تحذيرًا ويضع Doctor علامة عليه. يستخدم
+غير المالكين ذوو الوصول الصريح مزامنة متجه الحالة (آمنة، لكن بزمن وصول أعلى).
 
 ### التحقق من الوصول
 
-تتطلب كافة مسارات التعاون المصادقة. عندما يتم تعيين `resourceType`، يقرأ
+تتطلب كافة مسارات التعاون المصادقة. في وضع `resource`، تتطلب القراءة
 تتطلب وصول المشاهد على الأقل وتتطلب الكتابة وصول المحرر باستخدام
 نفس مساعدي `resolveAccess` / `assertAccess` كنظام المشاركة. أ404
 (ليس 403) عند فشل الوصول لتجنب تسرب وجود المستند.
@@ -628,7 +639,7 @@ createCollabPlugin({
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -760,7 +771,7 @@ undoManager.redo(); // Shift+Cmd+Z
 - [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
   النظام الذي يقدم تسوية محرر قيادة الصدمات `updatedAt`.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  و`assertAccess` لنموذج الوصول المشار إليه بواسطة `resourceType`.
+  و`assertAccess` للتعاون المحدد النطاق بمورد.
 - [Sharing](/docs/sharing) — كيفية مشاركة المستندات وكيفية منح حق الوصول.
 - [Template: Content](/docs/template-content) — التنفيذ المرجعي لـ
   تحرير النص المنسق بشكل تعاوني.

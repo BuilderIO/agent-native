@@ -31,7 +31,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
 import { useT } from "../i18n.js";
 import { ShareButton } from "../sharing/ShareButton.js";
@@ -1463,7 +1463,7 @@ function ToolMoreMenu({
                   <span>
                     {canDelete === false
                       ? "Remove from my list..."
-                      : "Delete extension..."}
+                      : "Archive extension..."}
                   </span>
                 </button>
               </div>
@@ -1472,11 +1472,11 @@ function ToolMoreMenu({
         ) : (
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
-              {canDelete === false ? "Remove " : "Delete "}
+              {canDelete === false ? "Remove " : "Archive "}
               <span className="font-medium">{toolName}</span>?
               {canDelete === false
                 ? " This hides it from your Extensions list without deleting it for anyone else."
-                : " This removes the extension everywhere, for everyone it's shared with."}
+                : " This archives the extension everywhere, for everyone it's shared with."}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -1491,7 +1491,7 @@ function ToolMoreMenu({
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                {canDelete === false ? "Remove" : "Delete"}
+                {canDelete === false ? "Remove" : "Archive"}
               </button>
             </div>
           </div>

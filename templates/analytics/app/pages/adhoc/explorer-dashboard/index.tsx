@@ -1,17 +1,19 @@
+import { generateTabId } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  PresenceBar,
   useCollaborativeDoc,
-  generateTabId,
   emailToColor,
   emailToName,
+  type CollabUser,
+} from "@agent-native/core/client/collab";
+import {
   useSession,
   useChangeVersions,
   useActionMutation,
-  agentNativePath,
   callAction,
-  useT,
-  type CollabUser,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
   DndContext,
   DragOverlay,

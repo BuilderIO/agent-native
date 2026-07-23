@@ -1,8 +1,6 @@
-import {
-  appBasePath,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+import { captureClientException } from "@agent-native/core/client/analytics";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
@@ -279,9 +277,18 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // without this guard that effect would treat the two URLs as the "same
     // resource" and immediately revert our retry before `.load()` completes.
     const recoveringFromErrorRef = useRef(false);
+    const prevMseModeRef = useRef("");
+    // Render-phase mirrors of currentMs / isPlaying so the MSE-fallback effect
+    // below can read the pre-failure values. By the time effects run, React has
+    // already committed the new <video src>, causing the browser to reset
+    // currentTime -> 0 and paused -> true, making the element values useless.
+    const currentMsRef = useRef(startMs ?? 0);
+    const isPlayingRef = useRef(false);
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
+    currentMsRef.current = currentMs;
+    isPlayingRef.current = isPlaying;
     const [loomStartMs, setLoomStartMs] = useState<number | null>(null);
     const [volume, setVolume] = useState(1);
     // Autoplaying players (e.g. the Slack unfurl embed, `?autoplay=1`) must
@@ -318,6 +325,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     // Whether we've already captured-and-uploaded a still-frame thumbnail for
     // this clip. Owner-only and once per player lifecycle.
     const thumbnailCapturedRef = useRef(false);
+    const [thumbnailLoadFailed, setThumbnailLoadFailed] = useState(false);
     // "Preparing your clip…" overlay — shown while the browser buffers the
     // first frame of a freshly-finalized clip so the user doesn't see a blank
     // black rectangle. Hidden on loadeddata / canplay / currentTime > 0, or
@@ -392,6 +400,45 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       : mse.mode === "pending"
         ? undefined
         : activeVideoSrc;
+
+    // When the MSE pipeline breaks mid-stream (premature 416 or
+    // ERR_CONTENT_LENGTH_MISMATCH after the backing GCS object is replaced by
+    // the compressed version), the loader calls onFatal which flips mse.mode to
+    // "native". This effect detects that transition and:
+    //  1. saves the playback position via currentMsRef (v.currentTime is already 0)
+    //  2. cache-busts activeVideoSrc so the native <video> path fetches fresh
+    //     headers rather than a proxy-cached content-length from the old object
+    //  3. if the user was playing, arms playAttemptPendingRef so the existing
+    //     retryPendingPlay call in onLoadedData resumes without user interaction
+    useEffect(() => {
+      const prev = prevMseModeRef.current;
+      prevMseModeRef.current = mse.mode;
+      if (prev !== "mse" || mse.mode !== "native") return;
+
+      const wasPlaying = isPlayingRef.current;
+      const posMs = currentMsRef.current > 0 ? currentMsRef.current : null;
+      if (posMs != null) resumeAfterReloadMsRef.current = posMs;
+
+      if (activeVideoSrc) {
+        recoveringFromErrorRef.current = true;
+        setActiveVideoSrc(
+          setUrlSearchParam(activeVideoSrc, "cb", String(Date.now())),
+        );
+      }
+
+      if (wasPlaying) {
+        const nextId = playAttemptIdRef.current + 1;
+        playAttemptIdRef.current = nextId;
+        playAttemptPendingRef.current = true;
+        setIsPlayPending(true);
+        setIsBuffering(true);
+      } else {
+        setIsPlaying(false);
+        setIsBuffering(false);
+      }
+      setIsPreparing(true);
+      setCanPlay(false);
+    }, [mse.mode, activeVideoSrc]);
 
     useEffect(() => {
       if (!resolvedVideoSrc) {
@@ -510,6 +557,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       bumpControls();
       setPlayError(null);
 
+      // The center replay control calls requestPlay directly (rather than the
+      // surface toggle path), so restart an ended media element here as well.
+      if (v.ended) {
+        try {
+          v.currentTime = 0;
+          setCurrentMs(0);
+        } catch {
+          // Let the normal play attempt report a media error if the seek fails.
+        }
+      }
+
       if (
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) &&
@@ -588,10 +646,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const togglePlayback = useCallback(() => {
       const v = videoRef.current;
       if (!v) return;
-      if (!v.paused || isPlaying) {
-        pauseVideo();
-        return;
-      }
+      // A finished clip must always replay from the start, even when the browser
+      // left `paused` false at end of stream (MSE end-of-stream / DB-duration
+      // mismatch) or `isPlaying` is stale — otherwise the toggle below would
+      // pause an already-ended element and the play button appears to do nothing.
       if (v.ended) {
         try {
           v.currentTime = 0;
@@ -599,6 +657,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         } catch {
           // Let the normal play attempt report a media error if the seek fails.
         }
+        requestPlay();
+        return;
+      }
+      if (!v.paused || isPlaying) {
+        pauseVideo();
+        return;
       }
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
@@ -923,6 +987,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     }, [activeVideoSourceIdentity, recordingId]);
 
     useEffect(() => {
+      setThumbnailLoadFailed(false);
+    }, [recordingId, thumbnailUrl]);
+
+    useEffect(() => {
       let cancelled = false;
       setShouldRefreshAutoThumbnail(false);
 
@@ -1177,10 +1245,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // retry on a format that will never play. Show the poster with a
           // clear, non-looping explanation instead.
           <div className="relative flex h-full w-full items-center justify-center bg-black">
-            {thumbnailUrl ? (
+            {thumbnailUrl && !thumbnailLoadFailed ? (
               <img
                 src={resolveLocalUrl(thumbnailUrl)}
                 alt=""
+                onError={() => setThumbnailLoadFailed(true)}
                 className={cn(
                   "absolute inset-0 h-full w-full",
                   cover ? "object-cover" : "object-contain",
@@ -1436,6 +1505,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
 
         {thumbnailUrl &&
+        !thumbnailLoadFailed &&
         !autoPlay &&
         !hasPlaybackStarted &&
         (!startMs || startMs <= 0) ? (
@@ -1443,6 +1513,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             src={resolveLocalUrl(thumbnailUrl)}
             alt=""
             aria-hidden="true"
+            onError={() => setThumbnailLoadFailed(true)}
             className={cn(
               "pointer-events-none absolute inset-0 z-[1] h-full w-full",
               cover ? "object-cover" : "object-contain",
@@ -1484,7 +1555,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         {/* Timestamped comments */}
         {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
-          <PlaybackCommentOverlay comments={comments} currentMs={currentMs} />
+          <PlaybackCommentOverlay
+            comments={comments}
+            currentMs={currentMs}
+            playbackRate={speed}
+          />
         ) : null}
 
         {/* Floating CTA (throughout placement) */}

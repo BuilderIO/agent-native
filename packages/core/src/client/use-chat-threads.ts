@@ -6,6 +6,8 @@ export interface ChatThreadScope {
   type: string;
   id: string;
   label?: string;
+  /** Composer context key used by ambient resource context adapters. */
+  contextKey?: string;
 }
 
 export interface ChatThreadSummary {
@@ -342,6 +344,24 @@ export function useChatThreads(
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
 
+  const persistActiveThreadId = useCallback(
+    (id: string) => {
+      try {
+        const threadScope = readKnownThreadScope(id);
+        const targetKey =
+          threadScope === undefined
+            ? activeThreadKey
+            : activeThreadStorageKey(storageKey, threadScope);
+        localStorage.setItem(targetKey, id);
+        localStorage.setItem(
+          activeThreadSeenStorageKey(targetKey),
+          String(Date.now()),
+        );
+      } catch {}
+    },
+    [activeThreadKey, readKnownThreadScope, storageKey],
+  );
+
   // Persist active thread ID — and rehydrate on scope flips. When the user
   // navigates from deck A to deck B, `activeThreadKey` changes; we re-read B's
   // scoped thread only if the currently visible chat is itself scoped to a
@@ -386,6 +406,9 @@ export function useChatThreads(
       setActiveThreadId(nextActiveThreadId);
       return;
     }
+    if (!activeThreadId && !restoreActiveThread && !routeControlsActiveThread) {
+      return;
+    }
     try {
       if (routeControlsActiveThread && !routeThreadId) {
         localStorage.removeItem(activeThreadKey);
@@ -393,14 +416,7 @@ export function useChatThreads(
         return;
       }
       if (activeThreadId) {
-        const threadScope = readKnownThreadScope(activeThreadId);
-        if (threadScope === undefined) return;
-        const targetKey = activeThreadStorageKey(storageKey, threadScope);
-        localStorage.setItem(targetKey, activeThreadId);
-        localStorage.setItem(
-          activeThreadSeenStorageKey(targetKey),
-          String(Date.now()),
-        );
+        persistActiveThreadId(activeThreadId);
       } else {
         localStorage.removeItem(activeThreadKey);
         localStorage.removeItem(activeThreadSeenKey);
@@ -412,7 +428,9 @@ export function useChatThreads(
     activeThreadSeenKey,
     addOptimisticThread,
     autoCreate,
+    persistActiveThreadId,
     readKnownThreadScope,
+    restoreActiveThread,
     routeControlsActiveThread,
     routeThreadId,
     storageKey,
@@ -638,10 +656,11 @@ export function useChatThreads(
       const id = preferredId || createLocalThreadId();
       newlyCreatedRef.current.add(id);
       addOptimisticThread(id, scopeRef.current ?? null);
+      persistActiveThreadId(id);
       setActiveThreadId(id);
       return Promise.resolve(id);
     },
-    [addOptimisticThread],
+    [addOptimisticThread, persistActiveThreadId],
   );
 
   useEffect(() => {
@@ -888,9 +907,13 @@ export function useChatThreads(
     [],
   );
 
-  const switchThread = useCallback((id: string) => {
-    setActiveThreadId(id);
-  }, []);
+  const switchThread = useCallback(
+    (id: string) => {
+      persistActiveThreadId(id);
+      setActiveThreadId(id);
+    },
+    [persistActiveThreadId],
+  );
 
   const removeThread = useCallback(
     async (id: string) => {

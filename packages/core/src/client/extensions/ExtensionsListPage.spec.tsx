@@ -15,7 +15,7 @@ vi.mock("../AgentPanel.js", () => ({
   AgentToggleButton: () => <button type="button">Agent</button>,
 }));
 
-vi.mock("../composer/PromptComposer.js", () => ({
+vi.mock("../composer/index.js", () => ({
   PromptComposer: ({ placeholder }: { placeholder: string }) => (
     <textarea aria-label={placeholder} placeholder={placeholder} />
   ),

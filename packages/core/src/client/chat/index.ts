@@ -157,5 +157,4 @@ export {
   type ChatHistorySection,
   type ChatHistoryListProps,
 } from "./ChatHistoryList.js";
-export * from "../composer/index.js";
 export * from "../conversation/index.js";

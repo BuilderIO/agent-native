@@ -1,5 +1,17 @@
 # @agent-native/pinpoint
 
+## 0.1.15
+
+### Patch Changes
+
+- 8df32f6: Publish the latest Builder link tracking updates.
+
+## 0.1.14
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
 ## 0.1.13
 
 ### Patch Changes

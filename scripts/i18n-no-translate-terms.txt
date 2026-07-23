@@ -46,6 +46,7 @@ gh · ffmpeg · stripe
 GitHub OAuth
 Google Calendar
 Google OAuth
+Google Sheets
 Headless Chrome
 hello.ts · view-screen · navigate
 HTTP · MCP · A2A
@@ -68,6 +69,7 @@ Neon Postgres
 Nitro preset
 NOTIFICATIONS_WEBHOOK_URL
 OAuth / access token
+SQL dashboard
 OAuth 2.1 + PKCE
 onNavigate / onRefresh
 PKCE

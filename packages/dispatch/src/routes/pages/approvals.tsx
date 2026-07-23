@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useOrg } from "@agent-native/core/client/org";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -69,7 +72,7 @@ export default function ApprovalsRoute() {
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {hasOrg
-                      ? "Applies to saved destinations, shared dream proposals, All-app workspace resources, and dispatch settings."
+                      ? "Applies to saved destinations, shared dream proposals, All-app agent resources, and dispatch settings."
                       : "Requires a team workspace. Set one up on the Team page."}
                   </div>
                 </div>

@@ -1,4 +1,5 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -594,6 +595,7 @@ const auditEnUS = {
 } satisfies Record<string, string>;
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
@@ -613,10 +615,10 @@ const enUS = {
     collapseSidebar: "Collapse sidebar",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     title: "Settings",
     description: "Asset generation, storage, and brand kit access.",
     connections: "Connections",
@@ -3654,13 +3656,27 @@ function mergeMessages(overrides: PartialMessages): Messages {
     },
     brandKits: { ...enUS.brandKits, ...overrides.brandKits },
     library: { ...enUS.library, ...overrides.library },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
   };
+}
+
+function mergeLocalizedMessages(
+  locale: Exclude<LocaleCode, "en-US">,
+  overrides: PartialMessages,
+): Messages {
+  return mergeMessages({
+    ...overrides,
+    creativeContext: creativeContextMessagesByLocale[locale],
+  });
 }
 
 export const messagesByLocale = {
   "en-US": enUS,
-  "zh-TW": mergeMessages(zhTW),
-  "zh-CN": mergeMessages({
+  "zh-TW": mergeLocalizedMessages("zh-TW", zhTW),
+  "zh-CN": mergeLocalizedMessages("zh-CN", {
     library: {
       allLibraries: "所有库",
       noDrafts: "暂无草稿。",
@@ -3894,10 +3910,9 @@ export const messagesByLocale = {
       collapseSidebar: "收起侧边栏",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       title: "设置",
       description: "资产生成、存储和品牌套件访问。",
       connections: "连接",
@@ -4492,7 +4507,7 @@ export const messagesByLocale = {
       yourBrandKits: "您的品牌套件",
     },
   }),
-  "es-ES": mergeMessages({
+  "es-ES": mergeLocalizedMessages("es-ES", {
     library: {
       allLibraries: "Todas las bibliotecas",
       noDrafts: "Aún no hay borradores.",
@@ -4693,10 +4708,10 @@ export const messagesByLocale = {
       collapseSidebar: "Contraer barra lateral",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       title: "Ajustes",
       description: "Generación, almacenamiento y acceso a kits de marca.",
       connections: "Conexiones",
@@ -4962,7 +4977,7 @@ export const messagesByLocale = {
       daysAgo: "hace {{count}} d",
     },
   }),
-  "fr-FR": mergeMessages({
+  "fr-FR": mergeLocalizedMessages("fr-FR", {
     library: {
       allLibraries: "Toutes les bibliothèques",
       noDrafts: "Aucun brouillon pour l'instant.",
@@ -5156,10 +5171,10 @@ export const messagesByLocale = {
       collapseSidebar: "Réduire la barre latérale",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       title: "Paramètres",
       description: "Génération d'assets, stockage et accès aux kits de marque.",
       connections: "Connexions",
@@ -5410,7 +5425,7 @@ export const messagesByLocale = {
       daysAgo: "il y a {{count}} j",
     },
   }),
-  "de-DE": mergeMessages({
+  "de-DE": mergeLocalizedMessages("de-DE", {
     library: {
       allLibraries: "Alle Bibliotheken",
       noDrafts: "Noch keine Entwürfe.",
@@ -5608,10 +5623,10 @@ export const messagesByLocale = {
       collapseSidebar: "Seitenleiste einklappen",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       title: "Einstellungen",
       description: "Asset-Erstellung, Speicher und Zugriff auf Brand Kits.",
       connections: "Verbindungen",
@@ -5766,7 +5781,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsDeDE,
   }),
-  "ja-JP": mergeMessages({
+  "ja-JP": mergeLocalizedMessages("ja-JP", {
     library: {
       allLibraries: "すべてのライブラリ",
       noDrafts: "下書きはまだありません。",
@@ -5957,10 +5972,10 @@ export const messagesByLocale = {
       collapseSidebar: "サイドバーを折りたたむ",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       title: "設定",
       description: "アセット生成、保存、ブランドキットへのアクセス。",
       connections: "接続",
@@ -6112,7 +6127,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsJaJP,
   }),
-  "ko-KR": mergeMessages({
+  "ko-KR": mergeLocalizedMessages("ko-KR", {
     library: {
       allLibraries: "모든 라이브러리",
       noDrafts: "아직 초안이 없습니다.",
@@ -6302,10 +6317,10 @@ export const messagesByLocale = {
       collapseSidebar: "사이드바 접기",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       title: "설정",
       description: "자산 생성, 저장소, 브랜드 키트 접근.",
       connections: "연결",
@@ -6457,7 +6472,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsKoKR,
   }),
-  "pt-BR": mergeMessages({
+  "pt-BR": mergeLocalizedMessages("pt-BR", {
     library: {
       allLibraries: "Todas as bibliotecas",
       noDrafts: "Ainda não há rascunhos.",
@@ -6649,10 +6664,10 @@ export const messagesByLocale = {
       collapseSidebar: "Recolher barra lateral",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       title: "Configurações",
       description: "Geração de assets, armazenamento e acesso a kits de marca.",
       connections: "Conexões",
@@ -6904,7 +6919,7 @@ export const messagesByLocale = {
       daysAgo: "há {{count}} d",
     },
   }),
-  "hi-IN": mergeMessages({
+  "hi-IN": mergeLocalizedMessages("hi-IN", {
     library: {
       allLibraries: "सभी लाइब्रेरी",
       noDrafts: "अभी तक कोई ड्राफ़्ट नहीं।",
@@ -7094,10 +7109,10 @@ export const messagesByLocale = {
       collapseSidebar: "साइडबार समेटें",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       title: "सेटिंग्स",
       description: "एसेट जेनरेशन, स्टोरेज और ब्रांड किट एक्सेस।",
       connections: "कनेक्शन",
@@ -7247,7 +7262,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsHiIN,
   }),
-  "ar-SA": mergeMessages({
+  "ar-SA": mergeLocalizedMessages("ar-SA", {
     library: {
       allLibraries: "جميع المكتبات",
       noDrafts: "لا توجد مسودات بعد.",
@@ -7439,10 +7454,10 @@ export const messagesByLocale = {
       collapseSidebar: "طي الشريط الجانبي",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       title: "الإعدادات",
       description: "إنشاء الأصول والتخزين والوصول إلى مجموعات العلامة.",
       connections: "الاتصالات",

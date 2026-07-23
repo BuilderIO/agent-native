@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type { TweakDefinition } from "@shared/api";
 import {
   getBreakpointOverrideState,
@@ -28,7 +28,6 @@ import {
   type InteractionState,
 } from "@shared/interaction-states";
 import {
-  IconAdjustmentsHorizontal,
   IconAlignCenter,
   IconAlignJustified,
   IconAlignLeft,
@@ -44,7 +43,6 @@ import {
   IconBorderCorners,
   IconBorderRadius,
   IconBorderStyle,
-  IconBrush,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -74,7 +72,6 @@ import {
   IconLink,
   IconLinkOff,
   IconMinus,
-  IconMessageCircle,
   IconPerspective,
   IconPhoto,
   IconPlus,
@@ -399,7 +396,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-export type InspectorTab = "design" | "tweaks" | "comments";
+export type InspectorTab = "design" | "tweaks" | "comments" | "code";
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
@@ -409,6 +406,8 @@ interface EditPanelProps {
   zoom?: number;
   headerTrailing?: ReactNode;
   width?: number;
+  /** Viewer mode exposes inspection and comments, never editing controls. */
+  readOnly?: boolean;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
   tweaks?: TweakDefinition[];
@@ -933,6 +932,130 @@ function InspectCodePopover({ data }: { data: InspectCodeData }) {
   );
 }
 
+function CodeInspectPanel({
+  data,
+  element,
+  screen,
+}: {
+  data?: InspectCodeData;
+  element: ElementInfo | null;
+  screen: ScreenGeometrySelection | null | undefined;
+}) {
+  const [copied, setCopied] = useState(false);
+  const snippet = data
+    ? (elementHtmlPreview(data) ??
+      data.sourceLocation?.snippet ??
+      data.html?.trim() ??
+      null)
+    : null;
+  const bounds = element?.boundingRect ?? screen;
+  const measurements = bounds
+    ? [
+        ["X", bounds.x],
+        ["Y", bounds.y],
+        ["W", bounds.width],
+        ["H", bounds.height],
+      ]
+    : [];
+  const styles = element
+    ? [
+        ["Display", element.computedStyles.display],
+        ["Position", element.computedStyles.position],
+        ["Font", element.computedStyles.fontSize],
+        ["Color", element.computedStyles.color],
+      ].filter(([, value]) => value)
+    : [];
+
+  const handleCopy = () => {
+    if (!snippet) return;
+    void navigator.clipboard
+      ?.writeText(snippet)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {});
+  };
+
+  return (
+    <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="flex h-10 items-center justify-between gap-2 border-b border-border/90 px-3">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <IconCode className="size-3.5 text-muted-foreground" />
+          <h3 className="truncate text-[13px] font-semibold text-foreground">
+            {"Code & measurements" /* i18n-ignore design inspector heading */}
+          </h3>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px]"
+          onClick={handleCopy}
+          disabled={!snippet}
+        >
+          {
+            copied
+              ? "Copied" /* i18n-ignore design inspector action */
+              : "Copy" /* i18n-ignore design inspector action */
+          }
+        </Button>
+      </div>
+
+      {measurements.length > 0 ? (
+        <PanelSection
+          title={"Measurements" /* i18n-ignore design inspector section */}
+        >
+          <div className="grid grid-cols-2 gap-2">
+            {measurements.map(([label, value]) => (
+              <div
+                key={label}
+                className="flex items-center justify-between rounded border border-border/70 bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px]"
+              >
+                <span className="text-muted-foreground">{label}</span>
+                <span className="font-mono text-foreground">
+                  {Math.round(Number(value))}px
+                </span>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      ) : null}
+
+      {styles.length > 0 ? (
+        <PanelSection
+          title={"Computed styles" /* i18n-ignore design inspector section */}
+        >
+          <div className="space-y-1 text-[11px]">
+            {styles.map(([label, value]) => (
+              <div key={label} className="flex justify-between gap-3">
+                <span className="text-muted-foreground">{label}</span>
+                <span className="max-w-[65%] truncate font-mono text-foreground">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </PanelSection>
+      ) : null}
+
+      <PanelSection title={"Code" /* i18n-ignore design inspector section */}>
+        {snippet ? (
+          <pre className="max-h-80 overflow-auto rounded bg-[var(--design-editor-control-bg)] p-2 font-mono text-[10px] leading-relaxed text-foreground">
+            <code>{highlightedHtml(snippet)}</code>
+          </pre>
+        ) : (
+          <p className="text-[11px] leading-4 text-muted-foreground">
+            {
+              "Select a layer to inspect its code and measurements." /* i18n-ignore design inspector empty */
+            }
+          </p>
+        )}
+      </PanelSection>
+    </div>
+  );
+}
+
 function elementTypeIcon(element: ElementInfo) {
   if (elementIsComponentSelection(element)) return IconComponents;
   const tag = normalizedElementTagName(element.tagName);
@@ -1099,16 +1222,16 @@ function ScreenGeometryProperties({
 
 function InspectorTabsHeader({
   activeTab,
+  readOnly,
   onActiveTabChange,
   trailing,
   commentsCount = 0,
-  compact = false,
 }: {
   activeTab: InspectorTab;
+  readOnly: boolean;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
   commentsCount?: number;
-  compact?: boolean;
 }) {
   const t = useT();
 
@@ -1120,20 +1243,15 @@ function InspectorTabsHeader({
         className="min-w-0"
       >
         <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
-          <TabsTrigger
-            value="design"
-            aria-label={t("navigation.brand")}
-            className={cn(
-              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-7 px-0" : "px-1.5",
-            )}
-          >
-            {compact ? (
-              <IconBrush className="size-3.5" />
-            ) : (
-              t("navigation.brand")
-            )}
-          </TabsTrigger>
+          {!readOnly ? (
+            <TabsTrigger
+              value="design"
+              aria-label={t("navigation.brand")}
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("navigation.brand")}
+            </TabsTrigger>
+          ) : null}
           <TabsTrigger
             value="comments"
             aria-label={
@@ -1141,43 +1259,37 @@ function InspectorTabsHeader({
                 ? t("review.commentsTab", { count: commentsCount })
                 : t("review.comments")
             }
-            className={cn(
-              "group h-6 min-w-0 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-auto gap-0.5 px-1" : "gap-1 px-1.5",
-            )}
+            className="group h-6 min-w-0 rounded-md gap-1 px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            {compact ? (
-              <IconMessageCircle className="size-3.5" />
-            ) : (
-              <span className="truncate">{t("review.comments")}</span>
-            )}
+            <span className="truncate">{t("review.comments")}</span>
             {commentsCount > 0 ? (
               <span
                 className={cn(
                   "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
-                  compact
-                    ? "h-3.5 min-w-3.5 px-0.5 text-[8px]"
-                    : "h-4 min-w-4 px-1 text-[9px]",
+                  "h-4 min-w-4 px-1 text-[9px]",
                 )}
               >
                 {commentsCount > 99 ? "99+" : commentsCount}
               </span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger
-            value="tweaks"
-            aria-label={t("designEditor.tweaks")}
-            className={cn(
-              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
-              compact ? "w-7 px-0" : "px-1.5",
-            )}
-          >
-            {compact ? (
-              <IconAdjustmentsHorizontal className="size-3.5" />
-            ) : (
-              t("designEditor.tweaks")
-            )}
-          </TabsTrigger>
+          {!readOnly ? (
+            <TabsTrigger
+              value="tweaks"
+              aria-label={t("designEditor.tweaks")}
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("designEditor.tweaks")}
+            </TabsTrigger>
+          ) : (
+            <TabsTrigger
+              value="code"
+              aria-label={"Code" /* i18n-ignore design inspector tab */}
+              className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {"Code" /* i18n-ignore design inspector tab */}
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
@@ -1410,6 +1522,7 @@ export const EditPanel = memo(function EditPanel({
   pageStyles = {},
   headerTrailing,
   width = 256,
+  readOnly = false,
   activeTab = "design",
   onActiveTabChange,
   tweaks = [],
@@ -1770,10 +1883,16 @@ export const EditPanel = memo(function EditPanel({
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const resolvedActiveTab: InspectorTab =
+    readOnly && (activeTab === "design" || activeTab === "tweaks")
+      ? "code"
+      : activeTab;
+
   // Frame presets belong to the Design inspector. Keep Comments and Tweaks
   // visible when the Frame tool remains armed while another tab is active.
   const showFramePresets =
-    activeTab === "design" &&
+    !readOnly &&
+    resolvedActiveTab === "design" &&
     activeTool === "frame" &&
     Boolean(onCreateScreenFromPreset);
 
@@ -1787,18 +1906,18 @@ export const EditPanel = memo(function EditPanel({
         style={{ width }}
       >
         <InspectorTabsHeader
-          activeTab={activeTab}
+          activeTab={resolvedActiveTab}
+          readOnly={readOnly}
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
           commentsCount={reviewCommentsCount}
-          compact={width < 280}
         />
 
         {showFramePresets ? (
           <FramePresetsPanel
             onPick={(preset) => onCreateScreenFromPreset?.(preset)}
           />
-        ) : activeTab === "design" ? (
+        ) : resolvedActiveTab === "design" ? (
           <>
             <SelectionHeader
               element={inspectorElement}
@@ -2090,7 +2209,7 @@ export const EditPanel = memo(function EditPanel({
               ) : null}
             </div>
           </>
-        ) : activeTab === "tweaks" ? (
+        ) : resolvedActiveTab === "tweaks" ? (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
               <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
@@ -2127,7 +2246,13 @@ export const EditPanel = memo(function EditPanel({
               />
             </div>
           </div>
-        ) : activeTab === "comments" && reviewCommentsPanelProps ? (
+        ) : resolvedActiveTab === "code" ? (
+          <CodeInspectPanel
+            data={inspectCode}
+            element={inspectorElement}
+            screen={selectedScreenGeometry}
+          />
+        ) : resolvedActiveTab === "comments" && reviewCommentsPanelProps ? (
           <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
       </div>

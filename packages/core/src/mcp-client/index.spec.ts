@@ -105,6 +105,23 @@ describe("mcpToolsToActionEntries", () => {
     }
   });
 
+  it("can restrict generated entries to an explicit capability allowlist", async () => {
+    serverFixtures["x-bin"] = {
+      tools: [{ name: "read" }, { name: "write" }],
+      callImpl: () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const mgr = new McpClientManager({
+      servers: { x: { command: "x-bin" } },
+    });
+    await mgr.start();
+
+    const entries = mcpToolsToActionEntries(mgr, {
+      toolNames: ["mcp__x__read"],
+    });
+
+    expect(Object.keys(entries)).toEqual(["mcp__x__read"]);
+  });
+
   it("flattens text content blocks into the tool result string", async () => {
     serverFixtures["x-bin"] = {
       tools: [{ name: "ping" }],

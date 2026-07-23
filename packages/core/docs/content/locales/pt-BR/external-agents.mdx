@@ -89,7 +89,7 @@ A regra de identidade é a dobradiça de segurança: o link é apenas `view` + i
 - **Seu próprio tempo de execução por trás do bate-papo Agent-Native:** veja [Agent Surfaces](/docs/agent-surfaces#byo-agent) e [Native Interface de chat](/docs/native-chat-ui#byo-agent-runtimes) quando um agente criado com outra estrutura deve alimentar o `<AssistantChat runtime={...}>`.
 - **Seu aplicativo consome ferramentas MCP:** consulte [MCP Clients](/docs/mcp-clients) quando um aplicativo nativo do agente precisa chamar ferramentas expostas por outro servidor MCP.
 - **Outro aplicativo ou agente via A2A:** use [Agent Mentions](/docs/agent-mentions) e [A2A](/docs/a2a-protocol) quando aplicativos nativos de agente precisarem descobrir e delegar uns aos outros.
-- **Subagentes personalizados locais:** use [Workspace](/docs/workspace) quando desejar perfis de agentes personalizados dentro do próprio espaço de trabalho nativo do agente.
+- **Subagentes personalizados locais:** use [Recursos do Agente](/docs/agent-resources) quando desejar perfis de agentes personalizados dentro do próprio espaço de trabalho nativo do agente.
 
 ## Configuração fácil {#easy-setup}
 
@@ -538,6 +538,15 @@ espera embutida expira. Consulte com `ask_app_status` usando o `app` e o
 amigável para hosts. A tarefa precisa ser criada antes que a primeira
 resposta possa expirar, então um URL de consulta retornado apenas após uma
 chamada longa não é um contrato de recuperação confiável.
+
+Se uma leitura de status transitória e limitada estiver indisponível,
+`ask_app_status` poderá retornar `status: "unknown"`,
+`statusRead: "unavailable"`, `retryable: true`, o `app` e o `taskId` originais,
+e `pollAfterMs` / `poll`. Isso significa que a leitura de status está
+indisponível, não que a tarefa durável falhou. Tente novamente `ask_app_status`
+com exatamente o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
+pois o envio pode duplicar o trabalho. Erros permanentes de autenticação, de não
+encontrado e de protocolo continuam sendo erros.
 
 ### Tour por aplicativo {#tour}
 

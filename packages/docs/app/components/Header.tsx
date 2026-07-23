@@ -1,4 +1,5 @@
-import { FeedbackButton, useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import { IconMessage } from "@tabler/icons-react";
 import { useState, useEffect, lazy, Suspense } from "react";
 import { Link, NavLink, useLocation } from "react-router";
@@ -7,6 +8,9 @@ import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
 import ThemeToggle from "./ThemeToggle";
+
+const DOCS_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
 const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
@@ -245,6 +249,7 @@ export default function Header() {
 
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
               placeholder={feedbackPlaceholder}
               trigger={
@@ -338,6 +343,7 @@ export default function Header() {
               </span>
             </a>
             <FeedbackButton
+              url={DOCS_FEEDBACK_URL}
               label={feedbackLabel}
               placeholder={feedbackPlaceholder}
               trigger={

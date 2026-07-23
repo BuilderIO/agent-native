@@ -89,7 +89,7 @@ Die Identitätsregel ist das Sicherheitsscharnier: Der Link besteht nur aus `vie
 - **Ihre eigene Laufzeit hinter dem Agent-Native-Chat:** siehe [Agent Surfaces](/docs/agent-surfaces#byo-agent) und [Native Chat-Oberfläche](/docs/native-chat-ui#byo-agent-runtimes), wenn ein Agent, der mit einem anderen Framework erstellt wurde, `<AssistantChat runtime={...}>` unterstützen soll.
 - **Ihre App nutzt MCP-Tools:** Sehen Sie sich [MCP Clients](/docs/mcp-clients) an, wenn eine agentennative App Tools aufrufen muss, die von einem anderen MCP-Server bereitgestellt werden.
 - **Eine andere App oder ein Agent über A2A:** Verwenden Sie [Agent Mentions](/docs/agent-mentions) und [A2A](/docs/a2a-protocol), wenn agentennative Apps einander erkennen und delegieren sollen.
-- **Lokale benutzerdefinierte Unteragenten:** verwenden Sie [Workspace](/docs/workspace), wenn Sie benutzerdefinierte Agentenprofile innerhalb des agentennativen Arbeitsbereichs selbst wünschen.
+- **Lokale benutzerdefinierte Unteragenten:** verwenden Sie [Agent-Ressourcen](/docs/agent-resources), wenn Sie benutzerdefinierte Agentenprofile innerhalb des agentennativen Arbeitsbereichs selbst wünschen.
 
 ## Einfache Einrichtung {#easy-setup}
 
@@ -529,6 +529,15 @@ Für schnelle ChatGPT/Claude-Übergaben ist der ideale Pfad direkt: Rufen Sie di
 ### Lang laufende Agent-Anfragen
 
 MCP-Hosts und -Gateways teilen sich kein einheitliches Zeitlimit für Tool-Aufrufe; manche erzwingen eine Obergrenze von fünf Minuten, andere sind konfigurierbar. Planen Sie eine externe Agentenintegration nicht um einen zehnminütigen, blockierenden `tools/call` herum. `ask-agent` und `ask_app` bestätigen gehostete Arbeit schnell und geben dann eine dauerhafte `taskId` zurück, sobald die Inline-Wartezeit abläuft. Fragen Sie mit `ask_app_status` unter Verwendung der zurückgegebenen `app` und `taskId` ab; das Ergebnis enthält `pollAfterMs` als host-freundliches Intervall. Die Aufgabe muss erstellt werden, bevor die erste Antwort in ein Timeout laufen kann – eine Polling-URL, die erst nach einem langen Aufruf zurückgegeben wird, ist kein zuverlässiger Recovery-Vertrag.
+
+Ist ein begrenzter, vorübergehender Statusabruf nicht verfügbar, kann
+`ask_app_status` `status: "unknown"`, `statusRead: "unavailable"` und
+`retryable: true` sowie das ursprüngliche `app`, `taskId` und `pollAfterMs` /
+`poll` zurückgeben. Das bedeutet, dass der Statusabruf nicht verfügbar ist –
+nicht, dass die dauerhafte Aufgabe fehlgeschlagen ist. Wiederholen Sie
+`ask_app_status` mit genau demselben `app` und `taskId`; reichen Sie zur
+Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
+Dauerhafte Authentifizierungs-, Nicht-gefunden- und Protokollfehler bleiben Fehler.
 
 ### Tour pro App {#tour}
 

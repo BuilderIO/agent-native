@@ -7,6 +7,10 @@ description: "Connect your agent-native app to local MCP servers (claude-in-chro
 
 **This page: give your agent more tools.** Point an agent-native app at MCP servers — local or remote — so their tools show up in the agent chat. This is the _client_ direction, the mirror image of [MCP Server](/docs/mcp-protocol) (which makes your app an MCP _server_). Note the dual use of "client" here: this page is about your app acting as an MCP client of _other_ servers — a different sense from an "MCP host" like Claude or Cursor connecting to your app (see [MCP Server](/docs/mcp-protocol) for that direction).
 
+**Looking for the provider list first?** See the [Integrations Directory](/docs/integrations)
+for the self-hosted catalog wall, connection modes, setup links, and current
+restricted-provider notes.
+
 | If you want to…                                              | Read                                     |
 | ------------------------------------------------------------ | ---------------------------------------- |
 | Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
@@ -271,8 +275,23 @@ export default {
 };
 ```
 
-Preset ids are `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`atlassian`, `supabase`, `neon`, and `stripe`.
+Preset ids are `context7`, `sentry`, `notion`, `granola`, `semgrep`, `linear`,
+`atlassian`, `supabase`, `neon`, `stripe`, `cloudflare`, `gitlab`, `figma`,
+`vercel`, `github`, `slack`, `asana`, `hubspot`, `intercom`, `monday`,
+`webflow`, `paypal`, `box`, `netlify`, and `zapier`.
+
+The directory distinguishes endpoints that support the framework's generic
+OAuth flow from providers that require a vendor-approved client or a
+pre-registered OAuth application. The latter stay visible for discovery and
+link to their official setup instructions, but do not show a misleading
+one-click connect button. Provider restrictions change over time, so verify
+the vendor setup note before enabling one in a production catalog.
+
+When a chat request clearly names an unconnected catalog provider, the
+composer and relevant completed responses can show an inline **Connect**
+suggestion. OAuth and direct connections preserve that request in the current
+tab and resume it after setup completes; long or abandoned requests expire
+automatically.
 
 ### Atlassian / Jira
 
@@ -318,6 +337,43 @@ Two scopes are supported:
 Adds and removes hot-reload into the running MCP manager — no process restart, and no server restart. The new `mcp__<scope>-<name>__*` tools appear to the agent on the next message and are searchable via `tool-search`.
 
 HTTPS URLs are accepted everywhere; plain `http://` is only allowed for `localhost` during development. Optional auth goes in as a Bearer token that's sent via `Authorization: Bearer …` on every request. OAuth-only providers, including Atlassian Rovo MCP, require the provider's OAuth flow instead of a static header.
+
+### Use connected MCP and OAuth provider data in extensions
+
+Extensions run in a sandboxed iframe and never receive connector URLs, OAuth
+client secrets, access tokens, or refresh tokens. They can call the same
+request-scoped action surface as the host app through the injected helpers:
+
+```html
+<div
+  x-data="{ tools: [] }"
+  x-init="
+  agentNative.mcp.listTools().then(result => tools = result)
+"
+>
+  <template x-for="tool in tools" :key="tool.serverId + ':' + tool.name">
+    <p x-text="tool.title || tool.name"></p>
+  </template>
+</div>
+```
+
+To invoke a tool after inspecting its contract, use
+`agentNative.mcp.callTool(serverId, toolName, arguments)`. For regular OAuth
+provider connectors used by Analytics, Dispatch, Mail, Content, Calendar, and
+other templates, use `agentNative.providerApi.catalog(...)` and
+`agentNative.providerApi.docs(...)` to discover the granted provider API. Raw
+`provider-api-request` is intentionally host/agent-only: exposing arbitrary
+method/path requests to shared extensions would make an extension an
+authenticated write proxy. Extensions should use `agentNative.mcp.callTool(...)`
+or a purpose-built app action for bounded provider operations. The discovery
+helpers are also available under `agentNative.connectors.mcp` and
+`agentNative.connectors.providerApi`.
+
+Local-file extensions must explicitly allow `list-mcp-tools`,
+`call-mcp-tool`, and any explicitly supported provider action they use in
+`extension.json`.
+Database-backed extensions use the existing extension role and action gates.
+Never pass a raw bearer token or arbitrary provider URL from extension code.
 
 Under the hood these servers are persisted in the framework's `settings` table under the key `u:<email>:mcp-servers-remote` (Personal) or `o:<orgId>:mcp-servers-remote` (Team) and merged with `mcp.config.json` on startup.
 

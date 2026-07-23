@@ -30,10 +30,10 @@ const messages = {
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
     openTeamSettings: "Teameinstellungen öffnen",
     openResourceSettings: "Ressourceneinstellungen öffnen",
-    agentTitle: "Agent-Einstellungen",
+    agentTitle: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    openAgentSettings: "Agent-Einstellungen öffnen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    openAgentSettings: "Agent verwalten",
     editorTitle: "VS-Code-Erweiterung",
     editorDescription:
       "Öffne und prüfe Pläne in einem Seitenbereich in VS Code statt in einem separaten Browser-Tab.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "Was wurde in der letzten Woche ausgeliefert?",
     suggestionUi: "Wie sieht diese Oberfläche aus?",
     suggestionApi: "Welche Struktur hat diese API?",
+  },
+  contextXray: {
+    panelTitle: "Kontext-Röntgen",
+    snapshotsTitle: "Momentaufnahmen",
   },
   sidebar: {
     openNavigation: "Navigation öffnen",
@@ -579,6 +583,10 @@ const messages = {
           label: "UI Prozess",
           description: "UI-Prozess – Wireframes und Zustände",
         },
+        design: {
+          label: "High-Fidelity-Design",
+          description: "High-Fidelity-Design – ausgearbeitete Markenscreens",
+        },
         questions: {
           label: "Visualisierungsproblem",
           description:
@@ -603,6 +611,8 @@ const messages = {
           "# Implementierungsplan\n\nFüge hier den vorhandenen Codex- oder Claude Code-Plan ein und verwandle ihn in ein visuelles Review-Dokument.",
       },
       assessment: {
+        design:
+          "Eine High-Fidelity-Anfrage wurde automatisch erkannt; der Agent erstellt ausgearbeitete Markenscreens.",
         ui: "Der UI-Status oder -Prozess wird automatisch erkannt; Der Agent erstellt zunächst einen Wireframe-Plan.",
         visual:
           "Ermöglicht Agenten automatisch die Erstellung umfassender technischer Pläne mit Diagrammen und Implementierungsdetails.",

@@ -23,15 +23,124 @@ const messages = {
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
     languageLabel: "Interface language",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage team access and shared workspace resources.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    mcpConnectionsTitle: "MCP connections",
+    mcpConnectionsDescription:
+      "Connect remote MCP servers so the agent can use their tools.",
+    openMcpConnections: "Manage MCP connections",
+    profileTitle: "Account",
+    profileDescription: "Your name, profile photo, and signed-in identity.",
+    profileLoading: "Loading...",
+    profileSignedOut: "Signed out",
+    profilePhotoUpdated: "Photo updated",
+    profilePhotoError: "Could not update photo",
+    profileUploading: "Uploading...",
+    profileChangePhoto: "Change photo",
+    profileNameLabel: "Name",
+    profileNamePlaceholder: "Your name",
+    profileNameDescription:
+      "This name is used when referring to you across Agent-Native apps.",
+    profileSave: "Save changes",
+    profileSaving: "Saving...",
+    profileSaved: "Profile updated",
+    profileSaveError: "Could not update profile",
+    profileMenuItem: "Profile",
+  },
+  agentResources: {
+    openDocs: "Open {{section}} documentation",
+    backToResources: "Back to agent resources",
+    createFile: {
+      nameLabel: "File name",
+      namePlaceholder: "notes/ideas",
+      menuDescription: "Add a new file by name",
+    },
+    files: {
+      title: "Files",
+      description: "Files the agent can read and write.",
+    },
+    instructions: {
+      title: "Instructions",
+      description:
+        "The rules, preferences, and project guidance that steer the agent.",
+    },
+    agents: {
+      title: "Agents",
+      description:
+        "Reusable profiles for focused sub-agents and delegated work.",
+    },
+    memory: {
+      title: "Memory",
+      description: "Durable notes the agent can retrieve across conversations.",
+    },
+    skills: {
+      title: "Skills",
+      description:
+        "Specialized instructions that give the agent repeatable abilities.",
+    },
+    learnings: {
+      title: "Learnings",
+      description:
+        "Corrections and patterns worth carrying forward for future work.",
+    },
+    remoteAgents: {
+      title: "Remote agents",
+      description: "Other agents this agent can call through A2A.",
+    },
+  },
+  featureFlags: {
+    title: "Feature flags",
+    description: "Control staged capabilities without changing a deployment.",
+    enableForMe: "Enable for me",
+    enabledForMe: "Enabled for you",
+    youHaveAccess: "You have access",
+    youDoNotHaveAccess: "You don't have access",
+    currentUserUnknown: "Your access couldn't be evaluated",
+    moreActions: "More actions for {{name}}",
+    disableForEveryone: "Disable for everyone",
+    disableForEveryoneTitle: "Disable {{name}} for everyone?",
+    disableForEveryoneDescription:
+      "This immediately removes access for every targeted person and organization. You can configure a new rollout later.",
+    editTargeting: "Edit targeting",
+    editTargetingFor: "Edit targeting for {{name}}",
+    targetingTitle: "Edit targeting — {{name}}",
+    targetingDescription:
+      "Choose who can use this capability. Changes apply immediately.",
+    noFlags: "No feature flags are registered for this app.",
+    defaultOn: "Code fallback: on",
+    defaultOff: "Code fallback: off",
+    enabledFor: "Enabled for",
+    modeLabel: "Availability",
+    emailsLabel: "People",
+    orgIdsLabel: "Organization IDs",
+    percentageLabel: "Percentage of users",
+    targetingRuleHelp:
+      "A person gets access if they match any email, organization, or percentage rule.",
+    targetingSummary: "Currently enabled for: {{audience}}.",
+    saveRules: "Save changes",
+    cancel: "Cancel",
+    inherited: "No matching targets",
+    off: "Off",
+    targeted: "Targeted",
+    everyone: "Everyone",
+    everyoneAudience: "everyone",
+    emailCount_one: "{{count}} email",
+    emailCount_other: "{{count}} emails",
+    organizationCount_one: "{{count}} organization",
+    organizationCount_other: "{{count}} organizations",
+    percentageRollout: "{{count}}% rollout",
+    lastChanged: "Last changed: {{metadata}}",
+    mutationUnverified:
+      "We couldn't verify the change to {{name}}. Reload flags before trying again.",
+    mutationUnverifiedGeneric:
+      "We couldn't verify this feature flag change. Reload flags before trying again.",
   },
   dispatch: {
     nav: {
@@ -82,6 +191,9 @@ const messages = {
         'Apps in the "{{workspace}}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.',
       appsInWorkspace: "Apps in {{workspace}}",
       workspaceApps: "Workspace apps",
+      otherApps: "Other apps",
+      otherAppsDescription: "Open other apps available to you.",
+      availableCount: "{{count}} available",
       activeCount: "{{count}} active",
       hiddenCount: "{{count}} hidden",
       createApp: "Create app",
@@ -191,8 +303,8 @@ const messages = {
     chat: "Chat",
     cliTerminalMode: "CLI terminal mode",
     cli: "CLI",
-    workspaceMode: "Workspace files, agents, skills, and tasks",
-    workspace: "Workspace",
+    workspaceMode: "Files, agents, skills, and tasks",
+    workspace: "Resources",
     newChat: "New chat",
     newTerminal: "New terminal",
     panelOptions: "Agent panel options",
@@ -212,20 +324,33 @@ const messages = {
       "Run this app locally with pnpm dev or use Builder.io to access the CLI terminal.",
     toggleAgent: "Toggle agent",
     openFullView: "Open full view",
+    askAgent: "Ask the agent",
+    askAgentTitle: "Ask the agent",
+    askAgentPlaceholder: "Tell the agent what you want to do…",
+    connectAi: "Connect AI",
+    builderOrOwnKeys:
+      "Use Builder.io (free credits), or add your own provider keys.",
+    connectBuilderIo: "Connect Builder.io",
+    connectingBuilder: "Connecting Builder.io…",
+    builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
+    addOwnKeys: "Add your own keys",
+    configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
+    connectionUnavailable: "Unable to check AI connection. Click to retry.",
     voiceMode: {
       entryButtonLabel: "Use microphone",
-      promptTitle: "Talk to your app",
+      promptTitle: "Use your voice",
       promptDescription:
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder to use managed voice with free credits, or use your own OpenAI API key.",
-      connectBuilder: "Connect Builder",
-      useOpenAiKey: "Use OpenAI API key",
+        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+      connectBuilder: "Connect Builder.io",
+      useOpenAiKey: "Add your own keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Start voice mode",
-      keepDictating: "Keep dictating",
+      start: "Real-time voice",
+      keepDictating: "Dictate",
+      rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
       end: "End voice mode",
@@ -316,7 +441,8 @@ const messages = {
     conversation: "Conversation",
     free: "free",
     noSystemContext: "No system context is available for this scope yet.",
-    pageTitle: "Context",
+    panelTitle: "Context X-Ray",
+    snapshotsTitle: "Snapshots",
     agent: "Agent",
     headerDescription:
       "See the system instructions and conversation tokens that shape the agent.",
@@ -351,9 +477,19 @@ const messages = {
     organizationMemberNote: "You can manage jobs you created.",
     loading: "Loading…",
     recurringLoadError: "Could not load recurring jobs.",
+    organizationEmptyTitle: "No organization jobs yet",
+    organizationEmptyDescription:
+      "Describe a shared job for this organization.",
+    recurringEmptyTitle: "No recurring jobs yet",
+    recurringEmptyDescription: "Describe what should run and when.",
+    organizationCreateTitle: "Create an organization job",
+    recurringCreateTitle: "Create a recurring job",
+    organizationPrompt:
+      "Create a shared organization job that runs on a schedule and does this: ",
+    recurringPrompt:
+      "Create a recurring job that runs on a schedule and does this: every morning, summarize my inbox.",
     organizationEmpty: "No organization jobs yet.",
-    recurringEmpty:
-      "No recurring jobs yet. Ask the agent: “every morning, summarize my inbox”.",
+    recurringEmpty: "No recurring jobs yet.",
     enabled: "Enabled",
     paused: "Paused",
     disabled: "Disabled",
@@ -370,6 +506,10 @@ const messages = {
       "Automations are personal today, so none are shown in the organization view.",
     automationsDescription:
       "Event-triggered and scheduled agent tasks managed from one place.",
+    automationsEmptyTitle: "No automations yet",
+    automationsEmptyDescription: "Describe what should happen and when.",
+    automationsCreateTitle: "Create an automation",
+    automationPrompt: "Create an automation that does this: ",
     automationsPersonalOnly: "Automations are personal today.",
     deleteRecurringTitle: "Delete recurring job?",
     deleteRecurringDescription:
@@ -377,9 +517,9 @@ const messages = {
     cancel: "Cancel",
     recurringDetails: "Recurring job details",
     instructions: "Instructions",
+    mcpTools: "Connected MCP tools",
     automationsLoadError: "Could not load automations.",
-    automationsEmpty:
-      "No automations yet. Ask the agent to set up an event-triggered or scheduled task.",
+    automationsEmpty: "No automations yet.",
     automationEventTrigger: "On {{event}}",
     automationScheduleTrigger: "Scheduled task",
     deleteAutomationTitle: "Delete automation?",
@@ -397,8 +537,7 @@ const messages = {
     personal: "Personal",
     organization: "Organization",
     fireTestEvent: "Fire test event",
-    automationsEmptySettings:
-      'No automations yet. Click "New automation" or ask the agent to set one up.',
+    automationsEmptySettings: "Describe what should happen and when.",
   },
   share: {
     titleWithResource: 'Share "{{title}}"',
@@ -517,23 +656,23 @@ const messages = {
     hideEveryone: "Hide from everyone",
     localFileDescription:
       "This extension is backed by {{entryPath}}. Edit or remove it from the workspace.",
-    deleteQuestion: "Delete {{name}}?",
+    deleteQuestion: "Archive {{name}}?",
     removeQuestion: "Remove {{name}}?",
     hideForYouDescription:
       "This hides it from your Extensions list without deleting it for anyone else.",
-    removeEverywhereDescription: "This removes it everywhere it is shared.",
+    removeEverywhereDescription: "This archives it everywhere it is shared.",
     cancel: "Cancel",
     remove: "Remove",
     removing: "Removing...",
-    delete: "Delete",
-    deleting: "Deleting...",
+    delete: "Archive",
+    deleting: "Archiving...",
     openFullView: "Open full view",
     removeFromWidgetArea: "Remove from this widget area",
-    deleteExtensionEllipsis: "Delete extension...",
+    deleteExtensionEllipsis: "Archive extension...",
     removeFromMyListEllipsis: "Remove from my list...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
     deleteEverywhereConfirmation:
-      "This removes the extension everywhere, for everyone it's shared with.",
+      "This archives the extension everywhere, for everyone it's shared with.",
     addWidget: "Add widget",
     loading: "Loading...",
     noWidgetsAvailable: "No widgets available for this slot yet.",
@@ -660,13 +799,19 @@ const messages = {
     menuLabel: "Integrations",
     menuDescription: "Connect MCP tools to the agent",
     title: "Connect integrations",
-    description: "Choose a default MCP integration or add a custom server.",
+    description: "Browse {{count}} MCP integrations or add a custom server.",
     searchPlaceholder: "Search integrations",
     addYourOwn: "Add your own",
     noMatches: "No integrations match that search.",
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
+    connectWithOAuth: "Connect",
+    useApiToken: "Use API token",
+    connectSuggestion: "Connect {{name}} to use it in chat",
+    connectSuggestionWithApiToken:
+      "Connect {{name}} with an API token to use it in chat",
+    dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
     configureTitle: "Configure {{name}}",
@@ -682,6 +827,7 @@ const messages = {
     organization: "Organization",
     orgNoOrg: "Join an organization to share MCP servers",
     orgAdminOnly: "Only owners and admins can add org-scope servers",
+    serverNameRequired: "Enter a server name before connecting with OAuth.",
     serverName: "Server name",
     url: "URL",
     fieldDescription: "Description",
@@ -691,6 +837,7 @@ const messages = {
     descriptionPlaceholder: "Description (optional)",
     headersPlaceholder: "Authorization: Bearer <token>",
     openSetupDocs: "Open setup docs",
+    viewSetup: "View setup",
     test: "Test",
     toolsAvailable_one: "{{count}} tool available",
     toolsAvailable_other: "{{count}} tools available",
@@ -709,6 +856,15 @@ const messages = {
       notion: {
         description: "Search pages and team knowledge.",
         useCase: "Documentation, knowledge management, notes, content creation",
+        setupNote:
+          "Notion MCP uses user OAuth. Enterprise workspaces can audit MCP usage and allow or block clients; reconnect after admin policy changes.",
+      },
+      granola: {
+        description: "Search meeting notes, transcripts, and action items.",
+        useCase:
+          "Meeting notes, recordings, transcripts, action items, follow-ups",
+        setupNote:
+          "Granola MCP uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
       },
       semgrep: {
         description: "Scan code for security findings.",
@@ -735,13 +891,127 @@ const messages = {
         useCase:
           "Project management, issue tracking, documentation, team collaboration",
         setupNote:
-          "Your Atlassian organization admin may need to allow this app's domain and enable the required Rovo MCP permissions before OAuth can complete.",
+          "Atlassian admins manage the allowed AI domains and Rovo MCP permissions. Use the current Streamable HTTP endpoint, /v1/mcp, and reconnect after policy changes.",
+      },
+      cloudflare: {
+        description: "Search and operate Cloudflare services through MCP.",
+        useCase:
+          "DNS, Workers, domains, security, observability, platform APIs",
+        setupNote:
+          "Cloudflare's managed MCP directory contains product-specific servers as well as the broad API server. Review the scopes and choose the narrowest endpoint that fits your workflow.",
+      },
+      gitlab: {
+        description:
+          "Read and manage GitLab projects, issues, and merge requests.",
+        useCase: "Repositories, issues, merge requests, CI/CD, code analytics",
+        setupNote:
+          "GitLab MCP is currently beta. On GitLab.com, a top-level group admin must allow MCP access before OAuth can complete; self-managed instances have an equivalent instance setting.",
+      },
+      figma: {
+        description:
+          "Bring Figma design context and canvas actions into an agent.",
+        useCase: "Design files, components, variables, design systems, canvas",
+        setupNote:
+          "Figma MCP only allows clients listed in Figma's MCP Catalog, so this remote endpoint cannot connect from Agent Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; MCP canvas actions remain unavailable until Figma approves Agent Native.",
+      },
+      canva: {
+        description: "Search, create, and update Canva designs and assets.",
+        useCase:
+          "Designs, templates, assets, brand kits, exports, collaboration",
+        setupNote:
+          "Canva MCP uses per-user OAuth and requires clients to allow Canva's canva.com and canva.ai domains. Confirm the current redirect and client setup in Canva's MCP documentation before connecting.",
+      },
+      vercel: {
+        description:
+          "Search Vercel docs and inspect projects, deployments, and logs.",
+        useCase: "Deployments, projects, logs, domains, hosting, documentation",
+        setupNote:
+          "Vercel MCP only accepts reviewed and approved AI clients. Agent Native must be added to Vercel's supported-client list before a generic framework connection will work.",
+      },
+      github: {
+        description:
+          "Read repositories, issues, pull requests, and code context.",
+        useCase:
+          "Repositories, issues, pull requests, code, engineering analytics",
+        setupNote:
+          "GitHub does not use a Figma-style vendor client allowlist. Its hosted endpoint is tied to GitHub Copilot integrations; clients need a registered OAuth app, and organizations may enforce OAuth App Access Policies.",
+      },
+      slack: {
+        description:
+          "Search Slack conversations and take workspace actions through MCP.",
+        useCase: "Messages, channels, people, company memory, workflows",
+        setupNote:
+          "Slack MCP requires a registered Slack app with a fixed app ID. Dynamic client registration is not supported, and only Slack Marketplace or internal apps may connect. Use Slack's managed messaging OAuth flow for Agent Native workflows.",
+      },
+      asana: {
+        description:
+          "Search and manage Asana tasks, projects, and work graph data.",
+        useCase: "Tasks, projects, portfolios, planning, workload",
+        setupNote:
+          "Asana's V2 MCP server requires a pre-registered MCP OAuth app and does not support dynamic client registration. Configure an Asana app client before connecting.",
+      },
+      hubspot: {
+        description: "Search and update HubSpot CRM records through MCP.",
+        useCase: "CRM, contacts, companies, deals, tickets, customer analytics",
+        setupNote:
+          "HubSpot MCP requires a HubSpot MCP Auth App and PKCE. Create the app in the HubSpot Developer Platform before connecting; the existing HubSpot OAuth connector remains available to app actions.",
+      },
+      intercom: {
+        description: "Search conversations and customer support knowledge.",
+        useCase:
+          "Customer support, conversations, contacts, help center content",
+        setupNote:
+          "Intercom MCP uses OAuth and is available for US-hosted workspaces. Confirm the workspace region and requested scopes during authorization.",
+      },
+      monday: {
+        description: "Work with boards, items, and team workflows.",
+        useCase: "Work management, boards, projects, tasks, team operations",
+        setupNote:
+          "monday.com MCP uses OAuth over Streamable HTTP. Choose the workspace and permissions to share during authorization.",
+      },
+      webflow: {
+        description: "Read and update Webflow sites and content.",
+        useCase: "Websites, CMS, site content, publishing, design workflows",
+        setupNote:
+          "Webflow MCP uses OAuth. Designer capabilities may install Webflow's Bridge App during authorization; Data API access is available separately.",
+      },
+      paypal: {
+        description: "Work with PayPal payments, invoices, and commerce data.",
+        useCase: "Payments, invoices, transactions, merchant operations",
+        setupNote:
+          "PayPal exposes OAuth discovery and login for its remote MCP server. Agent Native uses the currently live /sse endpoint; review the merchant permissions before authorizing.",
+      },
+      box: {
+        description: "Search and manage files and folders in Box.",
+        useCase: "Files, folders, enterprise content, search, collaboration",
+        setupNote:
+          "Box MCP is beta and requires an administrator to enable it. Custom clients also need Box Integration Credentials, a redirect URI, and approved scopes.",
+      },
+      netlify: {
+        description: "Inspect and operate Netlify sites and deployments.",
+        useCase: "Sites, deployments, builds, domains, hosting operations",
+        setupNote:
+          "Netlify documents a remote MCP setup for supported clients. Review the site and team permissions before completing OAuth.",
+      },
+      zapier: {
+        description: "Connect MCP tools to thousands of app actions.",
+        useCase: "Automation, workflows, app actions, cross-service operations",
+        setupNote:
+          "Zapier MCP uses a user-created MCP server and connection token for unlisted clients. Create the server in Zapier, then paste its generated bearer token into the header field.",
       },
     },
     auth: {
       none: "No auth",
       headers: "Header",
       oauth: "OAuth",
+    },
+    status: {
+      beta: "Beta",
+      setupRequired: "Provider setup",
+      clientRestricted: "Approved clients only",
+      verified: "Verified",
+      preflightOnly: "Preflight only",
+      restricted: "Restricted",
     },
   },
   observability: {

@@ -12,11 +12,9 @@ import {
   type NestedBlock,
   type BlockAiFieldActionProps,
 } from "@agent-native/core/blocks";
-import {
-  sendToAgentChat,
-  useT,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import type { PlanBlock } from "@shared/plan-content";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 

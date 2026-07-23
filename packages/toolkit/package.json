@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.4.10",
+  "version": "0.10.1",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -14,9 +14,15 @@
   },
   "files": [
     "dist",
+    "src",
+    "agent-native.eject.json",
+    "migration-manifest.json",
     "README.md"
   ],
   "type": "module",
+  "sideEffects": [
+    "*.css"
+  ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -54,6 +60,104 @@
       "development": "./dist/collab-ui/*.js",
       "import": "./dist/collab-ui/*.js",
       "default": "./dist/collab-ui/*.js"
+    },
+    "./dashboard": {
+      "types": "./dist/dashboard/index.d.ts",
+      "browser": "./dist/dashboard/index.js",
+      "development": "./dist/dashboard/index.js",
+      "import": "./dist/dashboard/index.js",
+      "default": "./dist/dashboard/index.js"
+    },
+    "./dashboard/*": {
+      "types": "./dist/dashboard/*.d.ts",
+      "browser": "./dist/dashboard/*.js",
+      "development": "./dist/dashboard/*.js",
+      "import": "./dist/dashboard/*.js",
+      "default": "./dist/dashboard/*.js"
+    },
+    "./chat-history": {
+      "types": "./dist/chat-history/index.d.ts",
+      "browser": "./dist/chat-history/index.js",
+      "development": "./dist/chat-history/index.js",
+      "import": "./dist/chat-history/index.js",
+      "default": "./dist/chat-history/index.js"
+    },
+    "./chat-history/*": {
+      "types": "./dist/chat-history/*.d.ts",
+      "browser": "./dist/chat-history/*.js",
+      "development": "./dist/chat-history/*.js",
+      "import": "./dist/chat-history/*.js",
+      "default": "./dist/chat-history/*.js"
+    },
+    "./composer": {
+      "types": "./dist/composer/index.d.ts",
+      "browser": "./dist/composer/index.js",
+      "development": "./dist/composer/index.js",
+      "import": "./dist/composer/index.js",
+      "default": "./dist/composer/index.js"
+    },
+    "./composer/*": {
+      "types": "./dist/composer/*.d.ts",
+      "browser": "./dist/composer/*.js",
+      "development": "./dist/composer/*.js",
+      "import": "./dist/composer/*.js",
+      "default": "./dist/composer/*.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance/index.d.ts",
+      "browser": "./dist/conformance/index.js",
+      "development": "./dist/conformance/index.js",
+      "import": "./dist/conformance/index.js",
+      "default": "./dist/conformance/index.js"
+    },
+    "./conformance/*": {
+      "types": "./dist/conformance/*.d.ts",
+      "browser": "./dist/conformance/*.js",
+      "development": "./dist/conformance/*.js",
+      "import": "./dist/conformance/*.js",
+      "default": "./dist/conformance/*.js"
+    },
+    "./context-ui": {
+      "types": "./dist/context-ui/index.d.ts",
+      "browser": "./dist/context-ui/index.js",
+      "development": "./dist/context-ui/index.js",
+      "import": "./dist/context-ui/index.js",
+      "default": "./dist/context-ui/index.js"
+    },
+    "./design-tweaks": {
+      "types": "./dist/design-tweaks/index.d.ts",
+      "browser": "./dist/design-tweaks/index.js",
+      "development": "./dist/design-tweaks/index.js",
+      "import": "./dist/design-tweaks/index.js",
+      "default": "./dist/design-tweaks/index.js"
+    },
+    "./design-system": {
+      "types": "./dist/design-system/index.d.ts",
+      "browser": "./dist/design-system/index.js",
+      "development": "./dist/design-system/index.js",
+      "import": "./dist/design-system/index.js",
+      "default": "./dist/design-system/index.js"
+    },
+    "./design-system/*": {
+      "types": "./dist/design-system/*.d.ts",
+      "browser": "./dist/design-system/*.js",
+      "development": "./dist/design-system/*.js",
+      "import": "./dist/design-system/*.js",
+      "default": "./dist/design-system/*.js"
+    },
+    "./editor": {
+      "types": "./dist/editor/index.d.ts",
+      "browser": "./dist/editor/index.js",
+      "development": "./dist/editor/index.js",
+      "import": "./dist/editor/index.js",
+      "default": "./dist/editor/index.js"
+    },
+    "./editor/*": {
+      "types": "./dist/editor/*.d.ts",
+      "browser": "./dist/editor/*.js",
+      "development": "./dist/editor/*.js",
+      "import": "./dist/editor/*.js",
+      "default": "./dist/editor/*.js"
     },
     "./hooks": {
       "types": "./dist/hooks/index.d.ts",
@@ -125,7 +229,11 @@
       "import": "./dist/utils.js",
       "default": "./dist/utils.js"
     },
-    "./styles.css": "./dist/styles.css"
+    "./agent-native.eject.json": "./agent-native.eject.json",
+    "./migration-manifest.json": "./migration-manifest.json",
+    "./styles.css": "./dist/styles.css",
+    "./chat-history.css": "./dist/chat-history.css",
+    "./editor.css": "./dist/editor.css"
   },
   "publishConfig": {
     "access": "public",
@@ -138,6 +246,7 @@
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
+    "@assistant-ui/react": "catalog:",
     "@radix-ui/react-accordion": "^1.2.15",
     "@radix-ui/react-alert-dialog": "^1.1.18",
     "@radix-ui/react-aspect-ratio": "^1.1.11",
@@ -145,17 +254,17 @@
     "@radix-ui/react-checkbox": "^1.3.6",
     "@radix-ui/react-collapsible": "^1.1.15",
     "@radix-ui/react-context-menu": "^2.3.2",
-    "@radix-ui/react-dialog": "^1.1.18",
-    "@radix-ui/react-dropdown-menu": "^2.1.19",
-    "@radix-ui/react-hover-card": "^1.1.18",
+    "@radix-ui/react-dialog": "catalog:",
+    "@radix-ui/react-dropdown-menu": "catalog:",
+    "@radix-ui/react-hover-card": "catalog:",
     "@radix-ui/react-label": "^2.1.11",
     "@radix-ui/react-menubar": "^1.1.19",
     "@radix-ui/react-navigation-menu": "^1.2.17",
-    "@radix-ui/react-popover": "^1.1.18",
+    "@radix-ui/react-popover": "catalog:",
     "@radix-ui/react-progress": "^1.1.11",
     "@radix-ui/react-radio-group": "^1.4.2",
     "@radix-ui/react-scroll-area": "^1.2.13",
-    "@radix-ui/react-select": "^2.3.2",
+    "@radix-ui/react-select": "catalog:",
     "@radix-ui/react-separator": "^1.1.11",
     "@radix-ui/react-slider": "^1.4.2",
     "@radix-ui/react-slot": "^1.3.0",
@@ -164,24 +273,48 @@
     "@radix-ui/react-toast": "^1.2.18",
     "@radix-ui/react-toggle": "^1.1.13",
     "@radix-ui/react-toggle-group": "^1.1.14",
-    "@radix-ui/react-tooltip": "^1.2.11",
+    "@radix-ui/react-tooltip": "catalog:",
     "@tabler/icons-react": "^3.41.1",
+    "@tiptap/core": "catalog:",
+    "@tiptap/extension-code-block-lowlight": "catalog:",
+    "@tiptap/extension-collaboration": "catalog:",
+    "@tiptap/extension-collaboration-caret": "catalog:",
+    "@tiptap/extension-image": "catalog:",
+    "@tiptap/extension-link": "catalog:",
+    "@tiptap/extension-placeholder": "catalog:",
+    "@tiptap/extension-table": "catalog:",
+    "@tiptap/extension-table-cell": "catalog:",
+    "@tiptap/extension-table-header": "catalog:",
+    "@tiptap/extension-table-row": "catalog:",
+    "@tiptap/extension-task-item": "catalog:",
+    "@tiptap/extension-task-list": "catalog:",
+    "@tiptap/pm": "catalog:",
+    "@tiptap/react": "catalog:",
+    "@tiptap/starter-kit": "catalog:",
+    "@tiptap/y-tiptap": "catalog:",
     "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
+    "clsx": "catalog:",
     "cmdk": "^1.1.1",
+    "culori": "^4.0.2",
     "date-fns": "^4.4.0",
     "embla-carousel-react": "^8.6.0",
+    "highlight.js": "catalog:",
     "input-otp": "^1.4.2",
-    "next-themes": "^0.4.6",
+    "lowlight": "catalog:",
+    "next-themes": "catalog:",
     "react-day-picker": "^10.0.1",
     "react-hook-form": "^7.80.0",
     "react-resizable-panels": "^4.12.1",
-    "recharts": "^3.9.2",
-    "sonner": "^2.0.7",
-    "tailwind-merge": "^3.5.0",
-    "vaul": "^1.1.2"
+    "recharts": "catalog:",
+    "sonner": "catalog:",
+    "tailwind-merge": "catalog:",
+    "tiptap-markdown": "catalog:",
+    "vaul": "^1.1.2",
+    "y-protocols": "catalog:",
+    "yjs": "catalog:"
   },
   "devDependencies": {
+    "@types/culori": "^4.0.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "typescript-7": "catalog:",
@@ -190,5 +323,6 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
-  }
+  },
+  "agentNativeEjectManifest": "agent-native.eject.json"
 }

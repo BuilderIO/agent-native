@@ -30,10 +30,10 @@ const messages = {
       "Manage team members, organization access, and shared workspace preferences.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     editorTitle: "VS Code extension",
     editorDescription:
       "Open and review plans in a side panel inside VS Code instead of a separate browser tab.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "What shipped in the last week?",
     suggestionUi: "What does this UI look like?",
     suggestionApi: "What is the shape of this API?",
+  },
+  contextXray: {
+    panelTitle: "Context X-Ray",
+    snapshotsTitle: "Snapshots",
   },
   sidebar: {
     openNavigation: "Open navigation",
@@ -560,6 +564,10 @@ const messages = {
           label: "UI flow",
           description: "UI flow - wireframes and states",
         },
+        design: {
+          label: "High-fidelity design",
+          description: "High-fidelity design - polished branded screens",
+        },
         questions: {
           label: "Visual questions",
           description: "Visual questions - explicit intake",
@@ -583,6 +591,8 @@ const messages = {
           "# Implementation plan\n\nPaste the existing Codex or Claude Code plan here and turn it into a visual review document.",
       },
       assessment: {
+        design:
+          "Auto detected a high-fidelity request; the agent will create polished branded screens.",
         ui: "Auto detected UI states or flows; the agent will make a wireframe-first plan.",
         visual:
           "Auto will ask the agent for a rich technical plan with diagrams and implementation detail.",

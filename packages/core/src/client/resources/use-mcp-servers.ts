@@ -20,6 +20,7 @@ export interface McpServer {
   name: string;
   url: string;
   headers?: Record<string, { set: true }>;
+  authMode: "none" | "headers" | "oauth";
   description?: string;
   firstParty?: boolean;
   createdAt: number;

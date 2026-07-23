@@ -4,7 +4,12 @@ const mockSelectRows = vi.hoisted(() => ({
   queue: [] as Array<Array<Record<string, unknown>>>,
 }));
 const mockInsertValues = vi.hoisted(() => vi.fn());
-const mockUpdateWhere = vi.hoisted(() => vi.fn(async () => undefined));
+const mockUpdateReturning = vi.hoisted(() =>
+  vi.fn(async () => [{ recordingId: "rec_native" }]),
+);
+const mockUpdateWhere = vi.hoisted(() =>
+  vi.fn(() => ({ returning: mockUpdateReturning })),
+);
 const mockUpdateSet = vi.hoisted(() =>
   vi.fn(() => ({ where: mockUpdateWhere })),
 );
@@ -61,10 +66,6 @@ vi.mock("@agent-native/core/credentials", () => ({
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: (...args: unknown[]) => mockSsrfSafeFetch(...args),
-}));
-
-vi.mock("@agent-native/core/secrets", () => ({
-  readAppSecret: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -172,6 +173,7 @@ vi.mock("./lib/loom-transcript.js", () => ({
 import {
   builderTranscriptionTimeoutMs,
   importLoomTranscriptForRecording,
+  isSafeTranscriptCleanupReplacement,
   recordingMediaFetchTimeoutMs,
   transcribeWithBuilderModelFallback,
 } from "./request-transcript";
@@ -217,6 +219,19 @@ describe("recordingMediaFetchTimeoutMs", () => {
 
     vi.stubEnv("CLIPS_TRANSCRIPTION_MEDIA_FETCH_TIMEOUT_MS", "300000");
     expect(recordingMediaFetchTimeoutMs(null, null)).toBe(120_000);
+  });
+});
+
+describe("isSafeTranscriptCleanupReplacement", () => {
+  it("keeps complete cleanups and rejects destructive truncation", () => {
+    const source = "a".repeat(28_445);
+
+    expect(isSafeTranscriptCleanupReplacement(source, "b".repeat(27_000))).toBe(
+      true,
+    );
+    expect(isSafeTranscriptCleanupReplacement(source, "b".repeat(171))).toBe(
+      false,
+    );
   });
 });
 
@@ -401,30 +416,33 @@ describe("requestTranscript regeneration", () => {
     });
   });
 
-  it("queues agent retries in the post-finalize worker", async () => {
-    const result = await requestTranscript.run(
-      {
-        recordingId: "rec_ready",
-        force: true,
-        regenerate: true,
-      },
-      { caller: "tool" } as any,
-    );
+  it.each(["tool", "frontend"] as const)(
+    "queues %s retries in the post-finalize worker",
+    async (caller) => {
+      const result = await requestTranscript.run(
+        {
+          recordingId: "rec_ready",
+          force: true,
+          regenerate: true,
+        },
+        { caller } as any,
+      );
 
-    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
-      recordingId: "rec_ready",
-      kind: "transcript",
-      regenerate: true,
-    });
-    expect(result).toEqual({
-      recordingId: "rec_ready",
-      status: "pending",
-      queued: true,
-      regenerate: true,
-      provider: "background",
-    });
-    expect(mockSelectRows.queue).toHaveLength(0);
-  });
+      expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+        recordingId: "rec_ready",
+        kind: "transcript",
+        regenerate: true,
+      });
+      expect(result).toEqual({
+        recordingId: "rec_ready",
+        status: "pending",
+        queued: true,
+        regenerate: true,
+        provider: "background",
+      });
+      expect(mockSelectRows.queue).toHaveLength(0);
+    },
+  );
 
   it("does not queue a duplicate agent retry while a transcript is pending", async () => {
     mockSelectRows.queue = [
@@ -504,6 +522,64 @@ describe("requestTranscript regeneration", () => {
       preserved: true,
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Builder when native transcription is unavailable", async () => {
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "Recovered from the spoken recording.",
+      language: "en",
+      segments: [
+        {
+          startMs: 0,
+          endMs: 1200,
+          text: "Recovered from the spoken recording.",
+        },
+      ],
+    });
+    mockSelectRows.queue = [
+      [
+        {
+          status: "failed",
+          fullText: "",
+          segmentsJson: "[]",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [{ recordingId: "rec_empty" }],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ status: "pending", fullText: "", segmentsJson: "[]" }],
+      [{ recordingId: "rec_empty" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_empty",
+      force: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_empty",
+      status: "ready",
+      provider: "builder",
+    });
+    expect(mockTranscribeWithBuilder).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        fullText: "Recovered from the spoken recording.",
+        failureReason: null,
+      }),
+    );
   });
 });
 

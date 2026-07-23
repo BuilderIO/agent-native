@@ -1,15 +1,17 @@
+import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
+import {
+  usePresence,
+  useRecentEdits,
+  type AttributedRecentEdit,
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
+import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   createSharedEditorExtensions,
   useCollabReconcile,
-  usePresence,
-  useRecentEdits,
-  RecentEditHighlights,
-  RegistryBlockDataProvider,
-  useT,
-  type AttributedRecentEdit,
-  type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -353,8 +355,7 @@ const NotionBlockquote = Blockquote.extend({
   },
 });
 
-const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
-  "Press ‘space’ for AI or ‘/’ for commands";
+const DEFAULT_EMPTY_BLOCK_PLACEHOLDER = "Press ‘/’ for commands";
 
 const CONTENT_RECENT_EDIT_TTL_MS = 6_000;
 const RECENT_EDIT_MARKER_WIDTH = 2;
@@ -973,6 +974,7 @@ interface VisualEditorExtensionOptions {
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
   referenceDepth?: number;
+  emptyBlockPlaceholder?: string;
 }
 
 function hasAncestorType(
@@ -1086,19 +1088,21 @@ function getVisualEditorPlaceholder({
   node,
   pos,
   hasAnchor,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: {
   editor: CoreEditor;
   node: ProseMirrorNode;
   pos: number;
   hasAnchor: boolean;
+  emptyBlockPlaceholder?: string;
 }): string {
   const isToggleBody =
     node.type.name === "paragraph" &&
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor
-      ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER
+    return hasAnchor && editor.isFocused
+      ? emptyBlockPlaceholder
       : EMPTY_TOGGLE_BODY_PLACEHOLDER;
   }
 
@@ -1120,7 +1124,7 @@ function getVisualEditorPlaceholder({
     return hasAnchor ? "Empty quote" : "";
   }
 
-  // Skip the long "Press 'space' for AI…" hint inside table cells — it wraps
+  // Skip the command hint inside table cells — it wraps
   // awkwardly in narrow columns and the cell itself is already an affordance.
   if (
     node.type.name === "paragraph" &&
@@ -1130,7 +1134,7 @@ function getVisualEditorPlaceholder({
     return "";
   }
 
-  return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
+  return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
 }
 
 export async function uploadAndInsertImageFiles(
@@ -1300,6 +1304,7 @@ export function createVisualEditorExtensions({
   onOpenNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: VisualEditorExtensionOptions = {}): Extensions {
   // Build on the SHARED editor core (StarterKit base + the Collaboration /
   // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
@@ -1335,7 +1340,8 @@ export function createVisualEditorExtensions({
       NotionBlockquote,
       CodeBlock,
       Placeholder.configure({
-        placeholder: getVisualEditorPlaceholder,
+        placeholder: (options) =>
+          getVisualEditorPlaceholder({ ...options, emptyBlockPlaceholder }),
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
         includeChildren: true,
@@ -1738,6 +1744,7 @@ export function VisualEditor({
         onOpenNotionPageLink,
         localFilePath,
         referenceDepth,
+        emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
       }),
     [
       documentId,
@@ -1752,6 +1759,7 @@ export function VisualEditor({
       onOpenNotionPageLink,
       localFilePath,
       referenceDepth,
+      t,
     ],
   );
 

@@ -39,6 +39,11 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["clips"]
+      }
+    },
     "shell": {
       "open": "(((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)).+|(zoommtg://([A-Za-z0-9-]+\\.)*zoom\\.us/join\\?.+)|(ms-settings:[A-Za-z0-9._?=&-]+))"
     },

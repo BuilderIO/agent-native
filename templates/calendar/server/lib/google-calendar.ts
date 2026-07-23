@@ -10,8 +10,7 @@ import {
   getRequestOrgId,
   resolveSecret,
   runWithRequestContext,
-  resolveGoogleProviderCredentials,
-  resolveGoogleLegacyProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
 } from "@agent-native/core/server";
 
 import type {
@@ -56,11 +55,6 @@ interface GoogleTokens {
   photoUrl?: string;
 }
 
-interface GoogleOAuthCredentials {
-  clientId: string;
-  clientSecret: string;
-}
-
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -90,47 +84,15 @@ async function getOAuth2RefreshCredentials(owner?: string, orgId?: string) {
   return candidates;
 }
 
-async function readCredentialPair(
-  clientIdKey: string,
-  clientSecretKey: string,
-): Promise<GoogleOAuthCredentials | null> {
-  const [clientId, clientSecret] = await Promise.all([
-    resolveSecret(clientIdKey),
-    resolveSecret(clientSecretKey),
-  ]);
-  if (clientId && clientSecret) return { clientId, clientSecret };
-  if (
-    clientIdKey === "GOOGLE_CLIENT_ID" &&
-    clientSecretKey === "GOOGLE_CLIENT_SECRET"
-  ) {
-    return resolveGoogleProviderCredentials();
-  }
-  if (
-    clientIdKey === "GOOGLE_LEGACY_CLIENT_ID" &&
-    clientSecretKey === "GOOGLE_LEGACY_CLIENT_SECRET"
-  ) {
-    return resolveGoogleLegacyProviderCredentials();
-  }
-  return null;
-}
-
 async function resolveGoogleProviderCredentialCandidates(
   owner?: string,
   orgId?: string,
-): Promise<GoogleOAuthCredentials[]> {
-  const resolve = async () => {
-    const primary = await readCredentialPair(
-      "GOOGLE_CLIENT_ID",
-      "GOOGLE_CLIENT_SECRET",
-    );
-    const legacy = await readCredentialPair(
-      "GOOGLE_LEGACY_CLIENT_ID",
-      "GOOGLE_LEGACY_CLIENT_SECRET",
-    );
-    if (!primary) return legacy ? [legacy] : [];
-    if (!legacy || legacy.clientId === primary.clientId) return [primary];
-    return [primary, legacy];
-  };
+) {
+  const resolve = () =>
+    resolveGoogleProviderCredentialCandidatesWithReader({
+      readCredential: resolveSecret,
+      fallbackReadCredential: (key) => process.env[key],
+    });
   const resolvedOrgId = orgId ?? getRequestOrgId();
   return owner
     ? runWithRequestContext({ userEmail: owner, orgId: resolvedOrgId }, resolve)

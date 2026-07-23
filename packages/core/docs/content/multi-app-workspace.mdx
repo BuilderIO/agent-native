@@ -7,7 +7,7 @@ description: "Host many agent-native apps in one monorepo with shared auth, RBAC
 
 <Callout tone="info">
 
-**Which workspace doc?** This page covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For what a workspace _is_ (the customization layer: `AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) see [Workspace](/docs/workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+**Which workspace doc?** This page covers the **deployment shape** — one monorepo, many apps, shared auth and a unified deploy. For the agent customization layer (Agent Resources: `AGENTS.md`, memory, skills, custom agents) see [Agent Resources](/docs/agent-resources); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
 
 </Callout>
 
@@ -222,7 +222,7 @@ Because the shared package is a `workspace:*` dependency, pnpm symlinks it into 
 
 Use `packages/shared` for code-level defaults that should ship with the repo: plugins, shared actions, shared React code, filesystem `AGENTS.md`, and filesystem skills. Use Dispatch workspace resources for runtime-editable global context that admins want to manage without a code change.
 
-Dispatch resources are scoped **All apps** (every app inherits them at runtime, no copy or sync step) or **Selected apps** (granted per app for app-specific context). See [Workspace](/docs/workspace#global-resources) for the full resource-model table, path conventions, and the recommended starter pack.
+Dispatch resources are scoped **All apps** (every app inherits them at runtime, no copy or sync step) or **Selected apps** (granted per app for app-specific context). See [Agent Resources](/docs/agent-resources#global-resources) for the full resource-model table, path conventions, and the recommended starter pack.
 
 ## Authentication and RBAC {#auth-and-rbac}
 
@@ -332,7 +332,7 @@ The workspace pattern is intentionally narrow. A few things it deliberately does
 
 ## What's next {#whats-next}
 
-- [Workspace](/docs/workspace) — the customization layer (`AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) every app in the workspace shares.
+- [Agent Resources](/docs/agent-resources) — the customization layer (`AGENTS.md`, `LEARNINGS.md`, personal memory, skills, custom agents) every app in the workspace shares.
 - [Workspace Governance](/docs/workspace-management) — branching, CODEOWNERS, PR review across many apps in one repo.
 - [Multi-Tenancy](/docs/multi-tenancy) — organizations, roles, and per-org data isolation.
 - [Cross-App SSO](/docs/cross-app-sso) — identity federation for separate-domain deploys.

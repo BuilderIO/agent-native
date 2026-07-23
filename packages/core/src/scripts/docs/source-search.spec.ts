@@ -40,11 +40,12 @@ describe("source-search", { timeout: 60000 }, () => {
     fs.rmSync(scopeFixtureRoot, { recursive: true, force: true });
   });
 
-  it("materializes version-matched core and template source without runtime artifacts", () => {
+  it("materializes version-matched core, Toolkit, and template source without runtime artifacts", () => {
     const files = listCorpusFiles();
 
     expect(files).toContain("core/src/action.ts");
     expect(files).toContain("core/docs/AGENTS.md");
+    expect(files).toContain("toolkit/src/index.ts");
     expect(files).toContain("templates/chat/package.json");
     expect(files).toContain("templates/chat/data/sync-config.json");
 
@@ -80,6 +81,10 @@ describe("source-search", { timeout: 60000 }, () => {
     const output = await runSourceSearch(["--query", "defineAction"]);
     expect(output).toContain("Found");
     expect(output).toContain("core/src/action.ts");
+
+    await expect(
+      runSourceSearch(["--path", "toolkit/src/index.ts"]),
+    ).resolves.toContain("./app-shell/index.js");
   });
 
   it("hides dev-scoped skill files from runtime query, path, and directory results", async () => {

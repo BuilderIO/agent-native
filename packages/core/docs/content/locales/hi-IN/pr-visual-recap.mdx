@@ -180,7 +180,7 @@ npx @agent-native/recap-cli@latest recap doctor
 - **एक सस्ता मॉडल पिन करें।** Claude के लिए, सरल या छोटे रिपॉज़िटरी के लिए `VISUAL_RECAP_MODEL=claude-haiku-4-5` सेट करें — यह सबसे सस्ता Claude स्तर है; `claude-sonnet-5` (डिफ़ॉल्ट) संतुलित स्तर है।
 - **सस्ते मॉडल के साथ Codex पर स्विच करें।** `VISUAL_RECAP_AGENT=codex` को `VISUAL_RECAP_MODEL=gpt-5.6-luna` (सबसे सस्ता GPT-5.6 स्तर) या `gpt-5.6-terra` (मध्य-स्तर) के साथ सेट करें, और रीज़निंग-टोकन खर्च को और कम करने के लिए `VISUAL_RECAP_REASONING=low` सेट करें। रीज़निंग गहराई केवल Codex पर लागू होती है।
 - **किसी सस्ते OpenAI-संगत प्रदाता की ओर इंगित करें।** DeepSeek, Kimi, या किसी अन्य OpenAI-संगत एंडपॉइंट को लक्षित करते हुए `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` के साथ `VISUAL_RECAP_AGENT=openai-compatible` सेट करें।
-- **रिकैप कम बार करें।** इंस्टॉल किए गए वर्कफ़्लो के `on.pull_request.types` को `[opened, synchronize, reopened, ready_for_review, closed]` से बदलकर `[opened, ready_for_review, closed]` करें ताकि यह हर पुश पर नहीं, बल्कि केवल तब रिकैप करे जब कोई PR खुले और जब वह मर्ज हो।
+- **रिकैप कम बार करें।** इंस्टॉल किए गए वर्कफ़्लो के `on.pull_request.types` को `[opened, synchronize, reopened, ready_for_review, labeled, closed]` से बदलकर `[opened, ready_for_review, closed]` करें ताकि यह हर पुश पर नहीं, बल्कि केवल तब रिकैप करे जब कोई PR खुले और जब वह मर्ज हो।
 
 हर रन यह रिकॉर्ड करता है कि वास्तव में कितना खर्च हुआ: वर्कफ़्लो का `recap usage` चरण टोकन और लागत उपयोग को प्रकाशित योजना से जोड़ देता है, ताकि आप अनुमान लगाने के बजाय प्रति रन वास्तविक खर्च देख सकें।
 
@@ -480,10 +480,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -503,6 +504,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
       # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 

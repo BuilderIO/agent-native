@@ -65,8 +65,7 @@ import {
   useActionQuery,
   useActionMutation,
   callAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/hooks";
 // Read: auto-cached, auto-invalidated on mutations
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 
@@ -83,8 +82,7 @@ await callAction("archive-lead", { leadId });
 UI 상호 작용에서 AI 작업을 위임하는 일반적인 방법인 postMessage를 통해 에이전트 채팅에 메시지를 보냅니다. 숨겨진 모델 컨텍스트의 경우 `context`를 전달하고 즉시 전송하려면 `submit: true`를 전달하거나 사용자가 먼저 검토하는 초안을 미리 채우려면 `submit: false`를 전달하세요.
 
 ```ts
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 // Auto-submit a prompt with hidden context
 sendToAgentChat({
   message: "Generate alt text for this image",
@@ -174,8 +172,7 @@ const tabId = sendToAgentChat({
 `"automations"`, `"voice"` 또는 `"limits"`를 사용하여 특정 섹션을 엽니다.
 
 ```ts
-import { openAgentSettings } from "@agent-native/core/client";
-
+import { openAgentSettings } from "@agent-native/core/client/navigation";
 openAgentSettings();
 openAgentSettings("secrets");
 ```
@@ -183,8 +180,7 @@ openAgentSettings("secrets");
 `agent-panel:open-settings`를 직접 파견하는 것보다 이 도우미를 선호하세요.
 
 ```tsx
-import { useAgentChatContext } from "@agent-native/core/client";
-
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
 function SelectionContextButton({ record }: { record: { id: string } }) {
   const chatContext = useAgentChatContext();
   const contextKey = `selected-record:${record.id}`;
@@ -242,8 +238,10 @@ UI가 실행하기 전에 정확히 하나의 작은 결정(2~4개 옵션)이 �
 자유형 세부정보를 위한 작성기 및 다중 필드 입력을 위한 양식/팝오버
 
 ```tsx
-import { askUserQuestion, sendToAgentChat } from "@agent-native/core/client";
-
+import {
+  askUserQuestion,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat";
 const length = await askUserQuestion({
   question: "How long should this deck be?",
   header: "Deck length", // optional short chip/heading (≈12 chars)
@@ -286,7 +284,7 @@ import {
   requestMcpAppDisplayMode,
   updateMcpAppModelContext,
   useMcpAppHostContext,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
 ```
 
 `getMcpAppHostContext()`는 최근 푸시된 호스트 컨텍스트 스냅샷을 읽습니다.
@@ -321,8 +319,9 @@ import {
 로드 상태 추적으로 sendToAgentChat을 래핑하는 React 후크:
 
 ```ts
-import { useAgentChatGenerating } from "@agent-native/core/client";
-
+import {
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat"
 function GenerateButton() {
   const [isGenerating, send] = useAgentChatGenerating();
 
@@ -348,7 +347,9 @@ function GenerateButton() {
 SSE에 대한 데이터베이스 변경 사항을 수신하고 폴링으로 대체하며 UI를 에이전트 쓰기와 일치하도록 유지하는 프레임워크 쿼리 캐시를 무효화하는 React 후크(이전 `useFileWatcher`):
 
 ```ts
-import { useDbSync } from "@agent-native/core/client";
+import {
+  useDbSync,
+} from "@agent-native/core/client/hooks"
 import { useQueryClient } from "@tanstack/react-query";
 
 function App() {
@@ -393,8 +394,7 @@ function App() {
 
 ```tsx
 import { useQuery } from "@tanstack/react-query";
-import { useChangeVersion } from "@agent-native/core/client";
-
+import { useChangeVersion } from "@agent-native/core/client/hooks";
 function DashboardView({ id }) {
   // Get version for dashboards domain source
   const v = useChangeVersion("dashboards");
@@ -459,8 +459,9 @@ function DashboardView({ id }) {
 클래스 이름 병합을 위한 유틸리티(clsx + tailwind-merge):
 
 ```ts
-import { cn } from "@agent-native/core/client";
-
+import {
+  cn,
+} from "@agent-native/toolkit/utils"
 <div className={cn(
   "px-4 py-2 rounded",
   isActive && "bg-primary text-primary-foreground",

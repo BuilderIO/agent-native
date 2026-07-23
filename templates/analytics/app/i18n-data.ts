@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -34,6 +34,7 @@ const enUS = {
     created: "Created {{date}}",
   },
   dashboard: {
+    sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard history",
     historyDescription:
       "Restore a previous dashboard state. Restoring snapshots the current state first.",
@@ -168,10 +169,10 @@ const enUS = {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     account: "Account",
     signedInAs: "Signed in as",
     credentials: "Data Source Credentials",
@@ -458,6 +459,27 @@ const enUS = {
     deleteConnectionTitle: "Delete database connection?",
     deleteConnectionDescription:
       "This removes {{name}} from Analytics and deletes its stored connection secrets. The target app database is not modified.",
+    featureFlags: "Feature flags",
+    featureFlagsDescription:
+      "Review registered app flags and make deliberate, reversible rollout changes.",
+    reloadFlags: "Reload flags",
+    loading: "Loading",
+    flagsUnavailable: "Feature flags are unavailable",
+    flagsUnreachable:
+      "The workspace directory could not be reached. Retry when its connection is available.",
+    flagsEmpty: "No workspace apps reported flags",
+    flagsEmptyDetail:
+      "Registered flags will appear here when connected apps are ready.",
+    flagsNotReady:
+      "This app is {{status}}. Its flag state is not assumed to be off.",
+    noFlagDefinitions: "This ready app has no registered flag definitions.",
+    noFlagDescription: "No description supplied.",
+    selected: "Selected",
+    openFlag: "Open feature flag",
+    confirm: "Confirm",
+    name: "Name",
+    appId: "App ID",
+    flagKey: "Feature flag",
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
@@ -607,6 +629,11 @@ const enUS = {
     refresh: "Refresh",
     refreshing: "Refreshing...",
     downloadCsv: "Download CSV",
+    exportToGoogleSheets: "Export to Google Sheets",
+    exportingToGoogleSheets: "Exporting to Google Sheets...",
+    googleSheetsExported: "Exported to Google Sheets",
+    openGoogleSheet: "Open sheet",
+    googleSheetsExportFailed: "Couldn't export to Google Sheets: {{message}}",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
     deleteSectionTitle: "Delete section?",
@@ -792,6 +819,11 @@ const enUS = {
   },
   dataSources: {
     uploadFile: "Upload file",
+    googleSheetsExport: "Google Sheets export",
+    googleSheetsExportDescription:
+      "Export dashboard reports to Google Sheets through a shared Google connection.",
+    connected: "Connected",
+    googleSheets: "Google Sheets",
     open: "Open",
     savedValueHint:
       "A value is already saved. Leave blank to keep it, or enter a new value to replace it.",
@@ -886,12 +918,25 @@ const enUS = {
     chartTypePie: "Pie",
     chartTypeMetric: "Metric",
     chartTypeTable: "Table",
+    chartTypeExtension: "Extension",
     failedToSavePanel: "Failed to save panel",
     failedToFormatSql: "Failed to format SQL",
     title: "Title",
     titlePlaceholder: "e.g. Weekly signups",
     chartType: "Chart type",
     source: "Source",
+    extensionDisplay: "Extension display",
+    sharedExtension: "Shared extension",
+    perViewerSlot: "Per-viewer slot",
+    extension: "Extension",
+    loadingExtensions: "Loading extensions...",
+    selectExtension: "Select an extension",
+    noExtensions: "No visible extensions. Create or share one first.",
+    sharedExtensionHelp:
+      "The selected extension is shared with this dashboard and appears in scheduled reports. Viewers still need access to the extension.",
+    slotIdOptional: "Slot ID (optional)",
+    perViewerSlotHelp:
+      "Each viewer installs their own extension. Scheduled reports may show an empty slot. Leave blank to generate a stable ID.",
     sectionColumns: "Section columns",
     format: "Format",
     filterInterpolation: "Use {{example}} to interpolate filter values.",
@@ -1239,6 +1284,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "上传文件",
+      googleSheetsExport: "Google Sheets 导出",
+      googleSheetsExportDescription:
+        "通过共享的 Google 连接将仪表板报告导出到 Google Sheets。",
+      connected: "已连接",
+      googleSheets: "Google Sheets",
       open: "打开",
       savedValueHint: "值已保存。留空以保留它，或输入新值以替换它。",
       githubOAuth: "GitHub OAuth",
@@ -1330,12 +1380,25 @@ const analyticsSliceTranslations: {
       chartTypePie: "馅饼",
       chartTypeMetric: "公制",
       chartTypeTable: "桌子",
+      chartTypeExtension: "扩展",
       failedToSavePanel: "保存面板失败",
       failedToFormatSql: "格式化SQL失败",
       title: "标题",
       titlePlaceholder: "例如每周注册人数",
       chartType: "图表类型",
       source: "来源",
+      extensionDisplay: "扩展显示方式",
+      sharedExtension: "共享扩展",
+      perViewerSlot: "每位查看者的插槽",
+      extension: "扩展",
+      loadingExtensions: "正在加载扩展...",
+      selectExtension: "选择扩展",
+      noExtensions: "没有可见的扩展。请先创建或共享一个。",
+      sharedExtensionHelp:
+        "所选扩展会与此仪表板共享并显示在计划报告中。查看者仍需拥有该扩展的访问权限。",
+      slotIdOptional: "插槽 ID（可选）",
+      perViewerSlotHelp:
+        "每位查看者各自安装扩展。计划报告可能显示空插槽。留空即可生成稳定 ID。",
       sectionColumns: "剖面列",
       format: "格式",
       filterInterpolation: "使用 {{example}} 插值滤波器值。",
@@ -1509,6 +1572,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Subir archivo",
+      googleSheetsExport: "Exportación a Google Sheets",
+      googleSheetsExportDescription:
+        "Exporte informes del panel a Google Sheets mediante una conexión de Google compartida.",
+      connected: "Conectado",
+      googleSheets: "Google Sheets",
       open: "Abierto",
       savedValueHint:
         "Ya hay un valor guardado. Déjelo en blanco para conservarlo o ingrese un nuevo valor para reemplazarlo.",
@@ -1605,12 +1673,25 @@ const analyticsSliceTranslations: {
       chartTypePie: "Pastel",
       chartTypeMetric: "Métrico",
       chartTypeTable: "Mesa",
+      chartTypeExtension: "Extensión",
       failedToSavePanel: "No se pudo guardar el panel",
       failedToFormatSql: "No se pudo formatear SQL",
       title: "Título",
       titlePlaceholder: "p.ej. Inscripciones semanales",
       chartType: "Tipo de gráfico",
       source: "Fuente",
+      extensionDisplay: "Visualización de extensión",
+      sharedExtension: "Extensión compartida",
+      perViewerSlot: "Espacio por usuario",
+      extension: "Extensión",
+      loadingExtensions: "Cargando extensiones...",
+      selectExtension: "Selecciona una extensión",
+      noExtensions: "No hay extensiones visibles. Crea o comparte una primero.",
+      sharedExtensionHelp:
+        "La extensión seleccionada se comparte con este panel y aparece en los informes programados. Los usuarios aún necesitan acceso a ella.",
+      slotIdOptional: "ID del espacio (opcional)",
+      perViewerSlotHelp:
+        "Cada usuario instala su propia extensión. Los informes programados pueden mostrar un espacio vacío. Déjalo en blanco para generar un ID estable.",
       sectionColumns: "Columnas de sección",
       format: "Formato",
       filterInterpolation:
@@ -1801,6 +1882,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Télécharger le fichier",
+      googleSheetsExport: "Export Google Sheets",
+      googleSheetsExportDescription:
+        "Exportez les rapports du tableau de bord vers Google Sheets grâce à une connexion Google partagée.",
+      connected: "Connecté",
+      googleSheets: "Google Sheets",
       open: "Ouvrir",
       savedValueHint:
         "Une valeur est déjà enregistrée. Laissez vide pour le conserver ou saisissez une nouvelle valeur pour le remplacer.",
@@ -1896,12 +1982,25 @@ const analyticsSliceTranslations: {
       chartTypePie: "Tarte",
       chartTypeMetric: "Métrique",
       chartTypeTable: "Tableau",
+      chartTypeExtension: "Extension",
       failedToSavePanel: "Échec de l'enregistrement du panneau",
       failedToFormatSql: "Échec du formatage du SQL",
       title: "Titre",
       titlePlaceholder: "par ex. Inscriptions hebdomadaires",
       chartType: "Type de graphique",
       source: "Source de données",
+      extensionDisplay: "Affichage de l'extension",
+      sharedExtension: "Extension partagée",
+      perViewerSlot: "Emplacement par utilisateur",
+      extension: "Extension",
+      loadingExtensions: "Chargement des extensions...",
+      selectExtension: "Sélectionner une extension",
+      noExtensions: "Aucune extension visible. Créez-en ou partagez-en une.",
+      sharedExtensionHelp:
+        "L'extension sélectionnée est partagée avec ce tableau de bord et apparaît dans les rapports planifiés. Les utilisateurs doivent toujours y avoir accès.",
+      slotIdOptional: "ID de l'emplacement (facultatif)",
+      perViewerSlotHelp:
+        "Chaque utilisateur installe sa propre extension. Les rapports planifiés peuvent afficher un emplacement vide. Laissez ce champ vide pour générer un ID stable.",
       sectionColumns: "Colonnes de section",
       format: "Mettre en forme",
       filterInterpolation:
@@ -2089,6 +2188,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Datei hochladen",
+      googleSheetsExport: "Google-Sheets-Export",
+      googleSheetsExportDescription:
+        "Exportieren Sie Dashboard-Berichte über eine gemeinsame Google-Verbindung nach Google Sheets.",
+      connected: "Verbunden",
+      googleSheets: "Google Sheets",
       open: "Offen",
       savedValueHint:
         "Ein Wert ist bereits gespeichert. Lassen Sie das Feld leer, um es beizubehalten, oder geben Sie einen neuen Wert ein, um es zu ersetzen.",
@@ -2185,12 +2289,26 @@ const analyticsSliceTranslations: {
       chartTypePie: "Torte",
       chartTypeMetric: "Metrisch",
       chartTypeTable: "Tisch",
+      chartTypeExtension: "Erweiterung",
       failedToSavePanel: "Das Panel konnte nicht gespeichert werden",
       failedToFormatSql: "SQL konnte nicht formatiert werden",
       title: "Titel",
       titlePlaceholder: "z.B. Wöchentliche Anmeldungen",
       chartType: "Diagrammtyp",
       source: "Datenquelle",
+      extensionDisplay: "Erweiterungsanzeige",
+      sharedExtension: "Geteilte Erweiterung",
+      perViewerSlot: "Slot pro Betrachter",
+      extension: "Erweiterung",
+      loadingExtensions: "Erweiterungen werden geladen...",
+      selectExtension: "Erweiterung auswählen",
+      noExtensions:
+        "Keine sichtbaren Erweiterungen. Erstellen oder teilen Sie zuerst eine.",
+      sharedExtensionHelp:
+        "Die ausgewählte Erweiterung wird mit diesem Dashboard geteilt und erscheint in geplanten Berichten. Betrachter benötigen weiterhin Zugriff darauf.",
+      slotIdOptional: "Slot-ID (optional)",
+      perViewerSlotHelp:
+        "Jeder Betrachter installiert eine eigene Erweiterung. Geplante Berichte können einen leeren Slot zeigen. Leer lassen, um eine stabile ID zu erzeugen.",
       sectionColumns: "Abschnittsspalten",
       format: "Formatieren",
       filterInterpolation:
@@ -2375,6 +2493,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "ファイルをアップロードする",
+      googleSheetsExport: "Google スプレッドシートへのエクスポート",
+      googleSheetsExportDescription:
+        "共有 Google 接続を使用してダッシュボードレポートを Google スプレッドシートにエクスポートします。",
+      connected: "接続済み",
+      googleSheets: "Google Sheets",
       open: "開ける",
       savedValueHint:
         "値はすでに保存されています。空白のままにして保持するか、新しい値を入力して置き換えます。",
@@ -2470,12 +2593,26 @@ const analyticsSliceTranslations: {
       chartTypePie: "パイ",
       chartTypeMetric: "メトリック",
       chartTypeTable: "テーブル",
+      chartTypeExtension: "拡張機能",
       failedToSavePanel: "パネルの保存に失敗しました",
       failedToFormatSql: "SQLのフォーマットに失敗しました",
       title: "タイトル",
       titlePlaceholder: "例えば毎週のサインアップ",
       chartType: "グラフの種類",
       source: "ソース",
+      extensionDisplay: "拡張機能の表示",
+      sharedExtension: "共有拡張機能",
+      perViewerSlot: "閲覧者ごとのスロット",
+      extension: "拡張機能",
+      loadingExtensions: "拡張機能を読み込んでいます...",
+      selectExtension: "拡張機能を選択",
+      noExtensions:
+        "表示できる拡張機能がありません。先に作成または共有してください。",
+      sharedExtensionHelp:
+        "選択した拡張機能はこのダッシュボードと共有され、スケジュール済みレポートにも表示されます。閲覧者には拡張機能へのアクセス権が必要です。",
+      slotIdOptional: "スロット ID（任意）",
+      perViewerSlotHelp:
+        "各閲覧者が自分の拡張機能をインストールします。スケジュール済みレポートでは空のスロットが表示される場合があります。空欄にすると安定した ID が生成されます。",
       sectionColumns: "セクション列",
       format: "形式",
       filterInterpolation:
@@ -2656,6 +2793,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "파일 업로드",
+      googleSheetsExport: "Google Sheets 내보내기",
+      googleSheetsExportDescription:
+        "공유 Google 연결을 통해 대시보드 보고서를 Google Sheets로 내보냅니다.",
+      connected: "연결됨",
+      googleSheets: "Google Sheets",
       open: "열려 있는",
       savedValueHint:
         "값이 이미 저장되어 있습니다. 유지하려면 비워두고, 바꾸려면 새 값을 입력하세요.",
@@ -2749,12 +2891,26 @@ const analyticsSliceTranslations: {
       chartTypePie: "파이",
       chartTypeMetric: "미터법",
       chartTypeTable: "테이블",
+      chartTypeExtension: "확장 프로그램",
       failedToSavePanel: "패널을 저장하지 못했습니다.",
       failedToFormatSql: "SQL 포맷 실패",
       title: "제목",
       titlePlaceholder: "예를 들어 주간 가입",
       chartType: "차트 종류",
       source: "소스",
+      extensionDisplay: "확장 프로그램 표시",
+      sharedExtension: "공유 확장 프로그램",
+      perViewerSlot: "사용자별 슬롯",
+      extension: "확장 프로그램",
+      loadingExtensions: "확장 프로그램을 불러오는 중...",
+      selectExtension: "확장 프로그램 선택",
+      noExtensions:
+        "표시할 확장 프로그램이 없습니다. 먼저 만들거나 공유하세요.",
+      sharedExtensionHelp:
+        "선택한 확장 프로그램은 이 대시보드와 공유되며 예약 보고서에 표시됩니다. 사용자는 해당 확장 프로그램에 대한 액세스 권한이 필요합니다.",
+      slotIdOptional: "슬롯 ID(선택 사항)",
+      perViewerSlotHelp:
+        "각 사용자가 자신의 확장 프로그램을 설치합니다. 예약 보고서에는 빈 슬롯이 표시될 수 있습니다. 비워 두면 안정적인 ID가 생성됩니다.",
       sectionColumns: "섹션 열",
       format: "체재",
       filterInterpolation: "{{example}}를 사용하여 필터 값을 보간합니다.",
@@ -2933,6 +3089,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "Carregar arquivo",
+      googleSheetsExport: "Exportação para o Google Sheets",
+      googleSheetsExportDescription:
+        "Exporte relatórios do painel para o Google Sheets por meio de uma conexão Google compartilhada.",
+      connected: "Conectado",
+      googleSheets: "Google Sheets",
       open: "Abrir",
       savedValueHint:
         "Um valor já está salvo. Deixe em branco para mantê-lo ou insira um novo valor para substituí-lo.",
@@ -3027,12 +3188,26 @@ const analyticsSliceTranslations: {
       chartTypePie: "Torta",
       chartTypeMetric: "Métrica",
       chartTypeTable: "Mesa",
+      chartTypeExtension: "Extensão",
       failedToSavePanel: "Falha ao salvar painel",
       failedToFormatSql: "Falha ao formatar SQL",
       title: "Título",
       titlePlaceholder: "por exemplo Inscrições semanais",
       chartType: "Tipo de gráfico",
       source: "Fonte",
+      extensionDisplay: "Exibição da extensão",
+      sharedExtension: "Extensão compartilhada",
+      perViewerSlot: "Slot por usuário",
+      extension: "Extensão",
+      loadingExtensions: "Carregando extensões...",
+      selectExtension: "Selecione uma extensão",
+      noExtensions:
+        "Nenhuma extensão visível. Crie ou compartilhe uma primeiro.",
+      sharedExtensionHelp:
+        "A extensão selecionada é compartilhada com este painel e aparece nos relatórios agendados. Os usuários ainda precisam de acesso à extensão.",
+      slotIdOptional: "ID do slot (opcional)",
+      perViewerSlotHelp:
+        "Cada usuário instala sua própria extensão. Relatórios agendados podem mostrar um slot vazio. Deixe em branco para gerar um ID estável.",
       sectionColumns: "Colunas de seção",
       format: "Formatar",
       filterInterpolation: "Use {{example}} para interpolar valores de filtro.",
@@ -3215,6 +3390,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "फ़ाइल अपलोड करें",
+      googleSheetsExport: "Google Sheets निर्यात",
+      googleSheetsExportDescription:
+        "साझा Google कनेक्शन के माध्यम से डैशबोर्ड रिपोर्ट को Google Sheets में निर्यात करें।",
+      connected: "कनेक्टेड",
+      googleSheets: "Google Sheets",
       open: "खुला",
       savedValueHint:
         "एक मान पहले से ही सहेजा गया है. इसे रखने के लिए खाली छोड़ दें, या इसे बदलने के लिए एक नया मान दर्ज करें।",
@@ -3308,12 +3488,25 @@ const analyticsSliceTranslations: {
       chartTypePie: "पाई",
       chartTypeMetric: "मीट्रिक",
       chartTypeTable: "मेज़",
+      chartTypeExtension: "एक्सटेंशन",
       failedToSavePanel: "पैनल सहेजने में विफल",
       failedToFormatSql: "SQL को फ़ॉर्मेट करने में विफल",
       title: "शीर्षक",
       titlePlaceholder: "जैसे साप्ताहिक साइनअप",
       chartType: "चार्ट प्रकार",
       source: "स्रोत",
+      extensionDisplay: "एक्सटेंशन प्रदर्शन",
+      sharedExtension: "साझा एक्सटेंशन",
+      perViewerSlot: "प्रति-दर्शक स्लॉट",
+      extension: "एक्सटेंशन",
+      loadingExtensions: "एक्सटेंशन लोड हो रहे हैं...",
+      selectExtension: "एक एक्सटेंशन चुनें",
+      noExtensions: "कोई दृश्यमान एक्सटेंशन नहीं है। पहले एक बनाएं या साझा करें।",
+      sharedExtensionHelp:
+        "चुना गया एक्सटेंशन इस डैशबोर्ड के साथ साझा होता है और निर्धारित रिपोर्ट में दिखाई देता है। दर्शकों को फिर भी एक्सटेंशन की पहुंच चाहिए।",
+      slotIdOptional: "स्लॉट ID (वैकल्पिक)",
+      perViewerSlotHelp:
+        "हर दर्शक अपना एक्सटेंशन इंस्टॉल करता है। निर्धारित रिपोर्ट में खाली स्लॉट दिख सकता है। स्थिर ID बनाने के लिए खाली छोड़ें।",
       sectionColumns: "अनुभाग स्तंभ",
       format: "प्रारूप",
       filterInterpolation:
@@ -3489,6 +3682,11 @@ const analyticsSliceTranslations: {
     },
     dataSources: {
       uploadFile: "تحميل الملف",
+      googleSheetsExport: "تصدير Google Sheets",
+      googleSheetsExportDescription:
+        "صدّر تقارير لوحة المعلومات إلى Google Sheets من خلال اتصال Google مشترك.",
+      connected: "متصل",
+      googleSheets: "Google Sheets",
       open: "يفتح",
       savedValueHint:
         "تم حفظ القيمة بالفعل. اتركه فارغًا للاحتفاظ به، أو أدخل قيمة جديدة لاستبداله.",
@@ -3583,12 +3781,25 @@ const analyticsSliceTranslations: {
       chartTypePie: "فطيرة",
       chartTypeMetric: "متري",
       chartTypeTable: "طاولة",
+      chartTypeExtension: "إضافة",
       failedToSavePanel: "فشل حفظ اللوحة",
       failedToFormatSql: "فشل تهيئة SQL",
       title: "عنوان",
       titlePlaceholder: "على سبيل المثال الاشتراكات الأسبوعية",
       chartType: "نوع الرسم البياني",
       source: "المصدر",
+      extensionDisplay: "عرض الإضافة",
+      sharedExtension: "إضافة مشتركة",
+      perViewerSlot: "فتحة لكل مشاهد",
+      extension: "إضافة",
+      loadingExtensions: "جارٍ تحميل الإضافات...",
+      selectExtension: "اختر إضافة",
+      noExtensions: "لا توجد إضافات ظاهرة. أنشئ إضافة أو شاركها أولاً.",
+      sharedExtensionHelp:
+        "تتم مشاركة الإضافة المحددة مع لوحة المعلومات هذه وتظهر في التقارير المجدولة. لا يزال المشاهدون بحاجة إلى صلاحية الوصول إليها.",
+      slotIdOptional: "معرّف الفتحة (اختياري)",
+      perViewerSlotHelp:
+        "يثبّت كل مشاهد إضافته الخاصة. قد تعرض التقارير المجدولة فتحة فارغة. اتركه فارغاً لإنشاء معرّف ثابت.",
       sectionColumns: "أعمدة القسم",
       format: "شكل",
       filterInterpolation: "استخدم {{example}} لاستكمال قيم التصفية.",
@@ -3898,10 +4109,9 @@ export const messagesByLocale = {
       untitledDashboard: "未命名仪表板",
     },
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       account: "账户",
       signedInAs: "登录身份",
       credentials: "数据源凭据",
@@ -4113,10 +4323,10 @@ export const messagesByLocale = {
       untitledDashboard: "Panel sin título",
     },
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       account: "Cuenta",
       signedInAs: "Sesión iniciada como",
       credentials: "Credenciales de fuentes de datos",
@@ -4334,10 +4544,10 @@ export const messagesByLocale = {
       untitledDashboard: "Tableau de bord sans titre",
     },
     settings: {
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l’agent",
       account: "Compte",
       signedInAs: "Connecté en tant que",
       credentials: "Identifiants des sources de données",
@@ -4562,10 +4772,10 @@ export const messagesByLocale = {
       untitledDashboard: "Unbenanntes Dashboard",
     },
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       account: "Konto",
       signedInAs: "Angemeldet als",
       credentials: "Datenquellen-Anmeldedaten",
@@ -4781,10 +4991,10 @@ export const messagesByLocale = {
       untitledDashboard: "無題のダッシュボード",
     },
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       account: "アカウント",
       signedInAs: "サインイン中",
       credentials: "データソース認証情報",
@@ -4999,10 +5209,10 @@ export const messagesByLocale = {
       untitledDashboard: "제목 없는 대시보드",
     },
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       account: "계정",
       signedInAs: "로그인 계정",
       credentials: "데이터 소스 자격 증명",
@@ -5221,10 +5431,10 @@ export const messagesByLocale = {
       untitledDashboard: "Dashboard sem título",
     },
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       account: "Conta",
       signedInAs: "Conectado como",
       credentials: "Credenciais de fontes de dados",
@@ -5438,10 +5648,10 @@ export const messagesByLocale = {
       untitledDashboard: "शीर्षकहीन डैशबोर्ड",
     },
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       account: "खाता",
       signedInAs: "इस रूप में साइन इन",
       credentials: "डेटा स्रोत क्रेडेंशियल",
@@ -5654,10 +5864,10 @@ export const messagesByLocale = {
       untitledDashboard: "لوحة معلومات بلا عنوان",
     },
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       account: "الحساب",
       signedInAs: "تم تسجيل الدخول باسم",
       credentials: "بيانات اعتماد مصادر البيانات",
@@ -5904,6 +6114,11 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "放弃更改",
       dismissDemoIntro: "关闭演示介绍",
       downloadCsv: "下载CSV",
+      exportToGoogleSheets: "导出到 Google Sheets",
+      exportingToGoogleSheets: "正在导出到 Google Sheets...",
+      googleSheetsExported: "已导出到 Google Sheets",
+      openGoogleSheet: "打开表格",
+      googleSheetsExportFailed: "无法导出到 Google Sheets：{{message}}",
       dragToReorder: "拖动以重新排序",
       expandFilters: "展开过滤器",
       failedToFormatSql: "无法格式化 SQL",
@@ -6116,6 +6331,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar cambios",
       dismissDemoIntro: "Descartar la introducción de la demostración",
       downloadCsv: "Descargar CSV",
+      exportToGoogleSheets: "Exportar a Google Sheets",
+      exportingToGoogleSheets: "Exportando a Google Sheets...",
+      googleSheetsExported: "Exportado a Google Sheets",
+      openGoogleSheet: "Abrir hoja",
+      googleSheetsExportFailed:
+        "No se pudo exportar a Google Sheets: {{message}}",
       dragToReorder: "Arrastra para reordenar",
       expandFilters: "Ampliar filtros",
       failedToFormatSql: "No se pudo formatear SQL",
@@ -6333,6 +6554,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Ignorer les modifications",
       dismissDemoIntro: "Ignorer l'intro de la démo",
       downloadCsv: "Télécharger CSV",
+      exportToGoogleSheets: "Exporter vers Google Sheets",
+      exportingToGoogleSheets: "Exportation vers Google Sheets...",
+      googleSheetsExported: "Exporté vers Google Sheets",
+      openGoogleSheet: "Ouvrir la feuille",
+      googleSheetsExportFailed:
+        "Impossible d’exporter vers Google Sheets : {{message}}",
       dragToReorder: "Faites glisser pour réorganiser",
       expandFilters: "Développer les filtres",
       failedToFormatSql: "Échec du formatage de SQL",
@@ -6551,6 +6778,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Änderungen verwerfen",
       dismissDemoIntro: "Demo-Intro schließen",
       downloadCsv: "Laden Sie CSV herunter",
+      exportToGoogleSheets: "Nach Google Sheets exportieren",
+      exportingToGoogleSheets: "Export nach Google Sheets...",
+      googleSheetsExported: "Nach Google Sheets exportiert",
+      openGoogleSheet: "Tabelle öffnen",
+      googleSheetsExportFailed:
+        "Export nach Google Sheets fehlgeschlagen: {{message}}",
       dragToReorder: "Zum Neuanordnen ziehen",
       expandFilters: "Filter erweitern",
       failedToFormatSql: "SQL konnte nicht formatiert werden",
@@ -6764,6 +6997,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "変更を破棄する",
       dismissDemoIntro: "デモのイントロを閉じる",
       downloadCsv: "CSVをダウンロード",
+      exportToGoogleSheets: "Google スプレッドシートにエクスポート",
+      exportingToGoogleSheets: "Google スプレッドシートにエクスポート中...",
+      googleSheetsExported: "Google スプレッドシートにエクスポートしました",
+      openGoogleSheet: "シートを開く",
+      googleSheetsExportFailed:
+        "Google スプレッドシートへのエクスポートに失敗しました: {{message}}",
       dragToReorder: "ドラッグして並べ替えます",
       expandFilters: "フィルターを展開する",
       failedToFormatSql: "SQLのフォーマットに失敗しました",
@@ -6976,6 +7215,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "변경사항 취소",
       dismissDemoIntro: "데모 소개 닫기",
       downloadCsv: "CSV 다운로드",
+      exportToGoogleSheets: "Google Sheets로 내보내기",
+      exportingToGoogleSheets: "Google Sheets로 내보내는 중...",
+      googleSheetsExported: "Google Sheets로 내보냈습니다",
+      openGoogleSheet: "시트 열기",
+      googleSheetsExportFailed:
+        "Google Sheets로 내보내지 못했습니다: {{message}}",
       dragToReorder: "드래그하여 재정렬하세요.",
       expandFilters: "필터 확장",
       failedToFormatSql: "SQL을 포맷하지 못했습니다.",
@@ -7192,6 +7437,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "Descartar alterações",
       dismissDemoIntro: "Ignorar introdução da demonstração",
       downloadCsv: "Baixar CSV",
+      exportToGoogleSheets: "Exportar para o Google Sheets",
+      exportingToGoogleSheets: "Exportando para o Google Sheets...",
+      googleSheetsExported: "Exportado para o Google Sheets",
+      openGoogleSheet: "Abrir planilha",
+      googleSheetsExportFailed:
+        "Não foi possível exportar para o Google Sheets: {{message}}",
       dragToReorder: "Arraste para reordenar",
       expandFilters: "Expandir filtros",
       failedToFormatSql: "Falha ao formatar SQL",
@@ -7404,6 +7655,12 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "परिवर्तन त्यागें",
       dismissDemoIntro: "डेमो परिचय ख़ारिज करें",
       downloadCsv: "CSV डाउनलोड करें",
+      exportToGoogleSheets: "Google Sheets में निर्यात करें",
+      exportingToGoogleSheets: "Google Sheets में निर्यात किया जा रहा है...",
+      googleSheetsExported: "Google Sheets में निर्यात किया गया",
+      openGoogleSheet: "शीट खोलें",
+      googleSheetsExportFailed:
+        "Google Sheets में निर्यात नहीं किया जा सका: {{message}}",
       dragToReorder: "पुनः व्यवस्थित करने के लिए खींचें",
       expandFilters: "फ़िल्टर का विस्तार करें",
       failedToFormatSql: "SQL को प्रारूपित करने में विफल",
@@ -7615,6 +7872,11 @@ const translatedAnalyticsDebtTranslations = {
       discardChanges: "تجاهل التغييرات",
       dismissDemoIntro: "رفض المقدمة التجريبية",
       downloadCsv: "تحميل CSV",
+      exportToGoogleSheets: "تصدير إلى Google Sheets",
+      exportingToGoogleSheets: "جارٍ التصدير إلى Google Sheets...",
+      googleSheetsExported: "تم التصدير إلى Google Sheets",
+      openGoogleSheet: "فتح الورقة",
+      googleSheetsExportFailed: "تعذر التصدير إلى Google Sheets: {{message}}",
       dragToReorder: "اسحب لإعادة الترتيب",
       expandFilters: "قم بتوسيع عوامل التصفية",
       failedToFormatSql: "فشل تنسيق SQL",
@@ -10800,6 +11062,224 @@ for (const [locale, overrides] of Object.entries(
   }
 }
 
+const translatedFeatureFlagAdminTranslations = {
+  "zh-CN": {
+    agents: {
+      featureFlags: "功能开关",
+      featureFlagsDescription: "查看已注册应用开关，并进行可逆的发布调整。",
+      reloadFlags: "重新加载开关",
+      flagsUnavailable: "功能开关不可用",
+      flagsUnreachable: "无法连接工作区目录。连接恢复后重试。",
+      flagsEmpty: "没有应用报告功能开关",
+      flagsEmptyDetail: "连接的应用准备就绪后，已注册开关会显示在这里。",
+      flagsNotReady: "此应用状态为 {{status}}，不会将其开关状态假定为关闭。",
+      noFlagDefinitions: "此应用没有注册功能开关定义。",
+      noFlagDescription: "未提供说明。",
+      selected: "已选择",
+      openFlag: "打开功能开关",
+      confirm: "确认",
+      name: "名称",
+      appId: "应用 ID",
+      flagKey: "功能开关",
+    },
+  },
+  "es-ES": {
+    agents: {
+      featureFlags: "Indicadores de funciones",
+      featureFlagsDescription:
+        "Revisa los indicadores de las aplicaciones registradas y aplica cambios de lanzamiento reversibles.",
+      reloadFlags: "Volver a cargar indicadores",
+      flagsUnavailable: "Los indicadores de funciones no están disponibles",
+      flagsUnreachable:
+        "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+      flagsEmpty: "Ninguna aplicación informó indicadores",
+      flagsEmptyDetail:
+        "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",
+      flagsNotReady:
+        "Esta aplicación está {{status}}; su estado no se supone desactivado.",
+      noFlagDefinitions:
+        "Esta aplicación lista no tiene definiciones de indicadores.",
+      noFlagDescription: "No se proporcionó descripción.",
+      selected: "Seleccionado",
+      openFlag: "Abrir indicador",
+      confirm: "Confirmar",
+      name: "Nombre",
+      appId: "ID de aplicación",
+      flagKey: "Indicador de función",
+    },
+  },
+  "fr-FR": {
+    agents: {
+      featureFlags: "Indicateurs de fonctionnalités",
+      featureFlagsDescription:
+        "Examinez les indicateurs d'applications enregistrées et appliquez des changements de déploiement réversibles.",
+      reloadFlags: "Recharger les indicateurs",
+      flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
+      flagsUnreachable:
+        "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+      flagsEmpty: "Aucune application n'a signalé d'indicateur",
+      flagsEmptyDetail:
+        "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",
+      flagsNotReady:
+        "Cette application est {{status}} ; son état n'est pas supposé désactivé.",
+      noFlagDefinitions:
+        "Cette application prête n'a aucune définition d'indicateur.",
+      noFlagDescription: "Aucune description fournie.",
+      selected: "Sélectionné",
+      openFlag: "Ouvrir l'indicateur",
+      confirm: "Confirmer",
+      name: "Nom",
+      appId: "ID d'application",
+      flagKey: "Indicateur de fonctionnalité",
+    },
+  },
+  "de-DE": {
+    agents: {
+      featureFlags: "Funktionsschalter",
+      featureFlagsDescription:
+        "Prüfe registrierte App-Schalter und nimm bewusste, rückgängig machbare Rollout-Änderungen vor.",
+      reloadFlags: "Funktionsschalter neu laden",
+      flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
+      flagsUnreachable:
+        "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
+      flagsEmpty: "Keine Arbeitsbereichs-App meldet Funktionsschalter",
+      flagsEmptyDetail:
+        "Registrierte Schalter erscheinen hier, sobald verbundene Apps bereit sind.",
+      flagsNotReady:
+        "Diese App ist {{status}}; ihr Schalterzustand wird nicht als aus angenommen.",
+      noFlagDefinitions:
+        "Diese bereite App hat keine registrierten Schalterdefinitionen.",
+      noFlagDescription: "Keine Beschreibung vorhanden.",
+      selected: "Ausgewählt",
+      openFlag: "Funktionsschalter öffnen",
+      confirm: "Bestätigen",
+      name: "Name",
+      appId: "App-ID",
+      flagKey: "Funktionsschalter",
+    },
+  },
+  "pt-BR": {
+    agents: {
+      featureFlags: "Sinalizadores de recursos",
+      featureFlagsDescription:
+        "Revise sinalizadores de apps registrados e faça mudanças de lançamento reversíveis.",
+      reloadFlags: "Recarregar sinalizadores",
+      flagsUnavailable: "Sinalizadores de recursos indisponíveis",
+      flagsUnreachable:
+        "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
+      flagsEmpty: "Nenhum app informou sinalizadores",
+      flagsEmptyDetail:
+        "Sinalizadores registrados aparecerão aqui quando os apps conectados estiverem prontos.",
+      flagsNotReady:
+        "Este app está {{status}}; seu estado não é considerado desligado.",
+      noFlagDefinitions:
+        "Este app pronto não tem definições de sinalizador registradas.",
+      noFlagDescription: "Nenhuma descrição fornecida.",
+      selected: "Selecionado",
+      openFlag: "Abrir sinalizador",
+      confirm: "Confirmar",
+      name: "Nome",
+      appId: "ID do app",
+      flagKey: "Sinalizador de recurso",
+    },
+  },
+  "ja-JP": {
+    agents: {
+      featureFlags: "機能フラグ",
+      featureFlagsDescription:
+        "登録済みアプリのフラグを確認し、元に戻せるロールアウト変更を行います。",
+      reloadFlags: "機能フラグを再読み込み",
+      flagsUnavailable: "機能フラグを利用できません",
+      flagsUnreachable:
+        "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+      flagsEmpty: "フラグを報告したワークスペースアプリはありません",
+      flagsEmptyDetail:
+        "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",
+      flagsNotReady:
+        "このアプリは {{status}} です。フラグ状態をオフとは見なしません。",
+      noFlagDefinitions:
+        "この準備済みアプリには登録済みフラグ定義がありません。",
+      noFlagDescription: "説明はありません。",
+      selected: "選択済み",
+      openFlag: "機能フラグを開く",
+      confirm: "確認",
+      name: "名前",
+      appId: "アプリ ID",
+      flagKey: "機能フラグ",
+    },
+  },
+  "ko-KR": {
+    agents: {
+      featureFlags: "기능 플래그",
+      featureFlagsDescription:
+        "등록된 앱 플래그를 검토하고 되돌릴 수 있는 출시 변경을 적용합니다.",
+      reloadFlags: "기능 플래그 다시 불러오기",
+      flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
+      flagsUnreachable:
+        "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+      flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
+      flagsEmptyDetail:
+        "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
+      flagsNotReady:
+        "이 앱은 {{status}} 상태이며 플래그가 꺼진 것으로 가정하지 않습니다.",
+      noFlagDefinitions: "준비된 이 앱에는 등록된 플래그 정의가 없습니다.",
+      noFlagDescription: "설명이 제공되지 않았습니다.",
+      selected: "선택됨",
+      openFlag: "기능 플래그 열기",
+      confirm: "확인",
+      name: "이름",
+      appId: "앱 ID",
+      flagKey: "기능 플래그",
+    },
+  },
+  "hi-IN": {
+    agents: {
+      featureFlags: "फ़ीचर फ़्लैग",
+      featureFlagsDescription:
+        "पंजीकृत ऐप फ़्लैग देखें और वापस किए जा सकने वाले रोलआउट बदलाव करें।",
+      reloadFlags: "फ़ीचर फ़्लैग फिर से लोड करें",
+      flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
+      flagsUnreachable:
+        "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+      flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
+      flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
+      flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",
+      noFlagDefinitions: "इस तैयार ऐप में पंजीकृत फ़्लैग परिभाषाएँ नहीं हैं।",
+      noFlagDescription: "कोई विवरण नहीं दिया गया।",
+      selected: "चयनित",
+      openFlag: "फ़ीचर फ़्लैग खोलें",
+      confirm: "पुष्टि करें",
+      name: "नाम",
+      appId: "ऐप ID",
+      flagKey: "फ़ीचर फ़्लैग",
+    },
+  },
+  "ar-SA": {
+    agents: {
+      featureFlags: "علامات الميزات",
+      featureFlagsDescription:
+        "راجع علامات التطبيقات المسجلة ونفّذ تغييرات طرح قابلة للعكس.",
+      reloadFlags: "إعادة تحميل علامات الميزات",
+      flagsUnavailable: "علامات الميزات غير متاحة",
+      flagsUnreachable:
+        "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
+      flagsEmpty: "لم يبلغ أي تطبيق في مساحة العمل عن علامات",
+      flagsEmptyDetail:
+        "ستظهر العلامات المسجلة هنا عندما تصبح التطبيقات المتصلة جاهزة.",
+      flagsNotReady:
+        "حالة هذا التطبيق هي {{status}}؛ ولا يُفترض أن علاماته متوقفة.",
+      noFlagDefinitions: "لا يحتوي هذا التطبيق الجاهز على تعريفات علامات مسجلة.",
+      noFlagDescription: "لم يُقدَّم وصف.",
+      selected: "محدد",
+      openFlag: "فتح علامة الميزة",
+      confirm: "تأكيد",
+      name: "الاسم",
+      appId: "معرّف التطبيق",
+      flagKey: "علامة ميزة",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
 const translatedDashboardAdminTranslations = {
   "zh-CN": {
     navigation: {
@@ -11159,6 +11639,18 @@ const translatedDashboardAdminTranslations = {
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedFeatureFlagAdminTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
 
 for (const [locale, overrides] of Object.entries(
   translatedDashboardAdminTranslations,

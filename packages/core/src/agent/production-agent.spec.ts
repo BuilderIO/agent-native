@@ -906,6 +906,82 @@ describe("resolveAgentOwnerEmail", () => {
 });
 
 describe("runAgentLoop", () => {
+  it("passes trusted automation context through to the selected action", async () => {
+    const run = vi.fn(async () => "updated");
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "automation-update",
+                name: "update-local-record",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actions = {
+      "update-local-record": {
+        ...actionEntry({ readOnly: false }),
+        run,
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: () => {},
+      signal: new AbortController().signal,
+      actionCaller: "automation",
+      automation: {
+        triggerId: "trigger-1",
+        triggerName: "crm-follow-up",
+        policyId: "crm-sales-routine-local-v1",
+      },
+    });
+
+    expect(run).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        caller: "automation",
+        automation: {
+          triggerId: "trigger-1",
+          triggerName: "crm-follow-up",
+          policyId: "crm-sales-routine-local-v1",
+        },
+      }),
+    );
+  });
+
   it("does not expand the active tool list after no-query tool-search menu results", async () => {
     const actions = attachToolSearch({
       starter: actionEntry({
@@ -1505,6 +1581,172 @@ describe("runAgentLoop", () => {
     expect(events).not.toContainEqual(
       expect.objectContaining({ type: "text", text: "should not continue" }),
     );
+  });
+
+  it("auto-continues when a stream ends with a partial action input", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-edit",
+          name: "edit-design",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: "tool-edit",
+          text: '{"designId":"design-1"',
+        };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "edit-design": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
+  });
+
+  it("bounds repeated partial action-input continuations", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield {
+          type: "tool-input-start",
+          id: `tool-edit-${streamCalls}`,
+          name: "edit-design",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: `tool-edit-${streamCalls}`,
+          text: '{"designId":"design-1"',
+        };
+      },
+    };
+
+    await runAgentLoopWithMainChatInternalContinuations({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "edit-design": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      maxContinuations: 3,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "error",
+        errorCode: "run_budget_exhausted",
+      }),
+    );
+  });
+
+  it("auto-continues when an empty assistant content frame follows partial action input", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "should not execute");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "tool-input-start",
+          id: "tool-update",
+          name: "update-extension",
+        };
+        yield {
+          type: "tool-input-delta",
+          id: "tool-update",
+          text: '{"id":"ext-1","patches":[',
+        };
+        yield { type: "assistant-content", parts: [] };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "update-extension": {
+          ...actionEntry({ readOnly: false }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events.at(-1)).toEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(events).not.toContainEqual({ type: "done" });
   });
 
   it("checkpoints when zero-byte action input preparation goes silent", async () => {
@@ -4806,6 +5048,12 @@ describe("runAgentLoop", () => {
         text: expect.stringContaining("failed 3 times"),
       }),
     );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringContaining("DB failed"),
+      }),
+    );
   });
 
   it("stops after repeated identical unknown-tool errors", async () => {
@@ -6229,6 +6477,101 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("recovers schema-invalid empty placeholders in optional tool fields", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "placeholder-call",
+            name: "update-extension",
+            input: {
+              id: "ext-1",
+              description: "",
+              visibility: "",
+              patches: [{}],
+              edits: [{}],
+              format: false,
+            },
+            error:
+              "input/visibility must be equal to one of the allowed values",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Updated." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "updated");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "update-extension": {
+          tool: {
+            description: "Update extension",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                description: { type: "string" },
+                visibility: {
+                  type: "string",
+                  enum: ["private", "org"],
+                },
+                patches: {
+                  anyOf: [
+                    { type: "string" },
+                    { type: "array", items: { type: "object" } },
+                  ],
+                },
+                edits: { type: "array", items: { type: "object" } },
+                format: { type: "boolean" },
+              },
+              required: ["id"],
+            },
+          },
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledWith({ id: "ext-1" }, expect.any(Object));
+    expect(events).not.toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "update-extension",
+        isError: true,
+      }),
+    );
+  });
+
   it("marks MCP isError results as errored tool results for the next model turn", async () => {
     let streamCalls = 0;
     const seenMessages: any[] = [];
@@ -6831,6 +7174,157 @@ describe("runAgentLoop", () => {
     expect(textEvents[0].text).toBe("Recovered answer.");
   });
 
+  it("recovers when the model stops without assistant content after a tool", async () => {
+    let streamCalls = 0;
+    const run = vi.fn(async () => "fresh Granola notes");
+    const seenMessages: EngineMessage[][] = [];
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        seenMessages.push(opts.messages);
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "sync-granola",
+                name: "sync-source",
+                input: {},
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCalls === 2) {
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield { type: "text-delta", text: "The latest notes are synced." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "The latest notes are synced." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const actions = {
+      "sync-source": {
+        ...actionEntry({ readOnly: false }),
+        run,
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: actionsToEngineTools(actions),
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(seenMessages[2]).not.toContainEqual({
+      role: "assistant",
+      content: [],
+    });
+    expect(events).toContainEqual({
+      type: "text",
+      text: "The latest notes are synced.",
+    });
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("surfaces a fallback when terminal stops omit assistant content", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: true,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(3);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "text",
+        text: expect.stringMatching(/empty response/i),
+      }),
+    );
+    expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("continues when a model stream disappears without a terminal stop", async () => {
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {},
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(events).toEqual([{ type: "auto_continue", reason: "stream_ended" }]);
+  });
+
   it("recovers repeated Luna reasoning-only turns before an app guard classifies the continuation", async () => {
     const seenReasoningEfforts: Array<EngineStreamOptions["reasoningEffort"]> =
       [];
@@ -7112,6 +7606,84 @@ describe("runAgentLoop", () => {
     );
     expect(events).toContainEqual({ type: "text", text: "Found it." });
     expect(events.at(-1)).toEqual({ type: "done" });
+  });
+
+  it("collapses duplicate assistant tool-call ids before execution and replay", async () => {
+    let streamCalls = 0;
+    let replayedMessages: EngineMessage[] | undefined;
+    const events: AgentChatEvent[] = [];
+    const run = vi.fn(async () => "recording result");
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "call_duplicate",
+                name: "list-session-recordings",
+                input: { userId: "tim@builder.io", limit: 1 },
+              },
+              {
+                type: "tool-call" as const,
+                id: "call_duplicate",
+                name: "list-session-recordings",
+                input: { userId: "tim@builder.io", limit: 1 },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        replayedMessages = opts.messages;
+        yield { type: "text-delta", text: "Found it." };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Found it." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "list-session-recordings": {
+          ...actionEntry({ readOnly: true }),
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(events.filter((event) => event.type === "tool_start")).toHaveLength(
+      1,
+    );
+    const replayedToolCalls =
+      replayedMessages
+        ?.flatMap((message) => message.content)
+        .filter((part) => part.type === "tool-call") ?? [];
+    expect(replayedToolCalls).toHaveLength(1);
+    expect(replayedToolCalls[0]).toMatchObject({ id: "call_duplicate" });
   });
 
   it("does not carry streamed tool calls across a retry", async () => {

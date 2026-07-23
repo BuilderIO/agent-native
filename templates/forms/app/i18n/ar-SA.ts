@@ -33,10 +33,10 @@ const messages = {
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    agentTitle: "إعدادات الوكيل",
+    agentTitle: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    openAgentSettings: "فتح إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "إدارة الوكيل",
   },
   agent: {
     emptyState: "اسألني أي شيء عن نماذجك",
@@ -265,6 +265,8 @@ const messages = {
     duplicated: "النموذج مكرر",
     duplicateFailed: "فشل في تكرار النموذج",
     movedToArchive: "تم نقل النموذج إلى الأرشيف",
+    movingToArchive: "جارٍ نقل النموذج إلى الأرشيف…",
+    archiveFailed: "تعذر نقل النموذج إلى الأرشيف",
     restored: "تمت استعادة النموذج",
     permanentlyDeleted: "تم حذف النموذج نهائيًا",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

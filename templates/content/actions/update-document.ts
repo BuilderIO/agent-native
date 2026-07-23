@@ -1,8 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { agentTouchDocument } from "@agent-native/core/collab";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, desc } from "drizzle-orm";
+import {
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
+import { and, eq, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -13,12 +21,13 @@ import {
 import type { DocumentUpdateResponse } from "../shared/api.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
-  isLocalDocumentId,
-  isContentLocalFileMode,
-  updateLocalFileDocument,
-} from "./_local-file-documents.js";
+  favoriteDocumentIds,
+  setFavoriteMembership,
+} from "./_content-favorites.js";
+import { provisionContentSpaces } from "./_content-spaces.js";
+import { serializeDocumentSource } from "./_document-source.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -42,8 +51,101 @@ function nanoid(size = 12): string {
 
 const SNAPSHOT_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
+
+async function documentMutationCreativeContext(input: {
+  documentId: string;
+  contextPackId?: string;
+  contextModeOverride?: "off";
+  reuseLabels: CreativeContextReuseLabel[];
+  artifactAccessAsserted: boolean;
+  skipPreviousRead?: boolean;
+}) {
+  const previous =
+    input.skipPreviousRead || input.contextModeOverride === "off"
+      ? null
+      : await getGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: input.documentId,
+        });
+  if (
+    !previous &&
+    !input.contextPackId &&
+    !input.contextModeOverride &&
+    !input.reuseLabels.length
+  ) {
+    return undefined;
+  }
+  if (
+    input.contextPackId !== undefined &&
+    previous?.contextPackId &&
+    input.contextPackId !== previous.contextPackId
+  ) {
+    throw new Error(
+      "The document update must preserve the document's creative-context pack",
+    );
+  }
+  const requestedLabels: CreativeContextReuseLabel[] = input.reuseLabels.length
+    ? input.reuseLabels
+    : [
+        {
+          kind: "document",
+          label: "Net-new document update",
+          dataRole: "untrusted-reference",
+          elementId: input.documentId,
+          influence: "generated",
+        },
+      ];
+  const validated = await validateGenerationCreativeContext({
+    contextPackId: input.contextPackId ?? previous?.contextPackId,
+    contextPackSource:
+      input.contextPackId === undefined ? "inherited" : "explicit",
+    contextModeOverride: input.contextModeOverride,
+    reuseLabels: requestedLabels,
+    reuseLabelsSource: input.reuseLabels.length ? "explicit" : "inherited",
+  });
+  const nextElementProvenance = validated.reuseLabels.map((label) => ({
+    elementId: input.documentId,
+    influence: label.influence ?? ("reference-conditioned" as const),
+    ...(label.itemId ? { itemId: label.itemId } : {}),
+    ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+    label: label.label,
+  }));
+  const contextMode =
+    validated.contextMode === "off"
+      ? "off"
+      : (previous?.contextMode ?? validated.contextMode);
+  return {
+    contextMode,
+    contextPackId: validated.contextPackId,
+    reuseLabels: validated.reuseLabels,
+    elementProvenance:
+      contextMode === "off"
+        ? nextElementProvenance
+        : replaceCreativeContextElementProvenance(
+            previous?.elementProvenance ?? [],
+            nextElementProvenance,
+          ),
+  };
+}
+
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
+}
+
+function canEditRole(role: string) {
+  return role === "owner" || role === "admin" || role === "editor";
 }
 
 function builderBodyWithoutImageSourceComponentMarkers(
@@ -183,6 +285,21 @@ export default defineAction({
       .describe(
         "updatedAt of the last-loaded document snapshot; enables compare-and-swap for content saves",
       ),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Exact Creative Context pack used for this agent update."),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this agent update only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(reuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Exact item versions that influenced this agent update."),
   }),
   run: async (
     args,
@@ -198,21 +315,30 @@ export default defineAction({
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const doc = await updateLocalFileDocument(id, args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-        softDeletedDatabaseIds: [],
-      };
-    }
-
-    const access = await assertAccess("document", id, "editor");
+    const favoriteOnly =
+      args.isFavorite !== undefined &&
+      args.title === undefined &&
+      args.content === undefined &&
+      args.description === undefined &&
+      args.icon === undefined;
+    const access = favoriteOnly
+      ? await resolveContentDocumentAccess(id)
+      : await assertAccess("document", id, "editor");
+    if (!access) throw new Error(`Document "${id}" not found`);
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
 
     const db = getDb();
+    const requestUserEmail = getRequestUserEmail();
+    if (args.isFavorite !== undefined && !requestUserEmail) {
+      throw new Error("no authenticated user");
+    }
+    if (args.isFavorite !== undefined) {
+      await provisionContentSpaces(db, requestUserEmail as string);
+    }
+    const currentFavorite = requestUserEmail
+      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+      : parseDocumentFavorite(existing.isFavorite);
 
     // Strip leading H1 that duplicates the title
     let content = args.content;
@@ -287,11 +413,12 @@ export default defineAction({
       content !== undefined && content !== existing.content;
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
     const favoriteChanged =
-      args.isFavorite !== undefined &&
-      (args.isFavorite ? 1 : 0) !== (existing.isFavorite ?? 0);
+      args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
     const descriptionChanged =
       args.description !== undefined &&
       args.description.trim() !== existing.description;
+    const documentFieldsChanged =
+      titleChanged || contentChanged || iconChanged || descriptionChanged;
     const anyChange =
       titleChanged ||
       contentChanged ||
@@ -334,6 +461,9 @@ export default defineAction({
     }
 
     let softDeletedDatabaseIds: string[] = [];
+    let creativeContext:
+      | Awaited<ReturnType<typeof documentMutationCreativeContext>>
+      | undefined;
 
     // Content saves optionally carry the `updatedAt` of the snapshot the
     // caller last reconciled. Guard the write with a compare-and-swap in that
@@ -353,69 +483,127 @@ export default defineAction({
         updates.description = args.description.trim();
       if (contentChanged) updates.content = content;
       if (iconChanged) updates.icon = args.icon;
-      if (favoriteChanged) updates.isFavorite = args.isFavorite ? 1 : 0;
-
-      if (useContentCas) {
-        const applied = await db
-          .update(schema.documents)
-          .set(updates)
-          .where(
-            and(
-              eq(schema.documents.id, id),
-              eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
-            ),
-          )
-          .returning({ id: schema.documents.id });
-
-        if (!applied || applied.length === 0) {
-          // Someone else's write landed after the caller's snapshot. Don't
-          // apply this save at all (title/icon/favorite included — a partial
-          // apply would desync the fields from what the caller believes it
-          // just sent) and hand back the current server row instead so the
-          // caller can reconcile.
-          const [current] = await db
-            .select()
-            .from(schema.documents)
-            .where(eq(schema.documents.id, id));
-          return {
-            conflict: true,
-            id,
-            document: {
-              id: current.id,
-              urlPath: `/page/${current.id}`,
-              parentId: current.parentId,
-              title: current.title,
-              content: current.content,
-              description: current.description,
-              icon: current.icon,
-              position: current.position,
-              isFavorite: parseDocumentFavorite(current.isFavorite),
-              hideFromSearch: parseDocumentHideFromSearch(
-                current.hideFromSearch,
+      let contentCasConflict = false;
+      await db.transaction(async (tx) => {
+        if (useContentCas) {
+          const applied = await tx
+            .update(schema.documents)
+            .set(updates)
+            .where(
+              and(
+                eq(schema.documents.id, id),
+                eq(schema.documents.updatedAt, args.baseUpdatedAt as string),
               ),
-              visibility: current.visibility,
-              accessRole: access.role,
-              canEdit: true,
-              canManage: canManageRole(access.role),
-              createdAt: current.createdAt,
-              updatedAt: current.updatedAt,
-              source: serializeDocumentSource(current),
-              softDeletedDatabaseIds: [],
-            },
-          };
+            )
+            .returning({ id: schema.documents.id });
+          if (!applied || applied.length === 0) {
+            contentCasConflict = true;
+            return;
+          }
+        } else if (documentFieldsChanged) {
+          await tx
+            .update(schema.documents)
+            .set(updates)
+            .where(eq(schema.documents.id, id));
         }
-      } else {
-        await db
-          .update(schema.documents)
-          .set(updates)
-          .where(eq(schema.documents.id, id));
-      }
 
-      if (titleChanged && args.title !== undefined) {
-        await db
-          .update(schema.contentDatabases)
-          .set({ title: args.title, updatedAt: updates.updatedAt as string })
-          .where(eq(schema.contentDatabases.documentId, id));
+        if (favoriteChanged) {
+          await setFavoriteMembership({
+            db: tx,
+            userEmail: requestUserEmail as string,
+            documentId: id,
+            favorite: args.isFavorite as boolean,
+            now: updates.updatedAt as string,
+          });
+        }
+
+        if (titleChanged && args.title !== undefined) {
+          const [database] = await tx
+            .select({
+              id: schema.contentDatabases.id,
+              spaceId: schema.contentDatabases.spaceId,
+              systemRole: schema.contentDatabases.systemRole,
+            })
+            .from(schema.contentDatabases)
+            .where(eq(schema.contentDatabases.documentId, id));
+          if (database) {
+            const title =
+              database.systemRole === "files"
+                ? args.title.trim() || "Untitled"
+                : args.title;
+            await tx
+              .update(schema.contentDatabases)
+              .set({ title, updatedAt: updates.updatedAt as string })
+              .where(eq(schema.contentDatabases.id, database.id));
+            if (database.systemRole === "files" && database.spaceId) {
+              await tx
+                .update(schema.documents)
+                .set({ title, updatedAt: updates.updatedAt as string })
+                .where(eq(schema.documents.id, id));
+              await tx
+                .update(schema.contentSpaces)
+                .set({ name: title, updatedAt: updates.updatedAt as string })
+                .where(eq(schema.contentSpaces.id, database.spaceId));
+              const catalogReferences = await tx
+                .select({
+                  documentId: schema.contentSpaceCatalogItems.documentId,
+                })
+                .from(schema.contentSpaceCatalogItems)
+                .where(
+                  eq(schema.contentSpaceCatalogItems.spaceId, database.spaceId),
+                );
+              if (catalogReferences.length > 0) {
+                await tx
+                  .update(schema.documents)
+                  .set({ title, updatedAt: updates.updatedAt as string })
+                  .where(
+                    inArray(
+                      schema.documents.id,
+                      catalogReferences.map(
+                        (reference) => reference.documentId,
+                      ),
+                    ),
+                  );
+              }
+            }
+          }
+        }
+      });
+
+      if (contentCasConflict) {
+        // Someone else's write landed after the caller's snapshot. Don't
+        // apply this save at all (title/icon/favorite included — a partial
+        // apply would desync the fields from what the caller believes it
+        // just sent) and hand back the current server row instead so the
+        // caller can reconcile.
+        const [current] = await db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id));
+        return {
+          conflict: true,
+          id,
+          document: {
+            id: current.id,
+            urlPath: `/page/${current.id}`,
+            parentId: current.parentId,
+            title: current.title,
+            content: current.content,
+            description: current.description,
+            icon: current.icon,
+            position: current.position,
+            isFavorite: currentFavorite,
+            hideFromSearch: parseDocumentHideFromSearch(current.hideFromSearch),
+            visibility: current.visibility,
+            accessRole: access.role,
+            canEdit: canEditRole(access.role),
+            canManage: canManageRole(access.role),
+            createdAt: current.createdAt,
+            updatedAt: current.updatedAt,
+            source: serializeDocumentSource(current),
+            softDeletedDatabaseIds: [],
+          },
+        };
       }
 
       if (contentChanged) {
@@ -448,12 +636,32 @@ export default defineAction({
           );
         }
       }
+      if (isAgentCaller) {
+        creativeContext = await documentMutationCreativeContext({
+          documentId: id,
+          contextPackId: args.contextPackId,
+          contextModeOverride: args.contextModeOverride,
+          reuseLabels: args.reuseLabels,
+          artifactAccessAsserted: true,
+        });
+        if (creativeContext) {
+          await recordGenerationCreativeContext({
+            appId: "content",
+            artifactType: "document",
+            artifactId: id,
+            ...creativeContext,
+          });
+        }
+      }
     }
 
     const [doc] = await db
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, id));
+    const finalFavorite = requestUserEmail
+      ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
+      : parseDocumentFavorite(doc.isFavorite);
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
@@ -466,16 +674,23 @@ export default defineAction({
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
-      isFavorite: parseDocumentFavorite(doc.isFavorite),
+      isFavorite: finalFavorite,
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       visibility: doc.visibility,
       accessRole: access.role,
-      canEdit: true,
+      canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       source: serializeDocumentSource(doc),
       softDeletedDatabaseIds,
+      ...(creativeContext
+        ? {
+            contextMode: creativeContext.contextMode,
+            contextPackId: creativeContext.contextPackId,
+            reuseLabels: creativeContext.reuseLabels,
+          }
+        : {}),
     };
   },
 });

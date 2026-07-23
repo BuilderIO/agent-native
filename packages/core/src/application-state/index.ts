@@ -4,8 +4,11 @@ export {
   appStateGetMany,
   appStatePut,
   appStateDelete,
+  appStateCompareAndSet,
+  appStateCompareAndSetMany,
   appStateList,
   appStateDeleteByPrefix,
+  type AppStateCompareAndSetOperation,
 } from "./store.js";
 
 // Emitter (for SSE wiring)
@@ -33,6 +36,8 @@ export {
   readAppState,
   writeAppState,
   deleteAppState,
+  compareAndSetAppState,
+  compareAndSetManyAppState,
   listAppState,
   deleteAppStateByPrefix,
   readAppStateForCurrentTab,

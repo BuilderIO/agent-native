@@ -1,11 +1,4 @@
-/**
- * Detail view for a single monitor: status header, overview stats, response-time
- * chart, a 90-day uptime timeline, config summary, recent check results, and
- * incident history. The colorful charts + uptime windows are driven by the
- * shared `get-monitor-stats` aggregate and the reusable `@/components/monitoring`
- * chart components; per-check config/history comes from `get-monitor`.
- */
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import {
   IconArrowLeft,
   IconExternalLink,

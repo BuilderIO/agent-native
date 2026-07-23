@@ -1,12 +1,11 @@
 import {
   AgentToggleButton,
-  ShareButton,
-  appPath,
-  useFormatters,
-  useReconciledState,
   useSendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useReconciledState } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import type {
   FormField,
   FormFieldType,
@@ -34,7 +33,7 @@ import {
   IconDownload,
   IconRefresh,
   IconLoader2,
-  IconDots,
+  IconDotsVertical,
   IconLock,
   IconArchive,
 } from "@tabler/icons-react";
@@ -359,10 +358,19 @@ export function FormBuilderPage() {
             <Skeleton className="h-8 w-20 rounded-md" />
           </div>
         </div>
-        {/* Body: builder + properties */}
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-auto p-4 sm:p-6">
-            <div className="max-w-2xl mx-auto space-y-4">
+        {/* Tabs */}
+        <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-hidden">
+          <div className="flex w-max items-center gap-1 rounded-lg bg-muted/40 p-1">
+            <Skeleton className="h-8 w-12 rounded-md" />
+            <Skeleton className="h-8 w-16 rounded-md" />
+            <Skeleton className="h-8 w-16 rounded-md" />
+            <Skeleton className="h-8 w-24 rounded-md" />
+          </div>
+        </div>
+        {/* Body: builder */}
+        <div className="flex flex-1 overflow-hidden relative">
+          <div className="flex-1 overflow-auto bg-muted/30">
+            <div className="max-w-2xl mx-auto py-4 sm:py-8 px-3 sm:px-4 space-y-4">
               <Skeleton className="h-8 w-2/3" />
               <Skeleton className="h-4 w-1/2" />
               <div className="space-y-3 pt-4">
@@ -377,12 +385,6 @@ export function FormBuilderPage() {
                 ))}
               </div>
             </div>
-          </div>
-          <div className="hidden lg:block w-72 border-s border-border p-4 space-y-4">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
-            <Skeleton className="h-9 w-full" />
           </div>
         </div>
       </div>
@@ -624,20 +626,15 @@ export function FormBuilderPage() {
             </Tooltip>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
+          {form.status === "published" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
-                  disabled={form.status !== "published"}
-                  aria-label={
-                    form.status === "published"
-                      ? t("builder.copyPublicFormLink")
-                      : t("builder.publishBeforeCopyPublicFormLink")
-                  }
+                  aria-label={t("builder.copyPublicFormLink")}
                 >
                   <span className="relative inline-flex h-4 w-4 items-center justify-center">
                     <IconCopy
@@ -658,16 +655,14 @@ export function FormBuilderPage() {
                     />
                   </span>
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {form.status === "published"
-                ? copied
+              </TooltipTrigger>
+              <TooltipContent>
+                {copied
                   ? t("builder.publicLinkCopied")
-                  : t("builder.copyPublishedPublicLink")
-                : t("builder.publishBeforeCopyPublicLink")}
-            </TooltipContent>
-          </Tooltip>
+                  : t("builder.copyPublishedPublicLink")}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -729,12 +724,12 @@ export function FormBuilderPage() {
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="icon"
                       className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
-                      <IconDots className="h-4 w-4" />
+                      <IconDotsVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>

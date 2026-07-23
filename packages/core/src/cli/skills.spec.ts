@@ -130,6 +130,183 @@ describe("agent-native skills", () => {
     });
   });
 
+  it("installs Rewind instructions and repairs the local Screen Memory MCP together", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    const store = path.join(root, "screen-memory");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    fs.mkdirSync(store, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    process.env.CLIPS_SCREEN_MEMORY_DIR = store;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "rewind",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--yes",
+        ]),
+        { baseDir: root },
+      );
+
+      expect(result).toMatchObject({
+        id: "rewind",
+        skillNames: ["rewind"],
+        mcpUrl: "",
+        mcpClients: ["codex"],
+      });
+      expect(
+        fs.readFileSync(
+          path.join(codexHome, "skills", "rewind", "SKILL.md"),
+          "utf-8",
+        ),
+      ).toContain("screen_memory_search_chapters");
+      const config = fs.readFileSync(
+        path.join(codexHome, "config.toml"),
+        "utf-8",
+      );
+      expect(config).toContain("clips-screen-memory");
+      expect(config).toContain(path.resolve(store));
+      expect(result.commands).toContain(
+        "npx @agent-native/core@latest mcp install-screen-memory --client codex --scope user",
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousStore === undefined)
+        delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+      else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+    }
+  });
+
+  it("can install only the Rewind instructions without touching MCP config", async () => {
+    const root = tmpDir();
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = codexHome;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "rewind",
+          "--client",
+          "codex",
+          "--scope",
+          "user",
+          "--no-mcp",
+          "--yes",
+        ]),
+        { baseDir: root },
+      );
+
+      expect(result.mcpClients).toEqual([]);
+      expect(
+        fs.existsSync(path.join(codexHome, "skills", "rewind", "SKILL.md")),
+      ).toBe(true);
+      expect(fs.existsSync(path.join(codexHome, "config.toml"))).toBe(false);
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+    }
+  });
+
+  it("installs Rewind into the shared user skill directory for Cursor", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const store = path.join(root, "screen-memory");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(store, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+    process.env.HOME = home;
+    process.env.CLIPS_SCREEN_MEMORY_DIR = store;
+
+    try {
+      const result = await addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "rewind",
+          "--client",
+          "cursor",
+          "--scope",
+          "user",
+          "--yes",
+        ]),
+        { baseDir: root },
+      );
+
+      expect(result.skillsAgents).toEqual(["cursor"]);
+      expect(
+        fs.existsSync(
+          path.join(home, ".agents", "skills", "rewind", "SKILL.md"),
+        ),
+      ).toBe(true);
+      expect(
+        fs.readFileSync(path.join(home, ".cursor", "mcp.json"), "utf-8"),
+      ).toContain("clips-screen-memory");
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousStore === undefined)
+        delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+      else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+    }
+  });
+
+  it("dry-runs Rewind setup without requiring an active local store", async () => {
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "rewind",
+        "--client",
+        "claude-code",
+        "--scope",
+        "user",
+        "--dry-run",
+        "--yes",
+      ]),
+      { baseDir: tmpDir() },
+    );
+
+    expect(result).toMatchObject({
+      id: "rewind",
+      dryRun: true,
+      mcpUrl: "",
+      mcpClients: ["claude-code"],
+    });
+  });
+
+  it("rejects hosted MCP overrides for local Rewind memory", async () => {
+    await expect(
+      addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "rewind",
+          "--client",
+          "codex",
+          "--mcp-url",
+          "https://example.com/mcp",
+          "--yes",
+        ]),
+        { baseDir: tmpDir() },
+      ),
+    ).rejects.toThrow("uses the local Clips Screen Memory MCP");
+  });
+
   it("tracks when --client is explicit", () => {
     expect(
       parseSkillsArgs(["add", "assets", "--client", "claude-code"]),
@@ -401,13 +578,12 @@ describe("agent-native skills", () => {
     expect(result.localManifestPath).toBe(manifestPath);
     expect(result.commands).toContain(`write ${manifestPath}`);
     expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toContain(
-      "Default storage for this installation: Content Local File Mode.",
+      "Default storage for this installation is Content's SQL database.",
     );
     expect(manifest).toMatchObject({
       version: 1,
       apps: {
         content: {
-          mode: "local-files",
           components: "components",
           extensions: "extensions",
         },
@@ -419,6 +595,14 @@ describe("agent-native skills", () => {
       "content",
       "resources",
     ]);
+    for (const root of manifest.apps.content.roots) {
+      expect(root.source).toMatchObject({
+        type: "local-folder",
+        truthPolicy: "source_primary",
+      });
+      expect(root.source.connectionId).toMatch(/^local-folder:/);
+    }
+    expect(manifest.apps.content.mode).toBeUndefined();
     expect(manifest.mode).toBeUndefined();
   });
 
@@ -471,13 +655,20 @@ describe("agent-native skills", () => {
       fs.readFileSync(path.join(root, "agent-native.json"), "utf-8"),
     );
     expect(manifest.apps.content.roots).toEqual([
-      {
+      expect.objectContaining({
         name: "Knowledge",
         path: "knowledge",
         kind: "docs",
         extensions: [".mdx"],
-      },
+        source: expect.objectContaining({
+          type: "local-folder",
+          truthPolicy: "source_primary",
+        }),
+      }),
     ]);
+    expect(manifest.apps.content.roots[0].source.connectionId).toMatch(
+      /^local-folder:/,
+    );
     expect(manifest.apps.content.components).toEqual(["blocks"]);
     expect(manifest.apps.content.extensions).toBe("extensions");
     expect(manifest.mode).toBe("workspace");
@@ -522,7 +713,8 @@ describe("agent-native skills", () => {
       expect.arrayContaining(["--mode", "local-files"]),
     );
     expect(manifest.mode).toBeUndefined();
-    expect(manifest.apps.content.mode).toBe("local-files");
+    expect(manifest.apps.content.mode).toBeUndefined();
+    expect(manifest.apps.content.roots[0].source.type).toBe("local-folder");
   });
 
   it("accepts Content app-skill manifests with local-files mode", async () => {
@@ -553,7 +745,8 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe("");
     expect(result.mcpClients).toEqual([]);
     expect(manifest.mode).toBeUndefined();
-    expect(manifest.apps.content.mode).toBe("local-files");
+    expect(manifest.apps.content.mode).toBeUndefined();
+    expect(manifest.apps.content.roots[0].source.type).toBe("local-folder");
   });
 
   it("accepts design-exploration aliases for the built-in Design skill", async () => {
@@ -1489,6 +1682,7 @@ describe("agent-native skills", () => {
       "visualize-repo",
       "assets",
       "content",
+      "rewind",
       "design-exploration",
       "visual-edit",
       "context-xray",
@@ -1575,6 +1769,7 @@ describe("agent-native skills", () => {
       "visualize-repo",
       "assets",
       "content",
+      "rewind",
       "design-exploration",
       "visual-edit",
       "context-xray",
@@ -2245,6 +2440,40 @@ describe("agent-native skills", () => {
     ).toContain("# Agent Native Docs");
     expect(fs.existsSync(path.join(root, "CLAUDE.md"))).toBe(true);
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
+  });
+
+  it("does not overwrite same-named skills in an unmarked UI template", async () => {
+    const root = tmpDir();
+    const skillPath = path.join(
+      root,
+      ".agents",
+      "skills",
+      "agent-native-toolkit",
+      "SKILL.md",
+    );
+    fs.mkdirSync(path.dirname(skillPath), { recursive: true });
+    fs.mkdirSync(path.join(root, "app", "routes"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "custom-ui-app",
+          dependencies: { "@agent-native/core": "latest" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(skillPath, "app-owned Toolkit guidance\n");
+
+    await runSkills(["update", "scaffold", "--scope", "project"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(fs.readFileSync(skillPath, "utf-8")).toBe(
+      "app-owned Toolkit guidance\n",
+    );
   });
 
   it("registers the skill against a --mcp-url override (bare origin gets the mcp path)", async () => {

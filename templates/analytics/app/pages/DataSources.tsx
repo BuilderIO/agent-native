@@ -1,14 +1,16 @@
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   appApiPath,
   agentNativePath,
+} from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import {
   callAction,
-  oauthRedirectUri,
   useActionMutation,
   useActionQuery,
-  useSendToAgentChat,
-  PromptComposer,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { oauthRedirectUri } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconChevronDown,
@@ -26,6 +28,8 @@ import {
   IconCopy,
   IconDotsVertical,
   IconBrandGithub,
+  IconBrandGoogle,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -66,6 +70,7 @@ import { getIdToken } from "@/lib/auth";
 import {
   getOptionalCredentialKeys,
   getSharedConnectionStatus,
+  getGoogleDriveConnection,
   isSourceReady,
   isSourceLocallyConfigured,
   credentialRowsFromStatus,
@@ -424,6 +429,99 @@ function GitHubOAuthView({
         </div>
       )}
     </div>
+  );
+}
+
+function WorkspaceOAuthView({
+  provider,
+  label,
+  connected,
+}: {
+  provider: string;
+  label: string;
+  connected: boolean;
+}) {
+  const t = useT();
+  const connect = () => {
+    const params = new URLSearchParams({
+      appId: "analytics",
+      return: "/data-sources",
+    });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
+      ),
+    );
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+            <IconPlugConnected className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs font-medium text-foreground">{label}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("dataSources.sharedIntegration")}
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant={connected ? "outline" : "default"}
+          onClick={connect}
+          className="shrink-0 text-xs"
+        >
+          {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function GoogleSheetsExportCard({
+  statusData,
+}: {
+  statusData: DataSourceStatusResponse | undefined;
+}) {
+  const t = useT();
+  const connection = getGoogleDriveConnection(statusData);
+  const connected = connection?.grantState === "connected";
+
+  return (
+    <Card className="data-source-card bg-card border-border/50">
+      <CardContent className="space-y-4 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <IconBrandGoogle className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium">
+                {t("dataSources.googleSheetsExport")}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t("dataSources.googleSheetsExportDescription")}
+              </p>
+            </div>
+          </div>
+          <span
+            className={`shrink-0 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}
+          >
+            {connected
+              ? t("dataSources.connected")
+              : t("dataSources.notConfigured")}
+          </span>
+        </div>
+        <WorkspaceOAuthView
+          provider="google_drive"
+          label={t("dataSources.googleSheets")}
+          connected={connected}
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1101,6 +1199,17 @@ function DataSourceCard({
               />
             </div>
           )}
+          {(["notion", "hubspot", "jira", "sentry"] as const).includes(
+            source.id as "notion" | "hubspot" | "jira" | "sentry",
+          ) && (
+            <div className="mb-4">
+              <WorkspaceOAuthView
+                provider={source.id}
+                label={source.name}
+                connected={readyViaWorkspace}
+              />
+            </div>
+          )}
           {sharedConnectionStatus && (
             <SharedConnectionStatusRow status={sharedConnectionStatus} />
           )}
@@ -1644,6 +1753,8 @@ export default function DataSources() {
             </span>
           ))}
       </p>
+
+      <GoogleSheetsExportCard statusData={statusData} />
 
       {/* Search bar + Add Data Source */}
       <div className="data-sources-toolbar">

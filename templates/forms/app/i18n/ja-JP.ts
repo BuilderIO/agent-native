@@ -34,10 +34,10 @@ const messages = {
       "チームメンバー、組織アクセス、共有ワークスペース設定を管理します。",
     openTeamSettings: "チーム設定を開く",
     openResourceSettings: "リソース設定を開く",
-    agentTitle: "エージェント設定",
+    agentTitle: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    openAgentSettings: "エージェント設定を開く",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    openAgentSettings: "エージェントを管理",
   },
   agent: {
     emptyState: "フォームについて何でも聞いてください",
@@ -259,6 +259,8 @@ const messages = {
     duplicated: "フォームが複製されました",
     duplicateFailed: "フォームの複製に失敗しました",
     movedToArchive: "フォームはアーカイブに移動されました",
+    movingToArchive: "フォームをアーカイブに移動中…",
+    archiveFailed: "フォームをアーカイブに移動できませんでした",
     restored: "フォームが復元されました",
     permanentlyDeleted: "フォームは完全に削除されました",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

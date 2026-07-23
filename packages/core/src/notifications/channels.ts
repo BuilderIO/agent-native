@@ -28,6 +28,7 @@
  */
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { escapeSlackMrkdwn } from "../integrations/webhook-delivery.js";
 import {
   getKeyAllowlist,
   getResolvedKeyAllowlist,
@@ -140,7 +141,7 @@ function createSlackWebhookChannel(
                 type: "section",
                 text: {
                   type: "mrkdwn",
-                  text: `*${escapeSlack(input.title)}*`,
+                  text: `*${escapeSlackMrkdwn(input.title)}*`,
                 },
               },
               ...(input.body
@@ -149,7 +150,7 @@ function createSlackWebhookChannel(
                       type: "section",
                       text: {
                         type: "mrkdwn",
-                        text: escapeSlack(input.body),
+                        text: escapeSlackMrkdwn(input.body),
                       },
                     },
                   ]
@@ -159,7 +160,7 @@ function createSlackWebhookChannel(
                 elements: [
                   {
                     type: "mrkdwn",
-                    text: `Severity: \`${input.severity}\`  Owner: ${escapeSlack(meta.owner)}`,
+                    text: `Severity: \`${input.severity}\`  Owner: ${escapeSlackMrkdwn(meta.owner)}`,
                   },
                 ],
               },
@@ -373,13 +374,6 @@ function slackText(
   body: string | undefined,
 ): string {
   return `[${severity}] ${title}${body ? `\n${body}` : ""}`;
-}
-
-function escapeSlack(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 function escapeHtml(value: string): string {

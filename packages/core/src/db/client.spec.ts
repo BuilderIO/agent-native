@@ -91,11 +91,12 @@ describe("db/client dialect detection", () => {
 
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBe(1);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
@@ -113,7 +114,7 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBe(1);
   });
 
   it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
@@ -127,6 +128,52 @@ describe("db/client dialect detection", () => {
 
     expect(isBackgroundFunctionPoolContext()).toBe(true);
     expect(neonPoolMax()).toBe(8);
+  });
+});
+
+describe("db/client D1 execution", () => {
+  it("uses D1 batch for atomic statements instead of interactive SQL transactions", async () => {
+    const prepared: Array<{ sql: string; args: unknown[] }> = [];
+    const binding = {
+      prepare: vi.fn((sql: string) => {
+        const statement = {
+          sql,
+          args: [] as unknown[],
+          bind(...args: unknown[]) {
+            statement.args = args;
+            return statement;
+          },
+          all: vi.fn(),
+        };
+        prepared.push(statement);
+        return statement;
+      }),
+      batch: vi.fn(async () => [
+        { results: [{ matched: 1 }], meta: { changes: 0 } },
+        { results: [], meta: { changes: 1 } },
+      ]),
+    };
+    const { createDbExec } = await import("./client.js");
+    const client = await createDbExec({ d1Binding: binding });
+
+    expect(client.transaction).toBeUndefined();
+    await expect(
+      client.atomicBatch?.([
+        { sql: "SELECT value FROM state WHERE key = ?", args: ["pending"] },
+        { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
+      ]),
+    ).resolves.toEqual([
+      { rows: [{ matched: 1 }], rowsAffected: 0 },
+      { rows: [], rowsAffected: 1 },
+    ]);
+    expect(binding.batch).toHaveBeenCalledTimes(1);
+    expect(prepared.map(({ sql, args }) => ({ sql, args }))).toEqual([
+      {
+        sql: "SELECT value FROM state WHERE key = ?",
+        args: ["pending"],
+      },
+      { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
+    ]);
   });
 });
 
@@ -582,6 +629,68 @@ describe("withDbTimeout", () => {
     // Wait past the timeout window; a leaked timer would surface as an
     // unhandled rejection and fail the test run.
     await new Promise((r) => setTimeout(r, 40));
+  });
+});
+
+describe("isTransientDatabaseError", () => {
+  it("classifies Neon connection exhaustion as retryable", async () => {
+    const { isConnectionError, isTransientDatabaseError } =
+      await import("./client.js");
+    const error = {
+      code: "EMAXCONN",
+      message: "(EMAXCONN) max client connections reached, limit: 200",
+      stack:
+        "Co: (EMAXCONN) max client connections reached\n at drizzle-orm/neon-serverless",
+    };
+
+    expect(isConnectionError(error)).toBe(true);
+    expect(isTransientDatabaseError(error)).toBe(true);
+    expect(isTransientDatabaseError({ code: "EMAXCONN" })).toBe(true);
+  });
+
+  it("classifies statement timeouts without making them connection retries", async () => {
+    const { isTransientDatabaseError, isConnectionError } =
+      await import("./client.js");
+    const error = new Error("canceling statement due to statement timeout");
+
+    expect(isTransientDatabaseError(error)).toBe(true);
+    expect(isConnectionError(error)).toBe(false);
+  });
+
+  it("classifies pool checkout timeouts", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(isTransientDatabaseError({ code: "ECHECKOUTTIMEOUT" })).toBe(true);
+  });
+
+  it("does not misclassify generic provider network failures", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(
+      isTransientDatabaseError({
+        code: "ECONNRESET",
+        stack: "Error: socket hang up\n at providerFetch (gong.ts:42:7)",
+      }),
+    ).toBe(false);
+  });
+
+  it("classifies database-driver connection failures", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(
+      isTransientDatabaseError({
+        code: "ECONNRESET",
+        stack: "Error: connection reset\n at @neondatabase/serverless/index.js",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not classify ordinary database errors as transient", async () => {
+    const { isTransientDatabaseError } = await import("./client.js");
+
+    expect(isTransientDatabaseError(new Error("duplicate key value"))).toBe(
+      false,
+    );
   });
 });
 

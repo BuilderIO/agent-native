@@ -82,8 +82,7 @@ export default defineAction({
 `useActionQuery` を使用して UI から `list-audit-events` を呼び出して、アクティビティ フィードまたは「誰がこれを変更したか」行を作成します。監査テーブルへのフェッチを手動で書き込まないでください。
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,

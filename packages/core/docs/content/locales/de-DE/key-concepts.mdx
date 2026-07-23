@@ -256,8 +256,7 @@ Der UI ruft niemals einen LLM direkt auf. Wenn ein Benutzer auf „Diagramm erst
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -308,8 +307,7 @@ Datenbankänderungen werden über `useDbSync()` mit dem UI synchronisiert. Gleic
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -422,7 +420,7 @@ Zwei Architekturregeln sorgen dafür, dass Apps über Datenbanken und Hosts hinw
 
 ## Arbeitsbereich {#workspace}
 
-Jeder Benutzer erhält einen persönlichen **Arbeitsbereich** – Anweisungen, skills, Speicher, benutzerdefinierte Subagenten, geplante Jobs und verbundene MCP-Server – alles gespeichert in SQL und nicht in Dateien. Dadurch ist eine Anpassung auf Claude-Code-Ebene in SaaS mit mehreren Mandanten realisierbar, ohne dass pro Benutzer ein Container erstellt werden muss. Siehe [Workspace](/docs/workspace).
+Jeder Benutzer erhält einen persönlichen **Arbeitsbereich** – Anweisungen, skills, Speicher, benutzerdefinierte Subagenten, geplante Jobs und verbundene MCP-Server – alles gespeichert in SQL und nicht in Dateien. Dadurch ist eine Anpassung auf Claude-Code-Ebene in SaaS mit mehreren Mandanten realisierbar, ohne dass pro Benutzer ein Container erstellt werden muss. Siehe [Agent-Ressourcen](/docs/agent-resources).
 
 ## Verwandte Bausteine {#building-blocks}
 
@@ -438,7 +436,7 @@ Diese basieren auf demselben Vertrag und haben ihre eigenen Tiefgänge:
 Die Übernahme des Frameworks ist vor allem deshalb wertvoll, weil Sie nichts mehr erstellen müssen. Sobald Ihre App die sechs Regeln befolgt, erben Sie Folgendes:
 
 - **Eine Aktion = jede Oberfläche.** Jede mit `defineAction()` definierte Aktion ist gleichzeitig ein Agent-Tool, ein typsicherer Frontend-Hook (`useActionQuery` / `useActionMutation`), ein Framework-eigener HTTP-Transport, ein CLI-Befehl, ein MCP-Tool für externe Clients und ein A2A-Tool für andere agentennative Apps. Optionale `link`- und `mcpApp`-Metadaten fügen Deep Links und MCP Apps UI ohne eine zweite Implementierung hinzu.
-- **Ein vollständiger Arbeitsbereich pro Benutzer.** Skills, gemeinsam genutzter `LEARNINGS.md`, persönlicher `memory/MEMORY.md`, `AGENTS.md`, benutzerdefinierte Subagenten, geplante Jobs, verbundene MCP-Server – alle SQL-gestützt, keine Entwicklungsbox erforderlich. Siehe [Workspace](/docs/workspace).
+- **Ein vollständiger Arbeitsbereich pro Benutzer.** Skills, gemeinsam genutzter `LEARNINGS.md`, persönlicher `memory/MEMORY.md`, `AGENTS.md`, benutzerdefinierte Subagenten, geplante Jobs, verbundene MCP-Server – alle SQL-gestützt, keine Entwicklungsbox erforderlich. Siehe [Agent-Ressourcen](/docs/agent-resources).
 - **Drop-in-React-Komponenten.** `<AgentPanel />` und `<AgentSidebar />` rendern Chat und Arbeitsbereich überall in Ihrer App. Siehe [Drop-in Agent](/docs/drop-in-agent).
 - **BYO-Agenten-Chat-Laufzeiten.** Derselbe Chat-Oberfläche kann auf OpenAI-Agenten, OpenAI-Antworten, Claude-Agenten SDK, Vercel AI SDK, AG-UI oder Ihrem eigenen normalisierten HTTP-Stream sitzen. Siehe [Native Chat-Oberfläche](/docs/native-chat-ui#byo-agent-runtimes).
 - **Live-Synchronisierung zwischen Agent und UI.** Gleicher Prozess schreibt Stream sofort über `/_agent-native/events`; Eine einfache Abfrage sorgt dafür, dass serverlose, Cron- und prozessübergreifende Schreibvorgänge konvergent bleiben. Durch die Mutation actions werden aktionsgestützte Abfragen automatisch ungültig, sodass vom Agenten erstellte Datensätze ohne manuelle Aktualisierung angezeigt werden. Siehe [Live Sync](#polling-sync) unten.

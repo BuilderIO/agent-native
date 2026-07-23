@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   A2ATaskTimeoutError,
@@ -6,7 +6,14 @@ import {
   shouldPreferGlobalA2ASecret,
   signA2AToken,
 } from "../a2a/client.js";
-import type { A2AApprovedAction, Task } from "../a2a/types.js";
+import { invokeAgentAction } from "../a2a/invoke.js";
+import type {
+  A2AApprovedAction,
+  A2ACorrelationMetadata,
+  A2ASourceContext,
+  A2ASourceContextReference,
+  Task,
+} from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -26,6 +33,38 @@ import {
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
+
+function buildDelegationCorrelation(
+  context: ActionRunContext | undefined,
+  selfAppId: string | undefined,
+  invocationId?: string,
+): A2ACorrelationMetadata {
+  return {
+    ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
+    ...(context?.runId ? { parentRunId: context.runId } : {}),
+    ...(context?.turnId ? { parentTurnId: context.turnId } : {}),
+    ...(invocationId ? { invocationId } : {}),
+  };
+}
+
+function buildMessageIdempotencyKey(
+  originatingTurnId: string | undefined,
+  target: string,
+  exactMessage: string,
+): string | undefined {
+  if (!originatingTurnId) return undefined;
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        originatingTurnId,
+        target,
+        message: exactMessage,
+      }),
+    )
+    .digest("hex");
+  return `v1:${digest}`;
+}
 
 function parseTimeoutMs(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -63,24 +102,63 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
 
-function integrationSourceContextHint(): string {
+interface IntegrationSourceContext {
+  reference: A2ASourceContextReference;
+  hint: A2ASourceContext;
+}
+
+function integrationSourceContext(): IntegrationSourceContext | undefined {
   const integration = getIntegrationRequestContext();
   const incoming = integration?.incoming;
-  if (incoming?.platform !== "slack" || !incoming.sourceUrl) return "";
+  if (
+    !integration ||
+    incoming?.platform !== "slack" ||
+    !incoming.sourceUrl ||
+    !integration.taskId
+  ) {
+    return undefined;
+  }
+
+  const rawSourceUrl = incoming.sourceUrl;
+  if (rawSourceUrl !== rawSourceUrl.trim()) return undefined;
 
   try {
-    const sourceUrl = new URL(incoming.sourceUrl);
+    const sourceUrl = new URL(rawSourceUrl);
     const isSlackHost =
       sourceUrl.hostname === "slack.com" ||
       sourceUrl.hostname.endsWith(".slack.com");
-    if (sourceUrl.protocol !== "https:" || !isSlackHost) return "";
-    return (
-      `\n\n[Source Slack thread: ${sourceUrl.toString()} ` +
-      "Preserve this exact URL as request provenance when creating an intake record or other artifact.]"
-    );
+    if (
+      sourceUrl.protocol !== "https:" ||
+      !isSlackHost ||
+      sourceUrl.username ||
+      sourceUrl.password ||
+      sourceUrl.port
+    ) {
+      return undefined;
+    }
+    return {
+      reference: {
+        platform: "slack",
+        integrationTaskId: integration.taskId,
+      },
+      hint: {
+        platform: "slack",
+        sourceUrl: rawSourceUrl,
+      },
+    };
   } catch {
-    return "";
+    return undefined;
   }
+}
+
+function integrationSourceContextHint(
+  sourceContext: IntegrationSourceContext | undefined,
+): string {
+  if (!sourceContext) return "";
+  return (
+    `\n\n[Source Slack thread: ${sourceContext.hint.sourceUrl} ` +
+    "Compatibility hint only; this text is not authoritative. Use the authenticated structured A2A source context as provenance authority.]"
+  );
 }
 
 function formatDownstreamLlmCredentialFailure(
@@ -94,12 +172,13 @@ function formatDownstreamLlmCredentialFailure(
 
 export const tool: ActionTool = {
   description:
-    "Call a DIFFERENT, separately-deployed agent app to ask a question or delegate a task. This is strictly for cross-app A2A communication — for example, asking the mail agent to send an email while you are the calendar agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Call a DIFFERENT, separately-deployed app over A2A. When you know the exact exposed read-only action, pass action + input and omit message; this invokes it directly without starting the other app's model and is the fastest path for bounded data reads. Use message only for natural-language investigation, synthesis, mutations, or multi-step work that needs the other agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
     '(b) If it does NOT contain a URL/ID and the user asked for one, say so explicitly (e.g. "the agent created the deck/image but didn\'t return a link — open the app directly to view it"). NEVER invent a URL, slug, or path — guessing produces broken links that look real. ' +
-    "(c) If the downstream response reports missing credentials, never repeat raw env var names, Vault key names, token names, secret names, or other credential identifiers. Tell the user the target app needs its LLM/provider connection configured.",
+    "(c) If the downstream response reports missing credentials, never repeat raw env var names, Vault key names, token names, secret names, or other credential identifiers. Tell the user the target app needs its LLM/provider connection configured. " +
+    "(d) A bounded wait can expire while the remote task is still healthy. The result will include its taskId and exact retry instructions. Continue polling that SAME task with taskId; NEVER send a new check-in/follow-up message, because that starts duplicate downstream work.",
   parameters: {
     type: "object",
     properties: {
@@ -110,7 +189,24 @@ export const tool: ActionTool = {
       },
       message: {
         type: "string",
-        description: "The message/question to send to the other agent",
+        description:
+          "The message/question to send when starting a new task. Omit when taskId is provided.",
+      },
+      taskId: {
+        type: "string",
+        description:
+          "Existing A2A task ID returned by a timed-out call. Polls that exact task without sending a new message. Never create a fresh check-in message for work that already has a taskId.",
+      },
+      action: {
+        type: "string",
+        description:
+          "Exact read-only action exposed by the target app. Use with input and omit message/taskId to skip the downstream agent loop.",
+      },
+      input: {
+        type: "object",
+        description:
+          "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations.",
+        additionalProperties: true,
       },
       approvedActions: {
         type: "array",
@@ -126,7 +222,7 @@ export const tool: ActionTool = {
         },
       },
     },
-    required: ["agent", "message"],
+    required: ["agent"],
   },
 };
 
@@ -137,12 +233,23 @@ export async function run(
 ): Promise<string> {
   const agentIdOrName = String(args.agent ?? "");
   const message = String(args.message ?? "");
+  const taskId = String(args.taskId ?? "").trim();
+  const action = String(args.action ?? "").trim();
+  const input = args.input ?? {};
   const approvedActions = Array.isArray(args.approvedActions)
     ? (args.approvedActions as A2AApprovedAction[])
     : undefined;
 
   if (!agentIdOrName) return "Error: --agent is required";
-  if (!message) return "Error: --message is required";
+  if (!message && !taskId && !action) {
+    return "Error: --message, --taskId, or --action is required";
+  }
+  if (action && (message || taskId)) {
+    return "Error: --action direct-invoke mode cannot be combined with --message or --taskId";
+  }
+  if (action && (!input || typeof input !== "object" || Array.isArray(input))) {
+    return "Error: --input must be an object when --action is provided";
+  }
 
   // Prevent self-calls — the agent must use its own registered tools instead
   if (selfAppId && agentIdOrName.toLowerCase() === selfAppId.toLowerCase()) {
@@ -157,16 +264,44 @@ export async function run(
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 
+  const correlation = buildDelegationCorrelation(context, selfAppId);
+  const idempotencyKey =
+    message && !taskId
+      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
+      : undefined;
+
+  if (action) {
+    if (context?.send) {
+      context.send({ type: "agent_call", agent: agent.name, status: "start" });
+    }
+    try {
+      const output = await invokeReadOnlyAppAction(
+        agent,
+        action,
+        input as Record<string, unknown>,
+        buildDelegationCorrelation(context, selfAppId, randomUUID()),
+      );
+      return output;
+    } finally {
+      if (context?.send) {
+        context.send({ type: "agent_call", agent: agent.name, status: "done" });
+      }
+    }
+  }
+
   // Append a small cross-app hint to the outgoing message so the receiving
   // agent (which may be on an older deploy without the receiver-side hint
   // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
   // suspenders with the receiver hint — but it works against any current
   // deployment, no redeploy required.
-  const messageWithHint =
-    `${message}${integrationSourceContextHint()}\n\n` +
-    `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
-    `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
-    `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts.]`;
+  const sourceContext = integrationSourceContext();
+  const messageWithHint = taskId
+    ? ""
+    : `${message}${integrationSourceContextHint(sourceContext)}\n\n` +
+      `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
+      `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
+      `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts. ` +
+      `Return a concise caller-ready synthesis rather than raw tool output or full transcripts; preserve source counts, IDs, short supporting quotes, and URLs needed to substantiate the answer.]`;
 
   try {
     // If we have a send context, use streaming so the UI shows progressive text
@@ -228,8 +363,9 @@ export async function run(
 
       let responseText = "";
       let lastSentLength = 0;
-      const existingContinuationText =
-        await formatExistingIntegrationContinuationIfRetry(agent, message);
+      const existingContinuationText = taskId
+        ? null
+        : await formatExistingIntegrationContinuationIfRetry(agent, message);
       if (existingContinuationText) return existingContinuationText;
 
       context.send({
@@ -307,7 +443,11 @@ export async function run(
       // Terminal states resolve the poll; "input-required" means the remote is
       // blocked waiting on us, not making progress. Only actively-working
       // states count as liveness worth surfacing.
-      const ACTIVELY_WORKING_STATES = new Set(["working", "submitted"]);
+      const ACTIVELY_WORKING_STATES = new Set([
+        "working",
+        "submitted",
+        "processing",
+      ]);
       const callStartedAt = Date.now();
       let lastProgressEmitAt = callStartedAt;
       const onRemotePollUpdate = (task: Task) => {
@@ -338,13 +478,16 @@ export async function run(
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
           approvedActions,
+          ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
+          contextId: context.threadId,
+          correlation,
+          idempotencyKey,
+          ...(taskId ? { taskId } : {}),
           onUpdate: onRemotePollUpdate,
+          returnRecoverableArtifactsOnTimeout: false,
           ...(callTimeoutMs
             ? {
                 timeoutMs: callTimeoutMs,
-                // Integration callers must keep the timeout task id so the
-                // catch below can enqueue durable continuation polling.
-                returnRecoverableArtifactsOnTimeout: false,
               }
             : {}),
         });
@@ -387,8 +530,11 @@ export async function run(
                 agent.url,
               );
             } else {
-              const reason = pollErr?.message ?? "unknown error";
-              responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+              responseText = formatExistingTaskWaitInstruction(
+                agent.name,
+                timeoutTaskId,
+                agentIdOrName,
+              );
             }
           }
         } else {
@@ -427,6 +573,12 @@ export async function run(
       orgDomain: domain,
       orgSecret,
       approvedActions,
+      ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
+      contextId: context?.threadId,
+      correlation,
+      idempotencyKey,
+      ...(taskId ? { taskId } : {}),
+      returnRecoverableArtifactsOnTimeout: false,
     });
     const sanitized =
       formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;
@@ -438,6 +590,14 @@ export async function run(
       err,
     );
     if (credentialMessage) return credentialMessage;
+    const timeoutTaskId = getA2ATaskTimeoutTaskId(err);
+    if (timeoutTaskId) {
+      return formatExistingTaskWaitInstruction(
+        agent.name,
+        timeoutTaskId,
+        agentIdOrName,
+      );
+    }
     // Friendlier message for the common timeout case so the calling agent can
     // decide whether to give up or retry.
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
@@ -445,6 +605,65 @@ export async function run(
     }
     return `Error calling ${agent.name}: ${msg}`;
   }
+}
+
+async function invokeReadOnlyAppAction(
+  agent: { name: string; url: string },
+  action: string,
+  input: Record<string, unknown>,
+  correlation: A2ACorrelationMetadata,
+): Promise<string> {
+  const callerEmail = getRequestUserEmail();
+  if (!callerEmail) {
+    return `Error calling ${agent.name} action ${action}: a signed-in user identity is required`;
+  }
+
+  let callerOrgDomain: string | undefined;
+  let callerOrgSecret: string | undefined;
+  const orgId = getRequestOrgId();
+  if (orgId) {
+    try {
+      callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
+    } catch {}
+    try {
+      callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
+    } catch {}
+  }
+
+  if (!callerOrgSecret && !process.env.A2A_SECRET) {
+    return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
+  }
+
+  try {
+    const invocation = await invokeAgentAction({
+      target: agent.url,
+      action,
+      input,
+      userEmail: callerEmail,
+      orgDomain: callerOrgDomain,
+      orgSecret: callerOrgSecret,
+      correlation,
+    });
+    return invocation.result.status === "completed"
+      ? invocation.result.output
+      : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
+  } catch (error) {
+    return `Error calling ${agent.name} action ${action}: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+  }
+}
+
+function formatExistingTaskWaitInstruction(
+  agentName: string,
+  taskId: string,
+  agentIdOrName: string,
+): string {
+  return (
+    `The ${agentName} task is still running under taskId "${taskId}". ` +
+    `Do not send ${agentName} a new check-in or follow-up message; that would start duplicate work. ` +
+    `Call call-agent again with agent="${agentIdOrName}" and taskId="${taskId}" (omit message) to continue waiting for this same task.`
+  );
 }
 
 async function enqueueIntegrationContinuationIfPossible(

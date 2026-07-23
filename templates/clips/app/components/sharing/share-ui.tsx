@@ -1,12 +1,13 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconCopy,
   IconLock,
+  IconSend2,
   IconTrash,
   IconUsersGroup,
   IconWorld,
@@ -414,6 +415,17 @@ export function SharePeopleTab({
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              type="button"
+              size="icon"
+              onClick={handleAdd}
+              disabled={!hasInviteEmail || share.isPending}
+              aria-label={t("shareUi.invite")}
+              title={t("shareUi.invite")}
+              className="h-9 w-9 shrink-0"
+            >
+              <IconSend2 size={16} />
+            </Button>
           </div>
           {hasInviteEmail ? (
             <label className="flex items-center gap-2 text-xs text-muted-foreground">

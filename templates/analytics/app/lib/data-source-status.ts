@@ -68,9 +68,20 @@ export interface SharedConnectionStatus {
 const dataSourceWorkspaceProviderIds: Record<string, string> = {
   github: "github",
   hubspot: "hubspot",
+  jira: "jira",
   notion: "notion",
+  sentry: "sentry",
   slack: "slack",
 };
+
+export function getGoogleDriveConnection(
+  data: DataSourceStatusResponse | undefined,
+): WorkspaceConnectionProviderSummary | undefined {
+  return data?.workspaceConnections?.providers.find(
+    (provider) =>
+      provider.provider === "google_drive" || provider.id === "google_drive",
+  );
+}
 
 const sharedConnectionLabels: Record<SharedConnectionStatusKind, string> = {
   ready: "Ready via workspace",

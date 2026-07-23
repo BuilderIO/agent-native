@@ -127,6 +127,12 @@ import {
   BUILDER_MODEL_CONFIG,
 } from "../../../core/src/agent/model-config.js";
 import {
+  appendUniqueJsonLineAtomically,
+  updateJsonFileAtomically,
+  withFileLockSync,
+  writeJsonFileAtomically,
+} from "../../../core/src/cli/atomic-json-file.js";
+import {
   getBackgroundAgentRun,
   listBackgroundAgentRuns,
   listBackgroundAgentTranscriptEvents,
@@ -136,6 +142,14 @@ import {
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
+import { guardCodeAgentPersistence } from "./code-agent-persistence-guard.js";
+import { resolveCodeAgentRunnerInvocation } from "./code-agent-runner.js";
+import {
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+} from "./code-agent-transcript-ipc.js";
+import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
   getCodexLoginLaunchSpec,
   spawnDetached,
@@ -170,6 +184,11 @@ import {
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
 import {
+  createMultiFrontierQuitGuard,
+  initializeMultiFrontierAppIntegration,
+  type MultiFrontierAppIntegration,
+} from "./multi-frontier-app-integration.js";
+import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
   setSentryWebContentsMetadata,
@@ -177,6 +196,11 @@ import {
 
 initializeDesktopSentry();
 initializeDesktopLogger();
+
+const DESKTOP_CODE_AGENT_PERSISTENCE_LOCK = {
+  lockWaitMs: 50,
+  reclaimFreshDeadOwner: false,
+};
 
 // ---------- stdout/stderr pipe resilience ----------
 // The main process logs spawned dev-server / code-agent child output via
@@ -254,12 +278,11 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
-export const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
-  "code-agents:subscribe-transcript";
-export const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
-  "code-agents:unsubscribe-transcript";
-export const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL =
-  "code-agents:transcript-events";
+export {
+  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
+  CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
+  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
+};
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -1541,6 +1564,12 @@ let remoteConnectorLastExitSignal: string | null | undefined;
 let remoteConnectorNextRestartAt: string | undefined;
 let remoteConnectorError: string | undefined;
 let appIsQuitting = false;
+let multiFrontierAppIntegration: MultiFrontierAppIntegration | undefined;
+let multiFrontierDisposePromise: Promise<void> | undefined;
+const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
+  dispose: () => disposeMultiFrontierAppIntegration(),
+  reissueQuit: () => app.quit(),
+});
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
   "clipboard-read",
@@ -1638,47 +1667,13 @@ function readRemoteDeviceConfig(): {
   }
 }
 
-function writeJsonFileAtomic(
-  filePath: string,
-  value: unknown,
-  options?: { mode?: number },
-): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tempPath = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`,
-  );
-  try {
-    const writeOptions =
-      options?.mode === undefined
-        ? "utf-8"
-        : { encoding: "utf-8" as const, mode: options.mode };
-    fs.writeFileSync(tempPath, JSON.stringify(value, null, 2), writeOptions);
-    fs.renameSync(tempPath, filePath);
-    if (options?.mode !== undefined) {
-      try {
-        fs.chmodSync(filePath, options.mode);
-      } catch {
-        // Best effort: this is still inside the user's local config directory.
-      }
-    }
-  } catch (err) {
-    try {
-      fs.unlinkSync(tempPath);
-    } catch {
-      // Ignore cleanup failures for a temp file in the config directory.
-    }
-    throw err;
-  }
-}
-
 function writeRemoteDeviceConfig(config: {
   token: string;
   relayUrl: string;
   deviceId?: string;
   deviceName?: string;
 }): void {
-  writeJsonFileAtomic(
+  writeJsonFileAtomically(
     remoteDeviceConfigPath(),
     {
       token: config.token,
@@ -2776,7 +2771,7 @@ function sortTranscriptEvents(
     .map(({ event }) => event);
 }
 
-function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
+function readAllCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
   const record: Record<string, unknown> =
     typeof input === "string" ? { runId: input } : isObject(input) ? input : {};
   const runId = normalizeCodeAgentRunId(record.runId);
@@ -2800,6 +2795,14 @@ function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
     runId,
     events: sortTranscriptEvents(events),
     eventFile: codeAgentEventFilePath(runId) ?? undefined,
+  };
+}
+
+function readCodeAgentTranscript(input: unknown): CodeAgentTranscriptResult {
+  const result = readAllCodeAgentTranscript(input);
+  return {
+    ...result,
+    events: boundedCodeAgentTranscriptEvents(result.events, result.runId),
   };
 }
 
@@ -2858,12 +2861,6 @@ function appendCodeAgentAssistantDeltaEvent(runId: string, text: string): void {
 function initializeCodeAgentTranscriptSubscriptionKeys(
   subscription: CodeAgentTranscriptSubscription,
 ): CodeAgentTranscriptResult {
-  const result = readCodeAgentTranscript({ runId: subscription.runId });
-  subscription.knownEventKeys = new Set(
-    result.events.map(codeAgentTranscriptEventKey),
-  );
-  // Set up byte-offset tailing for the primary event file so subsequent
-  // flushes only read appended bytes.
   const tailFile = codeAgentEventFilePath(subscription.runId);
   if (tailFile) {
     subscription.tailedFilePath = tailFile;
@@ -2875,7 +2872,18 @@ function initializeCodeAgentTranscriptSubscriptionKeys(
       subscription.fileOffset = 0;
     }
   }
-  return result;
+
+  const fullResult = readAllCodeAgentTranscript({ runId: subscription.runId });
+  subscription.knownEventKeys = new Set(
+    fullResult.events.map(codeAgentTranscriptEventKey),
+  );
+  return {
+    ...fullResult,
+    events: boundedCodeAgentTranscriptEvents(
+      fullResult.events,
+      fullResult.runId,
+    ),
+  };
 }
 
 function removeCodeAgentTranscriptSubscription(subscriptionId: string): void {
@@ -2928,7 +2936,7 @@ function flushCodeAgentTranscriptSubscription(
       sendCodeAgentTranscriptSubscriptionBatch(subscription, {
         status: "ok",
         runId: subscription.runId,
-        events: newEvents,
+        events: boundedCodeAgentTranscriptEvents(newEvents, subscription.runId),
         eventFile: subscription.tailedFilePath,
         reason,
       });
@@ -2938,7 +2946,7 @@ function flushCodeAgentTranscriptSubscription(
 
   // Fallback path: full re-read (used when no primary file is established,
   // e.g. run records with inline events only).
-  const result = readCodeAgentTranscript({ runId: subscription.runId });
+  const result = readAllCodeAgentTranscript({ runId: subscription.runId });
   const nextKnownEventKeys = new Set<string>();
   const events: CodeAgentTranscriptEvent[] = [];
 
@@ -2954,7 +2962,10 @@ function flushCodeAgentTranscriptSubscription(
   sendCodeAgentTranscriptSubscriptionBatch(subscription, {
     status: result.status,
     runId: result.runId ?? subscription.runId,
-    events,
+    events: boundedCodeAgentTranscriptEvents(
+      events,
+      result.runId ?? subscription.runId,
+    ),
     eventFile: result.eventFile,
     reason,
     error: result.error,
@@ -3042,16 +3053,21 @@ function appendCodeAgentTranscriptEvent(
 ): string {
   const eventFile = codeAgentEventFilePath(event.runId);
   if (!eventFile) throw new Error("Invalid run id.");
-  fs.mkdirSync(path.dirname(eventFile), { recursive: true });
-  fs.appendFileSync(
+  const persistedEvent = {
+    schemaVersion: 1,
+    role: event.type,
+    ...event,
+    kind: event.type,
+    message: event.text,
+  };
+  appendUniqueJsonLineAtomically(
     eventFile,
-    `${JSON.stringify({
-      schemaVersion: 1,
-      role: event.type,
-      ...event,
-      kind: event.type,
-      message: event.text,
-    })}\n`,
+    persistedEvent,
+    (value) =>
+      isObject(value) && typeof value.id === "string"
+        ? (value as typeof persistedEvent)
+        : null,
+    { lock: DESKTOP_CODE_AGENT_PERSISTENCE_LOCK },
   );
   notifyCodeAgentTranscriptChanged(event.runId, "append");
   return eventFile;
@@ -3249,6 +3265,14 @@ function appendCodeAgentStatusEvent(
   });
 }
 
+function persistCodeAgentChildEvent(
+  runId: string,
+  source: string,
+  persist: () => void,
+): void {
+  guardCodeAgentPersistence({ runId, source }, persist);
+}
+
 function spawnCodeAgentRunner(
   runId: string,
   cwd: string,
@@ -3281,33 +3305,31 @@ function spawnCodeAgentRunner(
     permissionMode ??
     readCodeAgentPermissionMode(runRecord) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
-  const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
-  const command = fs.existsSync(localCli) ? "node" : "pnpm";
-  const args = fs.existsSync(localCli)
-    ? [path.relative(repoRoot, localCli), "code", "run", runId]
-    : [
-        "--filter",
-        "@agent-native/core",
-        "exec",
-        "node",
-        "dist/cli/index.js",
-        "code",
-        "run",
-        runId,
-      ];
+  const invocation = resolveCodeAgentRunnerInvocation(
+    {
+      appIsPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      electronPath: process.execPath,
+      repoRoot,
+    },
+    "run",
+    runId,
+  );
+  const { command, args } = invocation;
   try {
     const computerEnv = desktopComputerChildEnv(
       runId,
       normalizedPermissionMode,
     );
     const child = spawn(command, args, {
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...invocation.env,
         ...computerEnv,
       },
     });
@@ -3316,7 +3338,7 @@ function spawnCodeAgentRunner(
     activeCodeAgentProcesses.set(runId, {
       pid: child.pid,
       command: runnerCommand,
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       startedAt: runnerStartedAt,
       permissionMode: normalizedPermissionMode,
     });
@@ -3333,32 +3355,40 @@ function spawnCodeAgentRunner(
       },
     });
     child.stdout?.on("data", (chunk) => {
-      appendCodeAgentAssistantDeltaEvent(runId, chunk.toString());
+      persistCodeAgentChildEvent(runId, "runner-stdout", () => {
+        appendCodeAgentAssistantDeltaEvent(runId, chunk.toString());
+      });
     });
     child.stderr?.on("data", (chunk) => {
-      appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
-        source: "runner-stderr",
+      persistCodeAgentChildEvent(runId, "runner-stderr", () => {
+        appendCodeAgentStatusEvent(runId, chunk.toString().trim(), {
+          source: "runner-stderr",
+        });
       });
     });
     child.on("exit", (code, signal) => {
       revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
       codeAgentAssistantDeltaSeq.delete(runId);
-      appendCodeAgentStatusEvent(
-        runId,
-        code === 0
-          ? "Agent-Native Code process exited."
-          : `Agent-Native Code process exited with ${signal ?? code}.`,
-        { source: "desktop-runner", code, signal },
-      );
-      touchCodeAgentRunRecord(runId, {
-        updatedAt: new Date().toISOString(),
-        metadata: {
-          runnerState: "exited",
-          runnerExitedAt: new Date().toISOString(),
-          runnerExitCode: code,
-          runnerExitSignal: signal,
-        },
+      persistCodeAgentChildEvent(runId, "runner-exit-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          code === 0
+            ? "Agent-Native Code process exited."
+            : `Agent-Native Code process exited with ${signal ?? code}.`,
+          { source: "desktop-runner", code, signal },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "runner-exit-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          updatedAt: new Date().toISOString(),
+          metadata: {
+            runnerState: "exited",
+            runnerExitedAt: new Date().toISOString(),
+            runnerExitCode: code,
+            runnerExitSignal: signal,
+          },
+        });
       });
       // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
@@ -3375,24 +3405,47 @@ function spawnCodeAgentRunner(
         showCodeAgentRunNotification(runId, "approval-needed", runTitle);
       }
     });
+    child.on("error", () => {
+      revokeDesktopComputerRun(runId);
+      activeCodeAgentProcesses.delete(runId);
+      codeAgentAssistantDeltaSeq.delete(runId);
+      persistCodeAgentChildEvent(runId, "runner-error-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          "Agent-Native Code process could not continue.",
+          { source: "desktop-runner" },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "runner-error-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          status: "errored",
+          phase: "runner-error",
+          metadata: { runnerState: "failed" },
+        });
+      });
+    });
     child.unref();
   } catch (err) {
     revokeDesktopComputerRun(runId);
-    appendCodeAgentStatusEvent(
-      runId,
-      "Could not start Agent-Native Code process.",
-      {
-        source: "desktop-runner",
-        error: err instanceof Error ? err.message : String(err),
-      },
-    );
-    touchCodeAgentRunRecord(runId, {
-      status: "errored",
-      phase: "runner-error",
-      metadata: {
-        runnerState: "failed",
-        runnerError: err instanceof Error ? err.message : String(err),
-      },
+    persistCodeAgentChildEvent(runId, "runner-start-error-status", () => {
+      appendCodeAgentStatusEvent(
+        runId,
+        "Could not start Agent-Native Code process.",
+        {
+          source: "desktop-runner",
+          error: err instanceof Error ? err.message : String(err),
+        },
+      );
+    });
+    persistCodeAgentChildEvent(runId, "runner-start-error-run", () => {
+      touchCodeAgentRunRecord(runId, {
+        status: "errored",
+        phase: "runner-error",
+        metadata: {
+          runnerState: "failed",
+          runnerError: err instanceof Error ? err.message : String(err),
+        },
+      });
     });
   }
 }
@@ -3437,20 +3490,17 @@ function spawnCodeAgentApprovalRunner(
   const normalizedPermissionMode =
     readCodeAgentPermissionMode(runRecord) ??
     DEFAULT_CODE_AGENT_PERMISSION_MODE;
-  const localCli = path.join(repoRoot, "packages/core/dist/cli/index.js");
-  const command = fs.existsSync(localCli) ? "node" : "pnpm";
-  const args = fs.existsSync(localCli)
-    ? [path.relative(repoRoot, localCli), "code", subcommand, runId]
-    : [
-        "--filter",
-        "@agent-native/core",
-        "exec",
-        "node",
-        "dist/cli/index.js",
-        "code",
-        subcommand,
-        runId,
-      ];
+  const invocation = resolveCodeAgentRunnerInvocation(
+    {
+      appIsPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      electronPath: process.execPath,
+      repoRoot,
+    },
+    subcommand,
+    runId,
+  );
+  const { command, args } = invocation;
 
   try {
     const computerEnv = desktopComputerChildEnv(
@@ -3458,13 +3508,14 @@ function spawnCodeAgentApprovalRunner(
       normalizedPermissionMode,
     );
     const child = spawn(command, args, {
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...AppStore.getCodeAgentProviderProcessEnv(process.env),
         AGENT_NATIVE_CODE_AGENTS_HOME: codeAgentStoreRoot(),
         AGENT_NATIVE_CODE_AGENT_PERMISSION_MODE: normalizedPermissionMode,
+        ...invocation.env,
         ...computerEnv,
       },
     });
@@ -3473,7 +3524,7 @@ function spawnCodeAgentApprovalRunner(
     activeCodeAgentProcesses.set(runId, {
       pid: child.pid,
       command: runnerCommand,
-      cwd: repoRoot,
+      cwd: invocation.cwd,
       startedAt: runnerStartedAt,
       permissionMode: normalizedPermissionMode,
     });
@@ -3493,34 +3544,42 @@ function spawnCodeAgentApprovalRunner(
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString().trim();
       if (!text) return;
-      appendCodeAgentStatusEvent(runId, text, {
-        source: "approval-stdout",
+      persistCodeAgentChildEvent(runId, "approval-stdout", () => {
+        appendCodeAgentStatusEvent(runId, text, {
+          source: "approval-stdout",
+        });
       });
     });
     child.stderr?.on("data", (chunk) => {
       const text = chunk.toString().trim();
       if (!text) return;
-      appendCodeAgentStatusEvent(runId, text, {
-        source: "approval-stderr",
+      persistCodeAgentChildEvent(runId, "approval-stderr", () => {
+        appendCodeAgentStatusEvent(runId, text, {
+          source: "approval-stderr",
+        });
       });
     });
     child.on("exit", (code, signal) => {
       revokeDesktopComputerRun(runId);
       activeCodeAgentProcesses.delete(runId);
-      appendCodeAgentStatusEvent(
-        runId,
-        code === 0
-          ? "Approval process exited."
-          : `Approval process exited with ${signal ?? code}.`,
-        { source: "desktop-approval-runner", code, signal },
-      );
-      touchCodeAgentRunRecord(runId, {
-        updatedAt: new Date().toISOString(),
-        metadata: {
-          approvalRunnerExitedAt: new Date().toISOString(),
-          approvalRunnerExitCode: code,
-          approvalRunnerExitSignal: signal,
-        },
+      persistCodeAgentChildEvent(runId, "approval-exit-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          code === 0
+            ? "Approval process exited."
+            : `Approval process exited with ${signal ?? code}.`,
+          { source: "desktop-approval-runner", code, signal },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "approval-exit-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          updatedAt: new Date().toISOString(),
+          metadata: {
+            approvalRunnerExitedAt: new Date().toISOString(),
+            approvalRunnerExitCode: code,
+            approvalRunnerExitSignal: signal,
+          },
+        });
       });
       // Notify user if window is not focused.
       const finalRecord = readCodeAgentRunRecord(runId);
@@ -3537,6 +3596,25 @@ function spawnCodeAgentApprovalRunner(
         showCodeAgentRunNotification(runId, "approval-needed", runTitle);
       }
     });
+    child.on("error", () => {
+      revokeDesktopComputerRun(runId);
+      activeCodeAgentProcesses.delete(runId);
+      persistCodeAgentChildEvent(runId, "approval-error-status", () => {
+        appendCodeAgentStatusEvent(
+          runId,
+          "Approval process could not continue.",
+          { source: "desktop-approval-runner" },
+        );
+      });
+      persistCodeAgentChildEvent(runId, "approval-error-run", () => {
+        touchCodeAgentRunRecord(runId, {
+          status: "needs-approval",
+          phase: "approval-error",
+          needsApproval: true,
+          metadata: { approvalRunnerState: "failed" },
+        });
+      });
+    });
     child.unref();
     return {
       ok: true,
@@ -3547,17 +3625,25 @@ function spawnCodeAgentApprovalRunner(
   } catch (err) {
     revokeDesktopComputerRun(runId);
     const message = err instanceof Error ? err.message : String(err);
-    appendCodeAgentStatusEvent(runId, "Could not start the approval command.", {
-      source: "desktop-approval-runner",
-      error: message,
+    persistCodeAgentChildEvent(runId, "approval-start-error-status", () => {
+      appendCodeAgentStatusEvent(
+        runId,
+        "Could not start the approval command.",
+        {
+          source: "desktop-approval-runner",
+          error: message,
+        },
+      );
     });
-    touchCodeAgentRunRecord(runId, {
-      status: "needs-approval",
-      phase: "approval-error",
-      needsApproval: true,
-      metadata: {
-        approvalRunnerError: message,
-      },
+    persistCodeAgentChildEvent(runId, "approval-start-error-run", () => {
+      touchCodeAgentRunRecord(runId, {
+        status: "needs-approval",
+        phase: "approval-error",
+        needsApproval: true,
+        metadata: {
+          approvalRunnerError: message,
+        },
+      });
     });
     return {
       ok: false,
@@ -3903,24 +3989,23 @@ function touchCodeAgentRunRecord(
   updates: Record<string, unknown>,
 ): void {
   const filePath = codeAgentRunFilePath(runId);
-  if (!filePath || !fs.existsSync(filePath)) return;
-  const record = readJsonObjectFile(filePath);
-  if (!record) return;
-  const metadata = isObject(record.metadata)
-    ? { ...(record.metadata as Record<string, unknown>) }
-    : {};
-  const updateMetadata = isObject(updates.metadata) ? updates.metadata : {};
-  fs.writeFileSync(
+  if (!filePath) return;
+  updateJsonFileAtomically(
     filePath,
-    `${JSON.stringify(
-      {
+    (value) => (isObject(value) ? value : null),
+    (record) => {
+      if (!record) return null;
+      const metadata = isObject(record.metadata)
+        ? { ...(record.metadata as Record<string, unknown>) }
+        : {};
+      const updateMetadata = isObject(updates.metadata) ? updates.metadata : {};
+      return {
         ...record,
         ...updates,
         metadata: { ...metadata, ...updateMetadata },
-      },
-      null,
-      2,
-    )}\n`,
+      };
+    },
+    { lock: DESKTOP_CODE_AGENT_PERSISTENCE_LOCK },
   );
 }
 
@@ -4115,8 +4200,12 @@ async function createCodeAgentRun(
   }
 
   try {
-    fs.mkdirSync(path.dirname(runFile), { recursive: true });
-    fs.writeFileSync(runFile, `${JSON.stringify(record, null, 2)}\n`);
+    withFileLockSync(runFile, () => {
+      if (fs.existsSync(runFile)) {
+        throw new Error(`A Code Agent run already exists: ${runId}`);
+      }
+      writeJsonFileAtomically(runFile, record);
+    });
     const event = createDesktopUserTranscriptEvent(runId, prompt, goal.id, {
       queue,
       steering,
@@ -4635,7 +4724,7 @@ function writeCodeAgentProjectsState(state: {
   selectedPath?: string;
   projects: CodeAgentProjectFolder[];
 }) {
-  writeJsonFileAtomic(codeAgentProjectsFile(), state);
+  writeJsonFileAtomically(codeAgentProjectsFile(), state);
 }
 
 function upsertCodeAgentProject(
@@ -4689,6 +4778,33 @@ function listCodeAgentProjects(): CodeAgentProjectListResult {
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+function listMultiFrontierWorkspaces(): {
+  selectedPath?: string;
+  workspaces: Array<{ id: string; path: string }>;
+} {
+  const defaultPath = resolveCodeAgentsTerminalCwd({});
+  const state = readCodeAgentProjectsState();
+  const projects = [
+    normalizeProjectFolder(defaultPath),
+    ...state.projects.filter((project) => project.path !== defaultPath),
+  ];
+  return {
+    selectedPath: state.selectedPath ?? defaultPath,
+    workspaces: projects.map(({ id, path: projectPath }) => ({
+      id,
+      path: projectPath,
+    })),
+  };
+}
+
+function disposeMultiFrontierAppIntegration(): Promise<void> {
+  if (!multiFrontierDisposePromise) {
+    multiFrontierDisposePromise =
+      multiFrontierAppIntegration?.dispose() ?? Promise.resolve();
+  }
+  return multiFrontierDisposePromise;
 }
 
 async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
@@ -5596,7 +5712,7 @@ function loadContentFilesStore(): ContentFilesStore {
 }
 
 function saveContentFilesStore(store: ContentFilesStore): void {
-  writeJsonFileAtomic(contentFilesStorePath(), store);
+  writeJsonFileAtomically(contentFilesStorePath(), store);
 }
 
 function contentFilesFolderInfo(
@@ -6276,7 +6392,7 @@ function loadPlanFilesStore(): PlanFilesStore {
 }
 
 function savePlanFilesStore(store: PlanFilesStore): void {
-  writeJsonFileAtomic(planFilesStorePath(), store);
+  writeJsonFileAtomically(planFilesStorePath(), store);
 }
 
 function isValidPlanFilePlanId(value: unknown): value is string {
@@ -8010,6 +8126,10 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
     "agentNativeConnectSource",
     "desktop_code_provider_settings",
   );
+  authUrl.searchParams.set("utm_source", "agent-native");
+  authUrl.searchParams.set("utm_medium", "product");
+  authUrl.searchParams.set("utm_campaign", "onboarding");
+  authUrl.searchParams.set("utm_content", "desktop_code_provider_settings");
   return authUrl.toString();
 }
 
@@ -9095,6 +9215,13 @@ app.whenReady().then(async () => {
   console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
+  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
+    ipcMain,
+    storeRoot: codeAgentStoreRoot(),
+    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    listWorkspaces: listMultiFrontierWorkspaces,
+    resolveDirectory: resolveUsableDirectory,
+  });
   registerDesktopShortcutBindings();
 
   const win = createWindow();
@@ -9197,21 +9324,24 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => {
-  appIsQuitting = true;
-  for (const appId of managedDesktopAppProcesses.keys()) {
-    stopManagedDesktopApp(appId);
+app.on("before-quit", (event) => {
+  if (!appIsQuitting) {
+    appIsQuitting = true;
+    for (const appId of managedDesktopAppProcesses.keys()) {
+      stopManagedDesktopApp(appId);
+    }
+    pauseActiveCodeAgentProcessesForShutdown();
+    if (remoteConnectorRestartTimer) {
+      clearTimeout(remoteConnectorRestartTimer);
+      remoteConnectorRestartTimer = null;
+    }
+    remoteConnectorProcess?.kill("SIGTERM");
+    remoteConnectorProcess = null;
+    void desktopComputerMcpBridge?.close();
+    desktopComputerMcpBridge = null;
+    desktopBrowserControlBridge = null;
   }
-  pauseActiveCodeAgentProcessesForShutdown();
-  if (remoteConnectorRestartTimer) {
-    clearTimeout(remoteConnectorRestartTimer);
-    remoteConnectorRestartTimer = null;
-  }
-  remoteConnectorProcess?.kill("SIGTERM");
-  remoteConnectorProcess = null;
-  void desktopComputerMcpBridge?.close();
-  desktopComputerMcpBridge = null;
-  desktopBrowserControlBridge = null;
+  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {

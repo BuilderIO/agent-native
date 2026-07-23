@@ -1,9 +1,10 @@
-import { usePinchZoom, useT } from "@agent-native/core/client";
-import type { ReviewThread } from "@agent-native/core/client";
+import { usePinchZoom } from "@agent-native/core/client/hooks";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { type ReviewThread } from "@agent-native/core/client/review";
 import type { ReviewComment } from "@agent-native/core/review";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
@@ -24,6 +25,7 @@ import {
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
+import { sourceContentHash } from "@shared/source-workspace";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import {
   useCallback,
@@ -43,6 +45,7 @@ import { Button } from "@/components/ui/button";
 import {
   DrawOverlay as SharedDrawOverlay,
   ReviewCanvasPins,
+  type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
@@ -106,6 +109,7 @@ import {
   schedulePendingTextEditActivation,
 } from "./design-canvas/pending-text-edit";
 import { DeviceFrame } from "./DeviceFrame";
+import { dndHostLog } from "./dnd-debug";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import type {
   ElementInfo,
@@ -300,6 +304,15 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 ${editorChromeBridgeScript}
 </script>
 `;
+
+/**
+ * Master switch for the Figma-parity live-reflow drag (hysteresis-stabilized
+ * targeting + size guard in Phase 0; transform lift/follow, live sibling
+ * reflow, and exact absolute commit in Phase 1). Flip to `true` to try the new
+ * drag feel; flip back to `false` for the previous behavior without a revert.
+ * Baked into the injected bridge as `__LIVE_REFLOW_ENABLED__`.
+ */
+const LIVE_REFLOW_ENABLED = true;
 
 interface DesignCanvasProps {
   content: string;
@@ -520,6 +533,8 @@ interface DesignCanvasProps {
   selectedSelector?: string | null;
   selectedSelectorCandidates?: string[];
   selectedSelectorGroups?: string[][];
+  /** Visual treatment for selection mirrors in responsive peer previews. */
+  passiveSelectionStyle?: "default" | "soft";
   hoveredSelector?: string | null;
   hoveredSelectorCandidates?: string[];
   lockedSelectors?: string[];
@@ -556,6 +571,11 @@ interface DesignCanvasProps {
   previewFrameId?: string;
   /** Human-readable label for comment-pin prompts. */
   commentContextLabel?: string;
+  /** Opens an ephemeral, pre-anchored regenerate composer for this screen. */
+  repromptDraftRequest?: RepromptDraftRequest | null;
+  onRepromptDraftConsumed?: (nonce: number) => void;
+  /** Marks the one base canvas used for pending rewrite previews. */
+  nodeRewriteCanvasTarget?: boolean;
   /**
    * Called when a link inside the prototype points to another screen (a
    * relative href or `data-screen`). Lets the editor switch the active screen
@@ -923,6 +943,10 @@ function buildEditorChromeBridgeScript(args: {
         "__RUNTIME_LAYER_SNAPSHOT_ENABLED__",
         args.runtimeLayerSnapshotEnabled ? "true" : "false",
       )
+      .replace(
+        "__LIVE_REFLOW_ENABLED__",
+        LIVE_REFLOW_ENABLED ? "true" : "false",
+      )
   );
 }
 
@@ -1036,6 +1060,7 @@ export function DesignCanvas({
   selectedSelector,
   selectedSelectorCandidates = [],
   selectedSelectorGroups = [],
+  passiveSelectionStyle = "default",
   hoveredSelector,
   hoveredSelectorCandidates = [],
   lockedSelectors = [],
@@ -1053,6 +1078,9 @@ export function DesignCanvas({
   commentContextId,
   screenId,
   previewFrameId,
+  repromptDraftRequest,
+  onRepromptDraftConsumed,
+  nodeRewriteCanvasTarget = false,
   onPrototypeNavigate,
   motionTracks,
   motionDefaultEase,
@@ -2095,7 +2123,11 @@ export function DesignCanvas({
             "__DESIGN_CANVAS_CONTENT_OFFSET_Y__",
             String(Math.round(embeddedFrame?.contentOffsetY ?? 0)),
           )
-          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false");
+          .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+          .replace(
+            "__LIVE_REFLOW_ENABLED__",
+            LIVE_REFLOW_ENABLED ? "true" : "false",
+          );
     // ALWAYS injected (like the other always-on bridges above) so
     // MultiScreenCanvas's cross-screen drag hit-testing
     // (agent-native:hit-test / agent-native:hit-test-result) resolves an
@@ -2468,6 +2500,12 @@ export function DesignCanvas({
         const selector = String(e.data.selector || "");
         const anchorSelector = String(e.data.anchorSelector || "");
         const placement = String(e.data.placement || "after");
+        dndHostLog("recv:structure-change", {
+          selector,
+          anchorSelector,
+          placement,
+          dropMode: e.data.dropMode,
+        });
         const requestId =
           typeof e.data.requestId === "string" ? e.data.requestId : undefined;
         const sourceId =
@@ -2535,6 +2573,11 @@ export function DesignCanvas({
                 : undefined,
             },
           );
+          dndHostLog("persist:result", {
+            applied,
+            requestId,
+            willAck: Boolean(requestId) && applied !== "pending",
+          });
           if (requestId && applied !== "pending") {
             iframeRef.current?.contentWindow?.postMessage(
               {
@@ -2929,6 +2972,7 @@ export function DesignCanvas({
       {
         type: "select-elements",
         selectorGroups: selectedSelectorGroups,
+        passiveSelectionStyle,
       },
       "*",
     );
@@ -2938,8 +2982,14 @@ export function DesignCanvas({
             type: "hover-element",
             selector: hoveredSelector,
             selectorCandidates: hoveredSelectorCandidates,
+            hoverStyle: passiveSelectionStyle,
           }
-        : { type: "hover-element", selector: "", selectorCandidates: [] },
+        : {
+            type: "hover-element",
+            selector: "",
+            selectorCandidates: [],
+            hoverStyle: passiveSelectionStyle,
+          },
       "*",
     );
     // Re-send motion tracks so the preview bridge is ready after a reload.
@@ -2998,6 +3048,7 @@ export function DesignCanvas({
     selectedSelector,
     selectedSelectorCandidates,
     selectedSelectorGroups,
+    passiveSelectionStyle,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,
@@ -4027,6 +4078,9 @@ export function DesignCanvas({
   const iframeElement = (
     <div
       data-review-canvas-id={reviewCanvasId}
+      data-node-rewrite-canvas-target={
+        nodeRewriteCanvasTarget ? "true" : undefined
+      }
       className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
@@ -4548,6 +4602,12 @@ export function DesignCanvas({
           onDispatchCommentToAgent={onDispatchCommentToAgent}
           onSendThreadToAgent={onSendThreadToAgent}
           sendingThreadId={reviewSendingThreadId}
+          sourceType={
+            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
+          }
+          sourceVersionHash={sourceContentHash(content)}
+          repromptDraftRequest={repromptDraftRequest}
+          onRepromptDraftConsumed={onRepromptDraftConsumed}
         />
       ) : null}
     </div>

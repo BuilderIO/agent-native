@@ -1,4 +1,4 @@
-import { DefaultSpinner } from "@agent-native/core/client";
+import { DefaultSpinner } from "@agent-native/core/client/ui";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import messages from "@/i18n/en-US";

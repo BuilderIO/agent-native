@@ -187,7 +187,7 @@ describe("get-figma-design-context", () => {
       sizingHorizontal: undefined,
       sizingVertical: undefined,
     });
-    expect(result.summary.fills).toEqual([{ type: "solid", color: "#ffffff" }]);
+    expect(result.summary.fills).toEqual([{ type: "solid", color: "#FFFFFF" }]);
 
     const heading = result.summary.children?.[0];
     expect(heading?.text).toEqual({
@@ -209,8 +209,8 @@ describe("get-figma-design-context", () => {
     expect(gradientCard?.fills?.[0]?.type).toBe("linear-gradient");
     expect(gradientCard?.fills?.[0]?.angleDeg).toBe(90);
     expect(gradientCard?.fills?.[0]?.stops).toEqual([
-      { position: 0, color: "#3d82f5" },
-      { position: 1, color: "#ed66b0" },
+      { position: 0, color: "#3D82F5" },
+      { position: 1, color: "#ED66B0" },
     ]);
     expect(result.truncated).toBe(false);
   });

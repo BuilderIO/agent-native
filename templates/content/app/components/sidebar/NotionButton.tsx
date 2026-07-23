@@ -1,4 +1,8 @@
-import { agentNativePath, appApiPath, useT } from "@agent-native/core/client";
+import {
+  agentNativePath,
+  appApiPath,
+} from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconExternalLink,
   IconCheck,

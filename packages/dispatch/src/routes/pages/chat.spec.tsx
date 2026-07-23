@@ -10,16 +10,27 @@ const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     clientState.surfaceProps = props;
     return <>{props.composerSlot as ReactNode}</>;
   },
+  markAgentChatHomeHandoff: vi.fn(),
+  navigateWithAgentChatViewTransition: (
+    navigate: (path: string) => void,
+    path: string,
+  ) => navigate(path),
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/api-path", () => ({
+  agentNativePath: (path: string) => path,
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
   appPath: (path: string) => path,
-  isInBuilderFrame: () => false,
-  markAgentChatHomeHandoff: vi.fn(),
-  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: { defaultValue?: string }) =>
     values?.defaultValue ?? key,
 }));

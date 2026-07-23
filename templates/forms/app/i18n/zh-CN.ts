@@ -32,10 +32,9 @@ const messages = {
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
-    agentTitle: "代理设置",
-    agentDescription:
-      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-    openAgentSettings: "打开代理设置",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+    openAgentSettings: "管理代理",
   },
   agent: {
     emptyState: "可以问我任何关于表单的问题",
@@ -242,6 +241,8 @@ const messages = {
     duplicated: "表格重复",
     duplicateFailed: "复制表格失败",
     movedToArchive: "表格移至存档",
+    movingToArchive: "正在将表单移至存档…",
+    archiveFailed: "无法将表单移至存档",
     restored: "形态恢复",
     permanentlyDeleted: "表格永久删除",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

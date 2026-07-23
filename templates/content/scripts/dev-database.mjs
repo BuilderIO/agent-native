@@ -37,8 +37,8 @@ function ensureLocalEnv() {
   const values = parseEnv(existing);
   let changed = false;
 
-  if (values.get("AGENT_NATIVE_MODE") !== "database") {
-    values.set("AGENT_NATIVE_MODE", "database");
+  if (values.get("AGENT_NATIVE_MODE") === "database") {
+    values.delete("AGENT_NATIVE_MODE");
     changed = true;
   }
   const authSecret = values.get("BETTER_AUTH_SECRET") ?? "";
@@ -49,15 +49,17 @@ function ensureLocalEnv() {
 
   if (changed) {
     writeFileSync(envPath, serializeEnv(values));
-    console.log("[content dev] Wrote local database-mode env to .env.local");
+    console.log("[content dev] Updated local Content env in .env.local");
   }
   return values;
 }
 
 const envValues = ensureLocalEnv();
+const baseEnv = { ...process.env };
+delete baseEnv.AGENT_NATIVE_MODE;
+delete baseEnv.AGENT_NATIVE_DATA_MODE;
 const childEnv = {
-  ...process.env,
-  AGENT_NATIVE_MODE: "database",
+  ...baseEnv,
   BETTER_AUTH_SECRET:
     process.env.BETTER_AUTH_SECRET || envValues.get("BETTER_AUTH_SECRET"),
 };

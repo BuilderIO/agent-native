@@ -89,7 +89,7 @@ La règle d'identité est la charnière de sécurité : le lien est simplement 
 - **Votre propre environnement d'exécution derrière le chat Agent-Native :** consultez [Agent Surfaces](/docs/agent-surfaces#byo-agent) et [Native Interface de chat](/docs/native-chat-ui#byo-agent-runtimes) lorsqu'un agent créé avec un autre framework devrait alimenter `<AssistantChat runtime={...}>`.
 - **Votre application utilisant les outils MCP :** consultez [MCP Clients](/docs/mcp-clients) lorsqu'une application native d'agent doit appeler des outils exposés par un autre serveur MCP.
 - **Une autre application ou un autre agent via A2A :** utilisez [Agent Mentions](/docs/agent-mentions) et [A2A](/docs/a2a-protocol) lorsque les applications natives d'agent doivent se découvrir et se déléguer mutuellement.
-- **Sous-agents personnalisés locaux :** utilisez [Workspace](/docs/workspace) lorsque vous souhaitez des profils d'agent personnalisés dans l'espace de travail natif de l'agent lui-même.
+- **Sous-agents personnalisés locaux :** utilisez [Ressources de l'agent](/docs/agent-resources) lorsque vous souhaitez des profils d'agent personnalisés dans l'espace de travail natif de l'agent lui-même.
 
 ## Configuration facile {#easy-setup}
 
@@ -530,6 +530,15 @@ Pour des transferts rapides ChatGPT/Claude, le chemin idéal est direct : appel
 ### Requêtes d'agent de longue durée
 
 Les hôtes et passerelles MCP ne partagent pas un seul et même délai d'expiration pour les appels d'outils : certains imposent un plafond de cinq minutes, d'autres sont configurables. Ne concevez pas une intégration d'agent externe autour d'un `tools/call` bloquant de dix minutes. `ask-agent` et `ask_app` accusent rapidement réception du travail hébergé, puis renvoient un `taskId` durable lorsque l'attente en ligne expire. Interrogez avec `ask_app_status` en utilisant les `app` et `taskId` renvoyés ; le résultat inclut `pollAfterMs` comme intervalle adapté à l'hôte. La tâche doit être créée avant que la première réponse ne puisse expirer, de sorte qu'une URL d'interrogation renvoyée seulement après un long appel n'est pas un contrat de récupération fiable.
+
+Si une lecture d'état transitoire et limitée est indisponible, `ask_app_status`
+peut renvoyer `status: "unknown"`, `statusRead: "unavailable"`,
+`retryable: true`, les `app` et `taskId` d'origine, ainsi que `pollAfterMs` /
+`poll`. Cela signifie que la lecture d'état est indisponible, et non que la tâche
+durable a échoué. Réessayez `ask_app_status` avec exactement les mêmes `app` et
+`taskId` ; ne soumettez jamais à nouveau `ask_app` pour récupérer, car la
+soumission peut dupliquer le travail. Les erreurs permanentes d'authentification,
+d'introuvable et de protocole restent des erreurs.
 
 ### Visite par application {#tour}
 

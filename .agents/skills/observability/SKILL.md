@@ -32,7 +32,7 @@ await putSetting("observability-config", {
   enabled: true,
   capturePrompts: false,
   captureToolArgs: true,    // capture action input args
-  captureToolResults: false,
+  captureToolResults: false, // include failed tool error text on tracked $ai_generation tool call entries
   evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
   inferredSentimentEnabled: false,
   inferredSentimentSampleRate: 0,
@@ -175,7 +175,7 @@ user in that deployment.
 Add a dashboard route to any template:
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 
 export default function ObservabilityPage() {
   return (
@@ -285,7 +285,13 @@ LLM generation:
 - Agent Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
-  `failed_tools`, and `status`.
+  `failed_tools`, and `status`. A content-free `tools` array includes at most
+  50 tool names, start offsets, durations, statuses, and coarse error classes;
+  interrupted calls are finalized as errors, and failed runs still emit with
+  zero or known usage. `tools_truncated` marks longer runs while the rollup counts remain complete.
+  Delegated runs add `delegation_protocol`, `caller_app`, `a2a_task_id`, and
+  `parent_run_id` when available. `parent_turn_id` is separate because one
+  logical turn may span multiple concrete runs.
 
 Do not build a separate LLM-observability ingestion API unless there is a clear
 reason the tracking provider registry cannot express the use case. Keep prompt,

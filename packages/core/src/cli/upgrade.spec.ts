@@ -102,6 +102,8 @@ describe("parseUpgradeArgs", () => {
       parseUpgradeArgs([
         "check",
         "--dry-run",
+        "--codemods",
+        "--yes",
         "--skip-install",
         "--skip-skills",
         "--skip-verify",
@@ -113,6 +115,8 @@ describe("parseUpgradeArgs", () => {
     ).toEqual({
       command: "check",
       dryRun: true,
+      codemods: true,
+      yes: true,
       skipInstall: true,
       skipSkills: true,
       skipVerify: true,
@@ -333,6 +337,244 @@ describe("runUpgrade", () => {
       fs.readFileSync(path.join(root, "package.json"), "utf-8"),
     );
     expect(pkg.dependencies["@agent-native/core"]).toBe("latest");
+  });
+
+  it("adds a missing migration dependency before install and applies source afterward", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "0.110.2" },
+      },
+    });
+    const source = path.join(root, "src/index.tsx");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(
+      source,
+      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n',
+    );
+    const installDependencies: Array<Record<string, string>> = [];
+    const { io } = captureIo({
+      spawn: (_command, args) => {
+        if (args.includes("install")) {
+          expect(fs.readFileSync(source, "utf-8")).toContain(
+            'from "@agent-native/core/client/editor"',
+          );
+          const packageJson = JSON.parse(
+            fs.readFileSync(path.join(root, "package.json"), "utf-8"),
+          ) as { dependencies: Record<string, string> };
+          installDependencies.push({ ...packageJson.dependencies });
+          const toolkitDir = path.join(
+            root,
+            "node_modules/@agent-native/toolkit",
+          );
+          fs.mkdirSync(toolkitDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(toolkitDir, "package.json"),
+            `${JSON.stringify({
+              name: "@agent-native/toolkit",
+              exports: { "./editor": "./editor.js" },
+            })}\n`,
+          );
+          fs.writeFileSync(
+            path.join(toolkitDir, "editor.js"),
+            "export const RichMarkdownEditor = {};\n",
+          );
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--codemods", "--yes", "--skip-skills", "--skip-verify"],
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(installDependencies).toEqual([
+      expect.objectContaining({
+        "@agent-native/core": "latest",
+        "@agent-native/toolkit": "latest",
+      }),
+    ]);
+    expect(fs.readFileSync(source, "utf-8")).toContain(
+      'from "@agent-native/toolkit/editor"',
+    );
+  });
+
+  it("keeps an installed but unresolved migration subpath unchanged", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: {
+          "@agent-native/core": "0.110.2",
+          "@agent-native/toolkit": "0.5.1",
+        },
+      },
+    });
+    const source = path.join(root, "src/index.tsx");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    const original =
+      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
+    fs.writeFileSync(source, original);
+    const toolkitDir = path.join(root, "node_modules/@agent-native/toolkit");
+    fs.mkdirSync(toolkitDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(toolkitDir, "package.json"),
+      `${JSON.stringify({
+        name: "@agent-native/toolkit",
+        exports: { ".": "./index.js" },
+      })}\n`,
+    );
+    fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+    const { io, err } = captureIo();
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--codemods", "--yes", "--skip-skills", "--skip-verify"],
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(fs.readFileSync(source, "utf-8")).toBe(original);
+    expect(err.join("\n")).toContain("not exported by an installed package");
+  });
+
+  it("reports only changes applied after post-install target verification", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "0.110.2" },
+      },
+    });
+    const source = path.join(root, "src/index.tsx");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    const original =
+      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
+    fs.writeFileSync(source, original);
+    const { io, out, err } = captureIo({
+      spawn: (_command, args) => {
+        if (args.includes("install")) {
+          const toolkitDir = path.join(
+            root,
+            "node_modules/@agent-native/toolkit",
+          );
+          fs.mkdirSync(toolkitDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(toolkitDir, "package.json"),
+            `${JSON.stringify({
+              name: "@agent-native/toolkit",
+              exports: { ".": "./index.js" },
+            })}\n`,
+          );
+          fs.writeFileSync(path.join(toolkitDir, "index.js"), "export {};\n");
+        }
+        return {
+          status: 0,
+          pid: 1,
+          output: [],
+          stdout: "",
+          stderr: "",
+          signal: null,
+        };
+      },
+    });
+
+    const code = await runUpgrade(
+      ["--cwd", root, "--codemods", "--yes", "--skip-skills", "--skip-verify"],
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(fs.readFileSync(source, "utf-8")).toBe(original);
+    expect(out.join("\n")).not.toContain("+++ b/src/index.tsx");
+    expect(err.join("\n")).toContain("not exported by an installed package");
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(root, "package.json"), "utf-8"),
+    ) as { dependencies: Record<string, string> };
+    expect(pkg.dependencies["@agent-native/toolkit"]).toBe("latest");
+  });
+
+  it("reports dependency changes when installation fails before source rewrites", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "0.110.2" },
+      },
+    });
+    const source = path.join(root, "src/index.tsx");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    const original =
+      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n';
+    fs.writeFileSync(source, original);
+    const { io, err } = captureIo({
+      spawn: () => ({
+        status: 1,
+        pid: 1,
+        output: [],
+        stdout: "",
+        stderr: "boom",
+        signal: null,
+      }),
+    });
+
+    const code = await runUpgrade(
+      [
+        "--cwd",
+        root,
+        "--codemods",
+        "--yes",
+        "--json",
+        "--skip-skills",
+        "--skip-verify",
+      ],
+      io,
+    );
+
+    expect(code).toBe(1);
+    expect(fs.readFileSync(source, "utf-8")).toBe(original);
+    const result = JSON.parse(err.join("\n")) as {
+      codemod: { files: string[]; diff: string };
+    };
+    expect(result.codemod.files).toEqual(["package.json"]);
+    expect(result.codemod.diff).toContain('"@agent-native/toolkit": "latest"');
+  });
+
+  it("reports codemods applied while dependency installation is skipped", async () => {
+    const root = makeTempProject({
+      rootPkg: {
+        name: "old-app",
+        dependencies: { "@agent-native/core": "0.110.2" },
+      },
+    });
+    const source = path.join(root, "src/index.tsx");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(
+      source,
+      'import { RichMarkdownEditor } from "@agent-native/core/client/editor";\nvoid RichMarkdownEditor;\n',
+    );
+    const { io, out } = captureIo();
+
+    const code = await runUpgrade(
+      [
+        "--cwd",
+        root,
+        "--codemods",
+        "--yes",
+        "--skip-install",
+        "--skip-skills",
+        "--skip-verify",
+      ],
+      io,
+    );
+
+    expect(code).toBe(0);
+    expect(out.join("\n")).toContain("without installing dependencies");
   });
 
   it("prints failure guidance when install fails", async () => {

@@ -89,7 +89,7 @@ La regla de identidad es la bisagra de seguridad: el enlace es solo `view` + ide
 - **Su propio tiempo de ejecución detrás del chat Agent-Native:** consulte [Agent Surfaces](/docs/agent-surfaces#byo-agent) y [Native Interfaz de chat](/docs/native-chat-ui#byo-agent-runtimes) cuando un agente creado con otro marco debería impulsar `<AssistantChat runtime={...}>`.
 - **Su aplicación consume herramientas MCP:** consulte [MCP Clients](/docs/mcp-clients) cuando una aplicación nativa del agente necesita llamar a herramientas expuestas por otro servidor MCP.
 - **Otra aplicación o agente a través de A2A:** use [Agent Mentions](/docs/agent-mentions) y [A2A](/docs/a2a-protocol) cuando las aplicaciones nativas del agente deban descubrirse y delegarse entre sí.
-- **Subagentes personalizados locales:** use [Workspace](/docs/workspace) cuando desee perfiles de agente personalizados dentro del propio espacio de trabajo nativo del agente.
+- **Subagentes personalizados locales:** use [Recursos del Agente](/docs/agent-resources) cuando desee perfiles de agente personalizados dentro del propio espacio de trabajo nativo del agente.
 
 ## Fácil configuración {#easy-setup}
 
@@ -538,6 +538,15 @@ expira la espera en línea. Sondee con `ask_app_status` usando el `app` y el
 para hosts. La tarea debe crearse antes de que la primera respuesta pueda
 agotar el tiempo de espera, por lo que una URL de sondeo devuelta solo después
 de una llamada larga no es un contrato de recuperación confiable.
+
+Si no está disponible una lectura de estado transitoria y acotada,
+`ask_app_status` puede devolver `status: "unknown"`,
+`statusRead: "unavailable"`, `retryable: true`, el `app` y `taskId` originales,
+y `pollAfterMs` / `poll`. Esto significa que la lectura de estado no está
+disponible, no que la tarea duradera haya fallado. Vuelva a intentar
+`ask_app_status` con exactamente el mismo `app` y `taskId`; nunca reenvíe
+`ask_app` para recuperarse, porque el envío puede duplicar el trabajo. Los errores
+permanentes de autenticación, de no encontrado y de protocolo siguen siendo errores.
 
 ### Recorrido por aplicación {#tour}
 
