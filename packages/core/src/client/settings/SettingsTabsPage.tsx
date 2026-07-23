@@ -3,6 +3,7 @@ import {
   IconHistory,
   IconSearch,
   IconSettings,
+  IconUserCircle,
   IconUsers,
   IconX,
 } from "@tabler/icons-react";
@@ -15,6 +16,7 @@ import {
   type ComponentType,
   type ReactNode,
 } from "react";
+import { Link } from "react-router";
 
 import { cn } from "../utils.js";
 
@@ -50,6 +52,8 @@ export interface SettingsTabItem {
   label: string;
   icon?: SettingsTabIcon;
   content: ReactNode;
+  /** Optional route for settings that live on a canonical page elsewhere. */
+  href?: string;
   /** Whether a parent surface may expose a personal/organization scope for this tab. */
   scopeAware?: boolean;
   /**
@@ -66,10 +70,12 @@ export interface SettingsTabItem {
 
 export interface SettingsTabsPageProps {
   general: ReactNode;
+  account?: ReactNode;
   team?: ReactNode;
   whatsNew?: ReactNode;
   extraTabs?: SettingsTabItem[];
   generalLabel?: string;
+  accountLabel?: string;
   teamLabel?: string;
   whatsNewLabel?: string;
   ariaLabel?: string;
@@ -182,10 +188,12 @@ function isEditableElement(element: Element | null): boolean {
 
 export function SettingsTabsPage({
   general,
+  account,
   team,
   whatsNew,
   extraTabs = [],
   generalLabel = "General",
+  accountLabel = "Account",
   teamLabel = "Team",
   whatsNewLabel = "What's new",
   ariaLabel = "Settings sections",
@@ -217,6 +225,15 @@ export function SettingsTabsPage({
         searchEntries: generalSearchEntries,
       },
     ];
+    if (account) {
+      next.push({
+        id: "account",
+        label: accountLabel,
+        icon: IconUserCircle,
+        content: account,
+        keywords: "profile photo avatar identity signed in email name",
+      });
+    }
     next.push(...extraTabs);
     if (team && !hasOrganizationTab) {
       next.push({
@@ -238,6 +255,8 @@ export function SettingsTabsPage({
     }
     return next;
   }, [
+    account,
+    accountLabel,
     extraTabs,
     general,
     generalLabel,
@@ -271,7 +290,9 @@ export function SettingsTabsPage({
   const activeTab = isControlled ? value : internalTab;
   const [query, setQuery] = useState("");
   const designSystem = useDesignSystem();
-  const hasCustomTabs = Boolean(designSystem?.components?.Tabs);
+  const hasLinkedTabs = tabs.some((tab) => Boolean(tab.href));
+  const hasCustomTabs =
+    Boolean(designSystem?.components?.Tabs) && !hasLinkedTabs;
 
   const changeTab = useCallback(
     (tabId: string) => {
@@ -493,15 +514,16 @@ export function SettingsTabsPage({
             ) : (
               results.map((entry) => {
                 const Icon = entry.icon;
-                return (
-                  <button
-                    key={entry.id}
-                    type="button"
-                    role="option"
-                    aria-selected={false}
-                    onClick={() => selectEntry(entry)}
-                    className="flex items-start gap-2 rounded-md px-2.5 py-2 text-start text-sm text-foreground transition-colors hover:bg-accent/60"
-                  >
+                const tab = tabs.find(
+                  (candidate) => candidate.id === entry.tabId,
+                );
+                const resultHref = tab?.href
+                  ? entry.hash
+                    ? `${tab.href.split("#", 1)[0]}#${entry.hash.replace(/^#/, "")}`
+                    : tab.href
+                  : null;
+                const result = (
+                  <>
                     {Icon ? (
                       <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                     ) : null}
@@ -513,6 +535,28 @@ export function SettingsTabsPage({
                         {entry.description ?? entry.tabLabel}
                       </span>
                     </span>
+                  </>
+                );
+                return resultHref ? (
+                  <Link
+                    key={entry.id}
+                    to={resultHref}
+                    role="option"
+                    aria-selected={false}
+                    className="flex items-start gap-2 rounded-md px-2.5 py-2 text-start text-sm text-foreground transition-colors hover:bg-accent/60"
+                  >
+                    {result}
+                  </Link>
+                ) : (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onClick={() => selectEntry(entry)}
+                    className="flex items-start gap-2 rounded-md px-2.5 py-2 text-start text-sm text-foreground transition-colors hover:bg-accent/60"
+                  >
+                    {result}
                   </button>
                 );
               })
@@ -558,6 +602,39 @@ export function SettingsTabsPage({
                   {group.tabs.map((tab) => {
                     const Icon = tab.icon;
                     const selected = tab.id === selectedTab?.id;
+                    const tabContent = (
+                      <>
+                        {Icon ? (
+                          <Icon
+                            className={cn(
+                              "size-4 shrink-0",
+                              selected
+                                ? "text-foreground"
+                                : "text-muted-foreground",
+                            )}
+                          />
+                        ) : null}
+                        <span className="truncate">{tab.label}</span>
+                      </>
+                    );
+                    if (tab.href) {
+                      return (
+                        <Link
+                          key={tab.id}
+                          role="tab"
+                          aria-selected={selected}
+                          to={tab.href}
+                          className={cn(
+                            "flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start text-sm font-medium transition-colors sm:w-full",
+                            selected
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                          )}
+                        >
+                          {tabContent}
+                        </Link>
+                      );
+                    }
                     return (
                       <button
                         key={tab.id}
@@ -577,17 +654,7 @@ export function SettingsTabsPage({
                             : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                         )}
                       >
-                        {Icon ? (
-                          <Icon
-                            className={cn(
-                              "size-4 shrink-0",
-                              selected
-                                ? "text-foreground"
-                                : "text-muted-foreground",
-                            )}
-                          />
-                        ) : null}
-                        <span className="truncate">{tab.label}</span>
+                        {tabContent}
                       </button>
                     );
                   })}

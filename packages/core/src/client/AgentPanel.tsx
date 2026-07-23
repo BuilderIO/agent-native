@@ -2673,7 +2673,7 @@ export function AgentChatSurface({
   const defaultShowPageNewChatButton =
     shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
-  return (
+  const panel = (
     <AgentPanel
       {...props}
       defaultMode={defaultMode}
@@ -2696,6 +2696,14 @@ export function AgentChatSurface({
         chatViewTransition ? getAgentChatViewTransitionStyle(style) : style
       }
     />
+  );
+
+  if (!pageMode) return panel;
+  return (
+    <>
+      <URLSync browserTabId={props.browserTabId} />
+      {panel}
+    </>
   );
 }
 

@@ -1728,7 +1728,7 @@ describe("chat submit and stop hardening", () => {
     );
   });
 
-  it("keeps chat composer readiness in the submit preflight", () => {
+  it("keeps chat composer readiness passive and eager", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
@@ -1736,7 +1736,11 @@ describe("chat submit and stop hardening", () => {
     expect(source).not.toContain(
       "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
     );
+    expect(source).not.toContain("fetchAgentEngineConfiguredState(");
+    expect(source).not.toContain("ensureAgentEngineReadyForSubmit");
     expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+    expect(source).not.toContain("isProviderStatusChecking");
+    expect(source).not.toContain("checkingAiConnection");
   });
 
   it("makes the chat composer retryable when provider readiness is unavailable", () => {

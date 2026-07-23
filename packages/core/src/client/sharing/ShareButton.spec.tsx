@@ -174,48 +174,6 @@ describe("ShareButton", () => {
     vi.unstubAllGlobals();
   });
 
-  it("submits a typed email invite when Done is clicked", async () => {
-    await act(async () => {
-      root.render(
-        <QueryClientProvider client={queryClient}>
-          <ShareButton
-            resourceType="document"
-            resourceId="doc-1"
-            resourceTitle="Launch notes"
-            shareUrl="https://content.agent-native.com/page/doc-1"
-          />
-        </QueryClientProvider>,
-      );
-    });
-
-    const input = container.querySelector(
-      'input[placeholder="Add people by email"]',
-    ) as HTMLInputElement;
-    setInputValue(input, "teammate@example.com");
-
-    const done = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "Done",
-    );
-    if (!done) throw new Error("Done button not found");
-
-    act(() => {
-      done.click();
-    });
-
-    expect(shareMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        resourceType: "document",
-        resourceId: "doc-1",
-        principalType: "user",
-        principalId: "teammate@example.com",
-        role: "viewer",
-        notify: true,
-        resourceUrl: "https://content.agent-native.com/page/doc-1",
-      }),
-      expect.any(Object),
-    );
-  });
-
   it("submits one typed email with Add while keeping the share popover open", async () => {
     await act(async () => {
       root.render(
@@ -251,7 +209,7 @@ describe("ShareButton", () => {
       }),
       expect.any(Object),
     );
-    expect(container.textContent).toContain("Done");
+    expect(container.textContent).not.toContain("Done");
     expect(
       container.querySelector('input[placeholder="Add people by email"]'),
     ).toBeTruthy();
@@ -552,7 +510,7 @@ describe("ShareButton", () => {
     expect(text).not.toContain("not-an-email-id");
   });
 
-  it("can hide copyable share links and the done button", async () => {
+  it("does not render a redundant Done button", async () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={queryClient}>
@@ -562,7 +520,6 @@ describe("ShareButton", () => {
             shareUrl="https://design.agent-native.com/design/design-1"
             shareUrlLabel="Design editor link"
             showShareLinks={false}
-            showDoneButton={false}
             shareFooterContent={<button type="button">Copy share link</button>}
           />
         </QueryClientProvider>,

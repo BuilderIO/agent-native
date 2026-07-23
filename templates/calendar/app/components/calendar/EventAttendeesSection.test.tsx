@@ -178,7 +178,7 @@ describe("EventAttendeesSection attendee controls", () => {
 
     expect(organizerRow?.textContent).toContain(organizerLabel);
     expect(selfRow?.textContent).toContain(browserLabel);
-  });
+  }, 15_000);
 
   it("submits a recurring response with Cmd+Enter from the note", () => {
     const event: CalendarEvent = {

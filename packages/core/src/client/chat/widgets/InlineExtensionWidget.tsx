@@ -17,7 +17,6 @@ export function InlineExtensionWidget({
 
   return (
     <InlineExtensionFrame
-      className="my-1.5"
       extensionId={result.mode === "persisted" ? result.id : undefined}
       extension={{
         id: result.id,

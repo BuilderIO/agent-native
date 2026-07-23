@@ -1,5 +1,60 @@
 # @agent-native/core
 
+## 0.119.2
+
+### Patch Changes
+
+- 2254362: Show only the Go home action on 404 error screens.
+- 2254362: Allow idempotent database reads to set a per-query timeout and retry budget, and let email callers bound provider delivery time.
+- 2254362: Keep Cloudflare Pages SSR builds working when shared chat components use the assistant UI state hook.
+- 2254362: Preserve ordered fallback bearer tokens for connected A2A agent calls during key rotation.
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+- 2254362: Polish the Manage agent resources layout with aligned empty states and whitespace-based section spacing.
+- 2254362: Space out and cap Vite optimized-dependency recovery reloads so dev startup does not thrash when the optimizer stays out of sync.
+- 2254362: Use a background-independent mask for the scrolled chat fade so it matches each host surface.
+- Updated dependencies [2254362]
+  - @agent-native/toolkit@0.10.2
+
+## 0.119.1
+
+### Patch Changes
+
+- c015dc7: Export shared Figma paint math (gradient geometry from transforms/handles,
+  blend-mode mapping, linear stop remapping) from `@agent-native/core/ingestion`
+  so the REST and `.fig`/clipboard import renderers derive gradients identically.
+
+## 0.119.0
+
+### Minor Changes
+
+- 6f485ac: Remove the redundant Done action from shared share popovers and dialogs.
+- 6f485ac: Stream delegated A2A agent activity into an indented chat run with live reasoning, tool status, elapsed time, and a scroll-free final response.
+
+### Patch Changes
+
+- 6f485ac: Use GPT-5.6 Luna as the default for Builder Gateway and OpenAI connections, keep Claude Sonnet 5 for Anthropic connections, and order the model picker from lowest to highest cost.
+
+## 0.118.1
+
+### Patch Changes
+
+- c15d20f: Only show in-chat connection suggestions for exact provider brands or provider-owned URLs found in user-authored text.
+- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
+- c15d20f: Keep remote MCP OAuth flow state in browser-safe cookie chunks and show Granola's official provider icon.
+- c15d20f: Keep completed chat turns with interactive custom UI expanded and frame custom action UI in a padded card.
+- c15d20f: Pin Slack delivery to the app that received the event and reject legacy bot tokens from a different Slack app.
+- c15d20f: Keep healthy long-running tool and agent calls out of the stuck-run warning, add space below long-running tool hints, and prevent a hung remote status request from bypassing the A2A call timeout.
+- c15d20f: Wait for Nitro's Vite environment before serving initial development requests, and keep published Core installs from enabling framework-monorepo dependency optimization.
+- c15d20f: Consume agent-authored URL navigation commands from full-page chat surfaces.
+- c15d20f: Remove the obsolete active-tool row selector so stale styles cannot paint the shine outside the label text.
+- c15d20f: Shorten the MCP OAuth connection action label to Connect.
+- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
+- c15d20f: Synchronize the chat response regenerate control and timestamp fade transitions.
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+  - @agent-native/toolkit@0.10.1
+
 ## 0.118.0
 
 ### Minor Changes

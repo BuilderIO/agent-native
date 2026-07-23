@@ -1,5 +1,20 @@
 # @agent-native/toolkit
 
+## 0.10.2
+
+### Patch Changes
+
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+
+## 0.10.1
+
+### Patch Changes
+
+- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
+- c15d20f: Expand design-system conformance coverage for uncontrolled tooltip and menu
+  opening, and align the example adapters with those default-open semantics.
+- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
+
 ## 0.10.0
 
 ### Minor Changes
