@@ -734,6 +734,127 @@ describe("useDbSync", () => {
     expect(pollCallCount()).toBe(5);
   });
 
+  it("keeps active sync alive at a slower cadence while hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function BackgroundProbe() {
+      useDbSync({ queryClient, sseUrl: false });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<BackgroundProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId: "thread-1" },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(9_999);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    visibilitySpy.mockRestore();
+  });
+
+  it("still supports explicitly pausing sync while hidden", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ version: 1, events: [] })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let visibilityState: DocumentVisibilityState = "visible";
+    const visibilitySpy = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockImplementation(() => visibilityState);
+
+    function PausedProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50,
+        pauseWhenHidden: true,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<PausedProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      visibilityState = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      visibilityState = "visible";
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    visibilitySpy.mockRestore();
+  });
+
   it("subscribeSyncEvents shares the transport and reports SSE state on join", async () => {
     const fetchMock = vi.fn(
       async () =>

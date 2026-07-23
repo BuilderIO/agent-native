@@ -11,12 +11,12 @@ import {
   IconCopy,
   IconDownload,
   IconDots,
+  IconHierarchy2,
   IconMessageCircle,
   IconMinus,
   IconPhoto,
   IconPlus,
   IconRefresh,
-  IconWand,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
@@ -1091,7 +1091,7 @@ export function ImageBlock({
                       disabled={isGeneratingAlt}
                       onClick={() => void handleGenerateAltText()}
                     >
-                      <IconWand size={18} />
+                      <IconHierarchy2 size={18} />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>

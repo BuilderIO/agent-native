@@ -673,6 +673,37 @@ describe("SSE replay render pacing", () => {
       },
     ]);
   });
+
+  it("marks synthetic agent-call cards as presentation-only activity", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            id: "call-analytics",
+            tool: "call-agent",
+            input: { agent: "analytics", message: "Count signups" },
+          },
+          { type: "agent_call", agent: "Analytics", status: "start" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results[1].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+      }),
+      expect.objectContaining({
+        toolName: "agent:Analytics",
+        activity: true,
+      }),
+    ]);
+  });
 });
 
 describe("SSE event processor no-progress recovery", () => {
@@ -2024,7 +2055,7 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("does not render non-tool activity as visible content", async () => {
+  it("turns a terminal activity-only run into a visible final warning", async () => {
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -2040,20 +2071,24 @@ describe("SSE event processor error classification", () => {
       ),
     );
 
-    expect(results).toEqual([
-      {
-        content: [],
-        metadata: {
-          custom: {
-            activityTrail: [
-              {
-                label: "Contacting model",
-              },
-            ],
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+        },
+      ],
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          activityTrail: [{ label: "Contacting model" }],
+          runWarning: {
+            errorCode: "final_response_missing",
+            recoverable: true,
           },
         },
       },
-    ]);
+    });
   });
 
   it("fills the pending tool activity card when tool_start arrives", async () => {
@@ -2660,6 +2695,45 @@ describe("SSE event processor error classification", () => {
         text: "The agent completed the generate design action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
       },
     ]);
+  });
+
+  it("treats a completed custom UI as the final response", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "render-todo-list-inline",
+            input: {},
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          {
+            type: "tool_done",
+            tool: "render-todo-list-inline",
+            result: '{"ok":true}',
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-custom-ui",
+        undefined,
+        "run-custom-ui",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "render-todo-list-inline",
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        }),
+      ],
+    });
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
   });
 
   it("does not add a missing-final warning when text arrives after the last completed tool", async () => {

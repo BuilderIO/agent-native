@@ -1394,6 +1394,9 @@ describe("MultiTabAssistantChat page overlay", () => {
     );
     expect(scrollTarget).not.toBeNull();
     expect(
+      container.querySelector("[data-agent-page-chat-topbar]"),
+    ).not.toBeNull();
+    expect(
       container.querySelector("[data-agent-page-chat-scrolled]"),
     ).toBeNull();
 
@@ -1406,6 +1409,23 @@ describe("MultiTabAssistantChat page overlay", () => {
     expect(
       container.querySelector("[data-agent-page-chat-scrolled]"),
     ).not.toBeNull();
+  });
+
+  it("reserves the page top bar even when its actions are temporarily empty", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="page-overlay-test"
+          renderOverlay={() => null}
+        />,
+      );
+    });
+
+    const topbar = container.querySelector<HTMLElement>(
+      "[data-agent-page-chat-topbar]",
+    );
+    expect(topbar).not.toBeNull();
+    expect(topbar?.className).toContain("pt-14");
   });
 });
 

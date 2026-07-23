@@ -61,6 +61,10 @@ import type {
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
+export function canSubmitWithAgentEngineState(state: string): boolean {
+  return state === "configured";
+}
+
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
  * what to do with them — typically POST to a per-app upload endpoint and pass
@@ -519,6 +523,7 @@ function PromptComposerInner({
     resolvedModelStatusChecksEnabled,
   );
   const missingApiKey = agentEngineConfigured.missing;
+  const agentEngineUnavailable = agentEngineConfigured.state === "unavailable";
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -542,15 +547,25 @@ function PromptComposerInner({
               timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
             },
           );
-    if (state !== "missing") return true;
-    bounceMissingKeySetup();
-    return false;
+    if (state === "missing") {
+      bounceMissingKeySetup();
+      return false;
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+    return canSubmitWithAgentEngineState(state);
   }, [
     agentEngineConfigured.state,
     bounceMissingKeySetup,
     modelsAdapter,
     resolvedModelStatusChecksEnabled,
   ]);
+  const retryAgentEngineStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -613,21 +628,31 @@ function PromptComposerInner({
       <AgentComposerFrame
         className={cn(
           "text-start",
-          missingApiKey && "cursor-pointer",
+          (missingApiKey || agentEngineUnavailable) && "cursor-pointer",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={missingApiKey ? bounceMissingKeySetup : undefined}
+        onClick={
+          missingApiKey
+            ? bounceMissingKeySetup
+            : agentEngineUnavailable
+              ? retryAgentEngineStatus
+              : undefined
+        }
       >
         <PromptAttachmentStrip />
         <TiptapComposer
           focusRef={handleRef}
-          disabled={disabled || missingApiKey}
+          disabled={disabled || missingApiKey || agentEngineUnavailable}
           placeholder={
-            missingApiKey ? "Connect AI above to continue..." : placeholder
+            missingApiKey
+              ? "Connect AI above to continue..."
+              : agentEngineUnavailable
+                ? "Unable to check AI connection. Click to retry."
+                : placeholder
           }
           initialText={initialText}
           initialTextKey={initialTextKey}

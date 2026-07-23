@@ -69,6 +69,10 @@ vi.mock("../../../lib/post-finalize-dispatch.js", () => ({
   postFinalizeJobResourceId: vi.fn(() => "rec-1:media-ready"),
 }));
 
+vi.mock("../../../../actions/export-to-brain.js", () => ({
+  default: { run: vi.fn() },
+}));
+
 import handler from "./post-finalize-worker.post";
 
 describe("post-finalize worker", () => {

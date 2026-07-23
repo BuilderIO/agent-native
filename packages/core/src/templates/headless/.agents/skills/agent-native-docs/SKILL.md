@@ -66,6 +66,33 @@ state, auth, and agent-chat runtime contracts. Never edit `node_modules` or
 deep-import its private source. Manual copying is only the fallback described by
 an unknown third-party package's add-style blueprint.
 
+## Reuse Proven Patterns (rg + cp)
+
+Version-matched installed source outranks web docs or memory: it is the exact
+code shipping with this app. `node_modules/@agent-native/core/corpus/templates/`
+holds source for every first-party template, not just the one this app started
+from, so a pattern from the mail template is fair game for a tasks app. Grep
+across it, then copy a whole file as a starting point instead of writing the
+pattern from scratch:
+
+```bash
+# Find how other templates solved a similar problem
+rg -n "drag.*drop|reorder" node_modules/@agent-native/core/corpus/templates
+
+# Grab a proven action file as a starting point, then adapt names/schema
+cp node_modules/@agent-native/core/corpus/templates/mail/actions/archive-email.ts \
+   actions/archive-item.ts
+
+# Read the full framework source behind an API, not just the corpus copy
+rg -n "defineAction" node_modules/@agent-native/core/src/action.ts
+```
+
+Copying template-level app code (actions, components, skill files) is the
+expected reuse path — templates exist to be forked. This is different from
+copying `core`/`toolkit` **runtime internals**: for those, follow
+`customizing-agent-native`'s configure/compose/eject ladder instead of
+hand-duplicating framework logic.
+
 ## Useful Slugs
 
 | Need                           | Slugs                                                         |

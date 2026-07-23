@@ -14,7 +14,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  ChatHistoryList,
+  ChatHistoryRail,
   type ChatHistoryItem,
 } from "@agent-native/toolkit/chat-history";
 import {
@@ -29,7 +29,6 @@ import {
   IconLayersSubtract,
   IconMessageQuestion,
   IconMessages,
-  IconPlus,
   IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
@@ -355,7 +354,7 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
           (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
         )
         .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
-        .slice(0, 8),
+        .slice(0, 15),
     [activeThreadId, threads],
   );
   const localPathname = localDispatchPath(location.pathname);
@@ -430,36 +429,31 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
             <Skeleton className="h-3 w-3/4 rounded" />
           </div>
         ))}
-      {visibleThreads.length > 0 && (
-        <ChatHistoryList
-          items={chatItems}
-          activeId={displayedActiveThreadId}
-          onSelect={(threadId) => openThread(threadId)}
-          renameMaxLength={160}
-          onRename={(threadId, title) => void renameThread(threadId, title)}
-          labels={{
-            options: (item) =>
-              t("dispatch.sidebar.chatOptions", {
-                title: item.titleText ?? "",
-              }),
-            renameInput: (item) =>
-              t("dispatch.sidebar.renameThread", {
-                title: item.titleText ?? "",
-              }),
-            rename: t("dispatch.sidebar.renameChat"),
-          }}
-          variant="rail"
-          className="min-w-0"
-        />
-      )}
-      <button
-        type="button"
-        onClick={() => void handleNewChat()}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-foreground"
-      >
-        <IconPlus className="size-3 shrink-0" />
-        <span className="truncate">{t("dispatch.sidebar.newChat")}</span>
-      </button>
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("dispatch.sidebar.newChat"),
+          showMore: t("dispatch.sidebar.chats"),
+          showLess: t("dispatch.sidebar.chats"),
+        }}
+        renameMaxLength={160}
+        onRename={(threadId, title) => void renameThread(threadId, title)}
+        labels={{
+          options: (item) =>
+            t("dispatch.sidebar.chatOptions", {
+              title: item.titleText ?? "",
+            }),
+          renameInput: (item) =>
+            t("dispatch.sidebar.renameThread", {
+              title: item.titleText ?? "",
+            }),
+          rename: t("dispatch.sidebar.renameChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -723,7 +717,7 @@ export function NavContent({
               <OrgSwitcher />
             </div>
 
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <FeedbackButton />
             </div>
           </div>

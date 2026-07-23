@@ -15,7 +15,7 @@ name: PR Visual Recap (reusable)
 #
 # IMPORTANT: callers must trigger on the same pull_request event types as this
 # file declares in its on.workflow_call section (opened, synchronize, reopened,
-# ready_for_review, closed).  The workflow_call trigger inherits the CALLER's event
+# ready_for_review, labeled, closed).  The workflow_call trigger inherits the CALLER's event
 # context, so `github.event.pull_request.*` expressions here work correctly only
 # when the caller fires on pull_request.
 
@@ -97,6 +97,11 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
+      required-labels:
+        description: "Comma-separated PR labels; when set, recaps only run when the PR has at least one listed label"
+        required: false
+        type: string
+        default: ""
     secrets:
       # Required: bearer token minted by `agent-native connect`.  Authorizes
       # publishing the recap plan and the screenshot upload.
@@ -126,6 +131,7 @@ concurrency:
 jobs:
   gate:
     name: Gate
+    if: github.event.action != 'labeled' || inputs.required-labels != ''
     # A custom plain-label runner is allowed only for trusted same-repo authors.
     # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
     # any step starts. The only fromJSON input is this static association list.
@@ -152,6 +158,7 @@ jobs:
           VISUAL_RECAP_MODEL: ${{ inputs.model }}
           VISUAL_RECAP_RUNS_ON: ${{ inputs.runs-on }}
           VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
+          VISUAL_RECAP_REQUIRED_LABELS: ${{ inputs.required-labels }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
@@ -163,6 +170,19 @@ jobs:
             if (pr && pr.draft) reasons.push('draft PR');
             if (pr && context.payload.action === 'closed' && !pr.merged) {
               reasons.push('closed without merge');
+            }
+            const requiredLabels = (process.env.VISUAL_RECAP_REQUIRED_LABELS || '')
+              .split(',')
+              .map((label) => label.trim().toLowerCase())
+              .filter(Boolean);
+            if (pr && requiredLabels.length > 0) {
+              const prLabels = new Set((Array.isArray(pr.labels) ? pr.labels : [])
+                .map((label) => typeof label === 'string' ? label : label && label.name)
+                .filter(Boolean)
+                .map((label) => String(label).toLowerCase()));
+              if (!requiredLabels.some((label) => prLabels.has(label))) {
+                reasons.push(`missing required recap label (${requiredLabels.join(', ')})`);
+              }
             }
 
             // Fork PRs only receive repo secrets when the org/repo opts into
@@ -1020,13 +1040,13 @@ jobs:
           SHOT_STATUS=$(LIGHT_SHOT_JSON="$LIGHT_SHOT_JSON" DARK_SHOT_JSON="$DARK_SHOT_JSON" node <<'NODE'
           const parse = (raw) => { try { return JSON.parse(raw || "{}"); } catch { return { ok: false, reason: "invalid shot JSON" }; } };
           const shots = [["light", parse(process.env.LIGHT_SHOT_JSON)], ["dark", parse(process.env.DARK_SHOT_JSON)]];
-          const hasImage = shots.some(([, shot]) => typeof shot.imageUrl === "string" && shot.imageUrl.trim());
+          const hasAllImages = shots.every(([, shot]) => typeof shot.imageUrl === "string" && shot.imageUrl.trim());
           const reasons = shots.flatMap(([label, shot]) => {
             if (typeof shot.reason === "string" && shot.reason.trim()) return [`${label}: ${shot.reason.trim()}`];
             if (!(typeof shot.imageUrl === "string" && shot.imageUrl.trim())) return [`${label}: no imageUrl returned`];
             return [];
           });
-          process.stdout.write(JSON.stringify({ ok: hasImage, reason: hasImage ? "" : reasons.join("; ").slice(0, 1000) }));
+          process.stdout.write(JSON.stringify({ ok: hasAllImages, reason: hasAllImages ? "" : reasons.join("; ").slice(0, 1000) }));
           NODE
           )
           SHOT_OK=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$SHOT_STATUS")

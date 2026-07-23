@@ -2465,8 +2465,15 @@ impl LiveAudioMixer {
     }
 
     /// Emit mixed sample buffers covering `out_pos..safe_end` in
-    /// `MIX_CHUNK_FRAMES` chunks: sum system + mic per frame, clamp, wrap as
-    /// LPCM `CMSampleBuffer`s with contiguous PTS.
+    /// `MIX_CHUNK_FRAMES` chunks: average system + mic per frame, clamp, wrap
+    /// as LPCM `CMSampleBuffer`s with contiguous PTS.
+    ///
+    /// Each source is weighted at 0.5 before summing so that two full-scale
+    /// signals (which occurs when a USB audio interface with software monitoring
+    /// routes the mic back through system audio) can never exceed ±1.0 and
+    /// hard-clip. The standard SCK pipeline applies the same 0.5×L + 0.5×R
+    /// pan-downmix for the same reason; loudnorm restores the target loudness
+    /// in post-processing.
     fn drain_ready(
         &mut self,
         flush: bool,
@@ -2488,8 +2495,8 @@ impl LiveAudioMixer {
                 let frame = a + f as i64;
                 let (sl, sr) = self.system.sample_at(frame);
                 let (ml, mr) = self.mic.sample_at(frame);
-                interleaved[f * 2] = (sl + ml).clamp(-1.0, 1.0);
-                interleaved[f * 2 + 1] = (sr + mr).clamp(-1.0, 1.0);
+                interleaved[f * 2] = (sl * 0.5 + ml * 0.5).clamp(-1.0, 1.0);
+                interleaved[f * 2 + 1] = (sr * 0.5 + mr * 0.5).clamp(-1.0, 1.0);
             }
             emitted.push(self.build_sample_buffer(&interleaved, a)?);
             a = b;
@@ -2605,7 +2612,7 @@ fn source_asbd(
 }
 
 /// Decode one audio buffer's raw bytes into f32 samples according to the
-/// stream's sample format (float32/float64 or signed int16/int32).
+/// stream's sample format (float32/float64 or signed int16/int24/int32).
 fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
     match (is_float, bits) {
         (true, 32) => bytes_to_f32_vec(bytes),
@@ -2616,6 +2623,19 @@ fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
         (false, 16) => bytes
             .chunks_exact(2)
             .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+            .collect(),
+        (false, 24) => bytes
+            .chunks_exact(3)
+            .map(|c| {
+                // Reconstruct a 24-bit little-endian signed integer and sign-extend to i32.
+                let raw = (c[0] as i32) | ((c[1] as i32) << 8) | ((c[2] as i32) << 16);
+                let signed = if raw & 0x800000 != 0 {
+                    raw | !0x00FF_FFFFi32
+                } else {
+                    raw
+                };
+                signed as f32 / 8_388_608.0
+            })
             .collect(),
         (false, 32) => bytes
             .chunks_exact(4)

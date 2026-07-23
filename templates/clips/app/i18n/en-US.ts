@@ -481,6 +481,7 @@ const messages = {
     makePublicAndCopy: "Make public and copy",
     copy: "Copy",
     addPeopleByEmail: "Add people by email",
+    invite: "Invite",
     notifyPeople: "Notify people",
     peopleWithAccess: "People with access",
     ownerRole: "Owner",
@@ -833,6 +834,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     loadFailedBody:
       "Something went wrong while loading this list. Your recordings are safe — try again.",
     retry: "Retry",
+    paginationRange: "{{start}}–{{end}} of {{total}}",
+    paginationPrevious: "Previous",
+    paginationNext: "Next",
+    paginationPage: "Page {{page}} of {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Notifications · Clips",
@@ -1370,6 +1375,8 @@ All notable user-facing changes to Clips are documented here. Open it any time f
   clipsFinalRaw: {
     splitAtPlayhead: "Split at playhead (S)",
     selectedCount: "{{count}} selected",
+    selectAll: "Select all",
+    deselectAll: "Deselect all",
     move: "Move",
     moveSelected: "Move {{count}} selected",
     current: "Current",

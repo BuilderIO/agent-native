@@ -11,47 +11,6 @@ import {
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
@@ -158,6 +117,47 @@ import {
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
 import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
@@ -4143,25 +4143,6 @@ function DatabaseItemPreview({
             draftVersionsRef.current.set(documentId, null);
           else if (result.draft) {
             draftVersionsRef.current.set(documentId, result.draft.version);
-            if (
-              previewDraftNeedsConflict({
-                returnedDraft: result.draft,
-                pending: controller.pending,
-              })
-            ) {
-              controller.notifyDraftConflict({
-                lastSaved: snapshot.lastSaved,
-                pending: {
-                  title: result.draft.title,
-                  content: result.draft.content,
-                  loadedUpdatedAt:
-                    result.draft.baseDocumentUpdatedAt ?? undefined,
-                  loadedContentWasEmpty:
-                    result.draft.loadedContentWasEmpty === 1,
-                },
-                deferredReason: "conflict",
-              });
-            }
           } else {
             // Another tab already removed the row. Treat the stale delete as
             // converged instead of retaining a version that can never match.
@@ -4186,24 +4167,6 @@ function DatabaseItemPreview({
           draftVersionsRef.current.set(documentId, result.draft.version);
         } else if (result.draft) {
           draftVersionsRef.current.set(documentId, result.draft.version);
-          if (
-            previewDraftNeedsConflict({
-              returnedDraft: result.draft,
-              pending: controller.pending,
-            })
-          ) {
-            controller.notifyDraftConflict({
-              lastSaved: snapshot.lastSaved,
-              pending: {
-                title: result.draft.title,
-                content: result.draft.content,
-                loadedUpdatedAt:
-                  result.draft.baseDocumentUpdatedAt ?? undefined,
-                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
-              },
-              deferredReason: "conflict",
-            });
-          }
         } else {
           // A competing tab deleted the version we tried to update. Reset to
           // create mode and enqueue the latest pending payload once; keeping
@@ -4298,7 +4261,13 @@ function DatabaseItemPreview({
                 );
                 return;
               }
-              resolve(undefined);
+              resolve({
+                outcome: "saved" as const,
+                loadedUpdatedAt: result.updatedAt,
+                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                  result.content,
+                ),
+              });
             },
             onError: reject,
           },
@@ -4410,6 +4379,8 @@ function DatabaseItemPreview({
       }
       return;
     }
+    const previouslyExpectedVersion =
+      draftVersionsRef.current.get(documentId) ?? null;
     draftVersionsRef.current.set(documentId, draft.version);
     const controller = peekPreviewDocumentSaveController(documentId);
     if (!controller) return;
@@ -4431,8 +4402,19 @@ function DatabaseItemPreview({
           ? draft.deferredReason
           : null,
     } as const;
+    // A poll tick simply confirming a version this client's own debounced
+    // write already advanced the ref to is not an external change — it is
+    // this client's typing racing ahead of its own last round trip. Comparing
+    // that echo against the still-live `pending` would flag a conflict on
+    // almost every keystroke. Only treat the draft as having moved out from
+    // under the user when its version is newer than what this client itself
+    // last recorded.
+    const draftAdvancedExternally =
+      previouslyExpectedVersion !== null &&
+      draft.version > previouslyExpectedVersion;
     if (controllerDirty) {
       if (
+        draftAdvancedExternally &&
         previewDraftNeedsConflict({
           returnedDraft: draft,
           pending: controller.pending,
@@ -5570,6 +5552,9 @@ function DatabaseTableView({
                 }
                 sorts={sorts}
                 filters={filters}
+                onSortsChange={onSortsChange}
+                onFiltersChange={onFiltersChange}
+                onPropertyHiddenChange={onPropertyHiddenChange}
                 onPointerDown={(event) =>
                   startPropertyPointerDrag(property, event)
                 }
@@ -15798,6 +15783,9 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
+  onSortsChange,
+  onFiltersChange,
+  onPropertyHiddenChange,
   onPointerDown,
   onResize,
 }: {
@@ -15809,6 +15797,9 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
@@ -15851,6 +15842,11 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sorts={sorts}
+          filters={filters}
+          onSortsChange={onSortsChange}
+          onFiltersChange={onFiltersChange}
+          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">

@@ -33,7 +33,7 @@ import {
   IconDownload,
   IconRefresh,
   IconLoader2,
-  IconDots,
+  IconDotsVertical,
   IconLock,
   IconArchive,
 } from "@tabler/icons-react";
@@ -626,20 +626,15 @@ export function FormBuilderPage() {
             </Tooltip>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex">
+          {form.status === "published" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-10 w-10 active:scale-[0.96] motion-reduce:active:scale-100"
                   onClick={copyShareLink}
-                  disabled={form.status !== "published"}
-                  aria-label={
-                    form.status === "published"
-                      ? t("builder.copyPublicFormLink")
-                      : t("builder.publishBeforeCopyPublicFormLink")
-                  }
+                  aria-label={t("builder.copyPublicFormLink")}
                 >
                   <span className="relative inline-flex h-4 w-4 items-center justify-center">
                     <IconCopy
@@ -660,16 +655,14 @@ export function FormBuilderPage() {
                     />
                   </span>
                 </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {form.status === "published"
-                ? copied
+              </TooltipTrigger>
+              <TooltipContent>
+                {copied
                   ? t("builder.publicLinkCopied")
-                  : t("builder.copyPublishedPublicLink")
-                : t("builder.publishBeforeCopyPublicLink")}
-            </TooltipContent>
-          </Tooltip>
+                  : t("builder.copyPublishedPublicLink")}
+              </TooltipContent>
+            </Tooltip>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -731,12 +724,12 @@ export function FormBuilderPage() {
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
                     <Button
-                      variant="outline"
+                      variant="ghost"
                       size="icon"
                       className="h-10 w-10 bg-transparent active:scale-[0.96] motion-reduce:active:scale-100"
                       aria-label={t("forms.formActions")}
                     >
-                      <IconDots className="h-4 w-4" />
+                      <IconDotsVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>

@@ -499,6 +499,7 @@ const messages = {
     makePublicAndCopy: "Veröffentlichen und kopieren",
     copy: "Kopie",
     addPeopleByEmail: "Personen per E-Mail hinzufügen",
+    invite: "Einladen",
     notifyPeople: "Benachrichtigen Sie die Leute",
     peopleWithAccess: "Menschen mit Zugang",
     ownerRole: "Eigentümer",
@@ -861,6 +862,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     loadFailedBody:
       "Beim Laden dieser Liste ist etwas schiefgelaufen. Deine Aufnahmen sind sicher — versuche es erneut.",
     retry: "Erneut versuchen",
+    paginationRange: "{{start}}–{{end}} von {{total}}",
+    paginationPrevious: "Zurück",
+    paginationNext: "Weiter",
+    paginationPage: "Seite {{page}} von {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",
@@ -1410,6 +1415,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
   clipsFinalRaw: {
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
+    selectAll: "Alle auswählen",
+    deselectAll: "Auswahl aufheben",
     move: "Verschieben",
     moveSelected: "{{count}} ausgewählte verschieben",
     current: "Aktuell",

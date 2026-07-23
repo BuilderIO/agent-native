@@ -8,6 +8,7 @@ import {
 // startup so the dashboard / analysis share actions know where to dispatch.
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import { repairPersistedFirstPartyDashboardQueries } from "../lib/first-party-dashboard-repair.js";
 
 /**
  * Every Drizzle table exported from schema.ts. Filters out type-only and
@@ -1280,6 +1281,18 @@ const runAnalyticsMigrations = runMigrations(
  */
 export default async (nitroApp: any): Promise<void> => {
   await runAnalyticsMigrations(nitroApp);
+  try {
+    if (await repairPersistedFirstPartyDashboardQueries()) {
+      console.info(
+        "[db] Repaired bounded recurring-user queries on the canonical first-party dashboard.",
+      );
+    }
+  } catch (err) {
+    console.warn(
+      "[db] Failed to repair canonical first-party dashboard queries (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

@@ -465,6 +465,7 @@ const messages = {
     makePublicAndCopy: "公開並複製",
     copy: "複製",
     addPeopleByEmail: "透過電子郵件新增人員",
+    invite: "邀請",
     notifyPeople: "通知成員",
     peopleWithAccess: "有存取權限的人",
     ownerRole: "擁有者",
@@ -792,6 +793,10 @@ const messages = {
     loadFailedTitle: "無法載入你的錄製",
     loadFailedBody: "載入此清單時發生問題。你的錄製是安全的 —— 請重試。",
     retry: "重試",
+    paginationRange: "第 {{start}}–{{end}} 項，共 {{total}} 項",
+    paginationPrevious: "上一頁",
+    paginationNext: "下一頁",
+    paginationPage: "第 {{page}} / {{totalPages}} 頁",
   },
   notificationsRoute: {
     pageTitle: "通知 · Clips",
@@ -1313,6 +1318,8 @@ const messages = {
   clipsFinalRaw: {
     splitAtPlayhead: "在播放頭處分割 (S)",
     selectedCount: "已選取 {{count}} 項",
+    selectAll: "全選",
+    deselectAll: "取消全選",
     move: "移動",
     moveSelected: "移動已選取的 {{count}} 項",
     current: "目前",

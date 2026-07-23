@@ -1,5 +1,4 @@
 import {
-  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
@@ -17,7 +16,7 @@ import {
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -203,11 +202,7 @@ function OpenLinkInterceptor() {
       if (!path) return;
 
       event.preventDefault();
-      if (
-        location.pathname === "/ask" &&
-        path !== "/ask" &&
-        isAgentChatHomeHandoffActive("forms")
-      ) {
+      if (location.pathname === "/ask" && path !== "/ask") {
         markAgentChatHomeHandoff("forms");
       }
       navigateWithAgentChatViewTransition(navigate, path);
@@ -256,7 +251,7 @@ function FormsCommandMenu({
           {t("root.searchForms")}
         </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => navigate("/agent")}>
-          <IconBrain size={16} />
+          <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
       </CommandMenu.Group>

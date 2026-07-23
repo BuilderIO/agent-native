@@ -8215,6 +8215,10 @@ function buildDesktopBuilderCliAuthUrl(callbackUrl: string): string {
     "agentNativeConnectSource",
     "desktop_code_provider_settings",
   );
+  authUrl.searchParams.set("utm_source", "agent-native");
+  authUrl.searchParams.set("utm_medium", "product");
+  authUrl.searchParams.set("utm_campaign", "onboarding");
+  authUrl.searchParams.set("utm_content", "desktop_code_provider_settings");
   return authUrl.toString();
 }
 

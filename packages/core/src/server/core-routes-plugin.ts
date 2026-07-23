@@ -170,6 +170,7 @@ import { handleIdentitySso } from "./identity-sso.js";
 import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
+import { createRealtimeTokenHandler } from "./realtime-token.js";
 import { runWithRequestContext } from "./request-context.js";
 import {
   findUnsupportedScopedKeyNames,
@@ -1233,6 +1234,7 @@ export function createCoreRoutesPlugin(
         "google_drive",
         "github",
         "hubspot",
+        "salesforce",
         "jira",
         "sentry",
         "notion",
@@ -1412,6 +1414,12 @@ export function createCoreRoutesPlugin(
 
       // Polling
       getH3App(nitroApp).use(`${P}/poll`, createPollHandler());
+
+      // Realtime subscribe-token mint (hosted gateway path)
+      getH3App(nitroApp).use(
+        `${P}/realtime-token`,
+        createRealtimeTokenHandler(),
+      );
 
       // SSE
       if (!options.disableSSE) {
@@ -2344,7 +2352,7 @@ export function createCoreRoutesPlugin(
               timestamp: getHeader(event, BUILDER_RELAY_TIMESTAMP_HEADER),
               flowId: getHeader(event, BUILDER_RELAY_FLOW_HEADER),
               signature: getHeader(event, BUILDER_RELAY_SIGNATURE_HEADER),
-              requestOrigin: getFrameworkRouteRequestUrl(event).origin,
+              requestOrigin: getBuilderBrowserOriginForEvent(event),
               requestBasePath: getAppBasePath(),
             },
             {

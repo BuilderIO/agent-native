@@ -1,4 +1,5 @@
 import { Button } from "@agent-native/toolkit/ui/button";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -9,10 +10,12 @@ import {
 import {
   IconAlertTriangle,
   IconBrain,
+  IconKey,
   IconLanguage,
   IconLoader2,
   IconMicrophone,
   IconPhoneOff,
+  IconPlugConnected,
   IconSettings,
   IconVolume,
 } from "@tabler/icons-react";
@@ -62,6 +65,7 @@ export interface RealtimeVoiceModeCopy {
   startWithOpenAiKey: string;
   startVoiceMode: string;
   keepDictating: string;
+  rememberPreference: string;
   showChat: string;
   hideChat: string;
   endVoiceMode: string;
@@ -111,6 +115,8 @@ export interface RealtimeVoiceModeEntryProps {
   onOpenChange?: (open: boolean) => void;
   onStartVoiceMode: () => void;
   onKeepDictating: () => void;
+  preferredMode?: RealtimeVoiceInputMode | null;
+  onRememberPreference?: (mode: RealtimeVoiceInputMode) => void;
   setupRequired?: boolean;
   openAiConfigured?: boolean;
   connectingBuilder?: boolean;
@@ -118,6 +124,8 @@ export interface RealtimeVoiceModeEntryProps {
   onUseOpenAiKey?: () => void;
   className?: string;
 }
+
+export type RealtimeVoiceInputMode = "realtime" | "dictation";
 
 /**
  * Composer mic entry point for apps that support a full-duplex voice session.
@@ -132,6 +140,8 @@ export function RealtimeVoiceModeEntry({
   onOpenChange,
   onStartVoiceMode,
   onKeepDictating,
+  preferredMode = null,
+  onRememberPreference,
   setupRequired = false,
   openAiConfigured = false,
   connectingBuilder = false,
@@ -143,6 +153,8 @@ export function RealtimeVoiceModeEntry({
   const open = controlledOpen ?? uncontrolledOpen;
   const titleId = useId();
   const descriptionId = useId();
+  const rememberPreferenceId = useId();
+  const [rememberPreference, setRememberPreference] = useState(false);
   const [collisionBoundary, setCollisionBoundary] =
     useState<HTMLElement | null>(null);
 
@@ -159,8 +171,9 @@ export function RealtimeVoiceModeEntry({
     onOpenChange?.(nextOpen);
   };
 
-  const choose = (callback: () => void) => {
+  const choose = (mode: RealtimeVoiceInputMode, callback: () => void) => {
     setOpen(false);
+    if (rememberPreference) onRememberPreference?.(mode);
     callback();
   };
 
@@ -177,6 +190,23 @@ export function RealtimeVoiceModeEntry({
               disabled={disabled}
               aria-label={copy.entryButtonLabel}
               aria-expanded={open}
+              onClick={(event) => {
+                if (!preferredMode) return;
+                if (
+                  preferredMode === "realtime" &&
+                  (providerStatusPending || setupRequired)
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                choose(
+                  preferredMode,
+                  preferredMode === "realtime"
+                    ? onStartVoiceMode
+                    : onKeepDictating,
+                );
+              }}
               className={cn(
                 "size-7 shrink-0 text-muted-foreground hover:text-foreground",
                 className,
@@ -197,77 +227,136 @@ export function RealtimeVoiceModeEntry({
         collisionPadding={16}
         data-collision-boundary={collisionBoundary ? "agent-panel" : "viewport"}
         className={cn(
-          "p-4",
+          setupRequired ? "p-3.5" : "p-3",
           setupRequired
-            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]"
-            : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,22rem),22rem)]",
+            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,24rem),24rem)]"
+            : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,18rem),18rem)]",
         )}
         aria-labelledby={titleId}
-        aria-describedby={descriptionId}
+        aria-describedby={setupRequired ? descriptionId : undefined}
       >
-        <div className="grid gap-3">
-          <div className="grid gap-1">
-            <h2 id={titleId} className="text-sm font-semibold text-foreground">
-              {setupRequired ? copy.setupTitle : copy.promptTitle}
-            </h2>
-            <p
-              id={descriptionId}
-              className="text-sm leading-relaxed text-muted-foreground"
-            >
-              {setupRequired ? copy.setupDescription : copy.promptDescription}
-            </p>
+        <div className={cn("grid", setupRequired ? "gap-3.5" : "gap-2.5")}>
+          <div
+            className={cn(
+              setupRequired ? "flex items-start gap-3" : "grid gap-1",
+            )}
+          >
+            {setupRequired ? (
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <IconMicrophone aria-hidden="true" />
+              </div>
+            ) : null}
+            <div className="grid gap-1">
+              <h2
+                id={titleId}
+                className="text-sm font-semibold leading-5 text-foreground"
+              >
+                {setupRequired ? copy.setupTitle : copy.promptTitle}
+              </h2>
+              {setupRequired ? (
+                <p
+                  id={descriptionId}
+                  className="text-xs leading-5 text-muted-foreground"
+                >
+                  {copy.setupDescription}
+                </p>
+              ) : null}
+            </div>
           </div>
 
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => choose(onKeepDictating)}
-            >
-              {copy.keepDictating}
-            </Button>
+          <div
+            className={cn(
+              "grid gap-2",
+              setupRequired ? "rounded-lg bg-muted/30 p-1" : null,
+            )}
+          >
             {setupRequired ? (
               <>
                 <Button
                   type="button"
+                  size="sm"
+                  className="w-full justify-start px-3"
+                  disabled={connectingBuilder}
+                  onClick={() =>
+                    choose("realtime", onConnectBuilder ?? onStartVoiceMode)
+                  }
+                >
+                  {connectingBuilder ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : (
+                    <IconPlugConnected aria-hidden="true" />
+                  )}
+                  {copy.connectBuilder}
+                </Button>
+                <Button
+                  type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => choose(onUseOpenAiKey ?? onStartVoiceMode)}
+                  className="w-full justify-start bg-background px-3"
+                  onClick={() =>
+                    choose("realtime", onUseOpenAiKey ?? onStartVoiceMode)
+                  }
                 >
+                  <IconKey aria-hidden="true" />
                   {openAiConfigured
                     ? copy.startWithOpenAiKey
                     : copy.useOpenAiKey}
                 </Button>
                 <Button
                   type="button"
+                  variant="ghost"
                   size="sm"
-                  className="whitespace-nowrap"
-                  disabled={connectingBuilder}
-                  onClick={() => choose(onConnectBuilder ?? onStartVoiceMode)}
+                  className="w-full justify-start px-3 text-muted-foreground"
+                  onClick={() => choose("dictation", onKeepDictating)}
                 >
-                  {connectingBuilder ? (
-                    <IconLoader2 className="animate-spin" />
-                  ) : null}
-                  {copy.connectBuilder}
+                  <IconMicrophone aria-hidden="true" />
+                  {copy.keepDictating}
                 </Button>
               </>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                disabled={providerStatusPending}
-                onClick={() => choose(onStartVoiceMode)}
-              >
-                {providerStatusPending ? (
-                  <IconLoader2 className="animate-spin" />
-                ) : (
-                  <IconMicrophone />
-                )}
-                {copy.startVoiceMode}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="w-full"
+                  disabled={providerStatusPending}
+                  onClick={() => choose("realtime", onStartVoiceMode)}
+                >
+                  {providerStatusPending ? (
+                    <IconLoader2 className="animate-spin" />
+                  ) : (
+                    <IconMicrophone />
+                  )}
+                  {copy.startVoiceMode}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => choose("dictation", onKeepDictating)}
+                >
+                  {copy.keepDictating}
+                </Button>
+              </>
             )}
           </div>
+
+          {!setupRequired ? (
+            <label
+              htmlFor={rememberPreferenceId}
+              className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+            >
+              <Checkbox
+                id={rememberPreferenceId}
+                checked={rememberPreference}
+                onCheckedChange={(checked) =>
+                  setRememberPreference(checked === true)
+                }
+              />
+              {copy.rememberPreference}
+            </label>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
@@ -312,10 +401,15 @@ export interface RealtimeVoiceModeInlineSettings {
 
 const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
 const WAVEFORM_WEIGHTS = [0.55, 0.82, 1, 0.82, 0.55];
-const AUDIO_ACTIVITY_THRESHOLD = 0.035;
+const AUDIO_ACTIVITY_THRESHOLD = 0.1;
+const WORKING_GLOW_HOLD_MS = 800;
 
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
+  );
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -628,6 +722,9 @@ export function RealtimeVoiceModeDock({
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workingGlowHeld, setWorkingGlowHeld] = useState(state === "working");
+  const glowRef = useRef<HTMLSpanElement>(null);
+  const glowAnimationRef = useRef<Animation | null>(null);
   const selectInteractionRef = useRef(false);
   const selectInteractionFrameRef = useRef<number | null>(null);
   const levels = useSyncExternalStore(
@@ -655,6 +752,56 @@ export function RealtimeVoiceModeDock({
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const controlsVisible = controlsOpen || settingsOpen;
   const chatPanelTranslation = useChatPanelTranslation(chatVisible);
+  const workingGlowActive = state === "working" || workingGlowHeld;
+
+  useEffect(() => {
+    if (state === "working") {
+      setWorkingGlowHeld(true);
+      return;
+    }
+    if (!workingGlowHeld) return;
+    const timer = window.setTimeout(
+      () => setWorkingGlowHeld(false),
+      WORKING_GLOW_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state, workingGlowHeld]);
+
+  useEffect(() => {
+    if (!connected || reducedMotion || !glowRef.current) {
+      glowAnimationRef.current?.cancel();
+      glowAnimationRef.current = null;
+      return;
+    }
+
+    const animation = glowRef.current.animate(
+      [{ transform: "rotate(0turn)" }, { transform: "rotate(1turn)" }],
+      {
+        duration: 12_000,
+        easing: "linear",
+        iterations: Number.POSITIVE_INFINITY,
+      },
+    );
+    glowAnimationRef.current = animation;
+
+    return () => {
+      animation.cancel();
+      if (glowAnimationRef.current === animation) {
+        glowAnimationRef.current = null;
+      }
+    };
+  }, [connected, reducedMotion]);
+
+  useEffect(() => {
+    const animation = glowAnimationRef.current;
+    if (!animation) return;
+    const playbackRate = workingGlowActive ? 2.4 : 1;
+    if (typeof animation.updatePlaybackRate === "function") {
+      animation.updatePlaybackRate(playbackRate);
+    } else {
+      animation.playbackRate = playbackRate;
+    }
+  }, [workingGlowActive]);
 
   const handleSelectOpenChange = useCallback((open: boolean) => {
     if (selectInteractionFrameRef.current !== null) {
@@ -833,6 +980,17 @@ export function RealtimeVoiceModeDock({
                 ORB_STATE_CLASSES[state],
               )}
             >
+              {connected ? (
+                <span
+                  ref={glowRef}
+                  aria-hidden="true"
+                  data-realtime-voice-glow="true"
+                  className={cn(
+                    "agent-realtime-voice-glow",
+                    workingGlowActive && "agent-realtime-voice-working",
+                  )}
+                />
+              ) : null}
               <span className="relative z-10 flex items-center justify-center">
                 {state === "connecting" ? (
                   <VoiceConnectingIndicator />
