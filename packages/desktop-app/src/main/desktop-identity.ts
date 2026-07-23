@@ -14,7 +14,13 @@ export const DESKTOP_IDENTITY_COMPLETE_PATH =
 
 const DESKTOP_SIGN_IN_PATH = "/_agent-native/sign-in";
 const DESKTOP_IDENTITY_LOGIN_PATH = "/_agent-native/identity/login";
+const DESKTOP_LOGOUT_PATH = "/_agent-native/auth/logout";
+const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
+
+export type DesktopWorkspaceLogoutPath =
+  | typeof DESKTOP_LOGOUT_PATH
+  | typeof DESKTOP_LOGOUT_ALL_PATH;
 
 export type DesktopIdentityStatus =
   | "idle"
@@ -32,19 +38,42 @@ export interface DesktopIdentityApp {
   identityAuthority?: boolean;
 }
 
+export function isDesktopIdentityConfiguredAppEligible<
+  T extends { enabled?: boolean; mode?: string },
+>(
+  configured: T | null | undefined,
+  options?: { forCleanup?: boolean },
+): configured is T {
+  return Boolean(
+    configured &&
+    (options?.forCleanup ||
+      (configured.mode !== "dev" && configured.enabled !== false)),
+  );
+}
+
 export function isDesktopWorkspaceLogoutRequest(
   requestUrl: string,
   app: Pick<DesktopIdentityApp, "origin">,
 ): boolean {
+  return desktopWorkspaceLogoutPath(requestUrl, app) !== null;
+}
+
+export function desktopWorkspaceLogoutPath(
+  requestUrl: string,
+  app: Pick<DesktopIdentityApp, "origin">,
+): DesktopWorkspaceLogoutPath | null {
   try {
     const parsed = new URL(requestUrl);
-    return (
-      parsed.origin === app.origin &&
-      (parsed.pathname === "/_agent-native/auth/logout" ||
-        parsed.pathname === "/_agent-native/auth/logout-all")
-    );
+    if (parsed.origin !== app.origin) return null;
+    if (
+      parsed.pathname === DESKTOP_LOGOUT_PATH ||
+      parsed.pathname === DESKTOP_LOGOUT_ALL_PATH
+    ) {
+      return parsed.pathname;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -72,6 +101,18 @@ export interface DesktopIdentityBrokerOptions {
   clearLocalBroker: () => Promise<void> | void;
   onStatus?: (status: DesktopIdentityStatus) => void;
   timeoutMs?: number;
+}
+
+interface DesktopSignOutIntent {
+  logoutPath: DesktopWorkspaceLogoutPath;
+  alreadyRevokedAppIds: Set<string>;
+}
+
+interface DesktopRevocationTarget {
+  appId: string | null;
+  origin: string;
+  session: Session;
+  cookieHeader: string;
 }
 
 export function isDesktopSignInNavigation(
@@ -118,6 +159,14 @@ export class DesktopIdentityBroker {
   private queue: Promise<void> = Promise.resolve();
   private activeWindow: DesktopIdentityWindow | null = null;
   private signOutOperation: Promise<void> | null = null;
+  private signOutIntent: DesktopSignOutIntent | null = null;
+  private revocationTargets: DesktopRevocationTarget[] | null = null;
+  private revocationTargetErrors: unknown[] = [];
+  private revocationTargetsPromise: Promise<void> | null = null;
+  private externalSignOutRequests = 0;
+  private readonly externalSignOutWaiters = new Set<() => void>();
+  private readonly internalRevocationNonce =
+    randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
   private ceremonyGeneration = 0;
   private automaticSignInSuppressed = false;
@@ -126,6 +175,17 @@ export class DesktopIdentityBroker {
 
   getStatus(): DesktopIdentityStatus {
     return this.status;
+  }
+
+  isInternalRevocationRequest(requestUrl: string): boolean {
+    try {
+      return (
+        new URL(requestUrl).searchParams.get("_an_desktop_logout") ===
+        this.internalRevocationNonce
+      );
+    } catch {
+      return false;
+    }
   }
 
   async refreshStatus(authorityApp: DesktopIdentityApp | null): Promise<void> {
@@ -186,42 +246,268 @@ export class DesktopIdentityBroker {
     return this.ensureAppSession(appId);
   }
 
-  signOut(apps: DesktopIdentityApp[]): Promise<void> {
+  async prepareExternalSignOut(
+    apps: DesktopIdentityApp[],
+    options: {
+      logoutPath: DesktopWorkspaceLogoutPath;
+      alreadyRevokedAppId: string;
+    },
+  ): Promise<void> {
+    this.externalSignOutRequests += 1;
+    this.updateSignOutIntent({ logoutPath: options.logoutPath });
+    await this.ensureRevocationTargets(apps);
+  }
+
+  completeExternalSignOut(
+    apps: DesktopIdentityApp[],
+    options: {
+      logoutPath: DesktopWorkspaceLogoutPath;
+      alreadyRevokedAppId: string;
+    },
+    succeeded: boolean,
+  ): Promise<void> {
+    this.externalSignOutRequests = Math.max(
+      0,
+      this.externalSignOutRequests - 1,
+    );
+    if (this.externalSignOutRequests === 0) {
+      for (const resolve of this.externalSignOutWaiters) resolve();
+      this.externalSignOutWaiters.clear();
+    }
+    if (succeeded) return this.signOut(apps, options);
+    if (!this.signOutOperation && this.externalSignOutRequests === 0) {
+      this.resetSignOutState();
+    }
+    return Promise.resolve();
+  }
+
+  signOut(
+    apps: DesktopIdentityApp[],
+    options?: {
+      logoutPath?: DesktopWorkspaceLogoutPath;
+      alreadyRevokedAppId?: string;
+    },
+  ): Promise<void> {
     this.automaticSignInSuppressed = true;
     this.ceremonyGeneration += 1;
     this.pendingByApp.clear();
     this.closeActiveWindow();
+    this.updateSignOutIntent(options);
     if (this.signOutOperation) return this.signOutOperation;
 
-    const operation = this.finishSignOut(apps);
+    const intent = this.signOutIntent!;
+    const operation = this.finishSignOut(apps, intent);
     this.signOutOperation = operation;
     void operation.then(
       () => {
-        if (this.signOutOperation === operation) this.signOutOperation = null;
+        if (this.signOutOperation === operation) {
+          this.signOutOperation = null;
+          this.resetSignOutState();
+        }
       },
       () => {
-        if (this.signOutOperation === operation) this.signOutOperation = null;
+        if (this.signOutOperation === operation) {
+          this.signOutOperation = null;
+          this.resetSignOutState();
+        }
       },
     );
     return operation;
   }
 
-  private async finishSignOut(apps: DesktopIdentityApp[]): Promise<void> {
+  private updateSignOutIntent(options?: {
+    logoutPath?: DesktopWorkspaceLogoutPath;
+    alreadyRevokedAppId?: string;
+  }): void {
+    const requestedPath = options?.logoutPath ?? DESKTOP_LOGOUT_PATH;
+    if (!this.signOutIntent) {
+      this.signOutIntent = {
+        logoutPath: requestedPath,
+        alreadyRevokedAppIds: new Set(
+          options?.alreadyRevokedAppId ? [options.alreadyRevokedAppId] : [],
+        ),
+      };
+      return;
+    }
+
+    if (
+      requestedPath === DESKTOP_LOGOUT_ALL_PATH &&
+      this.signOutIntent.logoutPath !== DESKTOP_LOGOUT_ALL_PATH
+    ) {
+      this.signOutIntent.logoutPath = DESKTOP_LOGOUT_ALL_PATH;
+      this.signOutIntent.alreadyRevokedAppIds.clear();
+    }
+    if (
+      requestedPath === this.signOutIntent.logoutPath &&
+      options?.alreadyRevokedAppId
+    ) {
+      this.signOutIntent.alreadyRevokedAppIds.add(options.alreadyRevokedAppId);
+    }
+  }
+
+  private async finishSignOut(
+    apps: DesktopIdentityApp[],
+    intent: DesktopSignOutIntent,
+  ): Promise<void> {
     await this.waitForActiveSessionCopies();
-    await this.options.identitySession.clearStorageData({
-      storages: ["cookies"],
-    });
+    await this.ensureRevocationTargets(apps);
+    const errors = [...this.revocationTargetErrors];
+    let completedPath: DesktopWorkspaceLogoutPath | null = null;
+    do {
+      const logoutPath = intent.logoutPath;
+      const alreadyRevokedAppIds = new Set(intent.alreadyRevokedAppIds);
+      const revocations = (this.revocationTargets ?? [])
+        .filter(
+          (target) => !target.appId || !alreadyRevokedAppIds.has(target.appId),
+        )
+        .map((target) => this.revokeSession(target, logoutPath));
+      for (const result of await Promise.allSettled(revocations)) {
+        if (result.status === "rejected") errors.push(result.reason);
+      }
+      completedPath = logoutPath;
+      await Promise.resolve();
+    } while (intent.logoutPath !== completedPath);
+
+    try {
+      await this.options.identitySession.clearStorageData({
+        storages: ["cookies"],
+      });
+    } catch (error) {
+      errors.push(error);
+    }
 
     for (const app of apps) {
       for (const cookieName of app.cookieNamesToClear) {
-        await app.session.cookies
-          .remove(app.origin, cookieName)
-          .catch(() => {});
+        try {
+          await app.session.cookies.remove(app.origin, cookieName);
+        } catch (error) {
+          errors.push(error);
+        }
       }
-      this.options.reloadApp(app);
+      try {
+        this.options.reloadApp(app);
+      } catch (error) {
+        errors.push(error);
+      }
     }
-    await this.options.clearLocalBroker();
+    try {
+      await this.options.clearLocalBroker();
+    } catch (error) {
+      errors.push(error);
+    }
+
+    await this.waitForExternalSignOutRequests();
+    while (intent.logoutPath !== completedPath) {
+      const logoutPath: DesktopWorkspaceLogoutPath = intent.logoutPath;
+      const alreadyRevokedAppIds = new Set(intent.alreadyRevokedAppIds);
+      const revocations = (this.revocationTargets ?? [])
+        .filter(
+          (target) => !target.appId || !alreadyRevokedAppIds.has(target.appId),
+        )
+        .map((target) => this.revokeSession(target, logoutPath));
+      for (const result of await Promise.allSettled(revocations)) {
+        if (result.status === "rejected") errors.push(result.reason);
+      }
+      completedPath = logoutPath;
+    }
+    if (errors.length > 0) {
+      console.error(
+        "[desktop identity] Workspace sign-out completed with failures",
+        new AggregateError(errors),
+      );
+      this.setStatus("failed");
+      return;
+    }
     this.setStatus("sign-in-required");
+  }
+
+  private async revokeSession(
+    target: DesktopRevocationTarget,
+    logoutPath: DesktopWorkspaceLogoutPath,
+  ): Promise<void> {
+    const logoutUrl = new URL(logoutPath, target.origin);
+    logoutUrl.searchParams.set(
+      "_an_desktop_logout",
+      this.internalRevocationNonce,
+    );
+    const response = await target.session.fetch(logoutUrl.toString(), {
+      method: "POST",
+      redirect: "manual",
+      credentials: "include",
+      ...(target.cookieHeader
+        ? { headers: { Cookie: target.cookieHeader } }
+        : {}),
+    });
+    if (!response.ok && response.status !== 401) {
+      throw new Error(
+        `Workspace sign-out failed for ${target.origin} (${response.status})`,
+      );
+    }
+  }
+
+  private async ensureRevocationTargets(
+    apps: DesktopIdentityApp[],
+  ): Promise<void> {
+    if (!this.revocationTargetsPromise) {
+      this.revocationTargetsPromise = (async () => {
+        const authority = apps.find((app) => app.identityAuthority);
+        const candidates = [
+          ...apps.map((app) => ({
+            appId: app.id,
+            origin: app.origin,
+            session: app.session,
+            cookieNames: app.cookieNamesToClear,
+          })),
+          ...(authority
+            ? [
+                {
+                  appId: null,
+                  origin: authority.origin,
+                  session: this.options.identitySession,
+                  cookieNames: authority.cookieNamesToClear,
+                },
+              ]
+            : []),
+        ];
+        const targets: DesktopRevocationTarget[] = [];
+        for (const candidate of candidates) {
+          try {
+            const cookies = await candidate.session.cookies.get({
+              url: candidate.origin,
+            });
+            const allowed = new Set(candidate.cookieNames);
+            targets.push({
+              appId: candidate.appId,
+              origin: candidate.origin,
+              session: candidate.session,
+              cookieHeader: cookies
+                .filter((cookie) => allowed.has(cookie.name))
+                .map((cookie) => `${cookie.name}=${cookie.value}`)
+                .join("; "),
+            });
+          } catch (error) {
+            this.revocationTargetErrors.push(error);
+          }
+        }
+        this.revocationTargets = targets;
+      })();
+    }
+    await this.revocationTargetsPromise;
+  }
+
+  private async waitForExternalSignOutRequests(): Promise<void> {
+    while (this.externalSignOutRequests > 0) {
+      await new Promise<void>((resolve) =>
+        this.externalSignOutWaiters.add(resolve),
+      );
+    }
+  }
+
+  private resetSignOutState(): void {
+    this.signOutIntent = null;
+    this.revocationTargets = null;
+    this.revocationTargetErrors = [];
+    this.revocationTargetsPromise = null;
   }
 
   private async runCeremony(

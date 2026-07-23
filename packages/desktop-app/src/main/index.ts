@@ -169,7 +169,8 @@ import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
   DESKTOP_IDENTITY_PARTITION,
   DesktopIdentityBroker,
-  isDesktopWorkspaceLogoutRequest,
+  desktopWorkspaceLogoutPath,
+  isDesktopIdentityConfiguredAppEligible,
   type DesktopIdentityApp,
 } from "./desktop-identity";
 import {
@@ -552,25 +553,30 @@ function getInjectionTargetForAppId(
   };
 }
 
-function resolveDesktopIdentityApp(appId: string): DesktopIdentityApp | null {
+function resolveDesktopIdentityApp(
+  appId: string,
+  options?: { forCleanup?: boolean },
+): DesktopIdentityApp | null {
   if (!app.isPackaged) return null;
   const canonical = DESKTOP_DEFAULT_APPS.find(
     (candidate) => candidate.id === appId,
   );
-  const configured = loadAppsForAuthContext().find(
-    (candidate) => candidate.id === appId && candidate.enabled !== false,
-  );
-  if (!canonical || !configured || configured.mode === "dev") return null;
-
+  if (!canonical) return null;
   const canonicalOrigin = getAppOrigin({ ...canonical, mode: "prod" });
-  const configuredOrigin = getAppOrigin(configured);
+  if (!canonicalOrigin || !canonicalOrigin.startsWith("https://")) return null;
+
+  const configured = loadAppsForAuthContext().find(
+    (candidate) => candidate.id === appId,
+  );
   if (
-    !canonicalOrigin ||
-    !configuredOrigin ||
-    canonicalOrigin !== configuredOrigin ||
-    !canonicalOrigin.startsWith("https://")
+    !options?.forCleanup &&
+    !isDesktopIdentityConfiguredAppEligible(configured)
   ) {
     return null;
+  }
+  if (!options?.forCleanup) {
+    const configuredOrigin = getAppOrigin(configured!);
+    if (!configuredOrigin || canonicalOrigin !== configuredOrigin) return null;
   }
 
   const primaryCookieName = getCookieNameForApp(appId);
@@ -599,6 +605,12 @@ function resolveDesktopIdentityApp(appId: string): DesktopIdentityApp | null {
 function listDesktopIdentityApps(): DesktopIdentityApp[] {
   return DESKTOP_DEFAULT_APPS.map((candidate) =>
     resolveDesktopIdentityApp(candidate.id),
+  ).filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
+}
+
+function listDesktopIdentityCleanupApps(): DesktopIdentityApp[] {
+  return DESKTOP_DEFAULT_APPS.map((candidate) =>
+    resolveDesktopIdentityApp(candidate.id, { forCleanup: true }),
   ).filter((candidate): candidate is DesktopIdentityApp => candidate !== null);
 }
 
@@ -1051,7 +1063,7 @@ ipcMain.handle(IPC.IDENTITY_SIGN_IN, async (event) => {
 
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   if (!isShellIdentityIpc(event) || !desktopIdentityBroker) return false;
-  await desktopIdentityBroker.signOut(listDesktopIdentityApps());
+  await desktopIdentityBroker.signOut(listDesktopIdentityCleanupApps());
   return true;
 });
 
@@ -9075,7 +9087,7 @@ function installApplicationMenu() {
       {
         label: "Sign Out of Agent Native",
         click: () =>
-          void desktopIdentityBroker?.signOut(listDesktopIdentityApps()),
+          void desktopIdentityBroker?.signOut(listDesktopIdentityCleanupApps()),
       },
       { type: "separator" as const },
       { role: "services" as const },
@@ -9294,16 +9306,34 @@ app.whenReady().then(async () => {
         const identityApp = targetAppId
           ? resolveDesktopIdentityApp(targetAppId)
           : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
         if (
           identityApp &&
+          logoutPath &&
           details.method === "POST" &&
-          isDesktopWorkspaceLogoutRequest(details.url, identityApp)
+          desktopIdentityBroker &&
+          !desktopIdentityBroker.isInternalRevocationRequest(details.url)
         ) {
-          callback({ cancel: true });
-          void desktopIdentityBroker?.signOut(listDesktopIdentityApps());
+          const apps = listDesktopIdentityCleanupApps();
+          void desktopIdentityBroker
+            .prepareExternalSignOut(apps, {
+              logoutPath,
+              alreadyRevokedAppId: identityApp.id,
+            })
+            .then(
+              () => callback({}),
+              (error) => {
+                console.error(
+                  "[main] Failed to prepare Desktop workspace sign-out:",
+                  error,
+                );
+                callback({});
+              },
+            );
           return;
         }
-
         if (
           !details.url.startsWith(`http://localhost:${FRAME_PORT}/api/google/`)
         ) {
@@ -9332,6 +9362,68 @@ app.whenReady().then(async () => {
         } else {
           callback({});
         }
+      },
+    );
+
+    sess.webRequest.onCompleted(
+      {
+        urls: [
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
+      (details) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          !identityApp ||
+          !logoutPath ||
+          desktopIdentityBroker?.isInternalRevocationRequest(details.url) ||
+          details.method !== "POST" ||
+          !desktopIdentityBroker
+        ) {
+          return;
+        }
+        void desktopIdentityBroker.completeExternalSignOut(
+          listDesktopIdentityCleanupApps(),
+          { logoutPath, alreadyRevokedAppId: identityApp.id },
+          details.statusCode >= 200 && details.statusCode < 300,
+        );
+      },
+    );
+
+    sess.webRequest.onErrorOccurred(
+      {
+        urls: [
+          "*://*/_agent-native/auth/logout",
+          "*://*/_agent-native/auth/logout-all",
+        ],
+      },
+      (details) => {
+        const identityApp = targetAppId
+          ? resolveDesktopIdentityApp(targetAppId)
+          : null;
+        const logoutPath = identityApp
+          ? desktopWorkspaceLogoutPath(details.url, identityApp)
+          : null;
+        if (
+          !identityApp ||
+          !logoutPath ||
+          desktopIdentityBroker?.isInternalRevocationRequest(details.url) ||
+          details.method !== "POST" ||
+          !desktopIdentityBroker
+        ) {
+          return;
+        }
+        void desktopIdentityBroker.completeExternalSignOut(
+          listDesktopIdentityCleanupApps(),
+          { logoutPath, alreadyRevokedAppId: identityApp.id },
+          false,
+        );
       },
     );
   }

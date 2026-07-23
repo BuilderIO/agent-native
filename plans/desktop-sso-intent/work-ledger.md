@@ -75,7 +75,7 @@ product-boundary-gates:
   agent-native-public-constituency: source-blind developers packaging Desktop with standard Core and Dispatch apps receive the reusable identity boundary without Alice-specific infrastructure
 acceptance-state:
   status: blocked
-  summary: the PR is approved and mergeable, and the review findings are fixed locally; final-head CI, a fresh signed artifact, and real-app acceptance still block handoff readiness
+  summary: current main is integrated and the final security review is clean; final-head CI, a fresh signed artifact, and real-app acceptance still block handoff readiness
   verified:
     - Core identity protocol suite: 210 tests passed
     - Desktop main, renderer, shared, broker, and preload suites: 202 tests passed
@@ -90,13 +90,17 @@ acceptance-state:
     - final-fix Desktop TypeScript passed
     - final-fix formatting, focused lint, and git diff checks passed
     - independent final technical review found no remaining actionable issues after the repeated sign-out concurrency regression was added
+    - current origin/main merged without conflicts; the PR diff remains the same 45-file SSO change against main
+    - post-integration Desktop broker and preload suite: 17 tests passed; Core identity: 18; Dispatch auth: 1; Desktop typecheck and diff checks passed
+    - independent security review verified authenticated server revocation, logout-all escalation during revocation and cleanup, exhaustive partial-failure cleanup, and dormant production-session cleanup for disabled, Dev-switched, missing, or edited canonical app configurations
   implementation:
     - authenticated nonce-only app-local completion route in Core
     - dedicated persistent Dispatch identity partition in packaged Desktop
     - canonical-registry-only app session federation with target-cookie filtering
     - serialized and coalesced sign-in ceremonies with direct-login fallback
     - renderer-safe status and sign-in/sign-out IPC without credential material
-    - workspace-wide Desktop sign-out for exact canonical POST logout requests
+    - workspace-wide Desktop sign-out preserves exact canonical POST logout and logout-all server semantics, retains request-start credentials only for the active cleanup operation, and reports partial failure truthfully
+    - sign-out cleanup inventories every immutable canonical packaged production partition independently of sidebar enablement, Dev mode, or edited URLs while leaving localhost and custom origins untouched
     - operator docs, all localized counterparts, authentication skill, and Core changeset
     - branch-scoped signed macOS canary workflow with no publishing, tags, releases, or updater feed
     - Dispatch primary-auth public-route configuration eliminating concurrent auth-initializer pre-emption
@@ -115,6 +119,6 @@ deployment-boundary:
     - merge or stable Desktop publication without a separate decision
     - enabling arbitrary preview hosts, custom apps, or Builder credentials
 vault-brief: /Users/alicemoore/Developer/teenylilthoughts/briefs/Agent-Native Desktop workspace SSO canary implementation plan 2026-07-21.md
-ledger-revision: desktop-sso-land-r8
+ledger-revision: desktop-sso-land-r9
 status: active
 ```
