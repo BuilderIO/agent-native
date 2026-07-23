@@ -605,9 +605,7 @@ switch (command) {
       ...process.env,
       NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
     };
-    console.log(
-      `[agent-native] API server debugger listening on ${target}`,
-    );
+    console.log(`[agent-native] API server debugger listening on ${target}`);
     run(process.execPath, ["--import", preload, viteJsEntry, ...rest], { env });
     break;
   }
