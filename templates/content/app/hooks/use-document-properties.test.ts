@@ -62,7 +62,14 @@ describe("useSetDocumentProperty", () => {
     const invalidations = queryClient.invalidateQueries.mock.calls.map(
       ([filters]) => filters,
     );
-    expect(invalidations).not.toContainEqual({ queryKey: ["action"] });
+    expect(
+      invalidations.some(
+        (filters) =>
+          Array.isArray(filters.queryKey) &&
+          filters.queryKey.length === 1 &&
+          filters.queryKey[0] === "action",
+      ),
+    ).toBe(false);
     expect(invalidations).toEqual(
       expect.arrayContaining([
         {

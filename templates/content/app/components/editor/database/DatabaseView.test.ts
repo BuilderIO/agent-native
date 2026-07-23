@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import type {
   ContentDatabaseItem,
   ContentDatabaseResponse,
@@ -57,6 +59,24 @@ import {
   previewDraftMissingCasRecovery,
   preparedBuilderReviewMatches,
 } from "./DatabaseView";
+
+describe("database preview property saves", () => {
+  it("threads the containing database document through scalar and block property editors", () => {
+    const source = readFileSync(
+      new URL("./DatabaseView.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toMatch(
+      /<DocumentProperties[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+    );
+    expect(source).toMatch(
+      /<DocumentBlockFields[\s\S]*?documentId=\{previewDocument\.id\}[\s\S]*?databaseDocumentId=\{databaseDocumentId\}/,
+    );
+  });
+});
 
 describe("Builder required publishing fields", () => {
   const source = {

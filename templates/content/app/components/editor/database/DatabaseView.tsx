@@ -4876,6 +4876,7 @@ function DatabaseItemPreview({
             {previewDocument.databaseMembership ? (
               <DocumentProperties
                 documentId={previewDocument.id}
+                databaseDocumentId={databaseDocumentId}
                 canEdit={previewCanEdit}
                 popoversPortalled={false}
               />
@@ -4913,6 +4914,7 @@ function DatabaseItemPreview({
                 const editor = previewDocument.databaseMembership ? (
                   <DocumentBlockFields
                     documentId={previewDocument.id}
+                    databaseDocumentId={databaseDocumentId}
                     canEdit={previewCanEdit}
                     primaryEditor={primaryEditor}
                   />
