@@ -61,10 +61,6 @@ const BUTTON_OUTLINE_SM = cn(
   BUTTON_BASE,
   "!h-9 !px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
 );
-const BUTTON_PRIMARY_SM = cn(
-  BUTTON_BASE,
-  "!h-9 !px-4 bg-primary text-primary-foreground hover:bg-primary/90",
-);
 const BUTTON_GHOST_ICON = cn(
   BUTTON_BASE,
   "!h-8 !w-8 !p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -170,18 +166,6 @@ export function ShareDialog({
         {controller.tabsEnabled && controller.activeTab === "embed"
           ? (embedTabContent ?? <DefaultEmbedBody controller={controller} />)
           : null}
-      </div>
-
-      <div className="flex justify-end border-t border-border px-5 py-3">
-        <ActionButton
-          type="button"
-          intent="primary"
-          emphasis="solid"
-          onPress={controller.close}
-          className={BUTTON_PRIMARY_SM}
-        >
-          {controller.labels.done}
-        </ActionButton>
       </div>
     </DesignSystemDialog>
   );

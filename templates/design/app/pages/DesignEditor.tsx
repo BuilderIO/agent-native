@@ -28606,7 +28606,6 @@ function DesignEditor() {
               shareUrlLabel={t("designEditor.shareEditorLink")}
               shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
               showShareLinks={false}
-              showDoneButton={false}
               shareFooterContent={shareLinkFooter}
               shareTabs={designShareTabs}
               popoverClassName={designSharePopoverClassName}

@@ -77,7 +77,7 @@ export interface ShareButtonProps {
   shareUrlPlacement?: "top" | "bottom";
   /** Whether to render copyable share URL fields. Defaults to true. */
   showShareLinks?: boolean;
-  /** Whether to render the bottom Done button. Defaults to true. */
+  /** @deprecated The Done action was removed; share popovers dismiss directly. */
   showDoneButton?: boolean;
   /** Optional placeholder shown in the share-URL slot when `shareUrl` is
    *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
@@ -301,7 +301,6 @@ function SharePanel(
   const {
     inviteEmail,
     setInviteEmail: onInviteEmailChange,
-    handleOpenChange,
     activeShareTab,
     handleShareTabChange,
     data,
@@ -326,7 +325,6 @@ function SharePanel(
     handleAdd,
     handleChangeRole,
     handleRemove,
-    handleDone,
   } = controller;
   const hasInviteEmail = inviteEmail.trim().length > 0;
 
@@ -367,7 +365,6 @@ function SharePanel(
     (Boolean(props.shareUrl) ||
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
-  const showDoneButton = props.showDoneButton ?? true;
   const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
   const extraTabs = props.shareTabs?.tabs ?? [];
   const hasTabs = extraTabs.length > 0;
@@ -392,17 +389,6 @@ function SharePanel(
       <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
       <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
       <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-      {showDoneButton ? (
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={() => handleOpenChange(false)}
-            className={BUTTON_PRIMARY_SM}
-          >
-            Done
-          </button>
-        </div>
-      ) : null}
     </div>
   ) : (
     <div>
@@ -579,18 +565,6 @@ function SharePanel(
       {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
 
       {props.shareFooterContent}
-
-      {showDoneButton ? (
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={handleDone}
-            className={BUTTON_PRIMARY_SM}
-          >
-            Done
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 

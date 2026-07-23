@@ -218,9 +218,10 @@ Generar un plan o un resumen ejecuta una sesión completa de agente frente al LL
 de su agente de codificación, no un simple relleno de plantilla ligero, por lo que
 el costo escala con el tamaño del diff o del plan y con el modelo que elija.
 
-- El modelo de chat predeterminado de la propia aplicación es Sonnet 5; cámbielo
-  en cualquier momento en **Configuración**. Haiku es la opción más económica de
-  Claude, y Luna es la opción más económica dentro de la familia GPT-5.6.
+- El modelo de chat predeterminado de la aplicación es GPT-5.6 Luna. Las
+  conexiones directas con Anthropic mantienen Claude Sonnet 5 como modelo
+  predeterminado. Cámbielo en cualquier momento en **Configuración**; Haiku es
+  la opción más económica de Claude.
 - Los resúmenes de PR automatizados de la GitHub Action se ejecutan por separado
   de la aplicación interactiva y tienen sus propios controles de modelo y costo;
   consulte [PR Visual Recap](/docs/pr-visual-recap) para `VISUAL_RECAP_MODEL`,

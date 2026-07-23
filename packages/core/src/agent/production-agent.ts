@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import Ajv, { type ValidateFunction } from "ajv";
 import {
   defineEventHandler,
@@ -8,6 +10,8 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
+import { parseA2AAgentActivityPart } from "../a2a/activity.js";
+import type { Task } from "../a2a/types.js";
 import {
   isAgentActionStopError,
   type ActionAutomationContext,
@@ -1723,6 +1727,159 @@ export async function resolveSkillReferenceContent(
   } catch {
     return null;
   }
+}
+
+export function createConnectedAgentReferenceEventRelay(input: {
+  agent: string;
+  send: (event: AgentChatEvent) => void;
+  agentCallId?: string;
+  now?: () => number;
+}) {
+  const agentCallId = input.agentCallId ?? randomUUID();
+  const now = input.now ?? Date.now;
+  const startedAt = now();
+  let lastActivitySequence = -1;
+  let hasRichActivity = false;
+
+  const emitResponseText = (text: string) => {
+    if (text) {
+      input.send({
+        type: "agent_call_text",
+        agent: input.agent,
+        text,
+        agentCallId,
+      });
+    }
+  };
+  const observeActivity = (task: Task) => {
+    const parts = task.status?.message?.parts;
+    const snapshot = Array.isArray(parts)
+      ? parts.map(parseA2AAgentActivityPart).find((value) => value !== null)
+      : undefined;
+    if (snapshot) {
+      hasRichActivity = true;
+    }
+    if (snapshot && snapshot.sequence > lastActivitySequence) {
+      lastActivitySequence = snapshot.sequence;
+      input.send({
+        type: "agent_call_activity",
+        agent: input.agent,
+        agentCallId,
+        snapshot,
+      });
+    }
+  };
+  const observePollUpdate = (task: Task) => {
+    observeActivity(task);
+    if (hasRichActivity) return;
+
+    const state = task.status?.state;
+    if (
+      state !== "submitted" &&
+      state !== "working" &&
+      state !== "processing"
+    ) {
+      return;
+    }
+    const currentTime = now();
+    const detail = extractConnectedAgentProgressDetail(task);
+    input.send({
+      type: "agent_call_progress",
+      agent: input.agent,
+      agentCallId,
+      state,
+      elapsedSeconds: Math.max(0, Math.round((currentTime - startedAt) / 1000)),
+      ...(detail ? { detail } : {}),
+    });
+  };
+
+  return {
+    agentCallId,
+    start() {
+      input.send({
+        type: "agent_call",
+        agent: input.agent,
+        status: "start",
+        agentCallId,
+      });
+    },
+    observeActivity,
+    observePollUpdate,
+    emitResponseText,
+    finish(status: "done" | "error") {
+      input.send({
+        type: "agent_call",
+        agent: input.agent,
+        status,
+        agentCallId,
+        durationMs: Math.max(0, now() - startedAt),
+      });
+    },
+  };
+}
+
+type ConnectedAgentCall = typeof import("../a2a/client.js").callAgent;
+type ResolveConnectedAgentCallerAuth =
+  typeof import("../a2a/caller-auth.js").resolveA2ACallerAuth;
+
+export async function callConnectedAgentReference(input: {
+  agent: string;
+  path: string;
+  message: string;
+  send: (event: AgentChatEvent) => void;
+  callAgent: ConnectedAgentCall;
+  resolveCallerAuth: ResolveConnectedAgentCallerAuth;
+  agentCallId?: string;
+  now?: () => number;
+}): Promise<string> {
+  const relay = createConnectedAgentReferenceEventRelay({
+    agent: input.agent,
+    send: input.send,
+    agentCallId: input.agentCallId,
+    now: input.now,
+  });
+  relay.start();
+  try {
+    const callerAuth = await input.resolveCallerAuth({
+      includeGoogleToken: true,
+    });
+    const response = await input.callAgent(input.path, input.message, {
+      async: true,
+      apiKey: callerAuth.apiKey,
+      metadata: callerAuth.metadata,
+      userEmail: callerAuth.userEmail,
+      orgDomain: callerAuth.orgDomain,
+      orgSecret: callerAuth.orgSecret,
+      onUpdate: relay.observePollUpdate,
+    });
+    const responseText =
+      userFacingLlmCredentialError(response, { agentName: input.agent }) ??
+      response;
+    relay.emitResponseText(responseText);
+    relay.finish("done");
+    return responseText;
+  } catch (error) {
+    relay.finish("error");
+    throw error;
+  }
+}
+
+const MAX_CONNECTED_AGENT_PROGRESS_DETAIL_CHARS = 200;
+function extractConnectedAgentProgressDetail(task: Task): string | undefined {
+  const parts = task.status?.message?.parts;
+  if (!Array.isArray(parts)) return undefined;
+  const text = parts
+    .filter(
+      (part): part is { type: "text"; text: string } => part.type === "text",
+    )
+    .map((part) => part.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return undefined;
+  return text.length > MAX_CONNECTED_AGENT_PROGRESS_DETAIL_CHARS
+    ? `${text.slice(0, MAX_CONNECTED_AGENT_PROGRESS_DETAIL_CHARS - 1)}…`
+    : text;
 }
 
 async function enrichMessage(
@@ -6700,22 +6857,6 @@ export function createProductionAgentHandler(
             modelSelectionSource = "experiment";
           }
         }
-
-        if (modelSelectionSource === "default") {
-          const { resolveHostedDefaultModelExperiment } =
-            await import("../observability/hosted-model-experiment.js");
-          const hostedExperiment = resolveHostedDefaultModelExperiment({
-            userId: ownerEmail,
-            engineName: engine.name,
-            isDefaultModelSelection: true,
-            supportedModels: engine.supportedModels,
-          });
-          if (hostedExperiment) {
-            effectiveModel = hostedExperiment.model;
-            experimentAssignments.push(hostedExperiment.assignment);
-            modelSelectionSource = "experiment";
-          }
-        }
       }
     } catch {
       // Experiments are best-effort. Model resolution must keep working if the
@@ -8015,97 +8156,23 @@ export function createProductionAgentHandler(
 
         // Resolve connected agent @-mentions via A2A calls.
         if (agentRefs.length > 0 && requestMode !== "plan") {
-          const [{ A2AClient, callAgent }, { resolveA2ACallerAuth }] =
-            await Promise.all([
-              import("../a2a/client.js"),
-              import("../a2a/caller-auth.js"),
-            ]);
+          const [{ callAgent }, { resolveA2ACallerAuth }] = await Promise.all([
+            import("../a2a/client.js"),
+            import("../a2a/caller-auth.js"),
+          ]);
           const results = await Promise.allSettled(
             agentRefs.map(async (ref) => {
-              send({
-                type: "agent_call",
-                agent: ref.name,
-                status: "start",
-              });
               try {
-                const callerAuth = await resolveA2ACallerAuth({
-                  includeGoogleToken: true,
-                });
-                const a2aClient = new A2AClient(ref.path, callerAuth.apiKey, {
-                  ...(callerAuth.apiKeyFallbacks
-                    ? { fallbackApiKeys: callerAuth.apiKeyFallbacks }
-                    : {}),
-                });
-                const a2aMetadata = callerAuth.metadata;
-
-                let responseText = "";
-                let lastSentLength = 0;
-
-                try {
-                  for await (const task of a2aClient.stream(
-                    {
-                      role: "user",
-                      parts: [
-                        {
-                          type: "text",
-                          text: enrichedMessage + screenContext,
-                        },
-                      ],
-                    },
-                    Object.keys(a2aMetadata).length > 0
-                      ? { metadata: a2aMetadata }
-                      : undefined,
-                  )) {
-                    const newText =
-                      task.status?.message?.parts
-                        ?.filter(
-                          (p): p is { type: "text"; text: string } =>
-                            p.type === "text",
-                        )
-                        ?.map((p) => p.text)
-                        ?.join("") ?? "";
-
-                    if (newText.length > lastSentLength) {
-                      send({
-                        type: "agent_call_text",
-                        agent: ref.name,
-                        text: newText.slice(lastSentLength),
-                      });
-                      lastSentLength = newText.length;
-                    }
-                    responseText = newText;
-                  }
-                } catch {
-                  if (!responseText) {
-                    responseText = await callAgent(
-                      ref.path,
-                      enrichedMessage + screenContext,
-                      {
-                        apiKey: callerAuth.apiKey,
-                        userEmail: callerAuth.userEmail,
-                        orgDomain: callerAuth.orgDomain,
-                        orgSecret: callerAuth.orgSecret,
-                      },
-                    );
-                  }
-                }
-                responseText =
-                  userFacingLlmCredentialError(responseText, {
-                    agentName: ref.name,
-                  }) ?? responseText;
-
-                send({
-                  type: "agent_call",
+                const responseText = await callConnectedAgentReference({
                   agent: ref.name,
-                  status: "done",
+                  path: ref.path,
+                  message: enrichedMessage + screenContext,
+                  send,
+                  callAgent,
+                  resolveCallerAuth: resolveA2ACallerAuth,
                 });
                 return `<agent-response name="${ref.name}" id="${ref.refId}">\n${responseText}\n</agent-response>`;
               } catch (err: any) {
-                send({
-                  type: "agent_call",
-                  agent: ref.name,
-                  status: "error",
-                });
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,

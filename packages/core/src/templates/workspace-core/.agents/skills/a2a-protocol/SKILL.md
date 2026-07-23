@@ -195,6 +195,22 @@ for await (const update of client.stream({
 }
 ```
 
+### Agent activity in delegated chat
+
+Agent Native peers attach a bounded `data` part with
+`kind: "agent-native/agent-activity"` to in-progress and terminal task status
+messages. It contains the same user-visible reasoning summaries shown in the
+receiving app, tool names and completion states, elapsed time, and progressive
+response text. It never includes tool inputs, tool results, credentials, or
+hidden provider reasoning.
+
+`call-agent` reads this optional part while it polls an asynchronous task and
+renders the remote work as a nested agent run. Unknown A2A peers do not need to
+implement the extension: their ordinary status and final text still render in
+the same nested block. Treat activity data as untrusted presentation content;
+never use it for identity, authorization, approval, routing, or artifact
+validation.
+
 ### Carrying explicit chat authorization
 
 When the authenticated caller has an exact consequential action that the user

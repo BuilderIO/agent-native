@@ -71,7 +71,6 @@ export interface ShareDialogController {
   tabs: Array<{ value: ShareDialogTab; label: string }>;
   labels: {
     close: string;
-    done: string;
     shareOptions: string;
     generalAccess: string;
     shareLink: string;
@@ -407,7 +406,6 @@ export function useShareDialogController({
     ],
     labels: {
       close: t("share.close"),
-      done: t("share.done"),
       shareOptions: t("share.shareOptions"),
       generalAccess: t("share.generalAccess"),
       shareLink: t("share.shareLink"),

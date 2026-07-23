@@ -242,11 +242,11 @@ function openRouterModelId(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
-const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.6-sol";
-const FRAMEWORK_DEFAULT_BUILDER_MODEL = ANTHROPIC_DEFAULT_MODEL_ID;
+const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
 const FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL = builderGatewayModelId(
   FRAMEWORK_DEFAULT_OPENAI_MODEL,
 );
+const FRAMEWORK_DEFAULT_BUILDER_MODEL = FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL;
 const FRAMEWORK_DEFAULT_OPENROUTER_MODEL = openRouterModelId(
   "openai",
   FRAMEWORK_DEFAULT_OPENAI_MODEL,
@@ -257,14 +257,14 @@ export const AGENT_MODEL_CONFIG = {
     defaultModel: FRAMEWORK_DEFAULT_BUILDER_MODEL,
     supportedModels: [
       "auto",
-      "claude-opus-4-8",
-      CLAUDE_SONNET_MODEL_ID,
-      "claude-haiku-4-5",
       FRAMEWORK_DEFAULT_BUILDER_OPENAI_MODEL,
       "gpt-5-6-terra",
-      "gpt-5-6-luna",
-      "gemini-3-1-pro",
+      "gpt-5-6-sol",
+      "claude-haiku-4-5",
+      CLAUDE_SONNET_MODEL_ID,
+      "claude-opus-4-8",
       "gemini-3-5-flash",
+      "gemini-3-1-pro",
       // Flash-Lite is a transcription-only public id. Advertising it as an
       // agent-chat option routes through a Vertex preview model whose
       // availability can lapse while the id remains accepted, leaving chat
@@ -274,39 +274,35 @@ export const AGENT_MODEL_CONFIG = {
   anthropic: {
     defaultModel: ANTHROPIC_DEFAULT_MODEL_ID,
     supportedModels: [
-      "claude-fable-5",
-      "claude-opus-4-8",
-      CLAUDE_SONNET_MODEL_ID,
       "claude-haiku-4-5-20251001",
+      CLAUDE_SONNET_MODEL_ID,
+      "claude-opus-4-8",
+      "claude-fable-5",
     ],
   },
   aiSdk: {
     anthropic: {
       defaultModel: ANTHROPIC_DEFAULT_MODEL_ID,
       supportedModels: [
-        "claude-fable-5",
-        "claude-opus-4-8",
-        CLAUDE_SONNET_MODEL_ID,
         "claude-haiku-4-5-20251001",
+        CLAUDE_SONNET_MODEL_ID,
+        "claude-opus-4-8",
+        "claude-fable-5",
       ],
     },
     openai: {
       defaultModel: FRAMEWORK_DEFAULT_OPENAI_MODEL,
-      supportedModels: [
-        FRAMEWORK_DEFAULT_OPENAI_MODEL,
-        "gpt-5.6-terra",
-        "gpt-5.6-luna",
-      ],
+      supportedModels: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
     },
     openrouter: {
       defaultModel: FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
       supportedModels: [
-        "anthropic/claude-fable-5",
-        "anthropic/claude-opus-4.8",
-        OPENROUTER_CLAUDE_SONNET_MODEL_ID,
-        FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
-        "openai/gpt-5.6-terra",
         "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-sol",
+        OPENROUTER_CLAUDE_SONNET_MODEL_ID,
+        "anthropic/claude-opus-4.8",
+        "anthropic/claude-fable-5",
         // Current stable Gemini on OpenRouter (2.5 Flash is GA)
         "google/gemini-2.5-flash",
         "z-ai/glm-5.2",
