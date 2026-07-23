@@ -187,35 +187,43 @@ async function getAssetDataUrl(
   }
 }
 
-async function pickAnyFileAttachment(): Promise<ChatAttachment | null> {
+async function documentAssetToAttachment(
+  asset: DocumentPicker.DocumentPickerAsset,
+): Promise<ChatAttachment | null> {
+  const name = asset.name || "file";
+  const mimeType = detectMimeType(name, asset.mimeType);
+
+  const dataUrl = await getAssetDataUrl(
+    asset.uri,
+    mimeType,
+    (asset as { file?: File }).file,
+  );
+  if (!dataUrl) return null;
+
+  const isImage = mimeType.startsWith("image/");
+  return {
+    type: isImage ? "image" : "file",
+    name,
+    contentType: mimeType,
+    data: dataUrl,
+  };
+}
+
+async function pickAnyFileAttachments(): Promise<ChatAttachment[]> {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: "*/*",
       multiple: true,
       copyToCacheDirectory: true,
     });
-    if (result.canceled || !result.assets?.[0]) return null;
-    const asset = result.assets[0];
-    const name = asset.name || "file";
-    const mimeType = detectMimeType(name, asset.mimeType);
-
-    const dataUrl = await getAssetDataUrl(
-      asset.uri,
-      mimeType,
-      (asset as { file?: File }).file,
+    if (result.canceled || !result.assets?.length) return [];
+    const converted = await Promise.all(
+      result.assets.map(documentAssetToAttachment),
     );
-    if (!dataUrl) return null;
-
-    const isImage = mimeType.startsWith("image/");
-    return {
-      type: isImage ? "image" : "file",
-      name,
-      contentType: mimeType,
-      data: dataUrl,
-    };
+    return converted.filter((a): a is ChatAttachment => a !== null);
   } catch (error) {
-    console.error("pickAnyFileAttachment error:", error);
-    return null;
+    console.error("pickAnyFileAttachments error:", error);
+    return [];
   }
 }
 
@@ -417,6 +425,10 @@ export function Composer({
     if (attachment) setAttachments((current) => [...current, attachment]);
   }, []);
 
+  const addAttachments = useCallback((incoming: ChatAttachment[]) => {
+    if (incoming.length) setAttachments((current) => [...current, ...incoming]);
+  }, []);
+
   useEffect(() => {
     const recover = () => {
       void ImagePicker.getPendingResultAsync()
@@ -453,7 +465,7 @@ export function Composer({
 
   const handleUploadFile = () => {
     closeMenuThen(() => {
-      void pickAnyFileAttachment().then(addAttachment);
+      void pickAnyFileAttachments().then(addAttachments);
     });
   };
 
@@ -481,7 +493,7 @@ export function Composer({
       icon: "upload",
     });
     closeMenuThen(() => {
-      void pickAnyFileAttachment().then(addAttachment);
+      void pickAnyFileAttachments().then(addAttachments);
     });
   };
 
