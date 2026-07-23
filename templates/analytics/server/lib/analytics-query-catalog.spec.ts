@@ -8,7 +8,7 @@ describe("analytics query catalog", () => {
     const config = loadDashboardSeed("agent-native-templates-first-party");
     expect(config).not.toBeNull();
     const results = rankAnalyticsQueryCatalog({
-      search: "how many agent-native signups yesterday",
+      search: "total signups",
       limit: 6,
       dictionaryEntries: [],
       dashboards: [
