@@ -1,38 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import { rankAnalyticsQueryCatalog } from "./analytics-query-catalog";
+import { loadDashboardSeed } from "./dashboard-seeds";
 
 describe("analytics query catalog", () => {
-  it("finds a saved signup chart and returns its source and query", () => {
+  it("finds the shipped Agent Native signup chart and returns its source and query", () => {
+    const config = loadDashboardSeed("agent-native-templates-first-party");
+    expect(config).not.toBeNull();
     const results = rankAnalyticsQueryCatalog({
       search: "how many agent-native signups yesterday",
       limit: 6,
       dictionaryEntries: [],
       dashboards: [
         {
-          id: "agent-native",
-          title: "Agent Native Product",
+          id: "agent-native-templates-first-party",
+          title: "Agent Native Templates (First-party)",
           description: "Product adoption",
-          origin: "saved-dashboard",
-          config: {
-            panels: [
-              {
-                id: "total-signups",
-                title: "Agent Native Signups",
-                source: "first-party",
-                sql: "SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup'",
-                config: { description: "Signup events" },
-              },
-            ],
-          },
+          origin: "dashboard-template",
+          config: config!,
         },
       ],
     });
 
     expect(results[0]).toMatchObject({
       kind: "dashboard-panel",
-      origin: "saved-dashboard",
-      dashboardId: "agent-native",
+      origin: "dashboard-template",
+      dashboardId: "agent-native-templates-first-party",
       panelId: "total-signups",
       source: "first-party",
     });

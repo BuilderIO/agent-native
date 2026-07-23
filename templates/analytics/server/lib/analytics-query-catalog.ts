@@ -343,12 +343,12 @@ export async function searchAnalyticsQueryCatalog(args: {
 }): Promise<AnalyticsQueryCatalogCandidate[]> {
   const [savedDashboardsResult, dictionaryEntriesResult] =
     await Promise.allSettled([
-    listDashboards(
-      { email: args.email, orgId: args.orgId },
-      { kind: "sql", archived: "active", hidden: "visible" },
-    ),
-    listDictionaryEntries({ email: args.email, orgId: args.orgId }),
-  ]);
+      listDashboards(
+        { email: args.email, orgId: args.orgId },
+        { kind: "sql", archived: "active", hidden: "visible" },
+      ),
+      listDictionaryEntries({ email: args.email, orgId: args.orgId }),
+    ]);
   const savedDashboards =
     savedDashboardsResult.status === "fulfilled"
       ? savedDashboardsResult.value
