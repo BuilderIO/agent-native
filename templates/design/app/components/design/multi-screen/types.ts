@@ -10,6 +10,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 } from "../design-canvas/iframe-events";
 import type {
   DeviceFrameType,
@@ -363,6 +364,7 @@ export interface MultiScreenCanvasProps {
   onBoardFigmaClipboardPaste?: (
     event: IframeFigmaClipboardPastePayload,
   ) => void;
+  onBoardImagePaste?: (event: IframeImagePastePayload) => void;
   onBoardIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onBoardTextEditingStateChange?: (state: {
     active: boolean;
@@ -940,6 +942,7 @@ export type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
+  IframeImagePastePayload,
 };
 
 export interface ResolvedScreenMetadata {

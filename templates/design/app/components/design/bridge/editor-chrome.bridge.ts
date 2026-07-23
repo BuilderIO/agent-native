@@ -10447,15 +10447,63 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       }
       var content = getFigmaClipboardContent(e.clipboardData);
       clearPendingPlainPasteHotkey();
-      if (!content) return;
-      stopNativeInteraction(e);
-      (window.parent as Window).postMessage(
-        {
-          type: "figma-clipboard-paste",
-          content: content,
-        },
-        "*",
-      );
+      if (content) {
+        stopNativeInteraction(e);
+        (window.parent as Window).postMessage(
+          { type: "figma-clipboard-paste", content: content },
+          "*",
+        );
+        return;
+      }
+      // Relay image files pasted while the canvas has focus (e.g. "Copy as PNG"
+      // from Figma, or a screenshot). The parent's handleEditorPaste cannot see
+      // these because paste events inside an iframe don't bubble to the parent
+      // document — the bridge reads each file as a data URL and relays it so
+      // the parent's handlePastedImageFiles can insert an <img> layer.
+      var imageFiles = Array.from(e.clipboardData?.items ?? [])
+        .filter(function (item) {
+          return item.kind === "file" && item.type.startsWith("image/");
+        })
+        .map(function (item) {
+          return item.getAsFile();
+        })
+        .filter(function (f): f is File {
+          return Boolean(f);
+        });
+      if (imageFiles.length > 0) {
+        stopNativeInteraction(e);
+        var readPromises = imageFiles.map(function (file) {
+          return new Promise<{
+            dataUrl: string;
+            type: string;
+            name: string;
+          } | null>(function (resolve) {
+            var reader = new FileReader();
+            reader.onload = function () {
+              resolve({
+                dataUrl: typeof reader.result === "string" ? reader.result : "",
+                type: file.type,
+                name: file.name,
+              });
+            };
+            reader.onerror = function () {
+              resolve(null);
+            };
+            reader.readAsDataURL(file);
+          });
+        });
+        void Promise.all(readPromises).then(function (results) {
+          var valid = results.filter(function (r) {
+            return r && r.dataUrl;
+          });
+          if (valid.length > 0) {
+            (window.parent as Window).postMessage(
+              { type: "canvas-image-paste", files: valid },
+              "*",
+            );
+          }
+        });
+      }
     },
     true,
   );

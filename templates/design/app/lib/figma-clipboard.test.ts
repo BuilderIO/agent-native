@@ -127,8 +127,8 @@ describe("decideFigmaPasteStrategy", () => {
     expect(decideFigmaPasteStrategy(figmeta, "configured")).toBe("rest");
   });
 
-  it("skips straight to the HTML fallback when the key is known-missing", () => {
-    expect(decideFigmaPasteStrategy(figmeta, "missing")).toBe("html-fallback");
+  it("uses local-kiwi decode when the key is known-missing", () => {
+    expect(decideFigmaPasteStrategy(figmeta, "missing")).toBe("local-kiwi");
   });
 
   it("optimistically attempts REST when the key status isn't known client-side", () => {

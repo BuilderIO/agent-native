@@ -455,6 +455,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onBoardElementDblClickText,
   onBoardIframeHotkey,
   onBoardFigmaClipboardPaste,
+  onBoardImagePaste,
   onBoardIframeContextMenu,
   onBoardTextEditingStateChange,
   boardClearSelectionRequest,
@@ -7670,6 +7671,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   onClearSelection={onBoardElementClear}
                   onIframeHotkey={onBoardIframeHotkey}
                   onFigmaClipboardPaste={onBoardFigmaClipboardPaste}
+                  onImagePaste={onBoardImagePaste}
                   onIframeContextMenu={onBoardIframeContextMenu}
                   onVisualStructureChange={onBoardVisualStructureChange}
                   onVisualStyleChange={onBoardVisualStyleChange}
@@ -9170,14 +9172,12 @@ const Screen = memo(function Screen({
   // Memoize the srcdoc with the hit-test responder injected so we don't
   // rebuild the string every render (that would reload the iframe).
   // Keyed only on screen.content; the hit-test script itself is constant.
-  const srcdocWithHitTest = useMemo(
-    () =>
-      injectSessionReplayIframeBootstrap(
-        appendHitTestResponder(screen.content),
-      ),
+  const srcdocWithHitTest = useMemo(() => {
+    return injectSessionReplayIframeBootstrap(
+      appendHitTestResponder(screen.content),
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [screen.content],
-  );
+  }, [screen.content]);
 
   const updateDirectHover = useCallback((next: boolean) => {
     setDirectlyHovered((current) => (current === next ? current : next));
