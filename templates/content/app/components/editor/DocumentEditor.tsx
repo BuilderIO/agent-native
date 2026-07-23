@@ -1867,6 +1867,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         return (
                           <DocumentBlockFields
                             documentId={documentId}
+                            databaseDocumentId={
+                              document.databaseMembership.databaseDocumentId
+                            }
                             canEdit={editorCanEdit}
                             primaryEditor={primaryEditor}
                           />

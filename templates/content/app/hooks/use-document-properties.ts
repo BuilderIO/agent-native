@@ -70,6 +70,7 @@ export function useSetDocumentProperty(
     DocumentPropertiesResponse,
     SetDocumentPropertyRequest
   >("set-document-property", {
+    skipActionQueryInvalidation: true,
     onMutate: async (variables) => {
       await queryClient.cancelQueries(
         contentDatabaseQueryFilter(databaseDocumentId),
