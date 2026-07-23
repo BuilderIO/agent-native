@@ -36,6 +36,7 @@ export interface SendEmailArgs {
   inReplyTo?: string;
   references?: string;
   attachments?: EmailAttachment[];
+  timeoutMs?: number;
 }
 
 let cachedAgentNativeLogo: Buffer | undefined;
@@ -125,8 +126,12 @@ function getFromAddress(
   return "Agent Native <onboarding@resend.dev>";
 }
 
-export async function sendEmail(args: SendEmailArgs): Promise<void> {
+async function sendEmailWithSignal(
+  args: SendEmailArgs,
+  signal?: AbortSignal,
+): Promise<void> {
   const config = await resolveEmailTransport();
+  signal?.throwIfAborted();
   const provider = config.provider;
   const from = getFromAddress(config, args.from);
   const attachments = resolveAttachments(args);
@@ -164,6 +169,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      signal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -215,6 +221,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
         "Content-Type": "application/json",
       },
       body: JSON.stringify(sgPayload),
+      signal,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
@@ -237,6 +244,31 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
       `---\nTo: ${args.to}\nFrom: ${from}\nSubject: ${args.subject}\n\n` +
       `${args.text || stripHtml(args.html)}\n---\n`,
   );
+}
+
+export async function sendEmail(args: SendEmailArgs): Promise<void> {
+  const requestedTimeoutMs = Number(args.timeoutMs);
+  if (!Number.isFinite(requestedTimeoutMs) || requestedTimeoutMs <= 0) {
+    return sendEmailWithSignal(args);
+  }
+
+  const timeoutMs = Math.floor(requestedTimeoutMs);
+  const controller = new AbortController();
+  const timeoutError = new Error(`Email send timed out after ${timeoutMs}ms`);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      sendEmailWithSignal(args, controller.signal),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort(timeoutError);
+          reject(timeoutError);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function parseSendGridFrom(from: string): { email: string; name?: string } {

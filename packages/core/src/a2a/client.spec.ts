@@ -385,6 +385,27 @@ describe("A2AClient", () => {
     });
   });
 
+  it("forwards additional metadata without letting it override caller identity", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.metadata).toMatchObject({
+        googleToken: "fake-google-token",
+        userEmail: "verified@example.test",
+      });
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAgent("https://agent.test", "capture this", {
+      async: false,
+      metadata: {
+        googleToken: "fake-google-token",
+        userEmail: "spoofed@example.test",
+      },
+      userEmail: "verified@example.test",
+    });
+  });
+
   it("sends bounded correlation metadata and idempotency at the protocol top level", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -790,6 +811,49 @@ describe("A2AClient", () => {
         org_domain: "builder.io",
       },
     });
+  });
+
+  it("tries explicit bearer token fallbacks in order", async () => {
+    const bearerTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST")
+          return new Response("not found", { status: 404 });
+        bearerTokens.push(
+          String(new Headers(init.headers).get("authorization") ?? "").replace(
+            /^Bearer\s+/i,
+            "",
+          ),
+        );
+        const body = JSON.parse(String(init.body));
+        if (bearerTokens.length < 3) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              error: { code: -32001, message: "Invalid or expired A2A token" },
+            }),
+            { status: 401 },
+          );
+        }
+        return completedResponse(body, "signed with explicit fallback");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: false,
+        apiKey: "primary-test-key",
+        apiKeyFallbacks: ["first-test-fallback", "second-test-fallback"],
+      }),
+    ).resolves.toBe("signed with explicit fallback");
+
+    expect(bearerTokens).toEqual([
+      "primary-test-key",
+      "first-test-fallback",
+      "second-test-fallback",
+    ]);
   });
 
   it("retries async task polling with fallback delegated bearer tokens", async () => {

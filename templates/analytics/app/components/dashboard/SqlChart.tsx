@@ -1079,6 +1079,7 @@ interface SqlChartProps {
   resolvedSql?: string;
   className?: string;
   loadData?: boolean;
+  reportScreenshot?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
   /** Dashboard/panel state sent to slot-backed extension boxes. */
   extensionContext?: Record<string, unknown> | null;
@@ -1088,6 +1089,7 @@ export function SqlChart({
   panel,
   resolvedSql,
   loadData = true,
+  reportScreenshot = false,
   onExportCsvChange,
   extensionContext,
 }: SqlChartProps) {
@@ -1110,7 +1112,7 @@ export function SqlChart({
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    { enabled: shouldQuery },
+    { enabled: shouldQuery, reportScreenshot },
   );
 
   const rawRows = result?.rows ?? [];
