@@ -54,6 +54,7 @@ import {
   databaseRecordBuilderContinuationAttempt,
   databaseSourceOperationIsPending,
   pendingMutationSourceId,
+  previewDocumentSaveResult,
   releaseDatabaseSourceOperation,
   previewDraftNeedsConflict,
   previewDraftMissingCasRecovery,
@@ -61,6 +62,65 @@ import {
 } from "./DatabaseView";
 
 describe("database preview property saves", () => {
+  it("treats a body changed outside a title-only save as a conflict", () => {
+    const baseline = {
+      title: "Before",
+      content: "Body A",
+      loadedUpdatedAt: "v0",
+      loadedContentWasEmpty: false,
+    };
+    const result = previewDocumentSaveResult({
+      baseline,
+      payload: { ...baseline, title: "Local title" },
+      contentChanged: false,
+      result: {
+        id: "document",
+        title: "Local title",
+        content: "Body B from another tab",
+        updatedAt: "v2",
+        softDeletedDatabaseIds: [],
+      } as unknown as Parameters<typeof previewDocumentSaveResult>[0]["result"],
+    });
+
+    expect(result).toMatchObject({
+      outcome: "deferred",
+      reason: "conflict",
+      conflictSnapshot: {
+        lastSaved: baseline,
+        pending: {
+          title: "Local title",
+          content: "Body B from another tab",
+          loadedUpdatedAt: "v2",
+        },
+      },
+    });
+  });
+
+  it("rebases a title-only save only when its observed body is unchanged", () => {
+    const result = previewDocumentSaveResult({
+      payload: {
+        title: "Local title",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+      contentChanged: false,
+      result: {
+        id: "document",
+        title: "Local title",
+        content: "Body A",
+        updatedAt: "v1",
+        softDeletedDatabaseIds: [],
+      } as unknown as Parameters<typeof previewDocumentSaveResult>[0]["result"],
+    });
+
+    expect(result).toEqual({
+      outcome: "saved",
+      loadedUpdatedAt: "v1",
+      loadedContentWasEmpty: false,
+    });
+  });
+
   it("threads the containing database document through scalar and block property editors", () => {
     const source = readFileSync(
       new URL("./DatabaseView.tsx", import.meta.url),

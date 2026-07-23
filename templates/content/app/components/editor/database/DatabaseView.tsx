@@ -197,6 +197,7 @@ import {
 } from "@/hooks/use-document-properties";
 import {
   isDocumentUpdateConflict,
+  type DocumentUpdateResult,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
@@ -254,7 +255,10 @@ import { EmojiPicker } from "../EmojiPicker";
 import {
   createPreviewDocumentSaveController,
   deferredPreviewDocumentSave,
+  type PreviewDocumentPayload,
   type PreviewDocumentSaveAdapter,
+  type PreviewDocumentSaveDeferred,
+  type PreviewDocumentSaveSuccess,
 } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
@@ -471,6 +475,42 @@ export function databaseCreatedItemForImmediatePreview(
       createdAt: now,
       updatedAt: now,
     },
+  };
+}
+
+export function previewDocumentSaveResult(args: {
+  result: DocumentUpdateResult;
+  payload: PreviewDocumentPayload;
+  baseline?: PreviewDocumentPayload;
+  contentChanged: boolean;
+}): PreviewDocumentSaveDeferred | PreviewDocumentSaveSuccess {
+  const serverDocument = isDocumentUpdateConflict(args.result)
+    ? args.result.document
+    : args.result;
+  const titleSaveObservedExternalBody =
+    !args.contentChanged && serverDocument.content !== args.payload.content;
+
+  if (isDocumentUpdateConflict(args.result) || titleSaveObservedExternalBody) {
+    return deferredPreviewDocumentSave("conflict", {
+      lastSaved: args.baseline ?? args.payload,
+      pending: {
+        title: serverDocument.title,
+        content: serverDocument.content,
+        loadedUpdatedAt: serverDocument.updatedAt,
+        loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+          serverDocument.content,
+        ),
+      },
+      deferredReason: "conflict",
+    });
+  }
+
+  return {
+    outcome: "saved",
+    loadedUpdatedAt: args.result.updatedAt,
+    loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+      args.result.content,
+    ),
   };
 }
 
@@ -4243,30 +4283,14 @@ function DatabaseItemPreview({
           },
           {
             onSuccess: (result) => {
-              if (isDocumentUpdateConflict(result)) {
-                resolve(
-                  deferredPreviewDocumentSave("conflict", {
-                    lastSaved: baseline ?? payload,
-                    pending: {
-                      title: result.document.title,
-                      content: result.document.content,
-                      loadedUpdatedAt: result.document.updatedAt,
-                      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-                        result.document.content,
-                      ),
-                    },
-                    deferredReason: "conflict",
-                  }),
-                );
-                return;
-              }
-              resolve({
-                outcome: "saved" as const,
-                loadedUpdatedAt: result.updatedAt,
-                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
-                  result.content,
-                ),
-              });
+              resolve(
+                previewDocumentSaveResult({
+                  result,
+                  payload,
+                  baseline,
+                  contentChanged,
+                }),
+              );
             },
             onError: reject,
           },
