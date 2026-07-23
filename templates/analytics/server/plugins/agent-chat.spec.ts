@@ -18,6 +18,7 @@ import {
 import {
   analyticsDataDictionaryRoutingContext,
   analyticsSourceGuidanceOpening,
+  AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE,
   ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE,
   ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE,
@@ -50,6 +51,7 @@ describe("Analytics agent Plan mode policy", () => {
     const guidance = analyticsSourceGuidanceOpening();
 
     expect(guidance).toContain("<data-source-guidance>");
+    expect(guidance).toContain(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE);
     expect(guidance).toContain(SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE);
     expect(guidance).toContain(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE);
     expect(guidance).toContain(BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE);
@@ -64,6 +66,21 @@ describe("Analytics agent Plan mode policy", () => {
     expect(guidance).toContain("[Connect data sources](");
     expect(guidance).toContain(
       "Chat remains available when no external data source is connected",
+    );
+  });
+
+  it("routes Agent-Native signups through the canonical one-query dashboard path", () => {
+    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
+      "`total-signups`",
+    );
+    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
+      "Call `query-agent-native-analytics` exactly once",
+    );
+    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
+      "do not call `list-data-dictionary`, BigQuery",
+    );
+    expect(AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE).toContain(
+      "lower(coalesce(user_id, '')) NOT LIKE '%@builder.io'",
     );
   });
 

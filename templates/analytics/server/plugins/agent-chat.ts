@@ -49,6 +49,9 @@ const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
 export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
   "SIMPLE TIME-BOUNDED METRIC FAST PATH — When the data dictionary or a known canonical source identifies the metric, run one bounded aggregate. Once it returns a valid result, answer the explicit question immediately with the source, time window, row count, and only necessary caveats. Do not schema-discover, retry, enrich, cross-check, or add breakdowns after that successful result unless the query failed or the result conflicts with the known metric definition. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
 
+export const AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE =
+  "AGENT-NATIVE SIGNUPS FAST PATH — For Agent-Native signup counts, the canonical first-party Agent Native dashboard panel is `total-signups`. Call `query-agent-native-analytics` exactly once with a bounded `COUNT(*) AS signups` over `analytics_events`, `event_name = 'signup'`, explicit half-open `timestamp` bounds in the requested timezone, and the dashboard's exclude-Builder filter `lower(coalesce(user_id, '')) NOT LIKE '%@builder.io'`, which retains anonymous signups. Answer from that result immediately. This pre-approved metric overrides the generic data-dictionary lookup: do not call `list-data-dictionary`, BigQuery, provider tools, `data-source-status`, or cross-check another source unless the user explicitly asks for an external source or the first-party query fails. ";
+
 export const BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE =
   "BUILT-IN FIRST-PARTY SOURCE — Analytics always provides one built-in first-party source alongside connected external providers such as BigQuery, HubSpot, Gong, Slack, and the other configured integrations. This does not replace or restrict external sources. For Builder/product signups, page views, app/template usage, conversions, and LLM observability, use `query-agent-native-analytics` over `analytics_events` (or `session_recordings` for replay summaries) when the event lives in first-party Analytics. When the user names an external provider, or the data dictionary identifies one as authoritative, query that provider instead. Do not report the first-party source as disconnected merely because an external provider is not configured. If the first-party query returns no rows, report that grounded result with its scope and time window. ";
 
@@ -75,6 +78,7 @@ export function analyticsSourceGuidanceOpening(): string {
     "<data-source-guidance>\n" +
     "Apply real-data requirements only when presenting analytics results, source records, or derived metrics. Do not call data-source tools for workflow migration, recurring-job setup, UI/code fixes, settings help, conceptual planning, or other non-data tasks unless the user explicitly asks for data. " +
     NON_ANALYTICS_REQUEST_GUIDANCE +
+    AGENT_NATIVE_SIGNUPS_FAST_PATH_GUIDANCE +
     SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE +
     BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
     ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
