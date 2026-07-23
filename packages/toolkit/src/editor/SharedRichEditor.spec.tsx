@@ -27,10 +27,7 @@ describe("SharedRichEditor block controls", () => {
   it("mounts the shared Notion-style block grip by default", async () => {
     await act(async () => {
       root.render(
-        <SharedRichEditor
-          value="First\n\nSecond"
-          onChange={() => undefined}
-        />,
+        <SharedRichEditor value="First\n\nSecond" onChange={() => undefined} />,
       );
       await new Promise((resolve) => setTimeout(resolve, 10));
     });

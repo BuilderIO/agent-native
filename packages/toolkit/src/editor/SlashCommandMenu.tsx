@@ -1,5 +1,5 @@
-import type { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
+import type { Editor } from "@tiptap/react";
 import {
   useCallback,
   useEffect,
@@ -62,10 +62,7 @@ export function focusEditorInInsertedBlock(
       return;
     }
     if (start > anchor) {
-      if (
-        nextTextblock === null ||
-        start < nextTextblock
-      ) {
+      if (nextTextblock === null || start < nextTextblock) {
         nextTextblock = start;
       }
       return;
