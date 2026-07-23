@@ -5,7 +5,7 @@ import { deleteTask, requireUserEmail } from "../server/tasks/store.js";
 
 export default defineAction({
   description:
-    "Delete a task permanently. Ask the user to confirm before calling.",
+    "Delete one task permanently. Use bulk-delete-tasks for multiple tasks. Ask the user to confirm before calling.",
   schema: z.object({
     taskId: z.string().describe("Task id"),
   }),

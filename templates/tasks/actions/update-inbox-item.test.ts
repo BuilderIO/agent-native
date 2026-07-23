@@ -12,7 +12,9 @@ vi.mock("../server/inbox/store.js", () => ({
   },
 }));
 
-import updateInboxItemAction from "./update-inbox-item.js";
+import updateInboxItemAction, {
+  updateInboxItemSchema,
+} from "./update-inbox-item.js";
 
 describe("update-inbox-item", () => {
   beforeEach(() => {
@@ -22,7 +24,7 @@ describe("update-inbox-item", () => {
   describe("schema", () => {
     it("accepts inboxItemId and optional title", () => {
       expect(
-        updateInboxItemAction.schema.parse({
+        updateInboxItemSchema.parse({
           inboxItemId: "in-1",
           title: "Updated",
         }),
@@ -31,7 +33,7 @@ describe("update-inbox-item", () => {
         title: "Updated",
       });
       expect(() =>
-        updateInboxItemAction.schema.parse({ inboxItemId: "in-1", title: "" }),
+        updateInboxItemSchema.parse({ inboxItemId: "in-1", title: "" }),
       ).toThrow();
     });
   });

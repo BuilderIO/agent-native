@@ -13,6 +13,7 @@ import {
   isAgentEnginePackageInstalled,
   isStoredEngineUsableForRequest,
   normalizeModelForEngine,
+  resolveEnginePreservesCustomModels,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
 import { getSetting } from "../../settings/index.js";
@@ -82,11 +83,18 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
         ? current?.model
         : undefined;
   const currentEngineName = currentEntry?.name ?? "anthropic";
+  // Resolve the OpenAI-compatible-endpoint capability so a custom gateway model
+  // is reported as-is instead of being normalized to the engine default — the
+  // read-side counterpart of the same fix in set-/manage-agent-engine.
+  const preserveCustomModels = currentEntry
+    ? await resolveEnginePreservesCustomModels(currentEntry)
+    : false;
   const currentModel =
     currentEntry && !envUnavailable
       ? normalizeModelForEngine(
           currentEntry,
           currentModelCandidate ?? currentEntry.defaultModel,
+          { preserveCustomModels },
         )
       : (currentModelCandidate ?? DEFAULT_MODEL);
   const result = {

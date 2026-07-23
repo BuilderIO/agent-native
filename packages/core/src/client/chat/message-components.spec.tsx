@@ -118,6 +118,7 @@ describe("shouldShowMissingFinalResponse", () => {
   it("backs up terminal tool-only messages with visible text", () => {
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
@@ -128,6 +129,7 @@ describe("shouldShowMissingFinalResponse", () => {
   it("stays hidden while a tool is unresolved or final text exists", () => {
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: true,
@@ -135,6 +137,7 @@ describe("shouldShowMissingFinalResponse", () => {
     ).toBe(false);
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: true,
         hasUnresolvedTool: false,
@@ -142,10 +145,22 @@ describe("shouldShowMissingFinalResponse", () => {
     ).toBe(false);
     expect(
       shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
         hasCompletedCustomUi: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not flash after a tool completes while the current turn is still running", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: true,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
       }),
     ).toBe(false);
   });

@@ -5,6 +5,8 @@
 // interface covering the shapes both `threadRuntime.export()` and
 // `normalizeThreadRepository()` produce, and use it everywhere instead of `any`.
 
+import { ASSISTANT_RUN_DURATION_METADATA_KEY } from "../../agent/thread-data-builder.js";
+
 export interface RepoMessageStatus {
   type?: string;
   reason?: string;
@@ -54,6 +56,81 @@ export function getRepoMessages(
 
 export function getRepoMessage(entry: RepoEntry): RepoMessage | null {
   return (entry?.message ?? entry) as RepoMessage | null;
+}
+
+export function getAssistantRunDurationMs(
+  message:
+    | {
+        metadata?: unknown;
+      }
+    | null
+    | undefined,
+): number | null {
+  const metadata =
+    message?.metadata && typeof message.metadata === "object"
+      ? (message.metadata as Record<string, unknown>)
+      : null;
+  const custom =
+    metadata?.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : null;
+  const durationMs = custom?.[ASSISTANT_RUN_DURATION_METADATA_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
+}
+
+export function withLastAssistantRunDuration<T extends NormalizedRepo>(
+  repo: T,
+  durationMs: number | null | undefined,
+): T {
+  if (
+    !Array.isArray(repo.messages) ||
+    typeof durationMs !== "number" ||
+    !Number.isFinite(durationMs) ||
+    durationMs < 0
+  ) {
+    return repo;
+  }
+
+  let messageIndex = -1;
+  for (let index = repo.messages.length - 1; index >= 0; index -= 1) {
+    if (getRepoMessage(repo.messages[index]!)?.role === "assistant") {
+      messageIndex = index;
+      break;
+    }
+  }
+  if (messageIndex < 0) return repo;
+
+  const entry = repo.messages[messageIndex]!;
+  const message = getRepoMessage(entry);
+  if (!message || getAssistantRunDurationMs(message) === durationMs) {
+    return repo;
+  }
+
+  const metadata = message.metadata ?? {};
+  const custom =
+    metadata.custom && typeof metadata.custom === "object"
+      ? (metadata.custom as Record<string, unknown>)
+      : {};
+  const nextMessage: RepoMessage = {
+    ...message,
+    metadata: {
+      ...metadata,
+      custom: {
+        ...custom,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
+      },
+    },
+  };
+  const messages = repo.messages.slice();
+  messages[messageIndex] =
+    entry.message === undefined
+      ? (nextMessage as RepoEntry)
+      : { ...entry, message: nextMessage };
+  return { ...repo, messages };
 }
 
 /**
