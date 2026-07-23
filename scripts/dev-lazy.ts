@@ -897,10 +897,14 @@ export function shouldRestartPersistent5xx(input: {
 
 function ensureReadinessProbe(app: TemplateApp): void {
   if (app.ready || app.readinessProbe) return;
-  app.readinessProbe = waitForHttpReady(app, Date.now() + proxyReadyTimeoutMs)
-    .then((ready) => {
-      if (ready) {
-        markAppReady(app);
+  app.readinessProbe = waitForPort(app.port, Date.now() + proxyReadyTimeoutMs)
+    .then((listening) => {
+      if (listening) {
+        // The loading page only needs to know when it is safe to let the next
+        // browser navigation reach Vite. The proxied response below owns HTTP
+        // health and persistent-5xx recovery; probing SSR first can deadlock a
+        // Nitro cold start that needs another request to finish initializing.
+        app.ready = true;
         return;
       }
       void failAppStartupTimeout(app);

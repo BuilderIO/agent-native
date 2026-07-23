@@ -2357,16 +2357,28 @@ function nitroStaticImportGraphReady(environment: unknown): boolean {
   if (!entry) return false;
 
   const seen = new Set<NitroModuleNode>();
-  const visit = (module: NitroModuleNode): boolean => {
+  const visit = (
+    module: NitroModuleNode,
+    importer?: NitroModuleNode,
+  ): boolean => {
     if (seen.has(module)) return true;
     seen.add(module);
     if (module.ssrError) return true;
-    if (!module.transformResult) return false;
+    if (!module.transformResult) {
+      if (process.env.AGENT_NATIVE_DEBUG_MIDDLEWARE_ORDER) {
+        console.log("pending nitro module", {
+          id: module.id,
+          importer: importer?.id,
+          importerInfo: importer?.info,
+        });
+      }
+      return false;
+    }
 
     const dynamicImports = new Set(module.info?.dynamicallyImportedIds ?? []);
     for (const dependency of module.importedModules) {
       if (dependency.id && dynamicImports.has(dependency.id)) continue;
-      if (!visit(dependency)) return false;
+      if (!visit(dependency, module)) return false;
     }
     return true;
   };

@@ -10,10 +10,12 @@ import {
 import {
   IconAlertTriangle,
   IconBrain,
+  IconKey,
   IconLanguage,
   IconLoader2,
   IconMicrophone,
   IconPhoneOff,
+  IconPlugConnected,
   IconSettings,
   IconVolume,
 } from "@tabler/icons-react";
@@ -225,63 +227,55 @@ export function RealtimeVoiceModeEntry({
         collisionPadding={16}
         data-collision-boundary={collisionBoundary ? "agent-panel" : "viewport"}
         className={cn(
-          setupRequired ? "p-4" : "p-3",
+          setupRequired ? "p-3.5" : "p-3",
           setupRequired
-            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]"
+            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,24rem),24rem)]"
             : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,18rem),18rem)]",
         )}
         aria-labelledby={titleId}
         aria-describedby={setupRequired ? descriptionId : undefined}
       >
-        <div className={cn("grid", setupRequired ? "gap-3" : "gap-2.5")}>
-          <div className="grid gap-1">
-            <h2 id={titleId} className="text-sm font-semibold text-foreground">
-              {setupRequired ? copy.setupTitle : copy.promptTitle}
-            </h2>
+        <div className={cn("grid", setupRequired ? "gap-3.5" : "gap-2.5")}>
+          <div
+            className={cn(
+              setupRequired ? "flex items-start gap-3" : "grid gap-1",
+            )}
+          >
             {setupRequired ? (
-              <p
-                id={descriptionId}
-                className="text-sm leading-relaxed text-muted-foreground"
-              >
-                {copy.setupDescription}
-              </p>
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <IconMicrophone aria-hidden="true" />
+              </div>
             ) : null}
+            <div className="grid gap-1">
+              <h2
+                id={titleId}
+                className="text-sm font-semibold leading-5 text-foreground"
+              >
+                {setupRequired ? copy.setupTitle : copy.promptTitle}
+              </h2>
+              {setupRequired ? (
+                <p
+                  id={descriptionId}
+                  className="text-xs leading-5 text-muted-foreground"
+                >
+                  {copy.setupDescription}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div
             className={cn(
-              "gap-2",
-              setupRequired
-                ? "flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end"
-                : "grid",
+              "grid gap-2",
+              setupRequired ? "rounded-lg bg-muted/30 p-1" : null,
             )}
           >
             {setupRequired ? (
               <>
                 <Button
                   type="button"
-                  variant="ghost"
                   size="sm"
-                  onClick={() => choose("dictation", onKeepDictating)}
-                >
-                  {copy.keepDictating}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    choose("realtime", onUseOpenAiKey ?? onStartVoiceMode)
-                  }
-                >
-                  {openAiConfigured
-                    ? copy.startWithOpenAiKey
-                    : copy.useOpenAiKey}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="whitespace-nowrap"
+                  className="w-full justify-start px-3"
                   disabled={connectingBuilder}
                   onClick={() =>
                     choose("realtime", onConnectBuilder ?? onStartVoiceMode)
@@ -289,8 +283,34 @@ export function RealtimeVoiceModeEntry({
                 >
                   {connectingBuilder ? (
                     <IconLoader2 className="animate-spin" />
-                  ) : null}
+                  ) : (
+                    <IconPlugConnected aria-hidden="true" />
+                  )}
                   {copy.connectBuilder}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start bg-background px-3"
+                  onClick={() =>
+                    choose("realtime", onUseOpenAiKey ?? onStartVoiceMode)
+                  }
+                >
+                  <IconKey aria-hidden="true" />
+                  {openAiConfigured
+                    ? copy.startWithOpenAiKey
+                    : copy.useOpenAiKey}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start px-3 text-muted-foreground"
+                  onClick={() => choose("dictation", onKeepDictating)}
+                >
+                  <IconMicrophone aria-hidden="true" />
+                  {copy.keepDictating}
                 </Button>
               </>
             ) : (

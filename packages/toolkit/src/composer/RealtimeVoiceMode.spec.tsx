@@ -291,22 +291,21 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).toContain("Set up voice mode");
     const prompt = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(prompt?.className).toContain(
-      "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]",
+      "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,24rem),24rem)]",
     );
     expect(prompt?.dataset.collisionBoundary).toBe("agent-panel");
     const actions = Array.from(prompt?.querySelectorAll("div") ?? []).find(
-      (element) => element.className.includes("sm:flex-row"),
+      (element) => element.className.includes("bg-muted/30"),
     );
     const actionClasses = actions?.className.split(/\s+/) ?? [];
-    expect(actionClasses).toContain("sm:flex-wrap");
-    expect(actionClasses).not.toContain("sm:flex-nowrap");
+    expect(actionClasses).toContain("grid");
+    expect(actionClasses).toContain("rounded-lg");
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
     expect(
-      buttons.find((button) => button.textContent === "Connect Builder.io")
-        ?.className,
-    ).toContain("whitespace-nowrap");
+      buttons.find((button) => button.textContent === "Connect Builder.io"),
+    ).toBeDefined();
     act(() =>
       buttons
         .find((button) => button.textContent === "Connect Builder.io")
