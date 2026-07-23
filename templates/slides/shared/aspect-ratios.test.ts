@@ -84,4 +84,11 @@ describe("getAspectRatioDims", () => {
     const empty = "" as unknown as AspectRatio;
     expect(getAspectRatioDims(empty)).toBe(ASPECT_RATIOS["16:9"]);
   });
+
+  it("falls back to 16:9 for inherited Object.prototype keys", () => {
+    for (const inherited of ["toString", "constructor", "hasOwnProperty"]) {
+      const bogus = inherited as unknown as AspectRatio;
+      expect(getAspectRatioDims(bogus)).toBe(ASPECT_RATIOS["16:9"]);
+    }
+  });
 });

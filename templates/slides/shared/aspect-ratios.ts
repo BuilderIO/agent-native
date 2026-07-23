@@ -30,5 +30,8 @@ export const ASPECT_RATIO_VALUES = ["16:9", "1:1", "9:16", "4:5"] as const;
 export const DEFAULT_ASPECT_RATIO: AspectRatio = "16:9";
 
 export function getAspectRatioDims(ratio: AspectRatio | undefined | null) {
-  return (ratio && ASPECT_RATIOS[ratio]) || ASPECT_RATIOS[DEFAULT_ASPECT_RATIO];
+  if (ratio && Object.prototype.hasOwnProperty.call(ASPECT_RATIOS, ratio)) {
+    return ASPECT_RATIOS[ratio];
+  }
+  return ASPECT_RATIOS[DEFAULT_ASPECT_RATIO];
 }
