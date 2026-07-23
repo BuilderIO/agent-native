@@ -818,7 +818,6 @@ export function useUpdateContentDatabasePersonalView(
   const queryClient = useQueryClient();
   const latestMutationRef = useRef<{
     variables: UpdateContentDatabasePersonalViewRequest;
-    previous: ContentDatabasePersonalViewResponse | undefined;
   } | null>(null);
   return useActionMutation<
     ContentDatabasePersonalViewResponse,
@@ -833,10 +832,6 @@ export function useUpdateContentDatabasePersonalView(
       ] as const;
       latestMutationRef.current = {
         variables,
-        previous:
-          queryClient.getQueryData<ContentDatabasePersonalViewResponse>(
-            queryKey,
-          ),
       };
       queryClient.setQueryData(queryKey, {
         databaseId: variables.databaseId,
@@ -846,14 +841,15 @@ export function useUpdateContentDatabasePersonalView(
     onError: (_error, variables) => {
       const latest = latestMutationRef.current;
       if (latest?.variables !== variables) return;
-      queryClient.setQueryData(
-        [
+      return queryClient.invalidateQueries({
+        queryKey: [
           "action",
           "get-content-database-personal-view",
           { databaseId: variables.databaseId },
         ],
-        latest.previous,
-      );
+        exact: true,
+        refetchType: "all",
+      });
     },
     onSettled: (_data, _error, variables) => {
       if (latestMutationRef.current?.variables === variables) {
