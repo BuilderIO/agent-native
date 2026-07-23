@@ -1776,11 +1776,21 @@ describe("local-core dev aliases and router dedupe", () => {
       "core",
     );
     fs.mkdirSync(path.join(installedCore, "src"), { recursive: true });
+    fs.mkdirSync(path.join(installedCore, "dist"), { recursive: true });
     fs.writeFileSync(path.join(installedCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(path.join(installedCore, "dist/index.js"), "export {};\n");
     fs.writeFileSync(
       path.join(installedCore, "package.json"),
       JSON.stringify({
         name: "@agent-native/core",
+        main: "dist/index.js",
+        dependencies: {
+          "@assistant-ui/react": "0.12.28",
+          "@assistant-ui/react-markdown": "0.12.11",
+          "@assistant-ui/store": "0.2.13",
+          "@assistant-ui/tap": "0.5.16",
+          "highlight.js": "11.11.1",
+        },
         devDependencies: {
           "@excalidraw/excalidraw": "0.18.1",
           mermaid: "11.15.0",
@@ -1794,12 +1804,30 @@ describe("local-core dev aliases and router dedupe", () => {
       }),
     );
 
-    expect(_findCorePackageRoot(tmpDir)).toBeNull();
+    expect(_findCorePackageRoot(tmpDir)).toBe(fs.realpathSync(installedCore));
     expect(_getDefaultOptimizeDeps(tmpDir)).toContain("@agent-native/core");
-    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/react",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/react-markdown",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/store",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > @assistant-ui/tap",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > highlight.js/lib/core",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
+      "@agent-native/core > highlight.js/lib/languages/javascript",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/core > @excalidraw/excalidraw",
     );
-    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain(
       "@agent-native/core > mermaid",
     );
 

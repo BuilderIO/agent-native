@@ -49,6 +49,7 @@ const messages = {
     brainNavigationDescription: "在 Brain 工作介面之間導覽。",
   },
   settings: {
+    pageTitle: "設定",
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
     openAgentSettings: "管理代理",

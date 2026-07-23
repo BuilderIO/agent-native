@@ -659,7 +659,7 @@ export default function SettingsRoute() {
 
   return (
     <div className="min-h-full bg-background">
-      <header className="flex items-center justify-between gap-4 border-b border-border bg-card px-4 py-3 sm:px-5 lg:px-7">
+      <header className="flex items-center justify-between gap-4 px-4 py-3 sm:px-5 lg:px-7">
         <h1 className="text-lg font-semibold tracking-tight text-foreground">
           {t("settings.pageTitle")}
         </h1>
@@ -685,7 +685,7 @@ export default function SettingsRoute() {
         value={activeSection}
         onValueChange={handleSectionChange}
         general={
-          <div className="brain-settings-general-grid grid gap-5">
+          <div className="mx-auto grid w-full max-w-3xl gap-5">
             <main className="grid gap-5">
               <Card id="identity" className="scroll-mt-4">
                 <CardHeader>

@@ -85,10 +85,6 @@
 }
 
 @container agent-native-main (min-width: 980px) {
-  .brain-settings-general-grid {
-    grid-template-columns: minmax(0, 1fr) 360px;
-  }
-
   .brain-source-card-grid {
     grid-template-columns: minmax(0, 1fr) minmax(20rem, auto) auto;
     align-items: center;

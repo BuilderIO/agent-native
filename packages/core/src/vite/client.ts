@@ -718,6 +718,47 @@ function getClientDedupe(cwd: string): string[] {
  * of dist/ at startup and never picks up new exports).
  */
 function findCorePackageRoot(cwd: string): string | null {
+  const localSourceRoot = findLocalCoreSourceRoot(cwd);
+  if (localSourceRoot) return localSourceRoot;
+
+  // Published Core packages are installed as transitive dependency roots in
+  // pnpm. The consuming app cannot resolve Core's client-only dependencies
+  // from its own node_modules unless we first locate that installed package
+  // and read its manifest. This is also what lets optimizeDeps use Vite's
+  // nested-dependency syntax for standalone CLI-generated apps.
+  try {
+    const appRequire = createRequire(path.join(cwd, "package.json"));
+    const resolved = appRequire.resolve("@agent-native/core");
+    let dir = path.dirname(resolved);
+    for (let i = 0; i < 20; i++) {
+      const packageJsonPath = path.join(dir, "package.json");
+      if (fs.existsSync(packageJsonPath)) {
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, "utf-8"),
+        ) as { name?: string };
+        if (packageJson.name === "@agent-native/core") {
+          return fs.realpathSync(dir);
+        }
+      }
+
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    // The app may not have installed Core yet; fall through to null.
+  }
+
+  return null;
+}
+
+/**
+ * Locate a local framework checkout whose source should be aliased for HMR.
+ * This intentionally does not use Node package resolution: published Core
+ * tarballs include `src/` for source maps/docs, but must still be consumed
+ * through their built `dist/` exports.
+ */
+function findLocalCoreSourceRoot(cwd: string): string | null {
   try {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(cwd, "package.json"), "utf-8"),
@@ -753,7 +794,7 @@ function findCorePackageRoot(cwd: string): string | null {
 }
 
 function findCoreSrcDir(cwd: string): string | null {
-  const root = findCorePackageRoot(cwd);
+  const root = findLocalCoreSourceRoot(cwd);
   return root ? path.join(root, "src") : null;
 }
 
@@ -865,6 +906,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    { specifier: "@assistant-ui/react-markdown" },
+    { specifier: "@assistant-ui/store" },
+    { specifier: "@assistant-ui/tap" },
     {
       specifier: "@agent-native/core > @assistant-ui/react > assistant-stream",
       packageName: "@agent-native/core",
@@ -1050,11 +1094,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       // then rebundles and reloads the editor. Its documented nested-dependency
       // syntax resolves the right-hand package from core's package directory,
       // while app-owned dependencies should remain direct entries.
-      if (
-        inMonorepo &&
-        !hasDep(dependencyName, cwd) &&
-        hasCoreDep(dependencyName, cwd)
-      ) {
+      if (!hasDep(dependencyName, cwd) && hasCoreDep(dependencyName, cwd)) {
         return `@agent-native/core > ${specifier}`;
       }
       return specifier;
