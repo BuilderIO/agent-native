@@ -11,47 +11,6 @@ import {
   useBuilderStatus,
 } from "@agent-native/core/client/settings";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@agent-native/toolkit/ui/alert-dialog";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Input } from "@agent-native/toolkit/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@agent-native/toolkit/ui/popover";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@agent-native/toolkit/ui/sheet";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@agent-native/toolkit/ui/tooltip";
-import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
@@ -157,6 +116,48 @@ import {
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "@/components/sidebar/select-content-space";
+import { WorkspaceSourceMenu } from "@/components/sidebar/WorkspaceSourceMenu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
@@ -188,7 +189,6 @@ import {
 } from "@/hooks/use-content-database";
 import {
   useContentSpaces,
-  useCreateContentSpace,
   useDeleteContentSpace,
 } from "@/hooks/use-content-spaces";
 import {
@@ -729,8 +729,6 @@ function DatabaseTable({
   );
   const database = useContentDatabase(document.id, databaseRequestItemLimit);
   const addItem = useAddDatabaseItem(document.id);
-  const createContentSpace = useCreateContentSpace();
-  const workspaceCreateRequestIdRef = useRef<string | null>(null);
   const attachSource = useAttachContentDatabaseSource(document.id);
   const changeSourceRole = useChangeContentDatabaseSourceRole(document.id);
   const refreshSource = useRefreshContentDatabaseSource(document.id);
@@ -750,10 +748,8 @@ function DatabaseTable({
   const data = isContentDatabaseUnavailable(database.data)
     ? undefined
     : database.data;
-  const isCreatingDatabaseItem =
-    data?.database.systemRole === "workspaces"
-      ? createContentSpace.isPending
-      : addItem.isPending;
+  const isWorkspaceCatalog = data?.database.systemRole === "workspaces";
+  const isCreatingDatabaseItem = addItem.isPending;
   const isDatabaseInitialLoading = database.isLoading && !data;
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
@@ -764,10 +760,9 @@ function DatabaseTable({
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseRequestItemLimit;
   const databaseId = data?.database.id ?? expectedDatabaseId;
-  const newDatabaseRowLabel =
-    data?.database.systemRole === "workspaces"
-      ? t("sidebar.newWorkspace")
-      : dbText("newPage");
+  const newDatabaseRowLabel = isWorkspaceCatalog
+    ? t("sidebar.addWorkspace")
+    : dbText("newPage");
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
@@ -847,6 +842,9 @@ function DatabaseTable({
   const filters = activeView.filters;
   const visibleFilters = filters;
   const filterMode = activeView.filterMode ?? "and";
+  const workspaceCreationPropertyValues = isWorkspaceCatalog
+    ? databasePropertyValuesForNewItem(filters, properties, filterMode)
+    : undefined;
   const columnWidths = activeView.columnWidths;
   const databaseGroupProperty = useMemo(
     () => databaseViewGroupingProperty(activeView, orderedProperties),
@@ -1427,29 +1425,7 @@ function DatabaseTable({
     } = {},
   ) {
     if (!databaseId) return null;
-    if (data?.database.systemRole === "workspaces") {
-      const name = title.trim() || t("sidebar.newWorkspace");
-      const requestId =
-        workspaceCreateRequestIdRef.current ?? crypto.randomUUID();
-      workspaceCreateRequestIdRef.current = requestId;
-      try {
-        await createContentSpace.mutateAsync({
-          name,
-          requestId,
-          propertyValues:
-            Object.keys(propertyValueOverrides).length > 0
-              ? propertyValueOverrides
-              : undefined,
-        });
-        workspaceCreateRequestIdRef.current = null;
-      } catch (err) {
-        toast.error(dbText("failedToCreateRow"), {
-          description:
-            err instanceof Error ? err.message : dbText("somethingWentWrong"),
-        });
-      }
-      return null;
-    }
+    if (isWorkspaceCatalog) return null;
     const propertyValues = {
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
@@ -2417,7 +2393,21 @@ function DatabaseTable({
               </span>
             ) : null}
           </Button>
-          {canEdit ? (
+          {canEdit && isWorkspaceCatalog ? (
+            <WorkspaceSourceMenu
+              align="end"
+              propertyValues={workspaceCreationPropertyValues}
+            >
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90"
+                disabled={!databaseId}
+              >
+                New
+              </Button>
+            </WorkspaceSourceMenu>
+          ) : canEdit ? (
             <Button
               type="button"
               size="sm"
@@ -2541,6 +2531,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
@@ -2569,6 +2560,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -2592,6 +2584,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           activeFilters={activeFilters}
@@ -2615,6 +2608,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -2641,6 +2635,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          canCreateItems={!isWorkspaceCatalog}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem || setProperty.isPending}
           activeFilters={activeFilters}
@@ -2676,6 +2671,7 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
+          workspaceCreationPropertyValues={workspaceCreationPropertyValues}
           isLoading={isDatabaseViewLoading}
           isCreating={isCreatingDatabaseItem}
           columnWidths={columnWidths}
@@ -4147,25 +4143,6 @@ function DatabaseItemPreview({
             draftVersionsRef.current.set(documentId, null);
           else if (result.draft) {
             draftVersionsRef.current.set(documentId, result.draft.version);
-            if (
-              previewDraftNeedsConflict({
-                returnedDraft: result.draft,
-                pending: controller.pending,
-              })
-            ) {
-              controller.notifyDraftConflict({
-                lastSaved: snapshot.lastSaved,
-                pending: {
-                  title: result.draft.title,
-                  content: result.draft.content,
-                  loadedUpdatedAt:
-                    result.draft.baseDocumentUpdatedAt ?? undefined,
-                  loadedContentWasEmpty:
-                    result.draft.loadedContentWasEmpty === 1,
-                },
-                deferredReason: "conflict",
-              });
-            }
           } else {
             // Another tab already removed the row. Treat the stale delete as
             // converged instead of retaining a version that can never match.
@@ -4190,24 +4167,6 @@ function DatabaseItemPreview({
           draftVersionsRef.current.set(documentId, result.draft.version);
         } else if (result.draft) {
           draftVersionsRef.current.set(documentId, result.draft.version);
-          if (
-            previewDraftNeedsConflict({
-              returnedDraft: result.draft,
-              pending: controller.pending,
-            })
-          ) {
-            controller.notifyDraftConflict({
-              lastSaved: snapshot.lastSaved,
-              pending: {
-                title: result.draft.title,
-                content: result.draft.content,
-                loadedUpdatedAt:
-                  result.draft.baseDocumentUpdatedAt ?? undefined,
-                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
-              },
-              deferredReason: "conflict",
-            });
-          }
         } else {
           // A competing tab deleted the version we tried to update. Reset to
           // create mode and enqueue the latest pending payload once; keeping
@@ -4302,7 +4261,13 @@ function DatabaseItemPreview({
                 );
                 return;
               }
-              resolve(undefined);
+              resolve({
+                outcome: "saved" as const,
+                loadedUpdatedAt: result.updatedAt,
+                loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                  result.content,
+                ),
+              });
             },
             onError: reject,
           },
@@ -4414,6 +4379,8 @@ function DatabaseItemPreview({
       }
       return;
     }
+    const previouslyExpectedVersion =
+      draftVersionsRef.current.get(documentId) ?? null;
     draftVersionsRef.current.set(documentId, draft.version);
     const controller = peekPreviewDocumentSaveController(documentId);
     if (!controller) return;
@@ -4435,8 +4402,19 @@ function DatabaseItemPreview({
           ? draft.deferredReason
           : null,
     } as const;
+    // A poll tick simply confirming a version this client's own debounced
+    // write already advanced the ref to is not an external change — it is
+    // this client's typing racing ahead of its own last round trip. Comparing
+    // that echo against the still-live `pending` would flag a conflict on
+    // almost every keystroke. Only treat the draft as having moved out from
+    // under the user when its version is newer than what this client itself
+    // last recorded.
+    const draftAdvancedExternally =
+      previouslyExpectedVersion !== null &&
+      draft.version > previouslyExpectedVersion;
     if (controllerDirty) {
       if (
+        draftAdvancedExternally &&
         previewDraftNeedsConflict({
           returnedDraft: draft,
           pending: controller.pending,
@@ -5045,6 +5023,7 @@ function DatabaseTableView({
   sources,
   databaseDocumentId,
   canEdit,
+  workspaceCreationPropertyValues,
   isLoading,
   isCreating,
   columnWidths,
@@ -5090,6 +5069,7 @@ function DatabaseTableView({
   sources: ContentDatabaseSource[];
   databaseDocumentId: string;
   canEdit: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   isLoading: boolean;
   isCreating: boolean;
   columnWidths: Record<string, number>;
@@ -5572,6 +5552,9 @@ function DatabaseTableView({
                 }
                 sorts={sorts}
                 filters={filters}
+                onSortsChange={onSortsChange}
+                onFiltersChange={onFiltersChange}
+                onPropertyHiddenChange={onPropertyHiddenChange}
                 onPointerDown={(event) =>
                   startPropertyPointerDrag(property, event)
                 }
@@ -5632,6 +5615,9 @@ function DatabaseTableView({
                     columnWidths={columnWidths}
                     databaseDocumentId={databaseDocumentId}
                     workspaceCatalog={isWorkspaceCatalog}
+                    workspaceCreationPropertyValues={
+                      workspaceCreationPropertyValues
+                    }
                     canEdit={canEdit}
                     selectedIdSet={selectedIdSet}
                     wrapCells={wrapCells}
@@ -5698,16 +5684,27 @@ function DatabaseTableView({
                   />
                 ))}
             {canEdit && !grouped ? (
-              <NewDatabaseRow
-                label={newRowLabel}
-                properties={properties}
-                columnWidths={columnWidths}
-                rowDensity={rowDensity}
-                disabled={isCreating}
-                isPending={isCreating}
-                onCreate={onCreateRow}
-                actionColumnWidth={actionColumnWidth}
-              />
+              isWorkspaceCatalog ? (
+                <WorkspaceSourceMenuRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  propertyValues={workspaceCreationPropertyValues}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              ) : (
+                <NewDatabaseRow
+                  label={newRowLabel}
+                  properties={properties}
+                  columnWidths={columnWidths}
+                  rowDensity={rowDensity}
+                  disabled={isCreating}
+                  isPending={isCreating}
+                  onCreate={onCreateRow}
+                  actionColumnWidth={actionColumnWidth}
+                />
+              )
             ) : null}
             {cleanDefaultTable ? (
               <DatabaseBlankDefaultRows
@@ -11602,6 +11599,7 @@ function DatabaseCalendarView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -11621,6 +11619,7 @@ function DatabaseCalendarView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -11659,6 +11658,7 @@ function DatabaseCalendarView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const monthLabel = month.toLocaleDateString(undefined, {
@@ -12051,6 +12051,7 @@ function DatabaseBoardView({
   groupProperty,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   isMoving,
@@ -12074,6 +12075,7 @@ function DatabaseBoardView({
   groupProperty: DocumentProperty | null;
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   isMoving: boolean;
@@ -12380,7 +12382,7 @@ function DatabaseBoardView({
                           {dbText("noMatchingPages")}
                         </div>
                       ) : null}
-                      {canEdit ? (
+                      {canEdit && canCreateItems ? (
                         <NewBoardCard
                           group={group}
                           disabled={isCreating}
@@ -12809,6 +12811,60 @@ function NewBoardCard({
         />
       </label>
     </form>
+  );
+}
+
+function WorkspaceSourceMenuRow({
+  label,
+  properties,
+  columnWidths,
+  rowDensity,
+  actionColumnWidth = ACTION_COLUMN_WIDTH,
+  propertyValues,
+}: {
+  label: string;
+  properties: DocumentProperty[];
+  columnWidths: Record<string, number>;
+  rowDensity: DatabaseRowDensity;
+  actionColumnWidth?: number;
+  propertyValues?: Record<string, DocumentPropertyValue>;
+}) {
+  return (
+    <WorkspaceSourceMenu propertyValues={propertyValues}>
+      <button
+        type="button"
+        aria-label={label}
+        className={cn(
+          "grid w-full border-t border-border/35 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/35 hover:text-foreground focus-visible:bg-muted/35 focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          databaseTableRowDensityClass(rowDensity),
+        )}
+        style={{
+          gridTemplateColumns: databaseGridColumns(
+            properties,
+            true,
+            columnWidths,
+            actionColumnWidth,
+          ),
+        }}
+      >
+        <span
+          className={cn(
+            "flex min-w-0 items-center gap-2 border-r border-border/35",
+            databaseTableCellDensityClass(rowDensity),
+          )}
+        >
+          <IconPlus className="size-4 shrink-0" />
+          <span className="h-7 min-w-0 flex-1 truncate leading-7">{label}</span>
+        </span>
+        {properties.map((property) => (
+          <span
+            key={property.definition.id}
+            className="border-r border-border/35 last:border-r-0"
+          />
+        ))}
+        <span />
+      </button>
+    </WorkspaceSourceMenu>
   );
 }
 
@@ -15727,6 +15783,9 @@ function DatabasePropertyHeader({
   dropSide,
   sorts,
   filters,
+  onSortsChange,
+  onFiltersChange,
+  onPropertyHiddenChange,
   onPointerDown,
   onResize,
 }: {
@@ -15738,6 +15797,9 @@ function DatabasePropertyHeader({
   dropSide: DatabaseDropSide | null;
   sorts: DatabaseSort[];
   filters: DatabaseFilter[];
+  onSortsChange: (sorts: DatabaseSort[]) => void;
+  onFiltersChange: (filters: DatabaseFilter[]) => void;
+  onPropertyHiddenChange: (propertyId: string, hidden: boolean) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>) => void;
   onResize: (event: ReactPointerEvent) => void;
 }) {
@@ -15780,6 +15842,11 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sorts={sorts}
+          filters={filters}
+          onSortsChange={onSortsChange}
+          onFiltersChange={onFiltersChange}
+          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
@@ -17831,6 +17898,7 @@ function DatabaseGroupedTableSection({
   columnWidths,
   databaseDocumentId,
   workspaceCatalog,
+  workspaceCreationPropertyValues,
   canEdit,
   selectedIdSet,
   wrapCells,
@@ -17853,6 +17921,7 @@ function DatabaseGroupedTableSection({
   columnWidths: Record<string, number>;
   databaseDocumentId: string;
   workspaceCatalog: boolean;
+  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
   canEdit: boolean;
   selectedIdSet: Set<string>;
   wrapCells: boolean;
@@ -17918,15 +17987,36 @@ function DatabaseGroupedTableSection({
             />
           ))}
           {canEdit ? (
-            <NewDatabaseRow
-              label={newRowLabel}
-              properties={properties}
-              columnWidths={columnWidths}
-              rowDensity={rowDensity}
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={(title) => onCreateRow(group, title)}
-            />
+            workspaceCatalog ? (
+              <WorkspaceSourceMenuRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                propertyValues={{
+                  ...workspaceCreationPropertyValues,
+                  ...(group.property && group.value !== BOARD_UNGROUPED_VALUE
+                    ? {
+                        [group.property.definition.id]:
+                          boardGroupValueForProperty(
+                            group.property,
+                            group.value,
+                          ),
+                      }
+                    : {}),
+                }}
+              />
+            ) : (
+              <NewDatabaseRow
+                label={newRowLabel}
+                properties={properties}
+                columnWidths={columnWidths}
+                rowDensity={rowDensity}
+                disabled={isCreating}
+                isPending={isCreating}
+                onCreate={(title) => onCreateRow(group, title)}
+              />
+            )
           ) : null}
         </>
       ) : null}

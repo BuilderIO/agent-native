@@ -465,7 +465,7 @@ function probeHttpReady(
       },
       (res) => {
         res.resume();
-        finish(true);
+        finish((res.statusCode ?? 500) < 500);
       },
     );
     req.setTimeout(timeoutMs, () => finish(false));

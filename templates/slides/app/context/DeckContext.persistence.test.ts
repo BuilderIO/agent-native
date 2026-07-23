@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,8 +50,16 @@ class MockEventSource {
   }
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, gcTime: 0, staleTime: 0 } },
+});
+
 function wrapper({ children }: { children: ReactNode }) {
-  return createElement(DeckProvider, null, children);
+  return createElement(
+    QueryClientProvider,
+    { client: queryClient },
+    createElement(DeckProvider, null, children),
+  );
 }
 
 function setupFetch(options?: { hangPut?: boolean; failDeckList?: boolean }) {
@@ -163,6 +172,7 @@ describe("DeckContext deck creation persistence", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    queryClient.clear();
     MockEventSource.lastInstance = null;
     MockEventSource.instances = [];
   });

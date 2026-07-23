@@ -2168,6 +2168,50 @@ describe("Brain knowledge quality gates", () => {
     expect(mocks.dbExec.execute).toHaveBeenCalledOnce();
   });
 
+  it("reclaims stale processing work in a fresh worker execution", async () => {
+    const source = seedSource();
+    const capture = seedCapture({ sourceId: source.id, status: "distilling" });
+    mocks.rows.ingestQueue.push({
+      id: "queue-stale-processing",
+      sourceId: source.id,
+      captureId: capture.id,
+      operation: "distill",
+      status: "processing",
+      priority: 50,
+      attempts: 1,
+      payloadJson: "{}",
+      error: "worker timed out",
+      runAfter: null,
+      leaseToken: "expired-worker-token",
+      leaseExpiresAt: "2026-05-15T12:15:00.000Z",
+      createdAt: "2026-05-15T12:00:00.000Z",
+      updatedAt: "2026-05-15T12:00:00.000Z",
+    });
+
+    const result = await processBrainIngestQueueOnce({
+      limit: 1,
+      runDistillation: true,
+      distillationRunner: async (context) => {
+        await markCaptureDistilledAction.run({
+          captureId: context.capture.id,
+          queueId: context.queue.id,
+          claimToken: context.claimToken,
+        });
+      },
+    });
+
+    expect(result).toEqual({
+      processed: ["queue-stale-processing"],
+      deferred: [],
+      failed: [],
+    });
+    expect(mocks.rows.ingestQueue[0]).toMatchObject({
+      status: "done",
+      attempts: 2,
+      leaseToken: null,
+    });
+  });
+
   it("exposes a fencing token when an interactive worker claims distillation", async () => {
     const source = seedSource();
     const capture = seedCapture({ sourceId: source.id, status: "distilling" });

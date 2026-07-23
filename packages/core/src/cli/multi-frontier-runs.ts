@@ -438,8 +438,8 @@ export function transitionStoredMultiFrontierRun(
     const isFullStoredRun = hasStoredRunTimestamps(candidate);
     if (
       !isFullStoredRun &&
-      (Object.hasOwn(candidate, "createdAt") ||
-        Object.hasOwn(candidate, "updatedAt"))
+      (Object.prototype.hasOwnProperty.call(candidate, "createdAt") ||
+        Object.prototype.hasOwnProperty.call(candidate, "updatedAt"))
     ) {
       throw new Error("Invalid multi-frontier coordinator transition state.");
     }
@@ -1056,7 +1056,9 @@ function isCompleteMultiFrontierRunState(
 
 function normalizeStoredRunDefaults(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  if (!Object.hasOwn(value, "autoContinueAfterAgreement")) {
+  if (
+    !Object.prototype.hasOwnProperty.call(value, "autoContinueAfterAgreement")
+  ) {
     return { ...value, autoContinueAfterAgreement: false };
   }
   return value;

@@ -533,6 +533,8 @@ interface DesignCanvasProps {
   selectedSelector?: string | null;
   selectedSelectorCandidates?: string[];
   selectedSelectorGroups?: string[][];
+  /** Visual treatment for selection mirrors in responsive peer previews. */
+  passiveSelectionStyle?: "default" | "soft";
   hoveredSelector?: string | null;
   hoveredSelectorCandidates?: string[];
   lockedSelectors?: string[];
@@ -1058,6 +1060,7 @@ export function DesignCanvas({
   selectedSelector,
   selectedSelectorCandidates = [],
   selectedSelectorGroups = [],
+  passiveSelectionStyle = "default",
   hoveredSelector,
   hoveredSelectorCandidates = [],
   lockedSelectors = [],
@@ -2969,6 +2972,7 @@ export function DesignCanvas({
       {
         type: "select-elements",
         selectorGroups: selectedSelectorGroups,
+        passiveSelectionStyle,
       },
       "*",
     );
@@ -2978,8 +2982,14 @@ export function DesignCanvas({
             type: "hover-element",
             selector: hoveredSelector,
             selectorCandidates: hoveredSelectorCandidates,
+            hoverStyle: passiveSelectionStyle,
           }
-        : { type: "hover-element", selector: "", selectorCandidates: [] },
+        : {
+            type: "hover-element",
+            selector: "",
+            selectorCandidates: [],
+            hoverStyle: passiveSelectionStyle,
+          },
       "*",
     );
     // Re-send motion tracks so the preview bridge is ready after a reload.
@@ -3038,6 +3048,7 @@ export function DesignCanvas({
     selectedSelector,
     selectedSelectorCandidates,
     selectedSelectorGroups,
+    passiveSelectionStyle,
     shaderFillPreview,
     spacePanActive,
     statePreviewTarget,

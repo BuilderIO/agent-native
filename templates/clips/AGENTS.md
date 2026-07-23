@@ -21,6 +21,13 @@ ladder.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
+- Use `prepare-crm-call-evidence` only for a viewer-accessible recording
+  explicitly identified by a user action or the exact approved CRM A2A recipe.
+  It returns an opaque clip ID, durable HTTPS `/r/<id>` page, and optional
+  capture time for CRM; it never returns the event media URL, a transcript,
+  temporary token, quote, or summary. A CRM recipe may install a Clips-owned
+  `clip.created` trigger only through an exact user-approved A2A automation
+  definition.
 - Organization admins can use `set-organization-branding` with
   `defaultVisibility=public|org|private` to choose the visibility applied when
   new recordings omit an explicit visibility. The default remains `public`, and
@@ -62,7 +69,15 @@ ladder.
   current-user recordings with ready transcripts in the active organization
   and reports exported, quarantined, skipped, and failed counts. Both
   `BRAIN_INGEST_URL` and `BRAIN_INGEST_TOKEN` must be available as scoped Clips
-  secrets.
+  secrets. Transcript completion persists a pending export before handing it to
+  the durable post-finalize worker; delivery receipts include the Brain capture
+  or sensitivity receipt id, while transient failures are swept and retried.
+  The sweep also discovers ready transcripts from the last seven days that
+  predate export-state tracking, in bounded batches, so recent recordings are
+  backfilled after the connection is configured.
+  Netlify builds emit a protected per-minute scheduled sweep because in-process
+  intervals are not durable there. Other serverless hosts must invoke
+  `runBrainExportSweepOnce` from their own scheduler.
 - The transcript embedded by `view-screen` is a bounded preview. If
   `previewTruncated` is true, it may end mid-sentence and does not show where
   transcription ended. Call `get-recording-player-data` before judging
@@ -81,14 +96,16 @@ ladder.
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are
   available.
-- Cloud transcription is fallback-only for Clips recordings and should use the
-  configured Builder/Gemini or Groq paths, not OpenAI.
+- Cloud transcription is fallback-only for Clips recordings. Preserve the
+  browser/macOS native transcript first, then use the configured Builder/Gemini
+  path against the original recording when native capture is unavailable.
 - AI setup must be visible and paid-account-backed: lead with Builder.io Connect
   for managed credits, object storage, uploads, and transcription. BYOK belongs
   in the agent sidebar's API Keys & Connections panel; template settings may
   signpost that panel but should not create a second credential vault.
   Anthropic/OpenAI power the agent chat; Gemini powers cleanup, titles, and
-  meeting notes; Groq powers backup speech-to-text.
+  meeting notes; any optional third-party speech provider is limited to
+  desktop voice dictation and is not used for recording transcripts.
 - Hosted/shared recording uploads require configured storage. Do not preserve
   video bytes in SQL as a production fallback; only local SQLite/dev flows may
   keep scratch chunks while a user connects Builder.io or S3-compatible storage.
@@ -102,23 +119,40 @@ ladder.
   sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
+- Meeting share links include the summary, key points, and action items. The
+  full transcript is an explicit, default-off setting: call `update-meeting`
+  with `shareTranscript=true|false` only when the owner or a share admin asks
+  to change what the meeting link exposes. This does not change the linked
+  recording's visibility or expose its media.
 - Use `list-recordings --view=shared` for the current user's "Shared with me"
   collection. It returns recordings admitted by sharing access that are owned
   by someone else; public-link-only clips remain out of this list.
+- Public recordings are unlisted-by-link for agent purposes: an agent may
+  discover only recordings the current user owns or has already viewed. Do not
+  use `list-recordings` or `search-recordings` to discover another user's
+  public clips, answer a time/date question about the clip already in context,
+  or recover from a failed direct lookup. If the user supplies another clip's
+  share URL or id, use that explicit reference; otherwise stop and report the
+  lookup failure.
 - Public recordings expose AI-readable URLs for external agents:
   `/api/agent-context.json?id=<recordingId>` for metadata, transcript, and frame
   API discovery; `/api/agent-transcript.json?id=<recordingId>` for transcript
   segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
   frame at a timestamp. Password-protected clips require the password once to
   mint a short-lived token returned inside agent-context links.
-- If public agent context or transcript APIs report `transcript.status` as
-  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
-  times, especially for long recordings. Do not pivot straight to frames or tell
-  the user there is no transcript until the retry budget is exhausted.
+- If a public agent discovery/context/transcript payload reports
+  `agentReadiness.state` as `"preparing"` (the clip is `"uploading"` or
+  `"processing"`), wait 15 seconds and retry `agentContextUrl`; do not open the
+  share page, fetch frames, or draw conclusions until the recording status is
+  `"ready"`.
+  If `transcript.status` is `"pending"` after the clip is ready, wait 15-30
+  seconds and retry the context/transcript URL a few times, especially for long
+  recordings. Do not pivot straight to frames or tell the user there is no
+  transcript until the retry budget is exhausted.
 - If transcription failed because Builder transcription credits are exhausted,
-  tell the user that clearly and point them to Builder.io credits/upgrade or a
-  Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
-  not transcribe Clips recordings.
+  tell the user that clearly and point them to Builder.io credits/upgrade.
+  Native browser/macOS capture remains the first transcript source; Builder
+  transcribes the original recording only when native capture is unavailable.
 - Use `get-builder-credit-status` when the user asks whether Builder.io credit
   limits are pausing backup transcription, transcript cleanup, summaries, or AI
   title generation. Treat an exhausted status as an FYI/upgrade path, not an app

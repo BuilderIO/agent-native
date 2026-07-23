@@ -14,7 +14,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@agent-native/toolkit/ui/select";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -53,6 +52,23 @@ const MULTI_FRONTIER_PROVIDERS: readonly MultiFrontierProviderId[] = [
   "codex",
   "claude",
 ];
+const MULTI_FRONTIER_RUN_MODES = [
+  {
+    value: "plan",
+    label: "Plan",
+    description: "Inspect and propose only",
+  },
+  {
+    value: "auto",
+    label: "Auto",
+    description: "One agent plans and builds",
+  },
+  {
+    value: "multi-frontier",
+    label: "Multi-Frontier",
+    description: "Codex + Claude plan, review, then one builds",
+  },
+] as const;
 
 interface CodeAgentsHubProps {
   apps: AppConfig[];
@@ -963,26 +979,48 @@ export function MultiFrontierModeControl({
           className="desktop-select-trigger code-agents-mode-select code-agents-multi-frontier-mode-select"
           aria-label="Run mode"
         >
-          <SelectValue />
+          <span>
+            {
+              MULTI_FRONTIER_RUN_MODES.find((mode) => mode.value === value)
+                ?.label
+            }
+          </span>
         </SelectTrigger>
-        <SelectContent className="code-agents-mode-menu">
-          <SelectItem value="plan">Plan</SelectItem>
-          <SelectItem value="auto">Auto</SelectItem>
-          <SelectItem value="multi-frontier">Multi-Frontier</SelectItem>
+        <SelectContent className="code-agents-select-content code-agents-mode-menu code-agents-multi-frontier-mode-menu">
+          {MULTI_FRONTIER_RUN_MODES.map((mode) => (
+            <SelectItem
+              key={mode.value}
+              className="code-agents-multi-frontier-mode-menu-item"
+              value={mode.value}
+            >
+              <span className="code-agents-multi-frontier-mode-option">
+                <span className="code-agents-multi-frontier-mode-option__label">
+                  {mode.label}
+                </span>
+                <span className="code-agents-multi-frontier-mode-option__description">
+                  {mode.description}
+                </span>
+              </span>
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
-      <MultiFrontierParticipantSettings
-        statuses={subscriptions}
-        busy={busy}
-        autoContinueAfterAgreement={autoContinueAfterAgreement}
-        defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
-        onConnect={onConnectSubscription}
-        onRefresh={onRefreshSubscription}
-        onAutoContinueAfterAgreementChange={onAutoContinueAfterAgreementChange}
-        onDefaultAutoContinueAfterAgreementChange={
-          onDefaultAutoContinueAfterAgreementChange
-        }
-      />
+      {active ? (
+        <MultiFrontierParticipantSettings
+          statuses={subscriptions}
+          busy={busy}
+          autoContinueAfterAgreement={autoContinueAfterAgreement}
+          defaultAutoContinueAfterAgreement={defaultAutoContinueAfterAgreement}
+          onConnect={onConnectSubscription}
+          onRefresh={onRefreshSubscription}
+          onAutoContinueAfterAgreementChange={
+            onAutoContinueAfterAgreementChange
+          }
+          onDefaultAutoContinueAfterAgreementChange={
+            onDefaultAutoContinueAfterAgreementChange
+          }
+        />
+      ) : null}
     </div>
   );
 }

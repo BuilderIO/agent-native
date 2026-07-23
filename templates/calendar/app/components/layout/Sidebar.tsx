@@ -5,7 +5,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconCalendar,
   IconSettings,
   IconLink,
@@ -96,7 +96,11 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-  { path: "/agent", labelKey: "settings.agentTitle", icon: IconBrain },
+  {
+    path: "/agent",
+    labelKey: "settings.agentTitle",
+    icon: IconHierarchy2,
+  },
   { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 

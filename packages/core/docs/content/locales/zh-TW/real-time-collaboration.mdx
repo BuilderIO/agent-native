@@ -232,10 +232,10 @@ export default defineConfig({
 
 ### 3。新增協作伺服器外掛
 
-始終將 `resourceType` 設定為註冊的可共用資源的名稱
-透過 `registerShareableResource`。如果沒有它，協作推送事件就會被傳遞
-所有經過驗證的使用者（沒有檔案級範圍）和伺服器
-紀錄一次性警告。
+請選擇符合資料模型的存取模式。具有擁有者或可共用的記錄使用
+`mode: "resource"`，並指定透過 `registerShareableResource` 註冊的類型。
+刻意向部署中所有已驗證使用者開放的記錄應明確使用
+`mode: "all-authenticated"`。絕不要只為了消除警告而虛構資源類型。
 
 ```ts
 // server/plugins/collab.ts
@@ -245,9 +245,12 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+省略 `access` 是已淘汰的舊版行為。它等同於 `all-authenticated`，
+會記錄警告，並由 Doctor 標記。
 
 ### 4.使用用戶端鉤子
 
@@ -593,22 +596,33 @@ try {
 
 ## 安全 {#security}
 
-### 始終設定 `resourceType`
+### 明確選擇存取模型
+
+對於具有擁有者或可共用的資源，請使用透過
+`registerShareableResource` 註冊的類型：
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-如果沒有 `resourceType`，外掛會紀錄警告並廣播協作推送
-部署中所有經過驗證的使用者的事件，無檔案層級
-範圍。非所有者退回到狀態向量追趕（安全但更高
-延遲），無論是否設定 `resourceType`。
+對於刻意在整個部署範圍內共用的資源：
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+不要為了消除警告而虛構 `resourceType`：只有具備相應的擁有權與共用模型時，
+`resource` 模式才正確。為了舊版相容性仍支援省略 `access`，但它等同於
+`all-authenticated`，會記錄警告，並由 Doctor 標記。具備明確存取權限的
+非擁有者會透過狀態向量追趕同步（安全，但延遲較高）。
 
 ### 存取檢查
 
-所有協作路由都需要驗證。當 `resourceType` 設定時，讀取
+所有協作路由都需要驗證。在 `resource` 模式下，讀取
 至少需要檢視者存取權限，並且寫入需要編輯者存取權限，使用
 與共用系統相同的 `resolveAccess` / `assertAccess` 幫助程式。 404
 （不是 403）在存取失敗時返回，以避免泄漏檔案存在。
@@ -621,7 +635,7 @@ createCollabPlugin({
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -753,7 +767,7 @@ Use `emailToColor(email)` and `emailToName(email)` from
 - [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
   提供 `updatedAt` 碰撞驅動編輯器協調的系統。
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  和`assertAccess`為`resourceType`引用的存取模型。
+  和 `assertAccess`，用於資源範圍內的協作。
 - [Sharing](/docs/sharing) — 如何共用檔案以及如何授予存取權限。
 - [Template: Content](/docs/template-content) — 參考實現
   協作富文字編輯。

@@ -38,7 +38,7 @@ operations.
 import { createCollabPlugin } from "@agent-native/core/server";
 
 export default createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   table: "documents",
   contentColumn: "content",
 });

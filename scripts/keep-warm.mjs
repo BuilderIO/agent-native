@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// Pings every first-party app's /_agent-native/health endpoint so the
-// scale-to-zero serverless databases behind them (Neon, Supabase) stay warm
-// and the next real user request doesn't pay a multi-second cold-start.
+// Audits every first-party app's /_agent-native/health endpoint. Production
+// warming happens inside each site's Netlify Scheduled Function because GitHub
+// Actions cron runs can be delayed longer than a scale-to-zero database's
+// autosuspend window.
 //
 // Driven off packages/shared-app-config/templates.ts (the single source of
 // truth for prodUrls) so new apps are covered automatically. Pure Node, no
 // dependencies or install step — safe to run on a bare `actions/setup-node`
 // runner or locally:
 //
-//   node scripts/keep-warm.mjs            # ping every app's prod health route
-//   node scripts/keep-warm.mjs plan mail  # ping only the named apps
+//   node scripts/keep-warm.mjs            # audit every app's prod health route
+//   node scripts/keep-warm.mjs plan mail  # audit only the named apps
+//   node scripts/keep-warm.mjs --strict   # fail when any app is unhealthy
 //
-// Exits 0 when at least one app responded (single hiccups are logged, not
-// fatal); exits 1 only if EVERY app failed, which signals the pinger or
-// network — not one app — is broken.
+// Ordinary runs preserve the old best-effort behavior. Use --strict for
+// monitoring so a partial outage cannot be reported as healthy.
 
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -25,7 +26,7 @@ const HEALTH_PATH = "/_agent-native/health";
 const PER_REQUEST_TIMEOUT_MS = 25_000; // Neon pooler cold-start can take ~10s.
 const ATTEMPTS = 2;
 
-/** Extract { name, prodUrl } pairs from the registry source without importing TS. */
+/** Extract visible hosted { name, prodUrl } pairs without importing TS. */
 async function readApps() {
   const src = await readFile(REGISTRY, "utf8");
   const apps = [];
@@ -34,7 +35,8 @@ async function readApps() {
   for (const block of src.matchAll(blockRe)) {
     const name = block[1];
     const prodUrl = /prodUrl:\s*"([^"]+)"/.exec(block[0])?.[1];
-    if (prodUrl) apps.push({ name, prodUrl });
+    const hidden = /\bhidden:\s*true\b/.test(block[0]);
+    if (prodUrl && !hidden) apps.push({ name, prodUrl });
   }
   return apps;
 }
@@ -48,22 +50,32 @@ async function pingOnce(url) {
   });
   const ms = Date.now() - startedAt;
   let db;
+  let ready;
   try {
-    db = (await res.json())?.db;
+    const body = await res.json();
+    db = body?.db;
+    ready = body?.ready;
   } catch {
     // Non-JSON body (e.g. an error page) — still counts as the function awake.
   }
-  return { status: res.status, ok: res.ok, db, ms };
+  return { status: res.status, ok: res.ok, db, ready, ms };
 }
 
-async function pingApp({ name, prodUrl }) {
-  const url = `${prodUrl.replace(/\/$/, "")}${HEALTH_PATH}`;
+async function pingApp({ name, prodUrl }, strict) {
+  const healthPath = strict ? `${HEALTH_PATH}?strict=1` : HEALTH_PATH;
+  const url = `${prodUrl.replace(/\/$/, "")}${healthPath}`;
   let lastErr;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
       const r = await pingOnce(url);
-      if (r.ok) return { name, ok: true, ...r };
-      lastErr = `HTTP ${r.status}`;
+      if (r.ok && (!strict || (r.db === true && r.ready === true))) {
+        return { name, ok: true, ...r };
+      }
+      lastErr = r.ok
+        ? r.db !== true
+          ? "db unavailable"
+          : "not ready"
+        : `HTTP ${r.status}`;
     } catch (err) {
       lastErr =
         err?.name === "TimeoutError" ? "timeout" : String(err?.message ?? err);
@@ -73,7 +85,8 @@ async function pingApp({ name, prodUrl }) {
 }
 
 async function main() {
-  const filter = process.argv.slice(2);
+  const strict = process.argv.includes("--strict");
+  const filter = process.argv.slice(2).filter((arg) => arg !== "--strict");
   let apps = await readApps();
   if (filter.length) apps = apps.filter((a) => filter.includes(a.name));
   if (!apps.length) {
@@ -85,7 +98,7 @@ async function main() {
     process.exit(1);
   }
 
-  const results = await Promise.all(apps.map(pingApp));
+  const results = await Promise.all(apps.map((app) => pingApp(app, strict)));
   results.sort((a, b) => a.name.localeCompare(b.name));
 
   let warmed = 0;
@@ -103,9 +116,7 @@ async function main() {
   }
   console.log(`\nWarmed ${warmed}/${results.length} apps.`);
 
-  // Only fail the run if nothing responded — that points at the pinger/network,
-  // not at one app having a transient cold start.
-  if (warmed === 0) process.exit(1);
+  if (strict ? warmed !== results.length : warmed === 0) process.exit(1);
 }
 
 main().catch((err) => {

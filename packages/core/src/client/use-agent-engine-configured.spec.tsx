@@ -170,7 +170,7 @@ describe("useAgentEngineConfigured", () => {
     ).resolves.toBe("missing");
   });
 
-  it("returns unknown when every status check times out", async () => {
+  it("returns unavailable when every status check times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -180,10 +180,10 @@ describe("useAgentEngineConfigured", () => {
     const status = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("unknown");
+    await expect(status).resolves.toBe("unavailable");
   });
 
-  it("does not use missing fallback after timed-out status checks", async () => {
+  it("does not use missing fallback after unavailable status checks", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -196,7 +196,7 @@ describe("useAgentEngineConfigured", () => {
     });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("unknown");
+    await expect(status).resolves.toBe("unavailable");
   });
 
   it("ignores scoped missing-key events for other tabs", async () => {

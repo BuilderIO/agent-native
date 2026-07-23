@@ -73,6 +73,7 @@ export const PROVIDER_API_IDS = [
   "granola",
   "grafana",
   "hubspot",
+  "salesforce",
   "jira",
   "mixpanel",
   "notion",
@@ -384,6 +385,7 @@ export interface ProviderApiConfig {
   id: ProviderApiId;
   label: string;
   defaultBaseUrl: string;
+  requiresConnectionId?: boolean;
   baseUrlCredentialKey?: string;
   auth: ProviderApiAuthKind;
   credentialKeys: readonly string[];
@@ -1098,7 +1100,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     docsUrls: ["https://developers.google.com/drive/api/reference/rest/v3"],
     specUrls: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"],
     allowedHostSuffixes: ["googleapis.com"],
-    templateUses: ["brain", "content", "slides", "dispatch"],
+    templateUses: ["brain", "content", "slides", "dispatch", "analytics"],
     examples: [
       { label: "List files", method: "GET", path: "/files" },
       { label: "Get file metadata", method: "GET", path: "/files/{fileId}" },
@@ -1210,6 +1212,43 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         method: "GET",
         path: "/crm/v3/properties/deals",
       },
+    ],
+  },
+  salesforce: {
+    id: "salesforce",
+    label: "Salesforce",
+    defaultBaseUrl: "https://login.salesforce.com",
+    requiresConnectionId: true,
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "salesforce",
+      tokenLabel: "Salesforce OAuth token",
+      workspaceProvider: "salesforce",
+    },
+    credentialKeys: ["SALESFORCE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/",
+    ],
+    allowedHostSuffixes: [],
+    templateUses: ["analytics", "brain", "crm", "dispatch"],
+    examples: [
+      {
+        label: "List recent Accounts",
+        method: "GET",
+        path: "/services/data/v60.0/sobjects/Account",
+      },
+      {
+        label: "Query Opportunity records with SOQL",
+        method: "GET",
+        path: "/services/data/v60.0/query",
+        query: {
+          q: "SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity LIMIT 100",
+        },
+      },
+    ],
+    notes: [
+      "Workspace OAuth stores the Salesforce instance URL on the connection. Requests with a connectionId use that instance instead of the login host.",
+      "CRM templates own object allow-lists, field projections, and API-version selection.",
     ],
   },
   jira: {
@@ -1574,6 +1613,7 @@ export function listProviderApiCatalog(
     id: config.id,
     label: config.label,
     defaultBaseUrl: config.defaultBaseUrl,
+    requiresConnectionId: config.requiresConnectionId ?? false,
     baseUrlCredentialKey: config.baseUrlCredentialKey ?? null,
     auth: describeAuth(config.auth),
     credentialKeys: config.credentialKeys,
@@ -1749,6 +1789,11 @@ export async function executeProviderApiRequest(
 
   // --- built-in provider path (original code) ---
   const config = builtIn!;
+  if (config.requiresConnectionId && !args.connectionId?.trim()) {
+    throw new Error(
+      `${config.label} Provider API requests require a workspace connectionId.`,
+    );
+  }
   const ctx = requireRuntimeCredentialContext(
     runtime,
     config.credentialKeys[0] ?? config.id,
@@ -1951,9 +1996,9 @@ export async function executeProviderApiRequest(
 }
 
 /**
- * Resolve a provider OAuth token for a trusted server-side UI bridge such as
- * Google Picker. Callers must keep the result out of agent, MCP, A2A, logs,
- * persistence, and extension/tool surfaces.
+ * Resolve a provider OAuth token for a trusted server-side integration bridge
+ * such as a CRM adapter or Google Picker. Callers must keep the result out of
+ * agent, MCP, A2A, logs, persistence, and extension/tool surfaces.
  */
 export async function resolveProviderApiOAuthAccessToken(
   args: {
@@ -3304,7 +3349,9 @@ async function resolveWorkspaceOAuthBaseUrl(
     auth.type === "oauth-bearer-or-basic"
       ? auth.workspaceProvider
       : undefined;
-  if (workspaceProvider !== "jira") return null;
+  if (workspaceProvider !== "jira" && workspaceProvider !== "salesforce") {
+    return null;
+  }
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
   try {
     resolved = await resolveWorkspaceConnectionForApp({
@@ -3325,9 +3372,31 @@ async function resolveWorkspaceOAuthBaseUrl(
   if (!resolved.available || !resolved.connection) return null;
   const connectionConfig = resolved.connection.config;
   if (connectionConfig.credentialMode !== "oauth") return null;
-  const baseUrl = connectionConfig.atlassianApiBaseUrl;
+  const baseUrl =
+    workspaceProvider === "salesforce"
+      ? connectionConfig.salesforceInstanceUrl
+      : connectionConfig.atlassianApiBaseUrl;
   if (typeof baseUrl !== "string" || !baseUrl.trim()) return null;
+  if (workspaceProvider === "salesforce" && !isSalesforceInstanceUrl(baseUrl)) {
+    return null;
+  }
   return baseUrl.replace(/\/+$/, "");
+}
+
+function isSalesforceInstanceUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === "https:" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      (host === "salesforce.com" || host.endsWith(".salesforce.com"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function resolvePlaceholders(
@@ -4024,6 +4093,7 @@ async function resolveOAuthBearerToken(options: {
   ctx: CredentialContext;
   accountId?: string | null;
   ownerEmail?: string | null;
+  salesforceLoginUrl?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
   const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
   const accounts = await listOAuthAccountsByOwner(
@@ -4050,6 +4120,7 @@ async function resolveOAuthBearerToken(options: {
     accountId: account.accountId,
     ownerEmail,
     tokens,
+    salesforceLoginUrl: options.salesforceLoginUrl,
   });
   return {
     key: `${options.auth.oauthProvider.toUpperCase()}_OAUTH_TOKEN`,
@@ -4126,6 +4197,11 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
     ctx: options.ctx,
     accountId: connectionAccountId,
     ownerEmail: resolved.connection.ownerEmail,
+    salesforceLoginUrl:
+      options.auth.oauthProvider === "salesforce" &&
+      typeof resolved.connection.config?.salesforceLoginUrl === "string"
+        ? resolved.connection.config.salesforceLoginUrl
+        : null,
   });
   return {
     ...credential,
@@ -4139,6 +4215,7 @@ async function getValidOAuthAccessToken(options: {
   accountId: string;
   ownerEmail: string;
   tokens: OAuthTokens;
+  salesforceLoginUrl?: string | null;
 }): Promise<string> {
   const accessToken =
     options.tokens.access_token ?? options.tokens.accessToken ?? "";
@@ -4176,6 +4253,9 @@ async function getValidOAuthAccessToken(options: {
   }
   if (options.oauthProvider === "hubspot") {
     return refreshHubSpotOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "salesforce") {
+    return refreshSalesforceOAuthToken(options, refreshToken);
   }
   if (options.oauthProvider === "jira") {
     return refreshJiraOAuthToken(options, refreshToken);
@@ -4482,6 +4562,102 @@ async function refreshHubSpotOAuthToken(
     options.ownerEmail,
   );
   return data.access_token;
+}
+
+async function refreshSalesforceOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+    salesforceLoginUrl?: string | null;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials =
+    await resolveOAuthClientCredentialCandidates("SALESFORCE");
+  if (!credentials.length) {
+    throw new Error(
+      "SALESFORCE_CLIENT_ID/SECRET not set for Salesforce OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      salesforceOAuthRefreshUrl(options.salesforceLoginUrl),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "Salesforce",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(
+      `Salesforce OAuth refresh failed (${response?.status ?? 0}).`,
+    );
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+function salesforceOAuthRefreshUrl(value: string | null | undefined): string {
+  const loginUrl = value?.trim() || "https://login.salesforce.com";
+  try {
+    const url = new URL(loginUrl);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash ||
+      (url.hostname !== "login.salesforce.com" &&
+        url.hostname !== "test.salesforce.com")
+    ) {
+      throw new Error("Invalid Salesforce OAuth login URL.");
+    }
+    return `${url.origin}/services/oauth2/token`;
+  } catch {
+    throw new Error("Invalid Salesforce OAuth login URL.");
+  }
 }
 
 async function refreshJiraOAuthToken(
@@ -4796,6 +4972,15 @@ async function resolveOAuthClientCredentialCandidates(
   ].filter((value): value is { clientId: string; clientSecret: string } =>
     Boolean(value),
   );
+  if (provider === "SALESFORCE") {
+    const [consumerKey, consumerSecret] = await Promise.all([
+      resolveSecret("SALESFORCE_CONSUMER_KEY"),
+      resolveSecret("SALESFORCE_CONSUMER_SECRET"),
+    ]);
+    if (consumerKey && consumerSecret) {
+      candidates.push({ clientId: consumerKey, clientSecret: consumerSecret });
+    }
+  }
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
     if (seen.has(candidate.clientId)) return false;

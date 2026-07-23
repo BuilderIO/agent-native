@@ -5,6 +5,10 @@ import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import {
+  renderDesignSystemThemeCss,
+  type DesignSystemTheme,
+} from "@agent-native/toolkit/design-system/theme";
 import type {
   ConfigEnv,
   HotUpdateOptions,
@@ -728,7 +732,6 @@ function findCorePackageRoot(cwd: string): string | null {
   const candidates = [
     path.resolve(cwd, "../../packages/core"), // templates/<name>/
     path.resolve(cwd, "../core"), // packages/<name>/
-    path.resolve(cwd, "node_modules/@agent-native/core"),
   ];
   for (const candidate of candidates) {
     try {
@@ -1342,6 +1345,8 @@ export interface ClientConfigOptions {
   logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
   plugins?: any[];
+  /** Static design tokens emitted into the client build. */
+  designSystemTheme?: DesignSystemTheme;
   /** Nitro plugin options (preset, srcDir, etc) */
   nitro?: NitroOptions;
   /** Override resolve aliases */
@@ -2309,6 +2314,165 @@ function portExposer(): Plugin {
   };
 }
 
+function isNitroEnvironmentUnavailable(error: unknown): boolean {
+  const candidate = error as {
+    name?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+    message?: unknown;
+  };
+  return (
+    candidate?.name === "NitroViteError" &&
+    (candidate.status === 503 || candidate.statusCode === 503) &&
+    typeof candidate.message === "string" &&
+    /Vite environment .+ is unavailable/.test(candidate.message)
+  );
+}
+
+type NitroModuleNode = {
+  id: string | null;
+  ssrError?: Error | null;
+  transformResult: unknown | null;
+};
+
+type NitroModuleGraph = {
+  idToModuleMap: Map<string, NitroModuleNode>;
+};
+
+const NITRO_STARTUP_SETTLE_MS = 1_000;
+const NITRO_STARTUP_TIMEOUT_MS = 30_000;
+
+function nitroModuleGraphSignature(environment: unknown): string | null {
+  const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
+    ?.moduleGraph;
+  if (!graph) return null;
+
+  const modules = [...graph.idToModuleMap.values()];
+  const entry = modules.find((module) =>
+    module.id
+      ?.replaceAll("\\", "/")
+      .endsWith("/nitro/dist/runtime/internal/vite/dev-entry.mjs"),
+  );
+  if (!entry?.transformResult && !entry?.ssrError) return null;
+
+  let transformed = 0;
+  let errors = 0;
+  for (const module of modules) {
+    if (module.transformResult) transformed += 1;
+    if (module.ssrError) errors += 1;
+  }
+  return `${modules.length}:${transformed}:${errors}`;
+}
+
+function isHtmlDocumentRequest(req: IncomingMessage): boolean {
+  return (
+    (req.method === "GET" || req.method === "HEAD") &&
+    (req.headers.accept ?? "").includes("text/html")
+  );
+}
+
+function sendNitroStartingResponse(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  res.statusCode = 503;
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("retry-after", "1");
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(
+    '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+  );
+}
+
+function nitroStartupGate(
+  options: {
+    now?: () => number;
+    settleMs?: number;
+    timeoutMs?: number;
+  } = {},
+): Plugin {
+  return {
+    name: "agent-native-nitro-startup-gate",
+    apply: "serve",
+    enforce: "pre",
+    configureServer(server) {
+      const now = options.now ?? Date.now;
+      const settleMs = options.settleMs ?? NITRO_STARTUP_SETTLE_MS;
+      const timeoutMs = options.timeoutMs ?? NITRO_STARTUP_TIMEOUT_MS;
+      const startedAt = now();
+      let graphSignature: string | null = null;
+      let graphStableAt: number | undefined;
+      let startupComplete = false;
+
+      server.middlewares.use((req, res, next) => {
+        if (startupComplete || !isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        const timestamp = now();
+        if (timestamp - startedAt >= timeoutMs) {
+          startupComplete = true;
+          next();
+          return;
+        }
+
+        const nextGraphSignature = nitroModuleGraphSignature(
+          server.environments?.nitro,
+        );
+        if (nextGraphSignature) {
+          if (nextGraphSignature !== graphSignature) {
+            graphSignature = nextGraphSignature;
+            graphStableAt = timestamp;
+          } else if (
+            graphStableAt !== undefined &&
+            timestamp - graphStableAt >= settleMs
+          ) {
+            startupComplete = true;
+            next();
+            return;
+          }
+        } else {
+          graphSignature = null;
+          graphStableAt = undefined;
+        }
+
+        sendNitroStartingResponse(req, res);
+      });
+    },
+  };
+}
+
+function nitroStartupRecovery(): Plugin {
+  return {
+    name: "agent-native-nitro-startup-recovery",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(function nitroStartupErrorRecovery(
+        error: unknown,
+        req: IncomingMessage,
+        res: ServerResponse,
+        next: (error?: unknown) => void,
+      ) {
+        if (
+          !isNitroEnvironmentUnavailable(error) ||
+          !isHtmlDocumentRequest(req) ||
+          res.headersSent
+        ) {
+          next(error);
+          return;
+        }
+
+        sendNitroStartingResponse(req, res);
+      });
+    },
+  };
+}
+
 /**
  * Silence benign connection-reset noise from Vite's dev middleware.
  * Fires when a browser closes/reloads/navigates mid-request — the peer has
@@ -2457,6 +2621,38 @@ function createTailwindPlugin(options: Pick<ClientConfigOptions, "tailwind">) {
     // Plugin not installed — silently skip. Old templates may still be on v3.
     return null;
   }
+}
+
+const DESIGN_SYSTEM_THEME_MODULE_ID = "virtual:agent-native-theme.css";
+const RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID = `\0${DESIGN_SYSTEM_THEME_MODULE_ID}`;
+
+function createDesignSystemThemePlugin(
+  theme: DesignSystemTheme | undefined,
+): Plugin | null {
+  if (!theme) return null;
+  const css = renderDesignSystemThemeCss(theme);
+
+  return {
+    name: "agent-native-design-system-theme",
+    resolveId(id) {
+      if (id === DESIGN_SYSTEM_THEME_MODULE_ID) {
+        return RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID;
+      }
+    },
+    load(id) {
+      if (id === RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID) return css;
+    },
+    transformIndexHtml() {
+      return [
+        {
+          tag: "style",
+          attrs: { "data-agent-native-theme": "" },
+          children: css,
+          injectTo: "head",
+        },
+      ];
+    },
+  };
 }
 
 function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
@@ -2655,6 +2851,7 @@ function createAgentNativePlugins(
     embedDevFrameHeaders(),
     baseRedirectGuard(),
     portExposer(),
+    nitroStartupGate(),
     silenceConnectionResets(),
     rolldownInputFix(),
     // Nitro Vite plugin for dev-mode API route serving and HMR.
@@ -2664,7 +2861,11 @@ function createAgentNativePlugins(
       : includeNitro
         ? [nitroPlugin]
         : []),
+    // Nitro can reject the first document request while its Vite environment
+    // is still importing. This error handler must follow Nitro's middleware.
+    nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,
+    createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
   ].filter(Boolean);
 }
@@ -3057,5 +3258,8 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroStartupGate as _nitroStartupGate,
+  nitroStartupRecovery as _nitroStartupRecovery,
+  nitroModuleGraphSignature as _nitroModuleGraphSignature,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };

@@ -1,12 +1,3 @@
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type {
   ContentDatabaseItem,
   ContentDatabaseView,
@@ -23,6 +14,15 @@ import {
 } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 import { AddProperty, TYPE_ICONS, displayValue } from "../DocumentProperties";
@@ -51,6 +51,7 @@ export function DatabaseTimelineView({
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
@@ -71,6 +72,7 @@ export function DatabaseTimelineView({
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
@@ -119,6 +121,7 @@ export function DatabaseTimelineView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const rangeLabel = databaseTimelineRangeLabel(timelineDays);

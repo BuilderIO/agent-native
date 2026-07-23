@@ -172,13 +172,13 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     ],
   },
   {
-    id: "workspace",
-    titleKey: "workspace",
+    id: "agent-resources",
+    titleKey: "agentResources",
     items: [
       {
-        id: "workspace-overview",
-        labelKey: "workspaceOverview",
-        slug: "workspace",
+        id: "agent-resources-overview",
+        labelKey: "agentResourcesOverview",
+        slug: "agent-resources",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {

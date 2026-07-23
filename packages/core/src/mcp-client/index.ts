@@ -113,12 +113,21 @@ export {
 } from "./tool-policy.js";
 export {
   configureScreenMemory,
+  queryScreenMemoryForAgent,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
   type ScreenMemoryConfig,
+  type ScreenMemoryAgentQueryResult,
   type ScreenMemoryContextItem,
+  type ScreenMemoryCoverageGap,
+  type ScreenMemoryEvidenceItem,
+  type ScreenMemoryEvidenceSourceType,
   type ScreenMemoryQueryResult,
+  type ScreenMemoryRetrievalCoverage,
+  type ScreenMemorySegmentReference,
   type ScreenMemoryStatus,
+  type ScreenMemoryTimeRange,
+  type ScreenMemoryTruncation,
 } from "./screen-memory-local.js";
 export {
   MCP_ACTION_RESULT_MARKER,
@@ -157,6 +166,8 @@ import {
 
 export interface McpActionEntryOptions {
   invocationPolicy?: McpToolInvocationPolicy;
+  /** Restrict the generated entries to an explicit background capability set. */
+  toolNames?: readonly string[];
 }
 
 export function mcpToolsToActionEntries(
@@ -164,7 +175,11 @@ export function mcpToolsToActionEntries(
   options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
+  const selectedToolNames = options.toolNames
+    ? new Set(options.toolNames)
+    : undefined;
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
+    if (selectedToolNames && !selectedToolNames.has(tool.name)) continue;
     entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;

@@ -9,16 +9,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
 
-import { resolveDesktopMeetingJoinUrl } from "../lib/meeting-join-url";
+import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
   joinProviderLabel,
   meetingNotificationAutoHideMs,
   type MeetingJoinProvider,
 } from "../lib/meeting-notification-timing";
+import { openMeetingJoinUrl } from "../lib/open-meeting-join-url";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -51,7 +51,7 @@ const NOTIFICATION_MENU_HEIGHT = 224;
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
   try {
-    await openExternal(resolveDesktopMeetingJoinUrl(url));
+    await openMeetingJoinUrl(url);
   } catch (err) {
     console.error("[clips-tray] openJoinUrl failed:", err);
   }
@@ -309,6 +309,14 @@ export function MeetingNotification() {
     dataRef.current = null;
   }
 
+  function dismissNotification() {
+    const current = dataRef.current;
+    hideNotification();
+    if (current) {
+      void dismissMeetingNotification(current);
+    }
+  }
+
   async function takeNotes() {
     if (!data || pending) return;
     setPending(true);
@@ -448,7 +456,7 @@ export function MeetingNotification() {
         {showClose ? (
           <button
             className="meeting-notification-close"
-            onClick={hideNotification}
+            onClick={dismissNotification}
             aria-label="Dismiss"
             data-no-drag
           >

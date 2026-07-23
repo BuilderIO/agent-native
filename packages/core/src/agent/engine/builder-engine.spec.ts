@@ -19,7 +19,7 @@ const credentialState = vi.hoisted(() => ({
 }));
 
 const AGENT_NATIVE_UPGRADE_URL =
-  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
@@ -787,7 +787,91 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("uses the long local timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
+  it("aborts at the 120s first-event deadline when nothing ever streams, even under the long local timeout cap", async () => {
+    // With no events at all, the two-stage deadline is
+    // min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) — here
+    // min(840_000, 120_000) — so a fully wedged request is cut off in 2
+    // minutes instead of riding the full 14-minute local cap.
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
+  });
+
+  it("still enforces the full local total deadline once the stream produces a real event", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `${JSON.stringify({ type: "text-delta", text: "hi" })}\n`,
+            ),
+          );
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(init.signal?.reason ?? new Error("aborted"));
+          });
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    // The 120s first-event window passes uneventfully — a real event already
+    // streamed, so it must not abort here.
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(settledEarly).toBe(false);
+
+    // The original 840s total deadline (measured from request start) still
+    // governs the rest of the request.
+    await vi.advanceTimersByTimeAsync(720_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "text-delta")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("840s");
+  });
+
+  it("keeps the pre-first-event deadline at the hosted foreground cap (45s) instead of extending it to 120s", async () => {
+    vi.stubEnv("NETLIFY", "true");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -802,21 +886,51 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
     await vi.advanceTimersByTimeAsync(45_000);
-
-    let settledEarly = false;
-    void eventsPromise.then(() => {
-      settledEarly = true;
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settledEarly).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(795_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("840s");
+    expect(stop?.error).toContain("45s");
+  });
+
+  it("does not let heartbeat frames extend the first-event deadline past 120s", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5_000);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(120_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {

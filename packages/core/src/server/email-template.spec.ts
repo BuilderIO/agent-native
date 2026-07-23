@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import { emailLink, renderEmail } from "./email-template.js";
 
 describe("renderEmail", () => {
+  it("uses a CID-backed brand header with a text fallback", () => {
+    const { html } = renderEmail({
+      brandName: "Clips",
+      heading: "Your recording is ready",
+      paragraphs: ["Open your recording below."],
+    });
+
+    expect(html).toContain('src="cid:agent-native-logo"');
+    expect(html).toContain('alt="Clips"');
+    expect(html).toContain(">Clips</span>");
+  });
+
   it("renders CTA buttons without visible fallback URLs", () => {
     const { html } = renderEmail({
       heading: "Your meeting is booked",

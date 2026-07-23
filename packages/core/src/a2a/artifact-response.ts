@@ -14,6 +14,11 @@ export interface A2AArtifactResponseOptions {
   persistedArtifactSecret?: string;
 }
 
+export interface GuardedA2AArtifactResponse {
+  text: string;
+  rejectedUnverifiedArtifactReferences: boolean;
+}
+
 export interface A2AArtifactIdentityOptions {
   persistedArtifactSecrets?: readonly string[];
 }
@@ -1395,11 +1400,11 @@ function formatUnverifiedArtifactMessage(
     : message;
 }
 
-export function appendA2AArtifactLinks(
+export function guardA2AArtifactResponse(
   responseText: string,
   toolResults: A2AToolResultSummary[],
   options: A2AArtifactResponseOptions = {},
-): string {
+): GuardedA2AArtifactResponse {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
@@ -1440,7 +1445,10 @@ export function appendA2AArtifactLinks(
     ) ||
       /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
   ) {
-    return finalize(formatIncompleteDesignMessage(incompleteShells));
+    return {
+      text: finalize(formatIncompleteDesignMessage(incompleteShells)),
+      rejectedUnverifiedArtifactReferences: false,
+    };
   }
 
   const unverifiedRefs = findUnverifiedArtifactReferences(
@@ -1454,18 +1462,21 @@ export function appendA2AArtifactLinks(
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
-    return finalize(
-      formatUnverifiedArtifactMessage(
-        unverifiedRefs,
-        documents,
-        decks,
-        dashboards,
-        analyses,
-        images,
-        generatedDesigns,
-        baseUrl,
+    return {
+      text: finalize(
+        formatUnverifiedArtifactMessage(
+          unverifiedRefs,
+          documents,
+          decks,
+          dashboards,
+          analyses,
+          images,
+          generatedDesigns,
+          baseUrl,
+        ),
       ),
-    );
+      rejectedUnverifiedArtifactReferences: true,
+    };
   }
 
   const missingLines: string[] = [];
@@ -1541,10 +1552,25 @@ export function appendA2AArtifactLinks(
   }
 
   if (missingLines.length === 0) {
-    return finalize(text);
+    return {
+      text: finalize(text),
+      rejectedUnverifiedArtifactReferences: false,
+    };
   }
+
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
-  return finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock);
+  return {
+    text: finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock),
+    rejectedUnverifiedArtifactReferences: false,
+  };
+}
+
+export function appendA2AArtifactLinks(
+  responseText: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string {
+  return guardA2AArtifactResponse(responseText, toolResults, options).text;
 }
 
 export function buildA2ARecoverableArtifactMessage(

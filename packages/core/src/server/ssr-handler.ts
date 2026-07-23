@@ -37,7 +37,10 @@ import {
 } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { runWithRequestContext } from "./request-context.js";
-import { getSentryClientConfigScript } from "./sentry-config.js";
+import {
+  getRealtimeClientConfigScript,
+  getSentryClientConfigScript,
+} from "./sentry-config.js";
 
 export {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -342,7 +345,10 @@ async function rewriteMountedResponse(
   pathname: string,
   requestUrl: string,
 ): Promise<Response> {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -377,7 +383,7 @@ async function rewriteMountedResponse(
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(requestUrl, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,

@@ -499,6 +499,7 @@ const messages = {
     makePublicAndCopy: "Veröffentlichen und kopieren",
     copy: "Kopie",
     addPeopleByEmail: "Personen per E-Mail hinzufügen",
+    invite: "Einladen",
     notifyPeople: "Benachrichtigen Sie die Leute",
     peopleWithAccess: "Menschen mit Zugang",
     ownerRole: "Eigentümer",
@@ -861,6 +862,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     loadFailedBody:
       "Beim Laden dieser Liste ist etwas schiefgelaufen. Deine Aufnahmen sind sicher — versuche es erneut.",
     retry: "Erneut versuchen",
+    paginationRange: "{{start}}–{{end}} von {{total}}",
+    paginationPrevious: "Zurück",
+    paginationNext: "Weiter",
+    paginationPage: "Seite {{page}} von {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Benachrichtigungen · Clips",
@@ -957,6 +962,18 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     summary: "Zusammenfassung",
     keyPoints: "Kernpunkte",
     actionItems: "Aufgaben",
+    sharedContent: "Geteilte Inhalte",
+    summaryIncluded: "Zusammenfassung, Kernpunkte und Aufgaben",
+    includeTranscript: "Vollständiges Transkript einschließen",
+    includeTranscriptDescription:
+      "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
+    transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    transcript: "Transkript",
+    copyTranscript: "Transkript kopieren",
+    transcriptCopied: "Transkript kopiert",
+    copyTranscriptFailed: "Transkript konnte nicht kopiert werden",
+    updateTranscriptSharingFailed:
+      "Die Transkriptfreigabe konnte nicht aktualisiert werden",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip in den Papierkorb verschoben",
@@ -1398,6 +1415,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
   clipsFinalRaw: {
     splitAtPlayhead: "An Abspielposition teilen (S)",
     selectedCount: "{{count}} ausgewählt",
+    selectAll: "Alle auswählen",
+    deselectAll: "Auswahl aufheben",
     move: "Verschieben",
     moveSelected: "{{count}} ausgewählte verschieben",
     current: "Aktuell",
@@ -1523,6 +1542,23 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Lokalisiert)",
   },
+  rewindExtension: {
+    title: "Frühere Aufnahme hinzufügen",
+    description:
+      "Wähle einen Zeitraum aus dem lokalen Rewind und füge ihn am Anfang dieses Clips ein. Nichts wird automatisch hinzugefügt.",
+    progressLabel: "Fortschritt der Rewind-Verarbeitung",
+    privateFirstTitle: "Diesen Clip zuerst privat machen",
+    privateFirstDescription:
+      "Der lokale Rewind-Verlauf kann Kontext von vor dem Aufnahmestart enthalten. Der Clip wird privat. Falls jemand direkten Zugriff hat, hält Clips an, damit du ihn zuerst unter Teilen entfernen kannst.",
+    makePrivateContinue: "Privat machen und fortfahren",
+    add30Seconds: "Vorherige 30 Sekunden hinzufügen",
+    add5Minutes: "Vorherige 5 Minuten hinzufügen",
+    add5MinutesDescription:
+      "Hilfreich, um den Einstieg in eine längere Erklärung wiederherzustellen.",
+    privateReady:
+      "Dieser Clip ist privat. Du kannst jetzt lokalen Rewind-Verlauf hinzufügen.",
+  },
+  timeline: { clipStartedHere: "Clip begann hier" },
 };
 
 export default messages;

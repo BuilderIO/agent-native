@@ -21,10 +21,10 @@ import {
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -174,8 +174,10 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const t = useT();
-  const isDark = resolvedTheme === "dark";
+  const isDark = mounted && resolvedTheme === "dark";
   return (
     <CommandMenu.Item
       onSelect={() => setTheme(isDark ? "light" : "dark")}
@@ -231,7 +233,7 @@ function AppContent() {
               "access",
             ]}
           >
-            <IconBrain size={16} />
+            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>

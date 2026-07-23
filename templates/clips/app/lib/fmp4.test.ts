@@ -57,6 +57,19 @@ describe("isFragmentedMp4Head", () => {
     expect(isFragmentedMp4Head(new Uint8Array([...ftyp, ...moov]))).toBe(false);
   });
 
+  it("returns false when classic mp4 binary data contains the bytes 'mvex' inside mvhd", () => {
+    // A regular MP4 whose mvhd payload happens to contain the byte sequence
+    // 0x6d766578 ("mvex") — a false positive the old raw-scan code would hit.
+    const ftyp = box("ftyp", [
+      ...Array.from(enc.encode("isom")),
+      ...u32(0),
+      ...Array.from(enc.encode("mp42")),
+    ]);
+    const mvexBytes = Array.from(enc.encode("mvex")); // 6d 76 65 78
+    const moov = box("moov", box("mvhd", [...u32(0), ...mvexBytes, ...u32(0)]));
+    expect(isFragmentedMp4Head(new Uint8Array([...ftyp, ...moov]))).toBe(false);
+  });
+
   it("returns false when it is not an mp4", () => {
     expect(
       isFragmentedMp4Head(new Uint8Array(enc.encode("not an mp4 file"))),

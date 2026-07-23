@@ -45,6 +45,8 @@ export interface EditsJson {
   thumbnail?: ThumbnailSpec | null;
   /** Provenance: source recording IDs when this recording was created via stitch-recordings. */
   stitchedFrom?: string[];
+  /** Original countdown-complete boundary after an explicit Rewind pre-roll was prepended. */
+  rewindOriginalStartMs?: number;
 }
 
 export const DEFAULT_EDITS: EditsJson = {
@@ -72,6 +74,11 @@ export function parseEdits(raw: string | null | undefined): EditsJson {
       thumbnail: j.thumbnail ?? null,
       ...(Array.isArray(j.stitchedFrom)
         ? { stitchedFrom: j.stitchedFrom as string[] }
+        : {}),
+      ...(typeof j.rewindOriginalStartMs === "number" &&
+      Number.isFinite(j.rewindOriginalStartMs) &&
+      j.rewindOriginalStartMs > 0
+        ? { rewindOriginalStartMs: Math.round(j.rewindOriginalStartMs) }
         : {}),
     };
   } catch {

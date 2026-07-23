@@ -10,11 +10,17 @@ import { agentNativePath } from "../api-path.js";
 import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
 import {
+  clearMcpConnectionResume,
+  notifyMcpConnectionComplete,
+  saveMcpConnectionResume,
+} from "./mcp-connection-resume.js";
+import {
   buildMcpOAuthStartUrl,
   findMcpIntegrationForText,
   getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isMcpConnectionFailureText,
+  navigateToMcpOAuthStart,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import { McpIntegrationDialog } from "./McpIntegrationDialog.js";
@@ -31,6 +37,18 @@ export interface McpConnectionSuggestionProps {
   contextText?: string;
   variant?: McpConnectionSuggestionVariant;
   integrations?: DefaultMcpIntegration[];
+}
+
+export function findMcpConnectionSuggestionIntegration({
+  text,
+  contextText = "",
+  variant = "composer",
+  integrations = getDefaultMcpIntegrations(),
+}: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  return findMcpIntegrationForText(
+    variant === "response" ? contextText : text,
+    integrations,
+  );
 }
 
 function compareUrl(value: string): string {
@@ -93,22 +111,16 @@ export function McpConnectionSuggestion({
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
   );
-  const textIntegration = useMemo(
-    () => findMcpIntegrationForText(text, integrations),
-    [integrations, text],
-  );
-  const contextIntegration = useMemo(
+  const integration = useMemo(
     () =>
-      contextText ? findMcpIntegrationForText(contextText, integrations) : null,
-    [contextText, integrations],
+      findMcpConnectionSuggestionIntegration({
+        text,
+        contextText,
+        variant,
+        integrations,
+      }),
+    [contextText, integrations, text, variant],
   );
-  const integration =
-    variant === "response" &&
-    textIntegration &&
-    contextIntegration &&
-    textIntegration.id !== contextIntegration.id
-      ? null
-      : (textIntegration ?? contextIntegration);
   const apiFallback = integration
     ? getMcpIntegrationApiFallback(integration)
     : null;
@@ -144,7 +156,9 @@ export function McpConnectionSuggestion({
     }
 
     if (canStartOAuth(integration)) {
-      window.location.assign(
+      setConnecting(true);
+      saveMcpConnectionResume(variant === "response" ? contextText : text);
+      navigateToMcpOAuthStart(
         agentNativePath(
           buildMcpOAuthStartUrl({
             name: integration.name,
@@ -162,6 +176,7 @@ export function McpConnectionSuggestion({
       integration.authMode === "none" &&
       integration.connectionMode === "direct"
     ) {
+      saveMcpConnectionResume(variant === "response" ? contextText : text);
       setConnecting(true);
       try {
         await createMcpServer.mutateAsync({
@@ -171,7 +186,9 @@ export function McpConnectionSuggestion({
           description: integration.description,
         });
         setDismissedId(integration.id);
+        notifyMcpConnectionComplete();
       } catch (cause) {
+        clearMcpConnectionResume();
         setError(
           cause instanceof Error ? cause.message : t("mcpIntegrations.failed"),
         );
@@ -181,6 +198,7 @@ export function McpConnectionSuggestion({
       return;
     }
 
+    saveMcpConnectionResume(variant === "response" ? contextText : text);
     setDialogOpen(true);
   };
 
@@ -199,7 +217,7 @@ export function McpConnectionSuggestion({
         className={
           variant === "response"
             ? "mt-3 flex max-w-[520px] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
-            : "mx-auto mb-2 flex w-[min(100%,680px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
+            : "mx-auto mb-2 flex w-[min(calc(100%_-_1.5rem),680px)] items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-[12px]"
         }
         data-mcp-connection-suggestion={integration.id}
       >
@@ -228,6 +246,7 @@ export function McpConnectionSuggestion({
           type="button"
           onClick={() => void connect()}
           disabled={connecting}
+          aria-busy={connecting}
           className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
         >
           {connecting && <IconLoader2 className="h-3 w-3 animate-spin" />}
@@ -262,13 +281,20 @@ export function McpConnectionSuggestion({
       )}
       <McpIntegrationDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(open) => {
+          setDialogOpen(open);
+          if (!open) clearMcpConnectionResume();
+        }}
         initialIntegrationId={integration.id}
         defaultScope="user"
         canCreateOrgMcp={false}
         hasOrg={Boolean(mcpServersQuery.data?.orgId)}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}
-        onCreated={() => setDismissedId(integration.id)}
+        onCreated={() => {
+          setDismissedId(integration.id);
+          saveMcpConnectionResume(variant === "response" ? contextText : text);
+          notifyMcpConnectionComplete();
+        }}
         integrations={integrations}
       />
     </>

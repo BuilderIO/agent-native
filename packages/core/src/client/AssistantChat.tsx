@@ -173,6 +173,11 @@ import {
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
 import { useT } from "./i18n.js";
+import {
+  addMcpConnectionCompleteListener,
+  consumeMcpConnectionResume,
+  type McpConnectionResumeRequest,
+} from "./resources/mcp-connection-resume.js";
 import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   AgentAutoContinueSignal,
@@ -801,7 +806,7 @@ export function reconnectActivityFallbackContent(
   toolName: string | null | undefined,
 ): ContentPart[] {
   const tool = toolName?.trim();
-  if (!tool) return [];
+  if (!tool || tool === "call-agent") return [];
   return [
     {
       type: "tool-call",
@@ -1513,20 +1518,24 @@ export function resolveAssistantChatRunningStatusLabel({
   return "Thinking";
 }
 
-function contentHasVisibleReasoning(content: unknown): boolean {
+function contentHasVisibleTailReasoning(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
-  return content.some((part) => {
-    if (!part || typeof part !== "object") return false;
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    const part = content[index];
+    if (!part || typeof part !== "object") continue;
     const candidate = part as { type?: unknown; text?: unknown };
-    return (
-      candidate.type === "reasoning" &&
-      typeof candidate.text === "string" &&
-      candidate.text.trim().length > 0
-    );
-  });
+    if (
+      (candidate.type === "text" || candidate.type === "reasoning") &&
+      (typeof candidate.text !== "string" || candidate.text.trim().length === 0)
+    ) {
+      continue;
+    }
+    return candidate.type === "reasoning";
+  }
+  return false;
 }
 
-function contentHasUnresolvedToolCall(
+function contentHasToolCall(
   content: unknown,
   toolName?: string | null,
 ): boolean {
@@ -1540,7 +1549,6 @@ function contentHasUnresolvedToolCall(
     };
     return (
       candidate.type === "tool-call" &&
-      candidate.result === undefined &&
       (!toolName || candidate.toolName === toolName)
     );
   });
@@ -1565,17 +1573,19 @@ export function shouldShowGlobalRunningStatus({
     latestMessage && typeof latestMessage === "object"
       ? (latestMessage as { role?: unknown; content?: unknown })
       : null;
-  const latestMessageHasReasoning =
+  const latestMessageHasTailReasoning =
     message?.role === "assistant" &&
-    contentHasVisibleReasoning(message.content);
-  const latestMessageHasUnresolvedTool =
-    message?.role === "assistant" &&
-    contentHasUnresolvedToolCall(message.content);
+    contentHasVisibleTailReasoning(message.content);
+  const latestMessageHasTool =
+    message?.role === "assistant" && contentHasToolCall(message.content);
+  const reconnectHasTool = contentHasToolCall(reconnectContent);
+  const reconnectHasTailReasoning =
+    contentHasVisibleTailReasoning(reconnectContent);
   const matchingActivityToolIsVisible = Boolean(
     runningActivityTool &&
     ((message?.role === "assistant" &&
-      contentHasUnresolvedToolCall(message.content, runningActivityTool)) ||
-      contentHasUnresolvedToolCall(reconnectContent, runningActivityTool)),
+      contentHasToolCall(message.content, runningActivityTool)) ||
+      contentHasToolCall(reconnectContent, runningActivityTool)),
   );
 
   // A pending card for the same tool is already the running indicator.
@@ -1584,18 +1594,39 @@ export function shouldShowGlobalRunningStatus({
   if (runningActivityLabel && matchingActivityToolIsVisible) {
     return false;
   }
+  if (!runningActivityLabel && (latestMessageHasTool || reconnectHasTool)) {
+    return false;
+  }
+  // The reasoning cell already owns the generic Thinking state. Activity
+  // events can briefly reassert that same label between reasoning deltas;
+  // rendering both makes a second Thinking row flash beneath the thought.
   if (
-    !runningActivityLabel &&
-    (latestMessageHasUnresolvedTool ||
-      contentHasUnresolvedToolCall(reconnectContent))
+    runningActivityLabel === "Thinking" &&
+    (latestMessageHasTool ||
+      reconnectHasTool ||
+      latestMessageHasTailReasoning ||
+      reconnectHasTailReasoning)
   ) {
     return false;
   }
   if (runningActivityLabel) return true;
 
   return (
-    !latestMessageHasReasoning && !contentHasVisibleReasoning(reconnectContent)
+    !latestMessageHasTool &&
+    !reconnectHasTool &&
+    !latestMessageHasTailReasoning &&
+    !reconnectHasTailReasoning
   );
+}
+
+export function assistantChatAutoscrollStatusKey({
+  showGlobalRunningStatus,
+  runningStatusLabel,
+}: {
+  showGlobalRunningStatus: boolean;
+  runningStatusLabel: string;
+}): string {
+  return showGlobalRunningStatus ? runningStatusLabel : "idle";
 }
 
 type QueuedMessage = {
@@ -2347,7 +2378,16 @@ const AssistantChatInner = forwardRef<
   const missingApiKey = agentEngineConfigured.missing;
   const isProviderStatusChecking =
     providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
-  const isComposerDisabled = missingApiKey || composerDisabled;
+  const isProviderStatusUnavailable =
+    providerStatusChecksEnabled &&
+    agentEngineConfigured.state === "unavailable";
+  const isComposerDisabled =
+    missingApiKey || isProviderStatusUnavailable || composerDisabled;
+  const retryAgentEngineStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
     setMissingKeySetupOpen(true);
@@ -2368,7 +2408,7 @@ const AssistantChatInner = forwardRef<
     // Unknown means the readiness endpoint is unavailable or still resolving.
     // Do not start a run optimistically: that recreates the long failure path
     // this preflight exists to prevent. The mounted hook retries automatically.
-    if (state === "unknown") return false;
+    if (state === "unknown" || state === "unavailable") return false;
 
     requestMissingKeySetup();
     if (typeof window !== "undefined") {
@@ -3237,7 +3277,9 @@ const AssistantChatInner = forwardRef<
           const reconnectErrorCode =
             reconnectTerminalReason === "run_timeout"
               ? "run_timeout"
-              : "reconnect_no_progress";
+              : reconnectTerminalReason === "stream_ended"
+                ? "reconnect_stream_ended"
+                : "reconnect_no_progress";
           captureError(new Error(`agent-chat:${reconnectErrorCode}`), {
             tags: {
               context: "agent-native-chat",
@@ -3309,9 +3351,11 @@ const AssistantChatInner = forwardRef<
           }
           setRunErrorInfo({
             message:
-              reconnectTerminalReason === "run_timeout"
+              reconnectErrorCode === "run_timeout"
                 ? "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here."
-                : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+                : reconnectErrorCode === "reconnect_stream_ended"
+                  ? "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run."
+                  : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
             errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
@@ -4653,6 +4697,40 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
+  const mcpResumeTimerRef = useRef<number | null>(null);
+  const scheduleMcpConnectionResume = useCallback(
+    (request: McpConnectionResumeRequest) => {
+      if (mcpResumeTimerRef.current !== null) {
+        window.clearTimeout(mcpResumeTimerRef.current);
+      }
+      mcpResumeTimerRef.current = window.setTimeout(() => {
+        mcpResumeTimerRef.current = null;
+        void addToQueue(request.message);
+      }, 0);
+    },
+    [addToQueue],
+  );
+
+  useEffect(() => {
+    const pending = consumeMcpConnectionResume();
+    if (pending) scheduleMcpConnectionResume(pending);
+
+    return addMcpConnectionCompleteListener(() => {
+      const completed = consumeMcpConnectionResume();
+      if (completed) scheduleMcpConnectionResume(completed);
+    });
+  }, [scheduleMcpConnectionResume]);
+
+  useEffect(
+    () => () => {
+      if (mcpResumeTimerRef.current !== null) {
+        window.clearTimeout(mcpResumeTimerRef.current);
+        mcpResumeTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!pendingReconnectRecovery) return;
     const recovery = pendingReconnectRecovery;
@@ -4800,11 +4878,28 @@ const AssistantChatInner = forwardRef<
         adapterHandoffPending || reconnectTailOnlyRef.current,
     },
   );
+  const latestMessage = messages[messages.length - 1];
+  const reconnectStatusContent =
+    visibleReconnectContent.length > 0
+      ? visibleReconnectContent
+      : reconnectContent.length === 0
+        ? reconnectActivityContent
+        : [];
+  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
+    showRunningInUI,
+    runningActivityLabel,
+    runningActivityTool,
+    latestMessage,
+    reconnectContent: reconnectStatusContent,
+  });
   const autoscrollFollowKey = [
     messages.map(messageFollowKey).join(";"),
     `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
     `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
-    `status:${showRunningInUI ? runningStatusLabel : "idle"}`,
+    `status:${assistantChatAutoscrollStatusKey({
+      showGlobalRunningStatus,
+      runningStatusLabel,
+    })}`,
   ].join(";;");
   const {
     scrollRef,
@@ -4878,21 +4973,7 @@ const AssistantChatInner = forwardRef<
     () => latestNonRecoveryUserMessageText(messages),
     [messages],
   );
-  const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
-  const reconnectStatusContent =
-    visibleReconnectContent.length > 0
-      ? visibleReconnectContent
-      : reconnectContent.length === 0
-        ? reconnectActivityContent
-        : [];
-  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
-    showRunningInUI,
-    runningActivityLabel,
-    runningActivityTool,
-    latestMessage,
-    reconnectContent: reconnectStatusContent,
-  });
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
@@ -5518,11 +5599,17 @@ const AssistantChatInner = forwardRef<
                           isComposerDisabled &&
                             !showMissingKeySetup &&
                             "opacity-70",
+                          isProviderStatusUnavailable && "cursor-pointer",
                         )}
                         rootClassName={cn(
                           showMissingKeySetup &&
                             "agent-composer-root--missing-key",
                         )}
+                        onClick={
+                          isProviderStatusUnavailable
+                            ? retryAgentEngineStatus
+                            : undefined
+                        }
                       >
                         {showMissingKeySetup ? (
                           <PopoverTrigger asChild>
@@ -5531,18 +5618,23 @@ const AssistantChatInner = forwardRef<
                               className="agent-composer-missing-key-trigger"
                               aria-label="Connect AI to start chatting"
                             >
-                              <span className="agent-composer-missing-key-copy">
-                                <span className="agent-composer-missing-key-title">
-                                  {missingApiKeySetupLayout === "sidebar"
-                                    ? "Connect AI to chat"
-                                    : "Connect AI to start chatting"}
-                                </span>
-                                {missingApiKeySetupLayout !== "sidebar" ? (
-                                  <span className="agent-composer-missing-key-description">
-                                    Builder.io includes free credits, or use
-                                    your own API key.
+                              <span className="agent-composer-missing-key-content">
+                                <span className="agent-composer-missing-key-copy">
+                                  <span className="agent-composer-missing-key-title">
+                                    {missingApiKeySetupLayout === "sidebar"
+                                      ? "Connect AI to chat"
+                                      : "Connect AI to start chatting"}
                                   </span>
-                                ) : null}
+                                  {missingApiKeySetupLayout !== "sidebar" ? (
+                                    <span className="agent-composer-missing-key-description">
+                                      Builder.io includes free credits, or use
+                                      your own API key.
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="agent-composer-missing-key-cta">
+                                  Connect AI
+                                </span>
                               </span>
                             </button>
                           </PopoverTrigger>
@@ -5560,16 +5652,18 @@ const AssistantChatInner = forwardRef<
                               placeholder={
                                 missingApiKey
                                   ? "Connect AI to start chatting..."
-                                  : isProviderStatusChecking
-                                    ? t("agentPanel.checkingAiConnection")
-                                    : composerDisabled
-                                      ? (composerDisabledPlaceholder ??
-                                        "Open Desktop to use this chat.")
-                                      : isRunning
-                                        ? queuedMessages.length > 0
-                                          ? `${queuedMessages.length} queued — send a follow-up...`
-                                          : "Send a follow-up..."
-                                        : composerPlaceholder
+                                  : isProviderStatusUnavailable
+                                    ? t("agentPanel.connectionUnavailable")
+                                    : isProviderStatusChecking
+                                      ? t("agentPanel.checkingAiConnection")
+                                      : composerDisabled
+                                        ? (composerDisabledPlaceholder ??
+                                          "Open Desktop to use this chat.")
+                                        : isRunning
+                                          ? queuedMessages.length > 0
+                                            ? `${queuedMessages.length} queued — send a follow-up...`
+                                            : "Send a follow-up..."
+                                          : composerPlaceholder
                               }
                               onSubmit={
                                 isRunning || composerContextItems.length > 0

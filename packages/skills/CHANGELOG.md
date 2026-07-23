@@ -1,5 +1,233 @@
 # @agent-native/skills
 
+## 0.2.393
+
+### Patch Changes
+
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+  - @agent-native/core@0.118.1
+
+## 0.2.392
+
+### Patch Changes
+
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+  - @agent-native/core@0.118.0
+
+## 0.2.391
+
+### Patch Changes
+
+- Updated dependencies [bc91e11]
+- Updated dependencies [bc91e11]
+- Updated dependencies [bc91e11]
+- Updated dependencies [bc91e11]
+- Updated dependencies [bc91e11]
+  - @agent-native/core@0.117.2
+
+## 0.2.390
+
+### Patch Changes
+
+- Updated dependencies [c9e48ca]
+  - @agent-native/core@0.117.1
+
+## 0.2.389
+
+### Patch Changes
+
+- Updated dependencies [d73eda3]
+  - @agent-native/core@0.117.0
+
+## 0.2.388
+
+### Patch Changes
+
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+  - @agent-native/core@0.116.0
+
+## 0.2.387
+
+### Patch Changes
+
+- Updated dependencies [2154ad1]
+  - @agent-native/core@0.115.4
+
+## 0.2.386
+
+### Patch Changes
+
+- Updated dependencies [a841109]
+  - @agent-native/core@0.115.3
+
+## 0.2.385
+
+### Patch Changes
+
+- Updated dependencies [f0601ec]
+  - @agent-native/core@0.115.2
+
+## 0.2.384
+
+### Patch Changes
+
+- Updated dependencies [321567c]
+  - @agent-native/core@0.115.1
+
+## 0.2.383
+
+### Patch Changes
+
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+- Updated dependencies [0341a7d]
+  - @agent-native/core@0.115.0
+
+## 0.2.382
+
+### Patch Changes
+
+- Updated dependencies [3a3eb9a]
+  - @agent-native/core@0.114.16
+
+## 0.2.381
+
+### Patch Changes
+
+- f8fe58b: Add `VISUAL_RECAP_REQUIRED_LABELS` so PR Visual Recap can run only when a pull request has an opt-in label.
+- Updated dependencies [f8fe58b]
+  - @agent-native/core@0.114.15
+
+## 0.2.380
+
+### Patch Changes
+
+- Updated dependencies [8df32f6]
+- Updated dependencies [8df32f6]
+  - @agent-native/core@0.114.14
+
+## 0.2.379
+
+### Patch Changes
+
+- Updated dependencies [7112c17]
+  - @agent-native/core@0.114.13
+
+## 0.2.378
+
+### Patch Changes
+
+- Updated dependencies [5c18906]
+  - @agent-native/core@0.114.12
+
+## 0.2.377
+
+### Patch Changes
+
+- Updated dependencies [b47a1b3]
+  - @agent-native/core@0.114.11
+
+## 0.2.376
+
+### Patch Changes
+
+- Updated dependencies [687fefc]
+- Updated dependencies [687fefc]
+- Updated dependencies [687fefc]
+- Updated dependencies [687fefc]
+- Updated dependencies [687fefc]
+- Updated dependencies [687fefc]
+  - @agent-native/core@0.114.10
+
+## 0.2.375
+
+### Patch Changes
+
+- Updated dependencies [fb32d85]
+  - @agent-native/core@0.114.9
+
+## 0.2.374
+
+### Patch Changes
+
+- Updated dependencies [dcd0810]
+- Updated dependencies [dcd0810]
+  - @agent-native/core@0.114.8
+
+## 0.2.373
+
+### Patch Changes
+
+- b706848: Add r5 semantic chapter metadata and provenance-aware local Screen Memory search, publish a reusable Rewind skill whose installer also repairs the local Screen Memory MCP connection, and keep the standalone skills installer aligned.
+- Updated dependencies [b706848]
+  - @agent-native/core@0.114.7
+
+## 0.2.372
+
+### Patch Changes
+
+- Updated dependencies [6d96437]
+  - @agent-native/core@0.114.6
+
+## 0.2.371
+
+### Patch Changes
+
+- Updated dependencies [570be31]
+  - @agent-native/core@0.114.5
+
+## 0.2.370
+
+### Patch Changes
+
+- Updated dependencies [f3dcee3]
+  - @agent-native/core@0.114.4
+
 ## 0.2.369
 
 ### Patch Changes

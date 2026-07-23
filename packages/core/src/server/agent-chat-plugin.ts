@@ -124,6 +124,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
+import type { RecurringJobContext } from "../jobs/scheduler.js";
 import {
   McpClientManager,
   loadMcpConfig,
@@ -331,6 +332,19 @@ export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+export function resolveInteractiveAgentRunOptions(
+  options?: Pick<
+    AgentChatPluginOptions,
+    "runSoftTimeoutMs" | "runNoProgressTimeoutMs" | "durableBackgroundRuns"
+  >,
+) {
+  return {
+    runSoftTimeoutMs: options?.runSoftTimeoutMs,
+    runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
+    durableBackgroundRuns: options?.durableBackgroundRuns,
+  };
+}
 
 export function createSerializedA2ATaskStatusWriter(
   taskId: string,
@@ -562,6 +576,22 @@ export function createAgentChatPlugin(
       }
       setGlobalMcpManager(mcpManager);
       const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+      const getJobMcpActionEntries = (
+        job?: RecurringJobContext,
+      ): Record<string, ActionEntry> => {
+        const requested = job?.meta.mcpTools ?? [];
+        if (requested.length === 0) return {};
+        const entries = mcpToolsToActionEntries(mcpManager, {
+          toolNames: requested,
+        });
+        const missing = requested.filter((toolName) => !entries[toolName]);
+        if (missing.length > 0) {
+          throw new Error(
+            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the job's capability list.`,
+          );
+        }
+        return entries;
+      };
 
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
@@ -2619,6 +2649,7 @@ export function createAgentChatPlugin(
       // through the settings UI). getEngineTools() in production-agent re-reads
       // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
+        syncMcpActionEntries(mcpManager, mcpActionEntries);
         syncMcpActionEntries(mcpManager, prodActions);
       });
 
@@ -2909,9 +2940,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         model: options?.model,
         appId: options?.appId,
         apiKey: options?.apiKey,
-        runSoftTimeoutMs: options?.runSoftTimeoutMs,
-        runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-        durableBackgroundRuns: options?.durableBackgroundRuns,
+        ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
           if (details.threadId && details.ownerEmail) {
@@ -3017,9 +3046,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               model: options?.model,
               appId: options?.appId,
               apiKey: options?.apiKey,
-              runSoftTimeoutMs: options?.runSoftTimeoutMs,
-              runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-              durableBackgroundRuns: options?.durableBackgroundRuns,
+              ...resolveInteractiveAgentRunOptions(options),
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
@@ -3176,9 +3203,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           model: options?.model,
           appId: options?.appId,
           apiKey: options?.apiKey,
-          runSoftTimeoutMs: options?.runSoftTimeoutMs,
-          runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
-          durableBackgroundRuns: options?.durableBackgroundRuns,
+          ...resolveInteractiveAgentRunOptions(options),
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
             if (details.threadId && details.ownerEmail) {
@@ -5517,7 +5542,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
           const schedulerDeps = {
-            getActions: () => ({
+            getActions: (job?: RecurringJobContext) => ({
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
@@ -5530,6 +5555,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...fetchTool,
               ...webSearchTool,
               ...toolActions,
+              ...getJobMcpActionEntries(job),
             }),
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
@@ -5550,10 +5576,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // first request on the same compact surface as interactive chat
             // instead of the full jobTools/automationTools/notificationTools/
             // fetchTool/webSearchTool/toolActions catalog every tick.
-            getInitialToolNames: () => [
+            getInitialToolNames: (job?: RecurringJobContext) => [
               ...effectiveInitialToolNames,
               "manage-jobs",
               "manage-progress",
+              ...(job?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
             model: options?.model,

@@ -15,7 +15,7 @@ name: PR Visual Recap (reusable)
 #
 # IMPORTANT: callers must trigger on the same pull_request event types as this
 # file declares in its on.workflow_call section (opened, synchronize, reopened,
-# ready_for_review, closed).  The workflow_call trigger inherits the CALLER's event
+# ready_for_review, labeled, closed).  The workflow_call trigger inherits the CALLER's event
 # context, so `github.event.pull_request.*` expressions here work correctly only
 # when the caller fires on pull_request.
 
@@ -97,6 +97,11 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
+      required-labels:
+        description: "Comma-separated PR labels; when set, recaps only run when the PR has at least one listed label"
+        required: false
+        type: string
+        default: ""
     secrets:
       # Required: bearer token minted by `agent-native connect`.  Authorizes
       # publishing the recap plan and the screenshot upload.
@@ -126,6 +131,7 @@ concurrency:
 jobs:
   gate:
     name: Gate
+    if: github.event.action != 'labeled' || inputs.required-labels != ''
     # A custom plain-label runner is allowed only for trusted same-repo authors.
     # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
     # any step starts. The only fromJSON input is this static association list.
@@ -152,6 +158,7 @@ jobs:
           VISUAL_RECAP_MODEL: ${{ inputs.model }}
           VISUAL_RECAP_RUNS_ON: ${{ inputs.runs-on }}
           VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
+          VISUAL_RECAP_REQUIRED_LABELS: ${{ inputs.required-labels }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
@@ -163,6 +170,19 @@ jobs:
             if (pr && pr.draft) reasons.push('draft PR');
             if (pr && context.payload.action === 'closed' && !pr.merged) {
               reasons.push('closed without merge');
+            }
+            const requiredLabels = (process.env.VISUAL_RECAP_REQUIRED_LABELS || '')
+              .split(',')
+              .map((label) => label.trim().toLowerCase())
+              .filter(Boolean);
+            if (pr && requiredLabels.length > 0) {
+              const prLabels = new Set((Array.isArray(pr.labels) ? pr.labels : [])
+                .map((label) => typeof label === 'string' ? label : label && label.name)
+                .filter(Boolean)
+                .map((label) => String(label).toLowerCase()));
+              if (!requiredLabels.some((label) => prLabels.has(label))) {
+                reasons.push(`missing required recap label (${requiredLabels.join(', ')})`);
+              }
             }
 
             // Fork PRs only receive repo secrets when the org/repo opts into
@@ -331,6 +351,9 @@ jobs:
     if: needs.gate.outputs.run == 'true'
     runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}
     timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     permissions:
       actions: write
       checks: write
@@ -662,9 +685,46 @@ jobs:
             fi
           fi
 
+      - name: Check recap source
+        id: source_status
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
+        env:
+          RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+        run: |
+          set -uo pipefail
+          if [ -s recap-source.json ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$RECAP_AGENT" in
+            codex) AGENT_LABEL="Codex" ;;
+            claude) AGENT_LABEL="Claude" ;;
+            openai-compatible) AGENT_LABEL="OpenAI-compatible agent" ;;
+            *) AGENT_LABEL="Recap agent" ;;
+          esac
+          if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit' codex-events.jsonl codex-stderr.log claude-result.json claude-stderr.log openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
+            case "$RECAP_AGENT" in
+              codex) REASON="Codex could not author recap-source.json because the OpenAI API project's quota/budget is exhausted. Add API credits or raise that project's monthly budget, then rerun the workflow." ;;
+              claude) REASON="Claude could not author recap-source.json because the Anthropic provider quota is exhausted. Restore its quota or billing, then rerun the workflow." ;;
+              *) REASON="$AGENT_LABEL could not author recap-source.json because its provider quota was exceeded." ;;
+            esac
+          elif grep -Eiq -- 'invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' codex-events.jsonl codex-stderr.log claude-result.json claude-stderr.log openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
+            REASON="$AGENT_LABEL could not author recap-source.json because provider authentication failed."
+          else
+            REASON="$AGENT_LABEL did not produce recap-source.json before source authoring completed."
+          fi
+          printf '%s\n' "$REASON" > recap-url-reason.txt
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reason<<__RECAP_SOURCE_REASON_EOF__'
+            echo "$REASON"
+            echo '__RECAP_SOURCE_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
+          echo "::warning::$REASON Skipping deterministic publish."
+
       - name: Publish recap source
         id: publish
-        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
+        if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true' && steps.source_status.outputs.ready == 'true'
         continue-on-error: true
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
@@ -980,13 +1040,13 @@ jobs:
           SHOT_STATUS=$(LIGHT_SHOT_JSON="$LIGHT_SHOT_JSON" DARK_SHOT_JSON="$DARK_SHOT_JSON" node <<'NODE'
           const parse = (raw) => { try { return JSON.parse(raw || "{}"); } catch { return { ok: false, reason: "invalid shot JSON" }; } };
           const shots = [["light", parse(process.env.LIGHT_SHOT_JSON)], ["dark", parse(process.env.DARK_SHOT_JSON)]];
-          const hasImage = shots.some(([, shot]) => typeof shot.imageUrl === "string" && shot.imageUrl.trim());
+          const hasAllImages = shots.every(([, shot]) => typeof shot.imageUrl === "string" && shot.imageUrl.trim());
           const reasons = shots.flatMap(([label, shot]) => {
             if (typeof shot.reason === "string" && shot.reason.trim()) return [`${label}: ${shot.reason.trim()}`];
             if (!(typeof shot.imageUrl === "string" && shot.imageUrl.trim())) return [`${label}: no imageUrl returned`];
             return [];
           });
-          process.stdout.write(JSON.stringify({ ok: hasImage, reason: hasImage ? "" : reasons.join("; ").slice(0, 1000) }));
+          process.stdout.write(JSON.stringify({ ok: hasAllImages, reason: hasAllImages ? "" : reasons.join("; ").slice(0, 1000) }));
           NODE
           )
           SHOT_OK=$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$SHOT_STATUS")
@@ -1072,7 +1132,7 @@ jobs:
           # Prefer the route-health diagnostic when the plan app routes are not
           # yet deployed so the comment explains the 404 instead of a generic
           # "recap-url.txt was not created" message.
-          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -euo pipefail
           $RECAP_CLI recap comment upsert --repo "$GITHUB_REPOSITORY" --issue "$PR_NUMBER" --token "$GH_TOKEN" --head-sha "$HEAD_SHA"
@@ -1089,7 +1149,7 @@ jobs:
           DIFF_HUGE: ${{ steps.diff.outputs.huge }}
           DIFF_TINY: ${{ steps.diff.outputs.tiny }}
           RECAP_AGENT_SUMMARY: ${{ steps.agent_summary.outputs.summary }}
-          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.url.outputs.reason }}
+          RECAP_URL_REASON: ${{ steps.route_health.outputs.reason || steps.source_status.outputs.reason || steps.url.outputs.reason }}
         run: |
           set -uo pipefail
           $RECAP_CLI recap check complete \

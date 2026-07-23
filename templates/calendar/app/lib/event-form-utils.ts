@@ -7,6 +7,7 @@ export type RecurrencePreset =
   | "daily"
   | "weekdays"
   | "weekly"
+  | "biweekly"
   | "monthly"
   | "yearly"
   | "custom";
@@ -334,6 +335,7 @@ export function getRecurrencePreset(recurrence?: string[]): RecurrencePreset {
   const interval = recurrenceField(rule, "INTERVAL") || "1";
   const byDay = recurrenceField(rule, "BYDAY");
 
+  if (freq === "WEEKLY" && interval === "2") return "biweekly";
   if (interval !== "1") return "custom";
   if (freq === "DAILY" && !byDay) return "daily";
   if ((freq === "DAILY" || freq === "WEEKLY") && byDay === "MO,TU,WE,TH,FR") {
@@ -360,6 +362,10 @@ export function buildRecurrenceRules(
     case "weekly": {
       const day = eventWeekdayCode(startIso, timeZone);
       return [`RRULE:FREQ=WEEKLY;BYDAY=${day}`];
+    }
+    case "biweekly": {
+      const day = eventWeekdayCode(startIso, timeZone);
+      return [`RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=${day}`];
     }
     case "monthly":
       return ["RRULE:FREQ=MONTHLY"];
