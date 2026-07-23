@@ -2314,96 +2314,60 @@ function portExposer(): Plugin {
   };
 }
 
-const NITRO_DEV_READY_TIMEOUT_MS = 30_000;
-const NITRO_DEV_READY_RETRY_MS = 100;
-
-type NitroDevEnvironment = {
-  dispatchFetch?: (request: Request) => Promise<Response>;
-};
-
-type NitroDevReadyOptions = {
-  now?: () => number;
-  retryDelayMs?: number;
-  sleep?: (delayMs: number) => Promise<void>;
-  timeoutMs?: number;
-  onTimeout?: () => void;
-};
-
 function isNitroEnvironmentUnavailable(error: unknown): boolean {
   const candidate = error as {
     name?: unknown;
     status?: unknown;
+    statusCode?: unknown;
     message?: unknown;
   };
   return (
     candidate?.name === "NitroViteError" &&
-    candidate.status === 503 &&
+    (candidate.status === 503 || candidate.statusCode === 503) &&
     typeof candidate.message === "string" &&
     /Vite environment .+ is unavailable/.test(candidate.message)
   );
 }
 
-async function waitForNitroDevReady(
-  environment: NitroDevEnvironment | undefined,
-  options: NitroDevReadyOptions = {},
-): Promise<void> {
-  if (!environment?.dispatchFetch) return;
-
-  const now = options.now ?? Date.now;
-  const retryDelayMs = options.retryDelayMs ?? NITRO_DEV_READY_RETRY_MS;
-  const sleep =
-    options.sleep ??
-    ((delayMs: number) =>
-      new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
-  const timeoutMs = options.timeoutMs ?? NITRO_DEV_READY_TIMEOUT_MS;
-  const deadline = now() + timeoutMs;
-
-  while (now() < deadline) {
-    try {
-      await environment.dispatchFetch(
-        new Request("http://agent-native.local/_agent-native/health", {
-          headers: {
-            accept: "application/json",
-            "x-vite-env": "nitro",
-          },
-        }),
-      );
-      return;
-    } catch (error) {
-      if (!isNitroEnvironmentUnavailable(error)) return;
-    }
-
-    await sleep(Math.min(retryDelayMs, Math.max(0, deadline - now())));
-  }
-
-  options.onTimeout?.();
-}
-
-function nitroReadinessGate(): Plugin {
+function nitroStartupRecovery(): Plugin {
   return {
-    name: "agent-native-nitro-readiness",
+    name: "agent-native-nitro-startup-recovery",
     apply: "serve",
     enforce: "pre",
     configureServer(server) {
-      let readiness: Promise<void> | undefined;
-      const ensureReady = () =>
-        (readiness ??= waitForNitroDevReady(
-          server.environments?.nitro as NitroDevEnvironment | undefined,
-          {
-            onTimeout: () => {
-              server.config.logger.warn(
-                `[agent-native] Nitro did not become ready within ${NITRO_DEV_READY_TIMEOUT_MS / 1_000}s; releasing queued dev requests.`,
-              );
-            },
-          },
-        ));
+      return () => {
+        server.middlewares.use(
+          (
+            error: unknown,
+            req: IncomingMessage,
+            res: ServerResponse,
+            next: (error?: unknown) => void,
+          ) => {
+            const accept = req.headers.accept ?? "";
+            if (
+              !isNitroEnvironmentUnavailable(error) ||
+              (req.method !== "GET" && req.method !== "HEAD") ||
+              !accept.includes("text/html") ||
+              res.headersSent
+            ) {
+              next(error);
+              return;
+            }
 
-      server.httpServer?.once("listening", () => {
-        void ensureReady();
-      });
-      server.middlewares.use((_req, _res, next) => {
-        void ensureReady().then(() => next(), next);
-      });
+            res.statusCode = 503;
+            res.setHeader("cache-control", "no-store");
+            res.setHeader("content-type", "text/html; charset=utf-8");
+            res.setHeader("retry-after", "1");
+            if (req.method === "HEAD") {
+              res.end();
+              return;
+            }
+            res.end(
+              '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+            );
+          },
+        );
+      };
     },
   };
 }
@@ -2786,9 +2750,9 @@ function createAgentNativePlugins(
     embedDevFrameHeaders(),
     baseRedirectGuard(),
     portExposer(),
-    // Keep startup requests ahead of Nitro until its environment import is
-    // complete. This plugin must remain before the Nitro middleware below.
-    nitroReadinessGate(),
+    // Nitro can reject the first document request while its Vite environment
+    // is still importing. Recover that transient response after its middleware.
+    nitroStartupRecovery(),
     silenceConnectionResets(),
     rolldownInputFix(),
     // Nitro Vite plugin for dev-mode API route serving and HMR.
@@ -3192,7 +3156,6 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
-  nitroReadinessGate as _nitroReadinessGate,
-  waitForNitroDevReady as _waitForNitroDevReady,
+  nitroStartupRecovery as _nitroStartupRecovery,
   debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };

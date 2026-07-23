@@ -199,6 +199,63 @@ describe("A2AClient", () => {
     ).toBeInstanceOf(AbortSignal);
   });
 
+  it("recovers after one task-status request exceeds the per-request timeout", async () => {
+    vi.useFakeTimers();
+    let taskReads = 0;
+    let firstPollSignal: AbortSignal | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit): Promise<Response> => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-transient-hung-poll");
+        }
+
+        taskReads += 1;
+        if (taskReads === 1) {
+          firstPollSignal = init.signal ?? null;
+          return new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener(
+              "abort",
+              () => {
+                reject(
+                  new DOMException("The operation was aborted", "AbortError"),
+                );
+              },
+              { once: true },
+            );
+          });
+        }
+        return completedResponse(body, "recovered after transient poll hang");
+      }),
+    );
+
+    const client = new A2AClient("https://agent.test");
+    const result = client.sendAndWait(
+      { role: "user", parts: [{ type: "text", text: "hello" }] },
+      { timeoutMs: 60_000, pollIntervalMs: 1_000 },
+    );
+    const assertion = expect(result).resolves.toMatchObject({
+      status: {
+        state: "completed",
+        message: {
+          parts: [
+            { type: "text", text: "recovered after transient poll hang" },
+          ],
+        },
+      },
+    });
+
+    while (taskReads === 0) await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(16_000);
+    await assertion;
+    expect(firstPollSignal?.aborted).toBe(true);
+    expect(taskReads).toBe(2);
+  });
+
   it("returns input-required without polling until timeout", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));

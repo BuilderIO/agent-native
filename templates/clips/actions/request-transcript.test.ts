@@ -31,6 +31,7 @@ const mockDb = vi.hoisted(() => ({
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockGetSetting = vi.hoisted(() => vi.fn());
 const mockGetUserSetting = vi.hoisted(() => vi.fn());
+const mockReadAppSecret = vi.hoisted(() => vi.fn());
 const mockFetchLoomTranscript = vi.hoisted(() => vi.fn());
 const mockExportToBrainRun = vi.hoisted(() => vi.fn());
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
@@ -69,7 +70,7 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 vi.mock("@agent-native/core/secrets", () => ({
-  readAppSecret: vi.fn(async () => null),
+  readAppSecret: (...args: unknown[]) => mockReadAppSecret(...args),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -189,6 +190,7 @@ const existingSegments = JSON.stringify([
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("builderTranscriptionTimeoutMs", () => {
@@ -288,6 +290,7 @@ describe("requestTranscript regeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockReadAppSecret.mockResolvedValue(null);
     mockResolveHasBuilderPrivateKey.mockResolvedValue(true);
     mockAssertAccess.mockResolvedValue({ role: "editor" });
     mockSsrfSafeFetch.mockResolvedValue(
@@ -526,6 +529,91 @@ describe("requestTranscript regeneration", () => {
       preserved: true,
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("falls back to Groq when Builder returns an empty transcript", async () => {
+    mockReadAppSecret.mockResolvedValue({ value: "groq-test-key" });
+    mockTranscribeWithBuilder.mockResolvedValue({
+      text: "",
+      language: "en",
+      segments: [],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            text: "Recovered from the spoken recording.",
+            language: "en",
+            segments: [
+              {
+                start: 0,
+                end: 1.2,
+                text: "Recovered from the spoken recording.",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    mockSelectRows.queue = [
+      [
+        {
+          status: "ready",
+          fullText: "Original transcript.",
+          segmentsJson: existingSegments,
+          updatedAt: "2026-07-09T00:00:00.000Z",
+          language: "en",
+          retryCount: 0,
+        },
+      ],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [
+        {
+          videoUrl: "https://cdn.example.com/recording.webm",
+          videoFormat: "webm",
+          hasAudio: true,
+          durationMs: 1200,
+          title: "Human title",
+        },
+      ],
+      [{ recordingId: "rec_empty" }],
+      [{ title: "Human title", titleSource: "manual", description: "Saved" }],
+    ];
+
+    const result = await requestTranscript.run({
+      recordingId: "rec_empty",
+      force: true,
+      regenerate: true,
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "rec_empty",
+      status: "ready",
+      provider: "groq",
+    });
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        fullText: "Recovered from the spoken recording.",
+        failureReason: null,
+      }),
+    );
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "transcript-cleanup-rec_empty",
+      expect.objectContaining({
+        status: "builder-transcription-empty",
+      }),
+    );
   });
 });
 
