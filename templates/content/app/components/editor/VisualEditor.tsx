@@ -355,8 +355,7 @@ const NotionBlockquote = Blockquote.extend({
   },
 });
 
-const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
-  "Press ‘space’ for AI or ‘/’ for commands";
+const DEFAULT_EMPTY_BLOCK_PLACEHOLDER = "Press ‘/’ for commands";
 
 const CONTENT_RECENT_EDIT_TTL_MS = 6_000;
 const RECENT_EDIT_MARKER_WIDTH = 2;
@@ -1099,7 +1098,7 @@ function getVisualEditorPlaceholder({
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor
+    return hasAnchor && editor.isFocused
       ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER
       : EMPTY_TOGGLE_BODY_PLACEHOLDER;
   }
@@ -1122,7 +1121,7 @@ function getVisualEditorPlaceholder({
     return hasAnchor ? "Empty quote" : "";
   }
 
-  // Skip the long "Press 'space' for AI…" hint inside table cells — it wraps
+  // Skip the command hint inside table cells — it wraps
   // awkwardly in narrow columns and the cell itself is already an affordance.
   if (
     node.type.name === "paragraph" &&
@@ -1132,7 +1131,7 @@ function getVisualEditorPlaceholder({
     return "";
   }
 
-  return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
+  return hasAnchor && editor.isFocused ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
 }
 
 export async function uploadAndInsertImageFiles(

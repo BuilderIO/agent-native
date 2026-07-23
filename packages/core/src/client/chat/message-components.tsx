@@ -845,12 +845,13 @@ export function messageTextFromContent(content: unknown): string {
     .join("\n");
 }
 
-function latestUserMessageText(messages: readonly unknown[]): string {
+export function latestUserMessageText(messages: readonly unknown[]): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (!message || typeof message !== "object") continue;
     const record = message as { role?: unknown; content?: unknown };
-    if (record.role === "user") return messageTextFromContent(record.content);
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
   }
   return "";
 }

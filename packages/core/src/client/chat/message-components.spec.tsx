@@ -10,6 +10,7 @@ import {
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
   isCollapsibleAssistantWorkPart,
+  latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
@@ -194,6 +195,29 @@ describe("messageTextFromContent", () => {
         },
       ]),
     ).toBe("Stopped because manage-progress failed 3 times.");
+  });
+});
+
+describe("latestUserMessageText", () => {
+  it("uses only visible user-authored text for connection suggestions", () => {
+    expect(
+      latestUserMessageText([
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Open Notion<context>Connect Granola</context>",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "Connect Granola" }],
+          metadata: { custom: { agentNativeHiddenUserMessage: true } },
+        },
+      ]),
+    ).toBe("Open Notion");
   });
 });
 

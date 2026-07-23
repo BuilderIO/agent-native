@@ -1097,15 +1097,26 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("uses the Notion empty-line placeholder for focused paragraphs", () => {
+  it("only shows the Notion empty-line placeholder while the editor is focused", () => {
     const editor = createFullEditor();
 
     try {
       editor.commands.setTextSelection(1);
+      expect(
+        editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
+      ).toBe("");
+
+      editor.commands.focus();
+      editor.commands.setTextSelection(1);
 
       expect(
         editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
-      ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+      ).toBe("Press ‘/’ for commands");
+
+      editor.commands.blur();
+      expect(
+        editor.view.dom.querySelector("p")?.getAttribute("data-placeholder"),
+      ).toBe("");
     } finally {
       editor.destroy();
     }
@@ -1327,6 +1338,7 @@ describe("VisualEditor markdown round-tripping", () => {
     });
 
     try {
+      editor.commands.focus();
       editor.commands.setTextSelection(2);
 
       expect(
@@ -1335,7 +1347,7 @@ describe("VisualEditor markdown round-tripping", () => {
             "[data-notion-toggle-content] p, .notion-toggle__content p",
           )
           ?.getAttribute("data-placeholder"),
-      ).toBe("Press ‘space’ for AI or ‘/’ for commands");
+      ).toBe("Press ‘/’ for commands");
     } finally {
       editor.destroy();
     }

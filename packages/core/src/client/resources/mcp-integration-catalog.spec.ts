@@ -204,6 +204,10 @@ describe("MCP integration catalog", () => {
       findMcpIntegrationForText("I cannot read this Notion page")?.id,
     ).toBe("notion");
     expect(findMcpIntegrationForText("Explain linear algebra")).toBeNull();
+    expect(findMcpIntegrationForText("Use monday for this task")).toBeNull();
+    expect(findMcpIntegrationForText("Use monday.com for this task")?.id).toBe(
+      "monday",
+    );
     expect(
       findMcpIntegrationForText("Connect Linear to read my issues")?.id,
     ).toBe("linear");
@@ -216,9 +220,15 @@ describe("MCP integration catalog", () => {
     expect(
       findMcpIntegrationForText("Summarize my Granola meeting recordings")?.id,
     ).toBe("granola");
-    expect(findMcpIntegrationForText("Pull my meeting recordings")?.id).toBe(
-      "granola",
-    );
+    expect(findMcpIntegrationForText("Pull my meeting recordings")).toBeNull();
+    expect(
+      findMcpIntegrationForText("Find call transcripts from Gong"),
+    ).toBeNull();
+    expect(
+      findMcpIntegrationForText(
+        "Make the action items and decisions larger on this slide",
+      ),
+    ).toBeNull();
     expect(findMcpIntegrationForText("I love Granola")).toBeNull();
     expect(
       findMcpIntegrationForText(
@@ -229,6 +239,39 @@ describe("MCP integration catalog", () => {
       true,
     );
     expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
+  });
+
+  it("matches exact display brands and branded aliases only", () => {
+    for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      expect(
+        findMcpIntegrationForText(
+          `Connect ${integration.name} to this workspace`,
+          [integration],
+        )?.id,
+      ).toBe(integration.id);
+    }
+
+    const granola = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "granola",
+    )!;
+    const custom = {
+      ...granola,
+      id: "internal-notes",
+      provider: "internal-notes",
+      name: "Acme Notes",
+      aliases: ["transcripts"],
+      brandAliases: ["Acme Meetings"],
+    };
+
+    expect(
+      findMcpIntegrationForText("Connect Acme Meetings", [custom])?.id,
+    ).toBe("internal-notes");
+    expect(
+      findMcpIntegrationForText("Connect internal-notes", [custom]),
+    ).toBeNull();
+    expect(
+      findMcpIntegrationForText("Find my transcripts", [custom]),
+    ).toBeNull();
   });
 
   it("labels authentication modes for compact badges", () => {
