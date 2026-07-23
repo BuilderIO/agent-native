@@ -155,7 +155,6 @@ describe("mountActionRoutes", () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 
-
   it("mounts package actions registered through another core module instance", async () => {
     const packageCore = await import("./action-discovery.js");
     const packageRun = vi.fn(async () => ({ source: "package" }));
