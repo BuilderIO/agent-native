@@ -122,6 +122,9 @@ interface FormattedMessageTimestamp {
   full: string;
 }
 
+const messageFooterFadeClassName =
+  "opacity-0 transition-[color,opacity] duration-150 group-hover:opacity-100 group-focus-within:opacity-100";
+
 function coerceMessageDate(value: unknown): Date | null {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? null : value;
@@ -793,7 +796,7 @@ export function UserMessage() {
           {timestamp && (
             <MessageTimestamp
               timestamp={timestamp}
-              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              className={messageFooterFadeClassName}
             />
           )}
         </div>
@@ -1405,7 +1408,7 @@ export function AssistantMessage() {
                       <button
                         type="button"
                         aria-label="Regenerate response"
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         <IconRefresh className="h-3.5 w-3.5" />
                       </button>
@@ -1421,7 +1424,7 @@ export function AssistantMessage() {
             {timestamp && (
               <MessageTimestamp
                 timestamp={timestamp}
-                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                className={messageFooterFadeClassName}
               />
             )}
           </div>
