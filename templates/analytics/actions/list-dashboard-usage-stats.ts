@@ -96,6 +96,8 @@ export function dashboardIdFromEventLocation(
   if (!raw) return null;
   try {
     const parsed = new URL(raw, "https://analytics.local");
+    const parsedDashboardId = dashboardIdFromPath(parsed.pathname);
+    if (parsedDashboardId) return parsedDashboardId;
     if (
       /(?:^|\/)(?:dashboards|adhoc)\/explorer-dashboard$/.test(parsed.pathname)
     ) {
@@ -144,24 +146,92 @@ export default defineAction({
     // guard:allow-unscoped — org owner/admin audit intentionally spans all
     // dashboard rows in the active org after requireDbAdminContextFromRequest.
     const dashboardRows = await db
-      .select()
+      .select({
+        id: schema.dashboards.id,
+        kind: schema.dashboards.kind,
+        title: schema.dashboards.title,
+        config: schema.dashboards.config,
+        ownerEmail: schema.dashboards.ownerEmail,
+        visibility: schema.dashboards.visibility,
+        createdAt: schema.dashboards.createdAt,
+        updatedAt: schema.dashboards.updatedAt,
+        updatedBy: schema.dashboards.updatedBy,
+        archivedAt: schema.dashboards.archivedAt,
+        hiddenAt: schema.dashboards.hiddenAt,
+        hiddenBy: schema.dashboards.hiddenBy,
+      })
       .from(schema.dashboards)
       .where(eq(schema.dashboards.orgId, admin.orgId));
+
+    if (dashboardRows.length === 0) return [];
 
     const dashboardIds = new Set<string>(
       dashboardRows.map((row: { id: string }) => row.id),
     );
 
-    const savedViewRows = await db
-      .select({
-        dashboardId: schema.dashboardViews.dashboardId,
-        count: sql<number>`count(*)`,
-        lastSavedViewAt: sql<
-          string | null
-        >`max(${schema.dashboardViews.createdAt})`,
-      })
-      .from(schema.dashboardViews)
-      .groupBy(schema.dashboardViews.dashboardId);
+    const analyticsUserIdentity = sql<
+      string | null
+    >`coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, ''))`;
+    const dashboardEventLocation = or(
+      like(schema.analyticsEvents.path, "/dashboards/%"),
+      like(schema.analyticsEvents.path, "/adhoc/%"),
+      like(schema.analyticsEvents.url, "%/dashboards/%"),
+      like(schema.analyticsEvents.url, "%/adhoc/%"),
+    );
+
+    const [savedViewRows, eventRows, eventUserRows] = await Promise.all([
+      db
+        .select({
+          dashboardId: schema.dashboardViews.dashboardId,
+          count: sql<number>`count(*)`,
+          lastSavedViewAt: sql<
+            string | null
+          >`max(${schema.dashboardViews.createdAt})`,
+        })
+        .from(schema.dashboardViews)
+        .groupBy(schema.dashboardViews.dashboardId),
+      db
+        .select({
+          path: schema.analyticsEvents.path,
+          url: schema.analyticsEvents.url,
+          eventName: schema.analyticsEvents.eventName,
+          count: sql<number>`count(*)`,
+          lastSeenAt: sql<
+            string | null
+          >`max(${schema.analyticsEvents.receivedAt})`,
+        })
+        .from(schema.analyticsEvents)
+        .where(
+          and(
+            eq(schema.analyticsEvents.orgId, admin.orgId),
+            dashboardEventLocation,
+          ),
+        )
+        .groupBy(
+          schema.analyticsEvents.path,
+          schema.analyticsEvents.url,
+          schema.analyticsEvents.eventName,
+        ),
+      db
+        .select({
+          path: schema.analyticsEvents.path,
+          url: schema.analyticsEvents.url,
+          userIdentity: analyticsUserIdentity,
+        })
+        .from(schema.analyticsEvents)
+        .where(
+          and(
+            eq(schema.analyticsEvents.orgId, admin.orgId),
+            dashboardEventLocation,
+            sql`${analyticsUserIdentity} IS NOT NULL`,
+          ),
+        )
+        .groupBy(
+          schema.analyticsEvents.path,
+          schema.analyticsEvents.url,
+          analyticsUserIdentity,
+        ),
+    ]);
 
     const savedViewsByDashboard = new Map<
       string,
@@ -179,39 +249,6 @@ export default defineAction({
       });
     }
 
-    const analyticsUserIdentity = sql<
-      string | null
-    >`coalesce(nullif(${schema.analyticsEvents.userKey}, ''), nullif(${schema.analyticsEvents.userId}, ''), nullif(${schema.analyticsEvents.anonymousId}, ''), nullif(${schema.analyticsEvents.sessionId}, ''))`;
-    const eventRows = await db
-      .select({
-        path: schema.analyticsEvents.path,
-        url: schema.analyticsEvents.url,
-        eventName: schema.analyticsEvents.eventName,
-        count: sql<number>`count(*)`,
-        userIdentity: analyticsUserIdentity,
-        lastSeenAt: sql<
-          string | null
-        >`max(${schema.analyticsEvents.receivedAt})`,
-      })
-      .from(schema.analyticsEvents)
-      .where(
-        and(
-          eq(schema.analyticsEvents.orgId, admin.orgId),
-          or(
-            like(schema.analyticsEvents.path, "%/dashboards/%"),
-            like(schema.analyticsEvents.path, "%/adhoc/%"),
-            like(schema.analyticsEvents.url, "%/dashboards/%"),
-            like(schema.analyticsEvents.url, "%/adhoc/%"),
-          ),
-        ),
-      )
-      .groupBy(
-        schema.analyticsEvents.path,
-        schema.analyticsEvents.url,
-        schema.analyticsEvents.eventName,
-        analyticsUserIdentity,
-      );
-
     const eventsByDashboard = new Map<
       string,
       {
@@ -226,7 +263,6 @@ export default defineAction({
       url: string | null;
       eventName: string;
       count: unknown;
-      userIdentity: string | null;
       lastSeenAt: string | null;
     }>) {
       const dashboardId = dashboardIdFromEventLocation(row.path, row.url);
@@ -248,6 +284,22 @@ export default defineAction({
       } else {
         current.eventEngagementCount += count;
       }
+      eventsByDashboard.set(dashboardId, current);
+    }
+
+    for (const row of eventUserRows as Array<{
+      path: string | null;
+      url: string | null;
+      userIdentity: string | null;
+    }>) {
+      const dashboardId = dashboardIdFromEventLocation(row.path, row.url);
+      if (!dashboardId || !dashboardIds.has(dashboardId)) continue;
+      const current = eventsByDashboard.get(dashboardId) ?? {
+        viewCount: 0,
+        eventEngagementCount: 0,
+        uniqueUsers: new Set<string>(),
+        lastViewedAt: null,
+      };
       if (row.userIdentity) current.uniqueUsers.add(row.userIdentity);
       eventsByDashboard.set(dashboardId, current);
     }

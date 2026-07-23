@@ -1265,6 +1265,11 @@ const runAnalyticsMigrations = runMigrations(
       name: "error-events-user-key-filter-idx",
       sql: `CREATE INDEX IF NOT EXISTS error_events_user_key_filter_idx ON error_events (user_key, owner_email, org_id, issue_id)`,
     },
+    {
+      version: 121,
+      name: "analytics-events-org-path-event-idx",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_events_org_path_event_idx ON analytics_events (org_id, path, event_name)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
