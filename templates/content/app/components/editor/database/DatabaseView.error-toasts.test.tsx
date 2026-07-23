@@ -493,7 +493,7 @@ describe("DatabaseView UI regressions", () => {
     });
     await renderDatabaseView();
     const filterValueInput = container.querySelector<HTMLInputElement>(
-      'input[placeholder="Text"]',
+      'input[placeholder="Value"]',
     );
     expect(filterValueInput).toBeTruthy();
     await act(async () => {
