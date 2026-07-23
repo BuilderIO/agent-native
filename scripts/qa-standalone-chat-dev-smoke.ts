@@ -15,10 +15,11 @@
  * a different SSR pipeline than Vite dev + React Router's environment API.
  *
  * CI flake strategy (do not fight Vite first-load dep optimization):
- * 1. One page.goto to `/` so auto-login runs in the browser.
- * 2. Poll for Home / auth — never re-goto during active Vite reloads.
- * 3. waitForViteDepsQuiet(server logs) before strict assertions.
- * 4. Retry goto/evaluate only for transient Playwright navigation errors.
+ * 1. Poll the unauthenticated JSON API from process launch until it returns 401.
+ * 2. One page.goto to `/` so auto-login runs in the browser.
+ * 3. Poll for Home / auth — never re-goto during active Vite reloads.
+ * 4. waitForViteDepsQuiet(server logs) before strict assertions.
+ * 5. Retry goto/evaluate only for transient Playwright navigation errors.
  */
 import assert from "node:assert/strict";
 import {
@@ -59,6 +60,8 @@ const headed = process.env.STANDALONE_CHAT_DEV_SMOKE_HEADED === "1";
 const isCi = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
 const shellTimeoutMs = isCi ? 120_000 : 60_000;
 const devStartAttempts = 3;
+const nitroUnavailableConsoleLine =
+  'NitroViteError]: Vite environment "nitro" is unavailable';
 
 function log(step: string): void {
   if (verbose) console.log(`[standalone-dev-smoke] ${step}`);
@@ -313,6 +316,25 @@ async function waitForDevStable(
       continue;
     }
 
+    try {
+      const speculationRules = await fetch(
+        `${baseUrl}/_agent-native/speculation-rules.json`,
+        {
+          redirect: "manual",
+          signal: AbortSignal.timeout(3_000),
+        },
+      );
+      if (speculationRules.status !== 200) {
+        lastError = `speculation rules HTTP ${speculationRules.status}`;
+        await sleep(750);
+        continue;
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      await sleep(750);
+      continue;
+    }
+
     if (!hasChatMigrations(logs)) {
       lastError = "migrations still running";
       await sleep(750);
@@ -333,6 +355,67 @@ async function waitForDevStable(
 
   throw new Error(
     `Dev server did not stabilize at ${baseUrl}: ${lastError}\n${logTail(logs)}`,
+  );
+}
+
+async function waitForUnauthenticatedPollReady(
+  running: RunningDev,
+): Promise<void> {
+  const deadline = Date.now() + 180_000;
+  let lastError = "dev port has not accepted a request";
+  let transient503s = 0;
+
+  while (Date.now() < deadline) {
+    if (running.isClosed()) {
+      throw new Error(
+        "Dev server exited before the startup poll became ready. Recent logs:\n" +
+          logTail(running.logs),
+      );
+    }
+    if (hasAuthLockFailure(running.logs)) {
+      throw new Error(
+        "Dev server auth init failed (app locked). Recent logs:\n" +
+          logTail(running.logs),
+      );
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(`${running.baseUrl}/_agent-native/poll?since=0`, {
+        headers: { accept: "application/json" },
+        redirect: "manual",
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      await sleep(50);
+      continue;
+    }
+
+    const body = await response.text();
+    if (response.status === 401) {
+      log(
+        `startup poll reached HTTP 401 after ${transient503s} transient 503 response(s)`,
+      );
+      return;
+    }
+    if (response.status === 503) {
+      transient503s += 1;
+      lastError = `startup poll HTTP 503 (${transient503s} transient response(s))`;
+      await sleep(100);
+      continue;
+    }
+
+    throw new Error(
+      `Expected unauthenticated startup poll to return HTTP 401 after transient 503s, ` +
+        `got HTTP ${response.status}: ${body.slice(0, 300)}`,
+    );
+  }
+
+  throw new Error(
+    `Unauthenticated startup poll did not reach HTTP 401: ${lastError}\n${logTail(
+      running.logs,
+    )}`,
   );
 }
 
@@ -394,7 +477,9 @@ async function startDevOnce(): Promise<RunningDev> {
     viteReload,
   };
   try {
+    await waitForUnauthenticatedPollReady(running);
     await waitForDevStable(baseUrl, logs);
+    assertCleanServerLogs(logs);
     log(`dev server stable at ${baseUrl}`);
     return running;
   } catch (err) {
@@ -567,6 +652,11 @@ function isBenignConsoleError(text: string): boolean {
 
 function isBenignHttpError(status: number, url: string): boolean {
   if (status === 404 && url.includes("/_agent-native/agent-chat/threads/")) {
+    return true;
+  }
+  // Nitro can briefly remount framework routes while Vite optimizes the first
+  // browser dependency graph; waitForDevStable verifies this route is ready.
+  if (status === 404 && url.includes("/_agent-native/speculation-rules.json")) {
     return true;
   }
   // First dev load optimizes deps and may 504/503 while Vite/Nitro warm up.
@@ -878,9 +968,7 @@ function assertCleanServerLogs(logs: string[]): void {
   if (text.includes("You must render this element inside a")) {
     offenders.push("render outside router context");
   }
-  if (
-    text.includes('NitroViteError]: Vite environment "nitro" is unavailable')
-  ) {
+  if (text.includes(nitroUnavailableConsoleLine)) {
     offenders.push("Nitro environment unavailable");
   }
   if (hasAuthLockFailure(logs))
@@ -953,6 +1041,9 @@ async function main(): Promise<void> {
     console.log(`  app:      ${appDir}`);
     console.log(
       "  checked:  scaffold → install → dev server → auto-login → /agent → / (Chat)",
+    );
+    console.log(
+      "  checked:  unauthenticated startup poll recovers to HTTP 401",
     );
     console.log("  checked:  no Nitro startup noise or SSR errors in dev logs");
     console.log("  checked:  no browser console/page errors after warmup");
