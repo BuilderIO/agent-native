@@ -2194,6 +2194,8 @@ function DatabaseTable({
   ]);
   useEffect(() => {
     if (!data?.database.id) return;
+    if (pendingPersonalViewSaveRef.current || updatePersonalView.isPending)
+      return;
     const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
@@ -2213,7 +2215,12 @@ function DatabaseTable({
         ? current
         : nextViewConfig,
     );
-  }, [data?.database.id, data?.database.viewConfig, personalView?.overrides]);
+  }, [
+    data?.database.id,
+    data?.database.viewConfig,
+    personalView?.overrides,
+    updatePersonalView.isPending,
+  ]);
 
   useEffect(() => {
     const handlePageHide = () => {

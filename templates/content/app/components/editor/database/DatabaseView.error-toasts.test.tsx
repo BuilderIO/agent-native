@@ -488,6 +488,29 @@ describe("DatabaseView UI regressions", () => {
 
     await act(async () => {
       nameItem?.click();
+      await Promise.resolve();
+    });
+
+    personalViewQuery.data = {
+      databaseId: "database-1",
+      overrides: {
+        version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+        activeViewId: databaseViewConfig.activeViewId,
+        views: databaseViewConfig.views.map((view) => ({
+          id: view.id,
+          sorts: [],
+          filters: [],
+          filterMode: "and" as const,
+        })),
+      },
+    };
+    await renderDatabaseView();
+
+    expect(
+      container.querySelector('button[aria-label="1 active filters"]'),
+    ).toBeTruthy();
+
+    await act(async () => {
       vi.advanceTimersByTime(300);
       await Promise.resolve();
     });

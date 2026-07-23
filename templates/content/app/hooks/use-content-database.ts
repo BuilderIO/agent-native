@@ -51,6 +51,7 @@ import type {
 } from "@shared/api";
 import type { Query, QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
@@ -815,20 +816,49 @@ export function useUpdateContentDatabasePersonalView(
   _databaseId: string | null,
 ) {
   const queryClient = useQueryClient();
+  const latestMutationRef = useRef<{
+    variables: UpdateContentDatabasePersonalViewRequest;
+    previous: ContentDatabasePersonalViewResponse | undefined;
+  } | null>(null);
   return useActionMutation<
     ContentDatabasePersonalViewResponse,
     UpdateContentDatabasePersonalViewRequest
   >("update-content-database-personal-view", {
     skipActionQueryInvalidation: true,
-    onSuccess: (data) => {
+    onMutate: (variables) => {
+      const queryKey = [
+        "action",
+        "get-content-database-personal-view",
+        { databaseId: variables.databaseId },
+      ] as const;
+      latestMutationRef.current = {
+        variables,
+        previous:
+          queryClient.getQueryData<ContentDatabasePersonalViewResponse>(
+            queryKey,
+          ),
+      };
+      queryClient.setQueryData(queryKey, {
+        databaseId: variables.databaseId,
+        overrides: variables.overrides,
+      });
+    },
+    onError: (_error, variables) => {
+      const latest = latestMutationRef.current;
+      if (latest?.variables !== variables) return;
       queryClient.setQueryData(
         [
           "action",
           "get-content-database-personal-view",
-          { databaseId: data.databaseId },
+          { databaseId: variables.databaseId },
         ],
-        data,
+        latest.previous,
       );
+    },
+    onSettled: (_data, _error, variables) => {
+      if (latestMutationRef.current?.variables === variables) {
+        latestMutationRef.current = null;
+      }
     },
   });
 }
