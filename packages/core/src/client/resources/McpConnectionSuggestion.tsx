@@ -39,6 +39,18 @@ export interface McpConnectionSuggestionProps {
   integrations?: DefaultMcpIntegration[];
 }
 
+export function findMcpConnectionSuggestionIntegration({
+  text,
+  contextText = "",
+  variant = "composer",
+  integrations = getDefaultMcpIntegrations(),
+}: McpConnectionSuggestionProps): DefaultMcpIntegration | null {
+  return findMcpIntegrationForText(
+    variant === "response" ? contextText : text,
+    integrations,
+  );
+}
+
 function compareUrl(value: string): string {
   try {
     const url = new URL(value.trim());
@@ -99,22 +111,16 @@ export function McpConnectionSuggestion({
     () => integrationOptions ?? getDefaultMcpIntegrations(),
     [integrationOptions],
   );
-  const textIntegration = useMemo(
-    () => findMcpIntegrationForText(text, integrations),
-    [integrations, text],
-  );
-  const contextIntegration = useMemo(
+  const integration = useMemo(
     () =>
-      contextText ? findMcpIntegrationForText(contextText, integrations) : null,
-    [contextText, integrations],
+      findMcpConnectionSuggestionIntegration({
+        text,
+        contextText,
+        variant,
+        integrations,
+      }),
+    [contextText, integrations, text, variant],
   );
-  const integration =
-    variant === "response" &&
-    textIntegration &&
-    contextIntegration &&
-    textIntegration.id !== contextIntegration.id
-      ? null
-      : (textIntegration ?? contextIntegration);
   const apiFallback = integration
     ? getMcpIntegrationApiFallback(integration)
     : null;

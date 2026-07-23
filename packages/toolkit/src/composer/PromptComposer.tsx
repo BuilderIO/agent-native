@@ -61,6 +61,10 @@ import type {
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
+export function canSubmitWithAgentEngineState(state: string): boolean {
+  return state === "configured";
+}
+
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
  * what to do with them — typically POST to a per-app upload endpoint and pass
@@ -550,7 +554,7 @@ function PromptComposerInner({
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
-    return false;
+    return canSubmitWithAgentEngineState(state);
   }, [
     agentEngineConfigured.state,
     bounceMissingKeySetup,

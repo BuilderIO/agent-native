@@ -119,6 +119,20 @@ const contentProps = (props: {
   "aria-controls": props["aria-controls"],
 });
 
+function dialogClassSlots(className?: string) {
+  const tokens = className?.split(/\s+/).filter(Boolean) ?? [];
+  const isPositionToken = (token: string) =>
+    /^(?:[^:]+:)*!?-?(?:top|translate-y)-/.test(token);
+  const isZIndexToken = (token: string) => /^(?:[^:]+:)*!?z-/.test(token);
+  return {
+    rootClassName: tokens.filter(isZIndexToken).join(" ") || undefined,
+    paperClassName:
+      tokens
+        .filter((token) => !isPositionToken(token) && !isZIndexToken(token))
+        .join(" ") || undefined,
+  };
+}
+
 const ActionButton: DesignSystemComponents["ActionButton"] = ({
   children,
   intent,
@@ -403,21 +417,31 @@ const Tooltip: DesignSystemComponents["Tooltip"] = ({
   placement = "top",
   portalContainer,
   ...props
-}) => (
-  <MuiTooltip
-    {...contentProps(props)}
-    title={content}
-    open={disabled ? false : open}
-    onOpen={() => onOpenChange?.(true)}
-    onClose={() => onOpenChange?.(false)}
-    enterDelay={delayMs}
-    placement={placement}
-    disableHoverListener={disabled}
-    slotProps={{ popper: { container: overlayContainer(portalContainer) } }}
-  >
-    {trigger}
-  </MuiTooltip>
-);
+}) => {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const isOpen = open ?? internalOpen;
+  return (
+    <MuiTooltip
+      {...contentProps(props)}
+      title={content}
+      open={disabled ? false : isOpen}
+      onOpen={() => {
+        if (open === undefined) setInternalOpen(true);
+        onOpenChange?.(true);
+      }}
+      onClose={() => {
+        if (open === undefined) setInternalOpen(false);
+        onOpenChange?.(false);
+      }}
+      enterDelay={delayMs}
+      placement={placement}
+      disableHoverListener={disabled}
+      slotProps={{ popper: { container: overlayContainer(portalContainer) } }}
+    >
+      {trigger}
+    </MuiTooltip>
+  );
+};
 
 function menuItems(
   items: readonly MenuItem[],
@@ -593,6 +617,8 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
   portalContainer,
   ...props
 }) => {
+  const { className, style, ...accessibleProps } = contentProps(props);
+  const { rootClassName, paperClassName } = dialogClassSlots(className);
   useEffect(() => {
     const timer = setTimeout(() => {
       if (open) initialFocusRef?.current?.focus();
@@ -602,12 +628,19 @@ const Dialog: DesignSystemComponents["Dialog"] = ({
   }, [open, initialFocusRef, restoreFocusRef]);
   return (
     <MuiDialog
-      {...contentProps(props)}
+      {...accessibleProps}
       open={open}
       container={overlayContainer(portalContainer)}
       disableAutoFocus={Boolean(initialFocusRef)}
       disableRestoreFocus={Boolean(restoreFocusRef)}
       slotProps={{
+        root: {
+          className: rootClassName,
+        },
+        paper: {
+          className: paperClassName,
+          style,
+        },
         transition: {
           onEntered: () => initialFocusRef?.current?.focus(),
           onExited: () => restoreFocusRef?.current?.focus(),
@@ -650,6 +683,7 @@ const Picker: DesignSystemComponents["Picker"] = ({
   disabled,
   invalid,
   pickerRef,
+  portalContainer,
   ...props
 }) => (
   <FormControl
@@ -674,6 +708,7 @@ const Picker: DesignSystemComponents["Picker"] = ({
             ?.value ?? null,
         )
       }
+      MenuProps={{ container: overlayContainer(portalContainer) }}
       renderValue={(selected) =>
         selected
           ? options.find((option) => String(option.value) === String(selected))
@@ -795,6 +830,7 @@ const Tabs: DesignSystemComponents["Tabs"] = ({
           value={item.value}
           label={item.label}
           icon={item.icon as ReactElement | undefined}
+          iconPosition={item.icon ? "start" : undefined}
           disabled={item.disabled}
         />
       ))}

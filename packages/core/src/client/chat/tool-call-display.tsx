@@ -48,6 +48,7 @@ import {
   isCallAgentToolCallShadowed,
 } from "../tool-display.js";
 import { cn } from "../utils.js";
+import { ActionChatUiSurface } from "./action-chat-ui-surface.js";
 import {
   SmoothMarkdownText,
   HighlightedCodeBlock,
@@ -133,11 +134,10 @@ export function ToolActivityPresentation({
         animateEntry && "agent-tool-call--entering",
       )}
       data-running={isRunning ? "true" : undefined}
-      data-active-tail={isActiveTail ? "true" : undefined}
     >
       {children}
       {isRunning && showLongRunningHint && (
-        <div className="mt-0.5 px-2.5 text-[11px] leading-snug text-muted-foreground/80">
+        <div className="mt-0.5 px-2.5 pb-2 text-[11px] leading-snug text-muted-foreground/80">
           Still working. Large updates can take a minute or two.
         </div>
       )}
@@ -759,7 +759,16 @@ function ToolCallDisplayGeneric({
       (skipRegistryRenderer ? null : resolveToolRenderer(nativeToolContext)) ??
       resolveBuiltinFallbackToolRenderer(nativeToolContext));
   if (NativeToolRenderer) {
-    return <NativeToolRenderer context={nativeToolContext} />;
+    return (
+      <ActionChatUiSurface
+        context={nativeToolContext}
+        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
+          nativeToolContext,
+        )}
+      >
+        <NativeToolRenderer context={nativeToolContext} />
+      </ActionChatUiSurface>
+    );
   }
 
   const inputPayload = hasArgs ? toolInputPayload(toolName, args) : null;
@@ -1252,22 +1261,28 @@ export function formatWorkedDuration(ms: number): string {
 
 export function WorkedForSummary({
   durationMs,
+  defaultOpen = false,
   autoCollapse = false,
   children,
 }: {
   durationMs?: number | null;
+  /** Keep completed work visible when the turn contains interactive UI. */
+  defaultOpen?: boolean;
   /** When true, close the summary after a run has completed. */
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
-  // Start closed so a remounted completed message never flashes its work
-  // details open while auto-collapse settles. If the summary was already
-  // open when autoCollapse changes, AnimatedCollapse still animates it shut.
-  const [open, setOpen] = useState(false);
+  // Ordinary completed work starts closed so a remount never flashes details
+  // while auto-collapse settles. Interactive UI opts into an open summary.
+  const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    if (autoCollapse) setOpen(false);
-  }, [autoCollapse]);
+    if (defaultOpen) {
+      setOpen(true);
+    } else if (autoCollapse) {
+      setOpen(false);
+    }
+  }, [autoCollapse, defaultOpen]);
 
   const label =
     durationMs != null && durationMs >= 1000
