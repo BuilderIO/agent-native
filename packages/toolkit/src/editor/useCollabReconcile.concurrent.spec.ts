@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 
+import { Editor as CoreEditor } from "@tiptap/core";
 import { useEditor, type Editor } from "@tiptap/react";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Awareness } from "y-protocols/awareness";
+import * as Y from "yjs";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { useCollabReconcile, getEditorMarkdown } from "./useCollabReconcile.js";
@@ -355,7 +358,6 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
 
     act(() => root.render(React.createElement(Probe)));
-    await flush();
 
     expect(editor).not.toBeNull();
     expect(shouldIgnoreUpdate).not.toBeNull();
@@ -429,6 +431,166 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(setContentValues).toEqual(["second seed"]);
+  });
+
+  it("does not seed beside persisted Y.Doc content projected during initial sync", async () => {
+    const persistedYdoc = new Y.Doc();
+    const persistedEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: persistedYdoc,
+      }),
+    });
+    persistedEditor.commands.setContent("persisted collab body");
+    const persistedUpdate = Y.encodeStateAsUpdate(persistedYdoc);
+    persistedEditor.destroy();
+    persistedYdoc.destroy();
+
+    const liveYdoc = new Y.Doc();
+    const setContentValues: string[] = [];
+    let capturedEditor: Editor | null = null;
+
+    function Probe({ collabSynced }: { collabSynced: boolean }) {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: liveYdoc,
+        }),
+      });
+      capturedEditor = editor;
+      useCollabReconcile({
+        editor,
+        ydoc: liveYdoc,
+        collabSynced,
+        value: "persisted collab body",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        setContent: (_editor, nextValue) => {
+          setContentValues.push(nextValue);
+        },
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe, { collabSynced: false })));
+    act(() => Y.applyUpdate(liveYdoc, persistedUpdate, "remote"));
+    act(() => root.render(React.createElement(Probe, { collabSynced: true })));
+    await flush();
+
+    expect(getEditorMarkdown(capturedEditor!)).toBe("persisted collab body");
+    expect(setContentValues).toEqual([]);
+    expect(
+      getEditorMarkdown(capturedEditor!).match(/persisted collab body/g),
+    ).toHaveLength(1);
+    liveYdoc.destroy();
+  });
+
+  it("adopts a nonempty synced Y.Doc instead of reconciling an empty SQL snapshot", async () => {
+    const persistedYdoc = new Y.Doc();
+    const persistedEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: persistedYdoc,
+      }),
+    });
+    persistedEditor.commands.setContent("live collaborator body");
+    const liveYdoc = new Y.Doc();
+    Y.applyUpdate(liveYdoc, Y.encodeStateAsUpdate(persistedYdoc), "remote");
+    persistedEditor.destroy();
+    persistedYdoc.destroy();
+
+    const awareness = new Awareness(liveYdoc);
+    awareness.getStates().set(4_294_967_295, {
+      user: { name: "Active peer" },
+      visible: true,
+    });
+    const setContentValues: string[] = [];
+    let capturedEditor: Editor | null = null;
+
+    function Probe() {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: liveYdoc,
+        }),
+      });
+      capturedEditor = editor;
+      useCollabReconcile({
+        editor,
+        ydoc: liveYdoc,
+        awareness,
+        collabSynced: true,
+        value: "",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        setContent: (_editor, nextValue) => {
+          setContentValues.push(nextValue);
+        },
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(getEditorMarkdown(capturedEditor!)).toBe("live collaborator body");
+    expect(setContentValues).toEqual([]);
+    awareness.destroy();
+    liveYdoc.destroy();
+  });
+
+  it("lets canonical empty SQL clear stale persisted Y.Doc content with no active peer", async () => {
+    const persistedYdoc = new Y.Doc();
+    const persistedEditor = new CoreEditor({
+      extensions: createRichMarkdownExtensions({
+        dialect: "gfm",
+        ydoc: persistedYdoc,
+      }),
+    });
+    persistedEditor.commands.setContent("stale persisted body");
+    const liveYdoc = new Y.Doc();
+    Y.applyUpdate(liveYdoc, Y.encodeStateAsUpdate(persistedYdoc), "remote");
+    persistedEditor.destroy();
+    persistedYdoc.destroy();
+
+    const setContentValues: string[] = [];
+    let capturedEditor: Editor | null = null;
+
+    function Probe() {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({
+          dialect: "gfm",
+          ydoc: liveYdoc,
+        }),
+      });
+      capturedEditor = editor;
+      useCollabReconcile({
+        editor,
+        ydoc: liveYdoc,
+        collabSynced: true,
+        value: "",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        setContent: (editorToClear, nextValue) => {
+          setContentValues.push(nextValue);
+          editorToClear.commands.setContent(nextValue);
+        },
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(setContentValues).toContain("");
+    expect(getEditorMarkdown(capturedEditor!)).toBe("");
+    liveYdoc.destroy();
   });
 
   it("applies a genuinely newer external value once the user is no longer focused", async () => {

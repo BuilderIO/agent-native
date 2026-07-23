@@ -662,7 +662,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const bodyHydrationPending = documentBodyHydrationIsPending(document);
   const editorCanEdit =
     canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
-  const collabEditorEnabled = collabEnabled && editorCanEdit;
+  // Bind an editor's stable Y.Doc on its first mount, even while the initial
+  // state is loading. Editability remains gated by `editorCanEdit`, and the
+  // reconcile hook remains gated by `collabSynced`; keeping the Y.Doc binding
+  // stable avoids a snapshot -> collab remount that can seed the same SQL body
+  // beside freshly projected persisted CRDT content.
+  const collabEditorEnabled = collabEnabled && canEdit && !bodyHydrationPending;
   canEditRef.current = editorCanEdit;
 
   // Viewers intentionally join awareness so they receive live cursors, but

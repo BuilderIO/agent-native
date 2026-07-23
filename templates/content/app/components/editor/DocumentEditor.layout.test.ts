@@ -248,7 +248,7 @@ describe("document editor layout", () => {
       'docId: collabEnabled ? documentId : "",',
     );
     expect(documentEditorSource).toContain(
-      "const collabEditorEnabled = collabEnabled && editorCanEdit;",
+      "collabEnabled && canEdit && !bodyHydrationPending;",
     );
     expect(documentEditorSource).toContain(
       "ydoc={collabEditorEnabled ? ydoc : null}",
