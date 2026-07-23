@@ -438,6 +438,66 @@ describe("previewDocumentSaveController", () => {
     expect(c.lastSaved.content).toBe("My local draft");
   });
 
+  it("preserves a server body when resolving a title-only conflict", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Before",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+    });
+
+    c.changeTitle("Local title");
+    c.rebasePending({
+      title: "External title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "Local title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+    await c.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, c.pending);
+  });
+
+  it("preserves a server title when resolving a body-only conflict", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const c = makeController({
+      save,
+      init: {
+        title: "Before",
+        content: "Body A",
+        loadedUpdatedAt: "v0",
+        loadedContentWasEmpty: false,
+      },
+    });
+
+    c.changeContent("Local body");
+    c.rebasePending({
+      title: "External title",
+      content: "Body B from another tab",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+
+    expect(c.pending).toEqual({
+      title: "External title",
+      content: "Local body",
+      loadedUpdatedAt: "v2",
+      loadedContentWasEmpty: false,
+    });
+    await c.flush();
+    expect(save).toHaveBeenCalledExactlyOnceWith(DOC, c.pending);
+  });
+
   it("title and content edits both flush together in one payload", async () => {
     const save = vi.fn().mockResolvedValue(undefined);
     const c = makeController({ save });

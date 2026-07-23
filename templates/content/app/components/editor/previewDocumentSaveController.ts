@@ -130,8 +130,8 @@ export interface PreviewDocumentSaveController {
   /** Adopt `payload` as the confirmed-saved baseline (no save scheduled). */
   mark(payload: PreviewDocumentPayload): void;
   /**
-   * Adopt a fresher server baseline while retaining the user's pending title
-   * and content. Used only after an explicit "keep local draft" choice.
+   * Adopt a fresher server baseline while retaining only fields the user
+   * changed locally. Used only after an explicit "keep local draft" choice.
    */
   rebasePending(payload: PreviewDocumentPayload): void;
   /** Replace callbacks captured by an older preview mount. */
@@ -344,9 +344,13 @@ export function createPreviewDocumentSaveController(
     },
     rebasePending(payload: PreviewDocumentPayload) {
       clearTimer();
+      const titleChangedLocally = pending.title !== lastSaved.title;
+      const contentChangedLocally = pending.content !== lastSaved.content;
       lastSaved = { ...payload };
       pending = {
         ...pending,
+        title: titleChangedLocally ? pending.title : payload.title,
+        content: contentChangedLocally ? pending.content : payload.content,
         loadedUpdatedAt: payload.loadedUpdatedAt,
         loadedContentWasEmpty: payload.loadedContentWasEmpty,
       };
