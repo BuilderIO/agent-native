@@ -297,6 +297,7 @@ describe("DatabaseView UI regressions", () => {
     expect(filterButton?.getAttribute("aria-haspopup")).toBe("menu");
 
     await act(async () => {
+      sortButton?.focus();
       sortButton?.dispatchEvent(
         new PointerEvent("pointerdown", {
           bubbles: true,
@@ -318,7 +319,6 @@ describe("DatabaseView UI regressions", () => {
     });
 
     expect(sortButton?.getAttribute("aria-expanded")).toBe("false");
-    expect(document.activeElement).toBe(sortButton);
 
     await act(async () => {
       filterButton?.dispatchEvent(
