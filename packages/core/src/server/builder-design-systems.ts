@@ -1,3 +1,5 @@
+import type { DesignSystemSourceInput } from "@builder.io/ai-utils";
+
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import { FeatureNotConfiguredError } from "./credential-provider.js";
 import {
@@ -123,10 +125,12 @@ interface UploadStartResponse {
   uploads?: Array<{ idx: number; uploadUrl: string; uploadToken: string }>;
 }
 
-interface GenerateResponse {
-  projectId?: string;
-  jobId?: string;
+interface IndexResponse {
   designSystemId?: string;
+  jobId?: string;
+  projectId?: string;
+  branchUrl?: string;
+  branchName?: string;
 }
 
 const DEFAULT_MAX_CODE_FILES = 50;
@@ -592,7 +596,7 @@ export async function startBuilderDesignSystemIndex(
   }
 
   const credentials = await resolveBuilderDesignSystemCredentials();
-  let uploadTokens: string[] = [];
+  const sources: DesignSystemSourceInput[] = [];
   if (files.length > 0) {
     const uploadStart = await fetchWithTimeout(
       makeBuilderDesignSystemUrl("upload/start", credentials),
@@ -623,11 +627,34 @@ export async function startBuilderDesignSystemIndex(
       }
       await uploadToResumableUrl(slots[i], files[i]);
     }
-    uploadTokens = slots.map((slot) => slot.uploadToken);
+    for (let i = 0; i < slots.length; i++) {
+      const name = files[i].name;
+      const fileSelection = options.selection?.[name];
+      sources.push({
+        kind: "file",
+        uploadToken: slots[i].uploadToken,
+        ...(fileSelection && fileSelection.length > 0
+          ? { selection: { [name]: fileSelection } }
+          : {}),
+      });
+    }
   }
 
-  const generate = await fetchWithTimeout(
-    makeBuilderDesignSystemUrl("generate", credentials),
+  if (options.githubRepoUrl?.trim()) {
+    sources.push({
+      kind: "public-repo",
+      repoUrl: options.githubRepoUrl.trim(),
+    });
+  }
+  if (options.connectedProjectId?.trim()) {
+    sources.push({
+      kind: "connected-repo",
+      fusionProjectId: options.connectedProjectId.trim(),
+    });
+  }
+
+  const index = await fetchWithTimeout(
+    makeBuilderDesignSystemUrl("index", credentials),
     {
       method: "POST",
       headers: {
@@ -635,26 +662,19 @@ export async function startBuilderDesignSystemIndex(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        uploads: uploadTokens,
+        sources,
         ...(options.projectName?.trim()
-          ? { projectName: options.projectName.trim() }
+          ? { designSystemName: options.projectName.trim() }
           : {}),
-        ...(options.githubRepoUrl?.trim()
-          ? { githubRepoUrl: options.githubRepoUrl.trim() }
-          : {}),
-        ...(options.connectedProjectId?.trim()
-          ? { connectedProjectId: options.connectedProjectId.trim() }
-          : {}),
-        ...(options.selection ? { selection: options.selection } : {}),
         ...(options.devToolsVersion?.trim()
           ? { devToolsVersion: options.devToolsVersion.trim() }
           : {}),
       }),
     },
   );
-  await assertOk(generate, "Builder design-system indexing failed");
-  const generated = (await generate.json()) as GenerateResponse;
-  if (!generated.projectId || !generated.jobId || !generated.designSystemId) {
+  await assertOk(index, "Builder design-system indexing failed");
+  const indexed = (await index.json()) as IndexResponse;
+  if (!indexed.designSystemId) {
     throw new Error(
       "Builder design-system indexing returned an incomplete response.",
     );
@@ -663,11 +683,13 @@ export async function startBuilderDesignSystemIndex(
   return {
     ok: true,
     source: "builder",
-    projectId: generated.projectId,
-    jobId: generated.jobId,
-    designSystemId: generated.designSystemId,
+    projectId: indexed.projectId ?? "",
+    jobId: indexed.jobId ?? "",
+    designSystemId: indexed.designSystemId,
     suggestedTitle: options.projectName?.trim() || null,
-    builderUrl: builderDesignSystemUrl(generated.designSystemId),
+    builderUrl: indexed.branchUrl?.trim()
+      ? indexed.branchUrl.trim()
+      : builderDesignSystemUrl(indexed.designSystemId),
     status: "in-progress",
   };
 }

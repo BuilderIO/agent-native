@@ -752,6 +752,9 @@ importers:
       '@assistant-ui/tap':
         specifier: ^0.5.14
         version: 0.5.16(@types/react@19.2.17)(react@19.2.7)
+      '@builder.io/ai-utils':
+        specifier: ^0.84.0
+        version: 0.84.0
       '@clack/prompts':
         specifier: ^1.4.0
         version: 1.6.0
@@ -796,10 +799,10 @@ importers:
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@react-router/dev':
         specifier: ^8.1.0
-        version: 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
+        version: 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
       '@react-router/fs-routes':
         specifier: ^8.1.0
-        version: 8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@7.0.2)
+        version: 8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@6.0.3)
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
@@ -865,7 +868,7 @@ importers:
         version: 11.11.1
       i18next:
         specifier: 26.3.1
-        version: 26.3.1(typescript@7.0.2)
+        version: 26.3.1(typescript@6.0.3)
       isbot:
         specifier: ^5
         version: 5.1.44
@@ -907,7 +910,7 @@ importers:
         version: 3.8.3
       react-i18next:
         specifier: 17.0.8
-        version: 17.0.8(i18next@26.3.1(typescript@7.0.2))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@7.0.2)
+        version: 17.0.8(i18next@26.3.1(typescript@6.0.3))(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3)
       react-markdown:
         specifier: ^10.1.0
         version: 10.1.0(@types/react@19.2.17)(react@19.2.7)
@@ -946,7 +949,7 @@ importers:
         version: 1.0.3
       typescript:
         specifier: '>=5'
-        version: 7.0.2
+        version: 6.0.3
       y-protocols:
         specifier: 'catalog:'
         version: 1.0.7(yjs@13.6.31)
@@ -6546,6 +6549,9 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@builder.io/ai-utils@0.84.0':
+    resolution: {integrity: sha512-YYioQcAQ3rSyukvm6T1y+mRCQQWmOvvvf2kqKY+tKEoV1XhJ7uRP/481miXAVdprrLSJw6aKMV6GTkQIvywHhg==}
 
   '@changesets/apply-release-plan@7.1.1':
     resolution: {integrity: sha512-9qPCm/rLx/xoOFXIHGB229+4GOL76S4MC+7tyOuTsR6+1jYlfFDQORdvwR5hDA6y4FL2BPt3qpbcQIS+dW85LA==}
@@ -21863,6 +21869,10 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
+  '@builder.io/ai-utils@0.84.0':
+    dependencies:
+      zod: 4.4.3
+
   '@changesets/apply-release-plan@7.1.1':
     dependencies:
       '@changesets/config': 3.1.4
@@ -27586,6 +27596,43 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
+  '@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)':
+    dependencies:
+      '@babel/core': 7.29.7
+      '@babel/generator': 7.29.7
+      '@babel/parser': 7.29.7
+      '@babel/plugin-syntax-jsx': 7.29.7(@babel/core@7.29.7)
+      '@babel/preset-typescript': 7.29.7(@babel/core@7.29.7)
+      '@babel/traverse': 7.29.7
+      '@babel/types': 7.29.7
+      '@react-router/node': 8.1.0(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)
+      '@remix-run/node-fetch-server': 0.13.3
+      babel-dead-code-elimination: 1.0.12
+      chokidar: 5.0.0
+      dedent: 1.7.2(babel-plugin-macros@3.1.0)
+      es-module-lexer: 2.1.0
+      exit-hook: 5.1.0
+      isbot: 5.1.44
+      jsesc: 3.1.0
+      lodash: 4.18.1
+      p-map: 7.0.4
+      pathe: 2.0.3
+      picocolors: 1.1.1
+      pkg-types: 2.3.1
+      prettier: 3.9.4
+      react-refresh: 0.18.0
+      react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      semver: 7.8.5
+      tinyglobby: 0.2.17
+      valibot: 1.4.1(typescript@6.0.3)
+      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
+    optionalDependencies:
+      typescript: 6.0.3
+      wrangler: 4.81.0
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
   '@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)':
     dependencies:
       '@babel/core': 7.29.7
@@ -27660,43 +27707,6 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
-  '@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)':
-    dependencies:
-      '@babel/core': 7.29.7
-      '@babel/generator': 7.29.7
-      '@babel/parser': 7.29.7
-      '@babel/plugin-syntax-jsx': 7.29.7(@babel/core@7.29.7)
-      '@babel/preset-typescript': 7.29.7(@babel/core@7.29.7)
-      '@babel/traverse': 7.29.7
-      '@babel/types': 7.29.7
-      '@react-router/node': 8.1.0(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)
-      '@remix-run/node-fetch-server': 0.13.3
-      babel-dead-code-elimination: 1.0.12
-      chokidar: 5.0.0
-      dedent: 1.7.2(babel-plugin-macros@3.1.0)
-      es-module-lexer: 2.1.0
-      exit-hook: 5.1.0
-      isbot: 5.1.44
-      jsesc: 3.1.0
-      lodash: 4.18.1
-      p-map: 7.0.4
-      pathe: 2.0.3
-      picocolors: 1.1.1
-      pkg-types: 2.3.1
-      prettier: 3.9.4
-      react-refresh: 0.18.0
-      react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      semver: 7.8.5
-      tinyglobby: 0.2.17
-      valibot: 1.4.1(typescript@7.0.2)
-      vite: 8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0)
-    optionalDependencies:
-      typescript: 7.0.2
-      wrangler: 4.81.0
-    transitivePeerDependencies:
-      - babel-plugin-macros
-      - supports-color
-
   '@react-router/fs-routes@8.1.0(@react-router/dev@8.1.0(@typescript/typescript6@6.0.2)(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(@typescript/typescript6@6.0.2)':
     dependencies:
       '@react-router/dev': 8.1.0(@typescript/typescript6@6.0.2)(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(vite@8.1.0(@types/node@24.13.2)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
@@ -27718,6 +27728,13 @@ snapshots:
     optionalDependencies:
       typescript: 6.0.3
 
+  '@react-router/fs-routes@8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@6.0.3)':
+    dependencies:
+      '@react-router/dev': 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
+      minimatch: 10.2.5
+    optionalDependencies:
+      typescript: 6.0.3
+
   '@react-router/fs-routes@8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@6.0.3)':
     dependencies:
       '@react-router/dev': 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@6.0.3)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
@@ -27732,13 +27749,6 @@ snapshots:
     optionalDependencies:
       typescript: 6.0.3
 
-  '@react-router/fs-routes@8.1.0(@react-router/dev@8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0))(typescript@7.0.2)':
-    dependencies:
-      '@react-router/dev': 8.1.0(babel-plugin-macros@3.1.0)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)(vite@8.1.0(@types/node@24.13.2)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))(wrangler@4.81.0)
-      minimatch: 10.2.5
-    optionalDependencies:
-      typescript: 7.0.2
-
   '@react-router/node@8.1.0(@typescript/typescript6@6.0.2)(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))':
     dependencies:
       '@remix-run/node-fetch-server': 0.13.3
@@ -27752,13 +27762,6 @@ snapshots:
       react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     optionalDependencies:
       typescript: 6.0.3
-
-  '@react-router/node@8.1.0(react-router@8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(typescript@7.0.2)':
-    dependencies:
-      '@remix-run/node-fetch-server': 0.13.3
-      react-router: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-    optionalDependencies:
-      typescript: 7.0.2
 
   '@react-three/drei@10.7.7(@react-three/fiber@9.6.1(@types/react@19.2.17)(expo-asset@57.0.5(expo@57.0.6)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(typescript@6.0.3))(expo-file-system@57.0.1(expo@57.0.6)(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)))(expo@57.0.6)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react-native@0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7))(react@19.2.7)(three@0.176.0))(@types/react@19.2.17)(@types/three@0.176.0)(immer@11.1.8)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.176.0)':
     dependencies:
@@ -32801,10 +32804,6 @@ snapshots:
     optionalDependencies:
       typescript: 6.0.3
 
-  i18next@26.3.1(typescript@7.0.2):
-    optionalDependencies:
-      typescript: 7.0.2
-
   iceberg-js@0.8.1: {}
 
   iconv-lite@0.6.3:
@@ -35287,17 +35286,6 @@ snapshots:
       react-native: 0.86.0(@babel/core@7.29.7)(@react-native/metro-config@0.86.0(@babel/core@7.29.7))(@types/react@19.2.17)(react@19.2.7)
       typescript: 6.0.3
 
-  react-i18next@17.0.8(i18next@26.3.1(typescript@7.0.2))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(typescript@7.0.2):
-    dependencies:
-      '@babel/runtime': 7.29.2
-      html-parse-stringify: 3.0.1
-      i18next: 26.3.1(typescript@7.0.2)
-      react: 19.2.7
-      use-sync-external-store: 1.6.0(react@19.2.7)
-    optionalDependencies:
-      react-dom: 19.2.7(react@19.2.7)
-      typescript: 7.0.2
-
   react-is@16.13.1: {}
 
   react-is@17.0.2: {}
@@ -36977,10 +36965,6 @@ snapshots:
   valibot@1.4.1(typescript@6.0.3):
     optionalDependencies:
       typescript: 6.0.3
-
-  valibot@1.4.1(typescript@7.0.2):
-    optionalDependencies:
-      typescript: 7.0.2
 
   validate-npm-package-name@5.0.1: {}
 

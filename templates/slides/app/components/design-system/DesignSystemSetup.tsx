@@ -905,21 +905,6 @@ function BuilderIndexPreview({
         </div>
       </div>
 
-      <dl className="grid grid-cols-[112px_minmax(0,1fr)] gap-x-3 gap-y-2 rounded-md border border-border bg-card/50 p-3 text-xs">
-        <dt className="text-muted-foreground">
-          {t("designSystemSetup.builderDesignSystemId")}
-        </dt>
-        <dd className="truncate font-mono text-foreground/80">
-          {result.designSystemId}
-        </dd>
-        <dt className="text-muted-foreground">
-          {t("designSystemSetup.builderJobId")}
-        </dt>
-        <dd className="truncate font-mono text-foreground/80">
-          {result.jobId}
-        </dd>
-      </dl>
-
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
         <Button size="sm" asChild className="cursor-pointer">
           <a

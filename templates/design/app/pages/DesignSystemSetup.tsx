@@ -1112,18 +1112,6 @@ function BuilderIndexPreview({
         <dd className="truncate font-mono !text-[11px] text-foreground/80">
           {result.projectId}
         </dd>
-        <dt className="text-muted-foreground">
-          {"Job" /* i18n-ignore Builder indexing field */}
-        </dt>
-        <dd className="truncate font-mono !text-[11px] text-foreground/80">
-          {result.jobId}
-        </dd>
-        <dt className="text-muted-foreground">
-          {"Design system" /* i18n-ignore Builder indexing field */}
-        </dt>
-        <dd className="truncate font-mono !text-[11px] text-foreground/80">
-          {result.designSystemId}
-        </dd>
       </dl>
 
       <div className="flex items-center gap-2 border-t border-border pt-4">
