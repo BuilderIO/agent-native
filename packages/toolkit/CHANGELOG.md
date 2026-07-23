@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.10.2
+
+### Patch Changes
+
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+
 ## 0.10.1
 
 ### Patch Changes
