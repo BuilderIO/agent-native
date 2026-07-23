@@ -1,15 +1,13 @@
-import {
-  VisibilityBadge,
-  callAction,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconPlus,
+  IconLoader2,
   IconDots,
   IconTrash,
   IconCopy,
@@ -22,7 +20,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
@@ -103,11 +101,9 @@ export function FormsListPage() {
   }, [forms]);
 
   function handleCreate() {
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("forms.untitled") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -117,16 +113,21 @@ export function FormsListPage() {
     () => (
       <Button
         onClick={handleCreate}
+        disabled={createForm.isPending}
         size="sm"
-        className="shrink-0 cursor-pointer"
+        className="min-h-10 shrink-0 cursor-pointer active:scale-[0.96] transition-[background-color,box-shadow,transform]"
       >
-        <IconPlus className="h-3.5 w-3.5" />
+        {createForm.isPending ? (
+          <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <IconPlus className="h-3.5 w-3.5" />
+        )}
         <span className="hidden sm:inline">{t("forms.newForm")}</span>
         <span className="sm:hidden">{t("forms.new")}</span>
       </Button>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [createForm.isPending],
   );
   useSetHeaderActions(headerActions);
 
@@ -154,11 +155,14 @@ export function FormsListPage() {
     }
   }
 
-  function handleDelete(id: string) {
+  function handleArchive(id: string) {
+    const toastId = toast.loading(t("forms.movingToArchive"));
     deleteForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success(t("forms.movedToArchive")),
+        onSuccess: () =>
+          toast.success(t("forms.movedToArchive"), { id: toastId }),
+        onError: () => toast.error(t("forms.archiveFailed"), { id: toastId }),
       },
     );
   }
@@ -214,6 +218,9 @@ export function FormsListPage() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
+    const toastId = purge
+      ? undefined
+      : toast.loading(t("forms.movingToArchive"));
     setBulkDeletePending(true);
     try {
       await Promise.all(
@@ -238,10 +245,15 @@ export function FormsListPage() {
                 count: ids.length,
                 formattedCount: formatNumber(ids.length),
               }),
+        toastId ? { id: toastId } : undefined,
       );
       setSelectedIds(new Set());
       setSelectionMode(false);
       setBulkPurgeOpen(false);
+    } catch {
+      if (toastId) {
+        toast.error(t("forms.archiveFailed"), { id: toastId });
+      }
     } finally {
       setBulkDeletePending(false);
     }
@@ -269,7 +281,7 @@ export function FormsListPage() {
   if (isLoading) {
     return (
       <div className="p-3 sm:p-6 max-w-5xl mx-auto">
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="forms-list-shell overflow-hidden bg-card">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
@@ -280,8 +292,10 @@ export function FormsListPage() {
                 <Skeleton className="h-3 w-1/2" />
               </div>
               <Skeleton className="h-5 w-20 rounded-full" />
+              <Skeleton className="h-5 w-20 rounded-full" />
               <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-8 w-8 rounded-md md:ms-auto" />
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-10 w-10 rounded-lg md:ms-auto" />
             </div>
           ))}
         </div>
@@ -292,22 +306,21 @@ export function FormsListPage() {
   if (error && !forms?.length) {
     const status = (error as { status?: number })?.status;
     if (status === 401) {
+      const next = encodeURIComponent(
+        window.location.pathname + window.location.search,
+      );
       return (
         <div className="flex flex-col items-center justify-center h-full gap-3">
           <p className="text-sm text-muted-foreground">
             {t("forms.signInPrompt")}
           </p>
           <Button
+            asChild
             variant="outline"
             size="sm"
-            onClick={() => {
-              const next = encodeURIComponent(
-                window.location.pathname + window.location.search,
-              );
-              window.location.href = `/login?next=${next}`;
-            }}
+            className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           >
-            {t("common.signIn")}
+            <Link to={`/login?next=${next}`}>{t("common.signIn")}</Link>
           </Button>
         </div>
       );
@@ -322,8 +335,8 @@ export function FormsListPage() {
         <Button
           variant="outline"
           size="sm"
+          className="min-h-10 gap-2 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
           onClick={() => refetch()}
-          className="gap-2"
         >
           <IconRefresh className="h-3.5 w-3.5" />
           {t("common.retry")}
@@ -344,11 +357,17 @@ export function FormsListPage() {
           value={view}
           onValueChange={(v) => setView(v as "active" | "archive")}
         >
-          <TabsList>
-            <TabsTrigger value="active" className="text-xs gap-1.5">
+          <TabsList className="h-12">
+            <TabsTrigger
+              value="active"
+              className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
+            >
               {t("header.forms")}
             </TabsTrigger>
-            <TabsTrigger value="archive" className="text-xs gap-1.5">
+            <TabsTrigger
+              value="archive"
+              className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,color,transform]"
+            >
               <IconArchive className="h-3.5 w-3.5" />
               {t("forms.archive")}
             </TabsTrigger>
@@ -359,7 +378,7 @@ export function FormsListPage() {
           <Button
             variant={selectionMode ? "secondary" : "ghost"}
             size="sm"
-            className="h-8 gap-1.5 text-xs"
+            className="min-h-10 gap-1.5 text-xs active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={() => {
               setSelectionMode((current) => {
                 if (current) setSelectedIds(new Set());
@@ -374,7 +393,7 @@ export function FormsListPage() {
       </div>
 
       {selectionMode && forms.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
+        <div className="forms-selection-toolbar mb-4 flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 px-3 py-2">
           <span className="text-xs font-medium text-foreground">
             {t("forms.selectedCount", {
               count: selectedCount,
@@ -385,7 +404,7 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 text-xs"
+            className="min-h-10 text-xs active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={toggleSelectAll}
           >
             {allFormsSelected ? t("common.clearAll") : t("common.selectAll")}
@@ -393,19 +412,25 @@ export function FormsListPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive"
+            className="min-h-10 gap-1.5 text-xs text-destructive hover:text-destructive active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             onClick={() =>
               isArchive ? setBulkPurgeOpen(true) : handleBulkDelete(false)
             }
             disabled={selectedCount === 0 || bulkDeletePending}
           >
-            <IconTrash className="h-3.5 w-3.5" />
+            {bulkDeletePending ? (
+              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : isArchive ? (
+              <IconTrash className="h-3.5 w-3.5" />
+            ) : (
+              <IconArchive className="h-3.5 w-3.5" />
+            )}
             {isArchive ? t("forms.deleteForever") : t("forms.moveToArchive")}
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="ms-auto h-8 w-8"
+            className="relative ms-auto size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] sm:size-8 sm:before:absolute sm:before:-inset-1 sm:before:content-['']"
             onClick={clearSelection}
             aria-label={t("forms.exitSelectionMode")}
           >
@@ -415,7 +440,7 @@ export function FormsListPage() {
       )}
 
       {forms.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
+        <div className="forms-empty-state flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card py-20">
           {isArchive ? (
             <>
               <h3 className="font-medium mb-1">
@@ -431,7 +456,11 @@ export function FormsListPage() {
               <p className="text-sm text-muted-foreground mb-4">
                 {t("forms.emptyDescription")}
               </p>
-              <Button onClick={handleCreate} size="sm" className="gap-2">
+              <Button
+                onClick={handleCreate}
+                size="sm"
+                className="min-h-10 gap-2 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+              >
                 <IconPlus className="h-4 w-4" />
                 {t("forms.createForm")}
               </Button>
@@ -439,7 +468,7 @@ export function FormsListPage() {
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border bg-card">
+        <div className="forms-list-shell overflow-hidden bg-card">
           {forms.map((form: any) => {
             const selected = selectedIds.has(form.id);
             const dateLabel =
@@ -515,10 +544,6 @@ export function FormsListPage() {
                       <h3 className="min-w-0 flex-1 truncate text-sm font-medium">
                         {form.title}
                       </h3>
-                      <VisibilityBadge
-                        visibility={(form as any).visibility}
-                        className="shrink-0"
-                      />
                     </div>
                     {form.description && (
                       <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -526,6 +551,10 @@ export function FormsListPage() {
                       </p>
                     )}
                   </div>
+                </div>
+
+                <div className="flex min-w-0 items-center">
+                  <VisibilityBadge visibility={(form as any).visibility} />
                 </div>
 
                 <div className="flex items-center md:justify-start">
@@ -558,7 +587,7 @@ export function FormsListPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-10 w-10 sm:h-8 sm:w-8 p-0 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                          className="relative size-10 rounded-lg p-0 transition-[background-color,opacity,transform] duration-150 ease-out active:scale-[0.96] focus:opacity-100 sm:size-8 sm:opacity-0 sm:before:absolute sm:before:-inset-1 sm:before:content-[''] sm:group-hover:opacity-100"
                           aria-label={t("forms.formActions")}
                         >
                           <IconDots className="h-4 w-4" />
@@ -661,11 +690,11 @@ export function FormsListPage() {
                                   className="text-destructive"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDelete(form.id);
+                                    handleArchive(form.id);
                                   }}
                                 >
-                                  <IconTrash className="h-4 w-4 me-2" />
-                                  {t("common.delete")}
+                                  <IconArchive className="h-4 w-4 me-2" />
+                                  {t("forms.moveToArchive")}
                                 </DropdownMenuItem>
                               </>
                             );
@@ -695,10 +724,12 @@ export function FormsListPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]">
+              {t("common.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handlePurge}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="min-h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             >
               {t("forms.deleteForever")}
             </AlertDialogAction>
@@ -718,13 +749,16 @@ export function FormsListPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={bulkDeletePending}>
+            <AlertDialogCancel
+              disabled={bulkDeletePending}
+              className="min-h-10 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
+            >
               {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => handleBulkDelete(true)}
               disabled={bulkDeletePending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="min-h-10 bg-destructive text-destructive-foreground hover:bg-destructive/90 active:scale-[0.96] transition-[background-color,box-shadow,transform]"
             >
               {t("forms.deleteForever")}
             </AlertDialogAction>

@@ -81,7 +81,7 @@ export function shouldMarkNeedsReauth(message: string): boolean {
 export async function resolveCalendarAccessToken(
   account: CalendarAccountForEvents,
 ): Promise<string | null> {
-  const credentialCandidates = resolveGoogleOAuthCredentialCandidates();
+  const credentialCandidates = await resolveGoogleOAuthCredentialCandidates();
   if (!credentialCandidates.length || !account.ownerEmail) return null;
 
   let bundle: AccessTokenBundle | null = null;
@@ -274,6 +274,27 @@ export function calendarEventToMeetingView(args: {
   };
 }
 
+/**
+ * Acquire the calendar account's write lock inside a caller-owned transaction.
+ * Disconnect and materialization both take this lock before touching the
+ * account's calendar events, so cleanup cannot race a meeting insert.
+ */
+export async function lockCalendarAccount(
+  db: any,
+  accountId: string,
+  ownerEmail?: string | null,
+): Promise<boolean> {
+  const ownerFilter = ownerEmail
+    ? eq(schema.calendarAccounts.ownerEmail, ownerEmail)
+    : isNull(schema.calendarAccounts.ownerEmail);
+  const locked = await db
+    .update(schema.calendarAccounts)
+    .set({ updatedAt: new Date().toISOString() })
+    .where(and(eq(schema.calendarAccounts.id, accountId), ownerFilter))
+    .returning({ id: schema.calendarAccounts.id });
+  return locked.length > 0;
+}
+
 export async function fetchLiveCalendarEventFromId(virtualId: string) {
   const parsed = parseCalendarMeetingId(virtualId);
   if (!parsed) return null;
@@ -317,11 +338,14 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
   }
 }
 
-export async function upsertCalendarEventSnapshot(args: {
-  account: CalendarAccountForEvents;
-  event: CalendarEvent;
-}) {
-  const db = getDb();
+export async function upsertCalendarEventSnapshot(
+  args: {
+    account: CalendarAccountForEvents;
+    event: CalendarEvent;
+  },
+  database: any = getDb(),
+) {
+  const db = database;
   const startIso = eventStartIso(args.event);
   const endIso = eventEndIso(args.event);
   if (!args.event.id || !startIso || !endIso) {
@@ -397,120 +421,134 @@ export async function materializeCalendarMeetingFromVirtualId(
   const live = await fetchLiveCalendarEventFromId(virtualId);
   if (!live) return null;
   const db = getDb();
-  const snapshot = await upsertCalendarEventSnapshot(live);
-
-  if (snapshot.meetingId) {
-    const [existingMeeting] = await db
-      .select()
-      .from(schema.meetings)
-      .where(eq(schema.meetings.id, snapshot.meetingId))
-      .limit(1);
-    if (existingMeeting) return { meeting: existingMeeting, created: false };
-  }
-
   const ownerEmail = getCurrentOwnerEmail();
   const orgId = (await getActiveOrganizationId().catch(() => null)) ?? null;
   const joinUrl = pickJoinUrl(live.event);
   const meetingId = nanoid();
   const nowIso = new Date().toISOString();
 
-  // Claim the calendar_events row atomically before inserting the meeting
-  // row, so two concurrent materialize calls for the same event can't both
-  // insert a `meetings` row (check-then-act TOCTOU). Only the caller whose
-  // UPDATE actually matched a row (meetingId still NULL) proceeds to insert;
-  // the loser re-reads and returns the winner's meeting instead.
-  const claimed = await db
-    .update(schema.calendarEvents)
-    .set({ meetingId, updatedAt: nowIso })
-    .where(
-      and(
-        eq(schema.calendarEvents.id, snapshot.id),
-        isNull(schema.calendarEvents.meetingId),
-      ),
+  return db.transaction(async (tx: any) => {
+    // Disconnect takes this same account-row write lock before it snapshots
+    // and deletes events. If disconnect wins, the account is gone by the time
+    // this transaction reaches the lock and materialization becomes a no-op.
+    if (
+      !(await lockCalendarAccount(tx, live.account.id, live.account.ownerEmail))
     )
-    .returning({ id: schema.calendarEvents.id });
+      return null;
 
-  if (!claimed.length) {
-    // Someone else claimed it first — re-read and return their meeting.
-    const [winnerEvent] = await db
-      .select({ meetingId: schema.calendarEvents.meetingId })
-      .from(schema.calendarEvents)
-      .where(eq(schema.calendarEvents.id, snapshot.id))
-      .limit(1);
-    if (winnerEvent?.meetingId) {
-      const [winnerMeeting] = await db
+    const snapshot = await upsertCalendarEventSnapshot(live, tx);
+
+    if (snapshot.meetingId) {
+      const [existingMeeting] = await tx
         .select()
         .from(schema.meetings)
-        .where(eq(schema.meetings.id, winnerEvent.meetingId))
+        .where(eq(schema.meetings.id, snapshot.meetingId))
         .limit(1);
-      if (winnerMeeting) return { meeting: winnerMeeting, created: false };
+      if (existingMeeting) {
+        return { meeting: existingMeeting, created: false };
+      }
     }
-    return null;
-  }
 
-  try {
-    await db.insert(schema.meetings).values({
-      id: meetingId,
-      organizationId: orgId ?? live.account.orgId ?? null,
-      title: live.event.summary || "Untitled meeting",
-      scheduledStart: eventStartIso(live.event),
-      scheduledEnd: eventEndIso(live.event),
-      actualStart: null,
-      actualEnd: null,
-      platform: detectPlatform(joinUrl),
-      joinUrl: joinUrl ?? null,
-      calendarEventId: snapshot.id,
-      recordingId: null,
-      transcriptStatus: "idle",
-      summaryMd: "",
-      bulletsJson: "[]",
-      actionItemsJson: "[]",
-      source: "calendar",
-      reminderFiredAt: null,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      ownerEmail,
-      orgId,
-      visibility: "private",
-    } as any);
-
-    const participants = calendarEventParticipants(live.event).filter(
-      (p) => p.email,
-    );
-    if (participants.length) {
-      await db.insert(schema.meetingParticipants).values(
-        participants.map((p) => ({
-          id: nanoid(),
-          meetingId,
-          email: p.email,
-          name: p.name ?? null,
-          isOrganizer: !!p.isOrganizer,
-          attendedAt: null,
-          createdAt: nowIso,
-        })) as any,
-      );
-    }
-  } catch (err) {
-    // Roll back the claim so a future call can retry — but only if it still
-    // points at our own meetingId (don't clobber a legitimate later claim).
-    await db
+    // Claim the calendar_events row atomically before inserting the meeting
+    // row, so two concurrent materialize calls for the same event can't both
+    // insert a `meetings` row (check-then-act TOCTOU). Only the caller whose
+    // UPDATE actually matched a row (meetingId still NULL) proceeds to insert;
+    // the loser re-reads and returns the winner's meeting instead.
+    const claimed = await tx
       .update(schema.calendarEvents)
-      .set({ meetingId: null, updatedAt: new Date().toISOString() })
+      .set({ meetingId, updatedAt: nowIso })
       .where(
         and(
           eq(schema.calendarEvents.id, snapshot.id),
-          eq(schema.calendarEvents.meetingId, meetingId),
+          isNull(schema.calendarEvents.meetingId),
         ),
       )
-      .catch(() => {});
-    throw err;
-  }
+      .returning({ id: schema.calendarEvents.id });
 
-  const [meeting] = await db
-    .select()
-    .from(schema.meetings)
-    .where(eq(schema.meetings.id, meetingId))
-    .limit(1);
+    if (!claimed.length) {
+      // Someone else claimed it first — re-read and return the winner.
+      const [winnerEvent] = await tx
+        .select({ meetingId: schema.calendarEvents.meetingId })
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.id, snapshot.id))
+        .limit(1);
+      if (winnerEvent?.meetingId) {
+        const [winnerMeeting] = await tx
+          .select()
+          .from(schema.meetings)
+          .where(eq(schema.meetings.id, winnerEvent.meetingId))
+          .limit(1);
+        if (winnerMeeting) {
+          return { meeting: winnerMeeting, created: false };
+        }
+      }
+      return null;
+    }
 
-  return { meeting, created: true };
+    try {
+      await tx.insert(schema.meetings).values({
+        id: meetingId,
+        organizationId: orgId ?? live.account.orgId ?? null,
+        title: live.event.summary || "Untitled meeting",
+        scheduledStart: eventStartIso(live.event),
+        scheduledEnd: eventEndIso(live.event),
+        actualStart: null,
+        actualEnd: null,
+        platform: detectPlatform(joinUrl),
+        joinUrl: joinUrl ?? null,
+        calendarEventId: snapshot.id,
+        recordingId: null,
+        transcriptStatus: "idle",
+        summaryMd: "",
+        bulletsJson: "[]",
+        actionItemsJson: "[]",
+        source: "calendar",
+        reminderFiredAt: null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        ownerEmail,
+        orgId,
+        visibility: "private",
+      } as any);
+
+      const participants = calendarEventParticipants(live.event).filter(
+        (p) => p.email,
+      );
+      if (participants.length) {
+        await tx.insert(schema.meetingParticipants).values(
+          participants.map((p) => ({
+            id: nanoid(),
+            meetingId,
+            email: p.email,
+            name: p.name ?? null,
+            isOrganizer: !!p.isOrganizer,
+            attendedAt: null,
+            createdAt: nowIso,
+          })) as any,
+        );
+      }
+    } catch (err) {
+      // Roll back the claim so a future call can retry — but only if it still
+      // points at our own meetingId (don't clobber a legitimate later claim).
+      await tx
+        .update(schema.calendarEvents)
+        .set({ meetingId: null, updatedAt: new Date().toISOString() })
+        .where(
+          and(
+            eq(schema.calendarEvents.id, snapshot.id),
+            eq(schema.calendarEvents.meetingId, meetingId),
+          ),
+        )
+        .catch(() => {});
+      throw err;
+    }
+
+    const [meeting] = await tx
+      .select()
+      .from(schema.meetings)
+      .where(eq(schema.meetings.id, meetingId))
+      .limit(1);
+
+    return { meeting, created: true };
+  });
 }

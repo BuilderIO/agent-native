@@ -1,4 +1,5 @@
-import { useChangeVersions, useT } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconAlertTriangle, IconPlayerPlay } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 
@@ -25,7 +26,15 @@ function useTaskQueueStats() {
     queryKey: [...TASK_QUEUE_QUERY_KEY, version],
     queryFn: getDispatchTaskQueueStats,
     placeholderData: (prev) => prev,
-    refetchInterval: 15_000,
+    // Queue work can finish outside the action transport, so retain a bounded
+    // fallback only here. Idle workspaces back off aggressively; active queues
+    // keep the existing monitoring cadence.
+    refetchInterval: (query) => {
+      const stats = query.state.data;
+      return stats && (stats.pending > 0 || stats.processing > 0)
+        ? 15_000
+        : 300_000;
+    },
     staleTime: 5_000,
   });
 }

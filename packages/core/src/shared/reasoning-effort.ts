@@ -11,6 +11,13 @@ export const REASONING_EFFORTS = [
 
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
+/**
+ * Shared chat always chooses an explicit reasoning tier. Keep `auto` in the
+ * accepted type only so older persisted selections and external callers can
+ * migrate cleanly; new UI and engine defaults resolve it to Medium.
+ */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   auto: "Auto",
   none: "None",
@@ -22,12 +29,7 @@ export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   max: "Max",
 };
 
-const VISIBLE_STANDARD_EFFORTS: ReasoningEffort[] = [
-  "auto",
-  "low",
-  "medium",
-  "high",
-];
+const VISIBLE_STANDARD_EFFORTS: ReasoningEffort[] = ["low", "medium", "high"];
 
 const VISIBLE_GPT_EFFORTS: ReasoningEffort[] = [
   ...VISIBLE_STANDARD_EFFORTS,
@@ -73,10 +75,9 @@ export function normalizeReasoningEffortForModel(
   model: string | undefined,
   effort: ReasoningEffort | undefined,
 ): ReasoningEffort | undefined {
-  if (!model || !effort || effort === "auto") {
-    return undefined;
-  }
-  let normalized = effort;
+  if (!model) return undefined;
+  let normalized =
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
   if (
     normalized === "xhigh" &&
     isClaudeReasoningModel(model) &&
@@ -94,13 +95,47 @@ export function normalizeReasoningEffortForModel(
   return normalized;
 }
 
+/**
+ * Normalize a chat request before it reaches an engine. Explicit off/minimal
+ * sentinels must survive this layer so the engine can distinguish them from a
+ * missing selection, which now means the Medium default.
+ */
+export function normalizeReasoningEffortForRequest(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort | undefined {
+  if (effort === "none" || effort === "minimal") return effort;
+  return normalizeReasoningEffortForModel(model, effort);
+}
+
 export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
-  return REASONING_EFFORT_LABELS[effort ?? "auto"];
+  return REASONING_EFFORT_LABELS[
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort
+  ];
 }
 
 /**
- * One tier down from each effort, stopping at "minimal" — "none"/"auto"
- * (not really "tiers") and "minimal" itself are left unchanged. Used by the
+ * Resolve a user-facing selection for a model. Legacy `auto`, missing values,
+ * and tiers unsupported by the newly selected model all become Medium.
+ * Non-reasoning models still retain Medium in persisted chat state so moving
+ * back to a reasoning model has a predictable default; their engines omit the
+ * effort through `normalizeReasoningEffortForModel`.
+ */
+export function resolveReasoningEffortSelection(
+  model: string | undefined,
+  effort: ReasoningEffort | undefined,
+): ReasoningEffort {
+  const requested =
+    !effort || effort === "auto" ? DEFAULT_REASONING_EFFORT : effort;
+  const options = getReasoningEffortOptionsForModel(model);
+  return options.length === 0 || options.includes(requested)
+    ? requested
+    : DEFAULT_REASONING_EFFORT;
+}
+
+/**
+ * One tier down from each effort, stopping at "minimal" — legacy `auto`,
+ * "none", and "minimal" itself are left unchanged. Used by the
  * empty-final-response retry so a retried turn asks for meaningfully less
  * reasoning instead of repeating the exact request that came back empty.
  */
@@ -122,24 +157,66 @@ export function stepDownReasoningEffort(
 }
 
 function isGPTReasoningModel(model: string) {
-  return /^gpt-5/.test(model) || /^o\d/.test(model);
+  const id = model.toLowerCase().replace(/^openai\//, "");
+  return /^gpt-5/.test(id) || /^o\d/.test(id);
 }
 
 function isClaudeReasoningModel(model: string) {
-  return /^claude-/.test(model);
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
+  if (id.includes("haiku-4-5")) return true;
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+}
+
+/**
+ * Anthropic's adaptive-thinking API is only available on the newer Claude
+ * model families. Claude Haiku 4.5 is reasoning-capable, but it still
+ * requires the legacy manual `budget_tokens` configuration.
+ */
+export function supportsClaudeAdaptiveThinking(model: string | undefined) {
+  if (!model) return false;
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+}
+
+/**
+ * Map the shared reasoning ladder to Anthropic's manual thinking budgets for
+ * models that do not support adaptive thinking (currently Claude Haiku 4.5).
+ */
+export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
+  switch (effort) {
+    case "low":
+      return 1_024;
+    case "medium":
+      return 4_096;
+    case "high":
+      return 8_000;
+    case "xhigh":
+      return 16_000;
+    case "max":
+      return 32_000;
+    default:
+      return 4_096;
+  }
 }
 
 function supportsClaudeXHigh(model: string) {
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
   // Models that support the xhigh effort tier (built-in extended thinking via
   // output_config.effort). Keep this version-aware so any future Claude model
   // with a higher patch/minor number is automatically included rather than
   // silently falling back to the lower "high" tier.
   // claude-fable-5 is a Mythos-class model and also supports xhigh.
-  if (model.includes("fable-5")) return true;
+  if (id.includes("fable-5")) return true;
   // Sonnet 5 supports the expanded effort ladder through Builder/Anthropic.
-  if (model.includes("sonnet-5")) return true;
+  if (id.includes("sonnet-5")) return true;
   // opus-4-7 introduced xhigh; all opus-4.x successors (4-8, 4-9…) should too.
-  const opusMatch = model.match(/opus-4-(\d+)/);
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
   if (opusMatch) {
     return parseInt(opusMatch[1], 10) >= 7;
   }
@@ -147,5 +224,5 @@ function supportsClaudeXHigh(model: string) {
 }
 
 function isGeminiReasoningModel(model: string) {
-  return /^gemini-/.test(model);
+  return /^gemini-/.test(model.toLowerCase().replace(/^google\//, ""));
 }

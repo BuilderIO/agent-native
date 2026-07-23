@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
+import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -11,6 +11,7 @@ import { getDb, schema } from "../../db/index.js";
 
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";
 const APPROVAL_POLICY_KEY = "dispatch-approval-policy";
+const APPROVAL_APPLY_LEASE_MS = 5 * 60 * 1000;
 
 // ─── /link rate limiting ──────────────────────────────────────────────────
 //
@@ -188,8 +189,8 @@ export async function getApprovalPolicy(): Promise<DispatchApprovalPolicy> {
 async function applyApprovalPolicy(
   input: DispatchApprovalPolicy,
   actor = currentOwnerEmail(),
+  orgId = currentOrgId(),
 ) {
-  const orgId = currentOrgId();
   if (!orgId) {
     throw new Error(
       "Dispatch approval settings require an active organization",
@@ -209,7 +210,10 @@ async function applyApprovalPolicy(
     metadata: input,
     actor,
   });
-  return getApprovalPolicy();
+  return {
+    enabled: input.enabled,
+    approverEmails: input.approverEmails,
+  };
 }
 
 export async function setApprovalPolicy(input: DispatchApprovalPolicy) {
@@ -564,6 +568,7 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
     return applyApprovalPolicy(
       payload,
       request.reviewedBy || currentOwnerEmail(),
+      requestCtx.orgId,
     );
   }
   if (request.changeType === "dream-proposal.apply") {
@@ -610,22 +615,78 @@ export async function approveRequest(requestId: string) {
   const ctx = requireDispatchCtx();
   const request = await getApprovalRequest(requestId, ctx);
   if (!request) throw new Error("Approval request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending approvals can be approved");
-  }
+
   const timestamp = now();
-  await db
+  const staleApplyingBefore = timestamp - APPROVAL_APPLY_LEASE_MS;
+  // Fence the transition on the current status so a concurrent approve can't
+  // both win. A crashed worker can leave its lease in "applying", so reclaim
+  // only a lease that has been idle for the full lease interval.
+  const claimed = await db
+    .update(schema.dispatchApprovalRequests)
+    .set({
+      status: "applying",
+      updatedAt: timestamp,
+    })
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
+        or(
+          eq(schema.dispatchApprovalRequests.status, "pending"),
+          and(
+            eq(schema.dispatchApprovalRequests.status, "applying"),
+            sql`${schema.dispatchApprovalRequests.updatedAt} < ${staleApplyingBefore}`,
+          ),
+        ),
+      ),
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    const current = (await getApprovalRequest(requestId, ctx)) ?? request;
+    if (current.status === "applying") {
+      throw new Error("Approval is already being applied");
+    }
+    return current;
+  }
+
+  const applying = claimed[0];
+  try {
+    await applyApprovedRequest(applying);
+  } catch (error) {
+    // Applying a request can have succeeded partially before throwing. Do not
+    // return it to pending: that would allow an immediate retry to duplicate a
+    // non-idempotent effect. Keep the lease until it becomes stale, which
+    // serializes any recovery attempt behind the same fencing rule.
+    await db
+      .update(schema.dispatchApprovalRequests)
+      .set({ updatedAt: now() })
+      .where(
+        and(
+          eq(schema.dispatchApprovalRequests.id, requestId),
+          ctxScope(schema.dispatchApprovalRequests, ctx),
+          eq(schema.dispatchApprovalRequests.status, "applying"),
+        ),
+      );
+    throw error;
+  }
+  const [updated] = await db
     .update(schema.dispatchApprovalRequests)
     .set({
       status: "approved",
       reviewedBy: currentOwnerEmail(),
       reviewedAt: timestamp,
-      updatedAt: timestamp,
+      updatedAt: now(),
     })
-    .where(eq(schema.dispatchApprovalRequests.id, requestId));
-  const updated = await getApprovalRequest(requestId, ctx);
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
+        eq(schema.dispatchApprovalRequests.status, "applying"),
+      ),
+    )
+    .returning();
   if (!updated) throw new Error("Approval request disappeared");
-  await applyApprovedRequest(updated);
   await recordAudit({
     action: "approval.approved",
     targetType: updated.targetType,
@@ -638,13 +699,12 @@ export async function approveRequest(requestId: string) {
 
 export async function rejectRequest(requestId: string, reason?: string | null) {
   const db = getDb();
-  const request = await getApprovalRequest(requestId);
+  const ctx = requireDispatchCtx();
+  const request = await getApprovalRequest(requestId, ctx);
   if (!request) throw new Error("Approval request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending approvals can be rejected");
-  }
+
   const timestamp = now();
-  await db
+  const claimed = await db
     .update(schema.dispatchApprovalRequests)
     .set({
       status: "rejected",
@@ -652,15 +712,28 @@ export async function rejectRequest(requestId: string, reason?: string | null) {
       reviewedAt: timestamp,
       updatedAt: timestamp,
     })
-    .where(eq(schema.dispatchApprovalRequests.id, requestId));
+    .where(
+      and(
+        eq(schema.dispatchApprovalRequests.id, requestId),
+        ctxScope(schema.dispatchApprovalRequests, ctx),
+        eq(schema.dispatchApprovalRequests.status, "pending"),
+      ),
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    return (await getApprovalRequest(requestId, ctx)) ?? request;
+  }
+
+  const updated = claimed[0];
   await recordAudit({
     action: "approval.rejected",
-    targetType: request.targetType,
+    targetType: updated.targetType,
     targetId: requestId,
-    summary: `Rejected ${request.summary}`,
-    metadata: { request, reason: reason || null },
+    summary: `Rejected ${updated.summary}`,
+    metadata: { request: updated, reason: reason || null },
   });
-  return getApprovalRequest(requestId);
+  return updated;
 }
 
 export async function createLinkToken(platform: string) {

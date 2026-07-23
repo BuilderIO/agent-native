@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowsExchange,
   IconChevronDown,
@@ -640,7 +640,16 @@ function EmptyState({ isDesktopApp }: { isDesktopApp: boolean }) {
             {t("dictateRoute.emptyWebDescription")}
           </p>
           <div className="mt-5 flex items-center justify-center">
-            <CaptureInstallButton size="sm" className="gap-1.5">
+            <CaptureInstallButton
+              size="sm"
+              className="gap-1.5"
+              downloadedChildren={
+                <>
+                  <IconDeviceDesktop className="h-3.5 w-3.5" />
+                  {t("captureInstall.openDesktopApp")}
+                </>
+              }
+            >
               <IconDownload className="h-3.5 w-3.5" />
               {t("dictateRoute.downloadDesktopApp")}
             </CaptureInstallButton>
@@ -679,10 +688,6 @@ function DownloadDesktopAppCard() {
           })}
         </p>
       </div>
-      <CaptureInstallButton size="sm" className="gap-1.5">
-        <IconDownload className="h-3.5 w-3.5" />
-        {t("dictateRoute.downloadDesktopApp")}
-      </CaptureInstallButton>
     </div>
   );
 }

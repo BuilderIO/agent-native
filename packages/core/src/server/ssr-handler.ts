@@ -18,6 +18,7 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
@@ -34,8 +35,12 @@ import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
+import { captureError } from "./capture-error.js";
 import { runWithRequestContext } from "./request-context.js";
-import { getSentryClientConfigScript } from "./sentry-config.js";
+import {
+  getRealtimeClientConfigScript,
+  getSentryClientConfigScript,
+} from "./sentry-config.js";
 
 export {
   DEFAULT_SSR_CACHE_HEADERS,
@@ -97,6 +102,22 @@ function requestWithPathname(
   return new Request(url, init);
 }
 
+function requestForAnonymousSsr(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers,
+    signal: request.signal,
+  };
+  if (request.body && !["GET", "HEAD"].includes(request.method.toUpperCase())) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return new Request(request.url, init);
+}
+
 function prefixMountedPath(path: string, basePath: string): string {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
   if (path === basePath || path.startsWith(`${basePath}/`)) return path;
@@ -105,7 +126,7 @@ function prefixMountedPath(path: string, basePath: string): string {
 
 function prefixMountedHtml(html: string, basePath: string): string {
   if (!basePath) return html;
-  return html
+  const prefixedHtml = html
     .replace(
       /\b(href|src|action|formaction|poster)=(["'])(\/(?!\/)[^"']*)\2/g,
       (_match, attr: string, quote: string, path: string) =>
@@ -115,6 +136,20 @@ function prefixMountedHtml(html: string, basePath: string): string {
       const q = quote || "";
       return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
     });
+
+  // React Router serializes the server-side basename into its hydration
+  // context. The request above is deliberately rendered mount-relative, so
+  // that value is normally "/" even though the browser URL is mounted at a
+  // workspace prefix such as "/analytics". If the client hydrates that
+  // context unchanged, the mounted pathname no longer matches the route tree:
+  // index redirects can stall and child pages can fall through to the 404.
+  // Keep the serialized router state consistent with the URLs we just
+  // prefixed. Template entry clients also set this defensively for older
+  // responses, but the initial hydration state must be correct at the source.
+  return prefixedHtml.replace(
+    /(window\.__reactRouterContext\s*=\s*\{\s*"basename"\s*:\s*)"(?:\\.|[^"\\])*"/,
+    `$1${JSON.stringify(basePath)}`,
+  );
 }
 
 function injectHeadScript(html: string, script: string | null): string {
@@ -218,6 +253,27 @@ function applyDefaultSsrCacheHeader(
 ) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
+  // A public shell must never set a viewer cookie or vary by credentials.
+  // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
+  headers.delete("set-cookie");
+  const vary = headers.get("vary");
+  if (vary) {
+    const publicVary = vary
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => {
+        const normalized = value.toLowerCase();
+        return (
+          normalized &&
+          normalized !== "*" &&
+          normalized !== "cookie" &&
+          normalized !== "authorization"
+        );
+      });
+    if (publicVary.length > 0) headers.set("vary", publicVary.join(", "));
+    else headers.delete("vary");
+  }
+
   // Netlify Functions/proxies are not cached by default. Set all three cache
   // headers: Cache-Control for browsers, CDN-Cache-Control for generic CDNs,
   // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
@@ -266,6 +322,7 @@ function removeDocumentCsp(headers: Headers): void {
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
+    isMcpPublicPath(pathname) ||
     pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_agent_native/") ||
     pathname.startsWith("/_agent-native/") ||
@@ -288,7 +345,10 @@ async function rewriteMountedResponse(
   pathname: string,
   requestUrl: string,
 ): Promise<Response> {
-  const sentryClientConfigScript = getSentryClientConfigScript();
+  const clientConfigScript =
+    [getSentryClientConfigScript(), getRealtimeClientConfigScript()]
+      .filter(Boolean)
+      .join("") || null;
   const headers = new Headers(response.headers);
   applyDefaultSsrCacheHeader(headers, response.status, pathname);
   applyDefaultSpeculationRulesHeader(headers, response.status, basePath);
@@ -323,7 +383,7 @@ async function rewriteMountedResponse(
         prefixMountedHtml(html, basePath),
         defaultSocialImageUrl(requestUrl, basePath),
       ),
-      sentryClientConfigScript,
+      clientConfigScript,
     ),
     {
       status: response.status,
@@ -346,7 +406,9 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      const request = requestWithPathname(event.req as Request, p, basePath);
+      const request = requestForAnonymousSsr(
+        requestWithPathname(event.req as Request, p, basePath),
+      );
       // SSR renders an IMPERSONAL public shell — we deliberately do NOT read the
       // request's session/cookies here, and pin an explicitly anonymous request
       // context. That keeps the SSR HTML/.data identical for every visitor so it
@@ -391,6 +453,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // that aid reconnaissance attacks. In dev we surface the message text
       // so devtools shows something useful; in prod we return a bare 500.
       console.error("[ssr-handler] SSR error:", err);
+      captureError(err, {
+        route: p,
+        method: event.req.method,
+        userAgent: event.req.headers.get("user-agent") ?? undefined,
+        tags: { renderMode: "anonymous-public", surface: "ssr" },
+      });
       const isProd = process.env.NODE_ENV === "production";
       const body = isProd
         ? "Internal Server Error"

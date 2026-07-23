@@ -36,4 +36,43 @@ describe("ORG_MIGRATIONS", () => {
       expect(versions[i]).toBeGreaterThan(versions[i - 1]);
     }
   });
+
+  it("dedupes org_members by (org_id, LOWER(email)) before the unique index is created", () => {
+    // acceptPendingInvitationsForEmail races (and legacy raw-case inserts
+    // elsewhere in the org module) can leave case-variant duplicate rows
+    // for the same person in the same org. The dedupe DELETE must run
+    // strictly before the unique expression index below, or that CREATE
+    // would fail on any database that already has duplicates.
+    const dedupeIndex = ORG_MIGRATIONS.findIndex(
+      (m) => m.name === "org-members-dedupe-lower-email",
+    );
+    const uniqueIndexIndex = ORG_MIGRATIONS.findIndex(
+      (m) => m.name === "org-members-unique-lower-email-idx",
+    );
+    expect(dedupeIndex).toBeGreaterThanOrEqual(0);
+    expect(uniqueIndexIndex).toBeGreaterThanOrEqual(0);
+    expect(dedupeIndex).toBeLessThan(uniqueIndexIndex);
+
+    const dedupeSql = ORG_MIGRATIONS[dedupeIndex]!.sql;
+    expect(typeof dedupeSql === "string" ? dedupeSql : "").toMatch(
+      /DELETE FROM org_members/i,
+    );
+  });
+
+  it("includes a unique (org_id, LOWER(email)) index on org_members", () => {
+    // Backs the ON CONFLICT (org_id, LOWER(email)) DO NOTHING insert in
+    // accept-pending.ts — without a real unique constraint standing behind
+    // it, ON CONFLICT has nothing to target and concurrent acceptances can
+    // still create duplicate membership rows.
+    const indexMigration = ORG_MIGRATIONS.find(
+      (m) => m.name === "org-members-unique-lower-email-idx",
+    );
+    expect(indexMigration).toBeDefined();
+    const sql =
+      typeof indexMigration!.sql === "string" ? indexMigration!.sql : "";
+    expect(sql).toMatch(/CREATE UNIQUE INDEX/i);
+    expect(sql).toMatch(/org_members/i);
+    expect(sql).toMatch(/org_id/i);
+    expect(sql).toMatch(/LOWER\(email\)/i);
+  });
 });

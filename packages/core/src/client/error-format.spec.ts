@@ -9,7 +9,7 @@ import {
 
 describe("formatChatErrorText", () => {
   const agentNativeUpgradeUrl =
-    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
   it("adds a Builder space settings CTA for disabled gateway errors", () => {
     expect(
@@ -142,5 +142,29 @@ describe("formatChatErrorText", () => {
     expect(formatChatErrorText("401 status code (no body)")).toBe(
       "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
     );
+  });
+
+  it("normalizes provider network failures into an actionable retry message", () => {
+    const normalized = normalizeChatError(
+      "provider_network_error",
+      "provider_network_error",
+    );
+
+    expect(normalized.message).toBe(
+      "The model provider could not be reached. Check your connection and retry.",
+    );
+    expect(normalized.details).toBe("provider_network_error");
+  });
+
+  it("normalizes generic connection failures into an actionable retry message", () => {
+    const normalized = normalizeChatError(
+      "connection_error",
+      "connection_error",
+    );
+
+    expect(normalized.message).toBe(
+      "The agent connection was interrupted. Check your connection and retry.",
+    );
+    expect(normalized.details).toBe("connection_error");
   });
 });

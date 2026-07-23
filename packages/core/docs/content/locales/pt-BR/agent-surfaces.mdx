@@ -6,6 +6,38 @@ search: "aplicativo completo de bate-papo rico com agente sem cabeça BYO tempo 
 
 # Superfícies do agente
 
+## Espaço de trabalho completo do Agent {#agent-page}
+
+Quando um aplicativo completo precisa de um lugar permanente para inspecionar e
+configurar seu agente, monte `AgentTabsPage` em `/agent`. Adicione a rota à
+navegação do aplicativo e passe `agentPageHref="/agent"` para `AgentSidebar`,
+para que os modos Resources e Settings apontem para a página completa sem
+duplicar esses fluxos.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+A página compartilhada oferece atualmente cinco abas:
+
+- **Context** — prévia do escopo, orçamento de tokens, seções de sistema ordenadas por procedência, governança e fonte, visualização em lista/treemap e o snapshot da thread ativa mais recente.
+- **Files** — reutiliza `ResourcesPanel` para recursos pessoais ou da organização.
+- **Connections** — gerenciamento de servidores MCP e lista de agentes remotos A2A: o que o agente deste app pode chamar.
+- **Jobs** — jobs recorrentes e automações com os fluxos existentes de pausar/retomar, detalhes e excluir. As automações são pessoais por enquanto.
+- **Access** — URL MCP, cartão de agente A2A quando disponível e guias compartilhados de configuração; o fluxo completo e o fallback de token ficam em `/mcp/connect`.
+
+O seletor **Personal / Organization** fornece o escopo às abas. Os membros
+podem inspecionar os dados da organização, enquanto sua administração continua
+restrita a proprietários/administradores onde o componente hospedado impõe esse
+limite. O objetivo é
+tornar o contexto inspecionável, atribuível e governável, separando capacidade
+de acesso. A página é uma camada fina sobre componentes, ações e verificações de
+acesso existentes, não um novo console administrativo. Ela ainda não oferece UI
+para grants, edição de escopo, revogação ou histórico de procedência por iteração.
+
 Agent-Native é deliberadamente combinável. Você pode usar o agente sem muito UI,
 use o UI sem o tempo de execução do agente integrado ou use os dois juntos como um pacote completo
 aplicativo.
@@ -141,8 +173,7 @@ pnpm install
 
 Em seguida, defina a operação durável:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -383,8 +414,7 @@ export default createAgentNativeEmbeddedPlugin({
 O sidecar React passa o contexto da página e comandos de host:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded
@@ -496,12 +526,11 @@ Mantenha o contrato pequeno: defina operações duráveis como actions, retorne 
 resultados de widget quando o bate-papo precisa de UI rico e adicionar telas inteiras somente quando os usuários
 precisa navegar, comparar, configurar ou colaborar em objetos persistentes.
 
-## Documentos relacionados {#related-docs}
+## Próximos passos {#related-docs}
 
-- [Actions](/docs/actions) — defina a operação sem comando uma vez.
-- [Native Interface de chat](/docs/native-chat-ui) — renderiza os resultados da ação digitada no bate-papo.
-- [Drop-in Agent](/docs/drop-in-agent) — monte bate-papo, barra lateral ou superfícies de painel.
-- [Component API](/docs/components) — peças de bate-papo/compositor React de nível inferior.
-- [Embedding SDK](/docs/embedding-sdk) — adicione Agent-Native a um aplicativo existente.
-- [External Agents](/docs/external-agents) — conecta hosts compatíveis com MCP a um aplicativo.
-- [A2A Protocol](/docs/a2a-protocol) — liga para agentes de outros agentes.
+- [**Actions**](/docs/actions) — defina a operação uma vez; todas as superfícies acima chamam a mesma operação
+- [**Native Interface de chat**](/docs/native-chat-ui) — renderize resultados tipados como tabelas, gráficos e cartões no chat
+- [**Generative UI**](/docs/generative-ui) — gere UI em sandbox, transitória ou persistida, diretamente no chat
+- [**Automation-First Apps**](/docs/pure-agent-apps) — o padrão completo sem navegador para trabalhos, filas, scripts e agentes externos
+- [**External Agents**](/docs/external-agents) — conecte hosts compatíveis com MCP a um aplicativo
+- [**A2A Protocol**](/docs/a2a-protocol) — chame agentes de outros aplicativos Agent-Native

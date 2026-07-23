@@ -1,13 +1,13 @@
 ---
 title: "Partage et confidentialité"
-description: "Partage de style Google Docs, intégré au framework. Chaque ressource créée par l'utilisateur (documents, tableaux de bord, conceptions, présentations, clips, enregistrements, formulaires) obtient le même modèle privé par défaut avec un partage cohérent UI."
+description: "Un partage familier et cohérent, intégré au framework. Chaque ressource créée par l’utilisateur — documents, tableaux de bord, conceptions, présentations, clips, enregistrements et formulaires — bénéficie du même modèle privé par défaut avec une interface de partage cohérente."
 ---
 
 # Partage et confidentialité
 
 Chaque ressource qu'un utilisateur crée dans une application native d'agent (un document, un tableau de bord, une conception, une présentation, un enregistrement d'écran, une transcription de réunion, un formulaire, un lien de réservation) est **privée par défaut pour le créateur**. Les autres personnes ne le voient que lorsque le créateur le partage explicitement ou modifie sa visibilité en `org` ou `public`.
 
-Il ressemble et fonctionne comme Google Docs. Le même bouton de partage, la même boîte de dialogue, le même modèle de visibilité à trois niveaux, les mêmes subventions par utilisateur/par organisation, dans chaque modèle, sans réinvention par application.
+C'est un modèle de partage familier partout : le même bouton de partage, la même boîte de dialogue, le même modèle de visibilité à trois niveaux et les mêmes autorisations par utilisateur et par organisation, dans chaque modèle, sans réinvention par application.
 
 ## Pourquoi un modèle {#why}
 
@@ -92,7 +92,7 @@ Chaque modèle qui stocke le travail créé par l'utilisateur utilise ce modèle
 - **Contenu** — documents
 - **Diapositives** — présentations
 - **Conception** – conceptions et éléments
-- **Clips** – enregistrements d'écran (style Loom)
+- **Clips** – enregistrements d'écran
 - **Plan** — visual plans and PR recaps
 - **Formulaires** — définitions de formulaire
 - **Calendrier** — événements et liens de réservation
@@ -115,15 +115,14 @@ Chaque ressource partageable reçoit un bouton de partage dans son en-tête. Cli
 
 - Sélecteur de visibilité (`Private` / `Organization` / `Public link`).
 - Saisie automatique « Ajouter des personnes ou des équipes » : recherchez des utilisateurs dans l'organisation ou collez un e-mail.
-- Une case à cocher `Notifier people` de style Google Docs pour les autorisations individuelles par e-mail.
+- Une case à cocher `Notifier les personnes` pour les autorisations individuelles par e-mail.
 - Une liste des subventions actuelles avec des sélecteurs de rôles et un contrôle de suppression.
 - Un bouton copier-lien qui respecte la visibilité actuelle.
 
 Le bouton de partage est une importation unique :
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -270,7 +269,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 Un appel d'inscription dans `server/db/index.ts` :
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -315,9 +314,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 Le partage s'appuie sur le modèle de portée des données plus large du framework : l'accès en liste/lecture/écriture aux tables propriétaires passe par `accessFilter()` / `resolveAccess()` / `assertAccess()`, et les ressources marquées `org_id` sont invisibles dans les organisations. Voir [Security → Data Scoping](/docs/security#data-scoping) pour le pipeline complet, la protection CI et la surface des menaces.
 
-## Voir aussi {#see-also}
+## Et ensuite {#see-also}
 
-- [Security & Data Scoping](/docs/security) : le modèle de filtre d'accès et de propriété sur lequel repose le partage.
-- [Authentication](/docs/authentication) : sessions, organisations et manière dont l'identité circule dans le contexte de la demande.
-- [Extensions](/docs/extensions#sharing) : partage dans la surface de la mini-application en bac à sable.
-- [Creating Templates](/docs/creating-templates) — câblage de `ownableColumns` dans le schéma d'un nouveau modèle.
+- [**Sécurité — Portée des données**](/docs/security#data-scoping) — le modèle de filtre d'accès et de propriété sur lequel repose le partage
+- [**Authentification**](/docs/authentication) — les sessions, les organisations et la manière dont l'identité alimente le contexte de la requête
+- [**Extensions**](/docs/extensions#sharing) — le partage dans la surface de mini-application en bac à sable
+- [**Création de modèles**](/docs/creating-templates) — l'intégration de `ownableColumns` au schéma d'un nouveau modèle

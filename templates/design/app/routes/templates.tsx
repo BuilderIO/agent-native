@@ -1,9 +1,7 @@
-import { redirect } from "react-router";
+export { default } from "../pages/Templates";
 
-export function loader() {
-  return redirect("/", 302);
-}
+import { messagesByLocale } from "@/i18n-data";
 
-export default function TemplatesRedirect() {
-  return null;
+export function meta() {
+  return [{ title: messagesByLocale["en-US"].routeTitles.designTemplates }];
 }

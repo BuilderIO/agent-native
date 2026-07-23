@@ -23,6 +23,8 @@ export interface SilenceConfig {
   silenceThreshold?: number;
   silenceMs?: number;
   callEndedMs?: number;
+  callAppBundleIds?: string[];
+  scheduledEndMs?: number | null;
   watchSleep?: boolean;
   watchCallEnded?: boolean;
 }

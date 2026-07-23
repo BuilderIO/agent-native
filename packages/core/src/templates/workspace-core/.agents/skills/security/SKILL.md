@@ -51,6 +51,13 @@ export default defineAction({
 
 The legacy `parameters:` field (plain JSON Schema) has no runtime validation — do not use it for new code.
 
+## Large Payloads
+
+Do not accept or persist unbounded base64/file blobs through actions, SQL writes,
+or `application_state`. Route uploads through the file-upload provider and store
+references. This prevents database bloat, slow hot paths, and accidental secret
+or customer-data embedding inside binary payloads.
+
 ## SQL Injection
 
 Never concatenate user input into SQL strings. Use Drizzle ORM's query builder (always safe) or parameterized queries:
@@ -139,6 +146,16 @@ export default defineEventHandler(async (event) => {
 ```
 
 - Never create unprotected routes that modify data.
+
+**Exception — the SSR HTML/`.data` catch-all is deliberately session-blind.**
+The rule above is for routes that read or mutate user data. The SSR page
+render and React Router `.data` route are different: they serve one
+impersonal, public-cacheable shell to every visitor by design, and loaders on
+that path render no user data. Do not "fix" this by adding `getSession`,
+`private`, or `no-store` to it — that regresses the CDN cache contract for the
+whole site. Data scoping lives in actions and API routes; the client gates
+private UI after the shell loads. See the `authentication` skill and
+`guard:ssr-cache-shell` / `ssr-handler.spec.ts`.
 
 ## Human-in-the-Loop Approval for High-Consequence Actions
 

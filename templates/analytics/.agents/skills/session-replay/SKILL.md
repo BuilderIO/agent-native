@@ -28,6 +28,10 @@ agent answers about browser recordings in the Analytics template.
   `session-recording` access before reading private blob refs.
 - SQL inline chunks are a local/dev fallback only; production should use
   private or encrypted blob storage.
+- A local Analytics app pointed at a production database must also use the key
+  that encrypted those replay blobs. Set `ANALYTICS_SECRETS_ENCRYPTION_KEY` in
+  an untracked local env file; do not replace the workspace-wide
+  `BETTER_AUTH_SECRET` just to read production replay storage.
 - When sharing a replay with an external agent, use
   `create-session-replay-agent-link`. It mints a two-hour `agent_access` URL
   scoped to the recording, embeds a small SSR discovery payload on
@@ -98,12 +102,72 @@ agent answers about browser recordings in the Analytics template.
 - Wait for all replay chunks (`isComplete`) before constructing the rrweb
   `Replayer`. Progressive chunk publishes should only update the loading bar;
   rebuilding the player mid-load desyncs the scrubber and playhead.
-- Prefer the latest sane Meta / ViewportResize frame for stage dimensions.
-  Out-of-range aspect ratios are clamped (preserve height, shrink width) before
-  handing events to rrweb so the stage does not collapse into an ultra-wide
-  ribbon and the recorded DOM stays roughly aligned. Capture also clamps the
-  same frames in `@agent-native/core` so new recordings never store absurd
-  Meta widths.
+- Pass normal events to `Replayer` untouched. rrweb rebuilds them in a sandboxed
+  iframe; pre-processing DOM, stylesheet, resource, or mutation payloads makes
+  playback diverge from the captured page. In particular, never rewrite `href`, `src`,
+  `_cssText`, CSS `url()`, or Meta URLs to `about:blank`; that exact remediation
+  broke historical replay CSS in PR #2040. Handle request privacy at capture or
+  the sandbox boundary instead of mutating stored rrweb events. Historical
+  captures without inlined resources require live stylesheet/image/font
+  requests for accurate rendering; the viewer accepts that fidelity tradeoff,
+  uses rrweb's script-disabled sandbox plus `referrerpolicy="no-referrer"`, and
+  must never add credentials or proxy those URLs through a privileged server.
+- Capture-time URL scrubbing must preserve load-bearing DOM resource attributes:
+  `src`, `srcset`, `poster`, `data`, and `href` only on resource links such as
+  stylesheets, preloads, and icons. Signed CDN query parameters are part of the
+  resource identity; redacting them produces missing CSS, fonts, images, and
+  oversized fallback icons. Keep scrubbing Meta/navigation URLs, anchor hrefs,
+  and console/network diagnostics. Captured `_cssText` and CSS `@import`/`url()`
+  values must remain byte-identical.
+- rrweb rebuilds into an `about:srcdoc` iframe, which inherits the Analytics
+  document's CSP. Analytics currently sends no CSP header; if a future change
+  adds restrictive `style-src`, `font-src`, or `img-src` directives, verify
+  historical replays and resolve external imports/fonts at capture before
+  blocking the recorded resource origins. Do not diagnose current font loss as
+  CSP without checking the deployed response headers first.
+- Let rrweb own iframe sizing entirely via Meta / ViewportResize, and keep the
+  outer wrapper on the exact same raw dimensions for fit-to-stage scaling.
+  Player geometry and pointer coordinates are fully stock and untouched — do
+  not add width/aspect-ratio "recovery" heuristics or pointer-coordinate
+  projection. There is no such thing as a stored recording with corrupt
+  viewport geometry: a census of all production recordings found zero stored
+  widths >= 3,000px. The 2026-07 "ultra-wide replay" bugs (stages rendered
+  3,000–9,500px wide, frozen/teleporting cursors, giant icons) were caused
+  entirely by demo mode's fetch interceptor: its number redactor faked any
+  integer >= 1000 inside raw replay JSON at *view* time, corrupting Meta /
+  ViewportResize widths, pointer x/y coordinates, and numeric values inside
+  `_cssText` and SVG attributes before rrweb ever saw the payload (heights
+  below 1000 stayed real, which is why the symptom looked like a viewport
+  problem rather than a redaction bug — two different sessions that both
+  stored a 1,152px width read back as the same 4,491px, a deterministic
+  salted-hash fingerprint of the redactor, not two coincidentally identical
+  malformed recordings). This is fixed in
+  `packages/core/src/demo/fetch-interceptor.ts`: raw replay payload and
+  manifest URLs are skipped from demo number redaction entirely, and must
+  never be routed through it again. Do not reintroduce viewport clamping or
+  pointer-coordinate projection in the player — they can now only corrupt
+  genuine future recordings (for example, a real 3440x900 ultrawide browser
+  window, or a short vertical window under 1,000px tall).
+- Keep rrweb's stock cursor stylesheet and its hotspot transform. During
+  playback, hide the viewer's native pointer over Analytics' transparent
+  click-to-pause overlay so it cannot masquerade as a frozen recorded cursor.
+- Keep rrweb's recorded focus handling enabled. Focus and focus-visible state
+  affect menus, forms, and keyboard UX; disabling `triggerFocus` makes a valid
+  snapshot diverge from the source page.
+- `insertStyleRules` may suppress known toast/snackbar containers only. Never
+  hide generic framework primitives such as
+  `[data-radix-popper-content-wrapper]`: Radix dropdowns, selects, tooltips,
+  and other real recorded product UI all share that wrapper.
+- Keep the realistic-fidelity purity/pass-through tests in
+  `SessionDetailPage.spec.ts` — raw event identity, raw viewport dimensions,
+  and raw resize-state derivation (including the 3,189x885 tripwire against
+  reintroducing a clamp) — as regression guards against reintroducing any
+  viewport "recovery" or pointer-projection heuristic. Do not change their
+  expectations merely to bless a new sanitizer or clamp; validate the affected
+  replay in a browser first. An interim clamp for the exact 3,189x885 pair was
+  also deleted once the view-time redaction root cause was proven; the earlier
+  3,000-3,999px band was rejected because it also catches real 3440px-wide
+  displays. Neither the exact exception nor the band belongs in the player.
 - The event timeline soft-highlights the active marker, auto-scrolls it into
   view (pausing briefly after manual scroll), and supports search. It appears
   beside the player from ~880px content width upward.
@@ -140,3 +204,14 @@ agent answers about browser recordings in the Analytics template.
   `.an-mask` or `data-an-mask`.
 - Use `.an-block`, `.an-ignore`, `data-an-block`, or `data-an-ignore` for
   sensitive zones that should not be captured.
+- A definitive upload `409` abandons only the conflicted replay identity and
+  immediately starts rrweb again under a fresh per-tab id, producing a new
+  Meta + FullSnapshot for long-lived SPA tabs. Recovery is limited to one
+  restart until an upload succeeds so a misconfigured endpoint cannot loop;
+  Analytics tracks the content-free `session replay upload rejected` lifecycle
+  event so conflicts and recovery success are measurable.
+- Do not label an old recording "corrupt" from pointer coordinates, unknown
+  mutation node ids, or changing Meta geometry alone. Those shapes can be
+  legitimate with scrolling, iframes/shadow DOM, navigation, and resize. A
+  historical-artifact notice needs a durable capture/ingest marker or another
+  low-false-positive invariant; do not guess from playback heuristics.

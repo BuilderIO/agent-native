@@ -11,6 +11,8 @@ export interface CalendarEvent {
   location: string;
   allDay: boolean;
   source: "local" | "google" | "ical";
+  /** Stable feed/source identifier for non-Google inventory provenance. */
+  sourceId?: string;
   googleEventId?: string;
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
@@ -122,6 +124,8 @@ export interface CalendarEvent {
   updatedAt: string;
   /** Client-only: temp id preserved across optimistic→real swap to keep React keys stable */
   _tempId?: string;
+  /** Client-only: prior provider id retained while open UI state rebinds after replacement */
+  _replacedId?: string;
 }
 
 export interface CalendarEventDraft {
@@ -138,6 +142,7 @@ export interface CalendarEventDraft {
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;
+  recurrence?: string[];
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
   attachments?: CalendarEvent["attachments"];

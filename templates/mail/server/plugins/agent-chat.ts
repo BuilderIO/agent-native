@@ -6,6 +6,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { MAIL_CONNECTOR_CATALOG } from "../lib/mail-connector-catalog.js";
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -33,6 +34,7 @@ export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   appId: "mail",
   initialToolNames: INITIAL_TOOL_NAMES,
+  connectorCatalog: [...MAIL_CONNECTOR_CATALOG],
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
@@ -90,16 +92,9 @@ export default createAgentChatPlugin({
 
 Some less-common tool schemas are loaded on demand. Use tool-search with a specific query when you need a capability that is not already available as a direct tool.
 
-## Google Connection Check — CRITICAL
+## Deterministic Mail Reads
 
-BEFORE doing anything else, run view-screen to check if Google is connected.
-If view-screen shows 0 emails or indicates Google is not connected:
-- Do NOT run list-emails, search-emails, send-email, or any email operation scripts
-- Do NOT pretend to have access to emails
-- Tell the user: "You need to connect your Google account first. Click the 'Connect Google' button on the main screen to get started."
-- You can still answer general questions, but you cannot perform any email operations
-
-Only proceed with email operations if view-screen confirms real emails are available.
+For deterministic headless email reads, call list-emails directly in inventory/coverage mode. Do not require view-screen as a Google connection preflight: list-emails selects the connected Gmail or synthetic local-mail backend for the user and returns the relevant result. Use view-screen only when the answer depends on visible UI state, such as the active thread, selected message, draft, queue item, or current inbox view. Treat real action errors as the evidence for an unavailable connection; do not infer it from a zero-email screen.
 
 Available operations:
 - List and search emails
@@ -109,6 +104,12 @@ Available operations:
 - Read/update mail drafting settings
 - Queue teammate-requested drafts for organization members to review and send
 - Navigate the UI to specific views or threads
+
+## Reliable Mail Mutations
+
+For requests to mark all, every, or many unread conversations read in one account, call \`mark-read\` exactly once with \`scope: "all-unread"\` and the exact \`accountEmail\`. Resolve conversations the user wants preserved to exact thread IDs and pass them in \`excludeThreadIds\`. Never loop \`mark-thread-read\` for broad cleanup. Report the returned matched, excluded, changed, and remaining-unread counts; completeness comes from the action's verification read, not merely from a successful tool submission.
+
+Use \`mark-thread-read\` for one specific conversation only.
 
 ## Provider APIs Are Escape Hatches, Not Limits
 

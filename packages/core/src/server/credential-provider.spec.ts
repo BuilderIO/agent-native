@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
+const mockReadAppSecrets = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
@@ -12,6 +13,7 @@ const mockIsLocalDatabase = vi.fn<[], boolean>();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
 }));
@@ -100,9 +102,25 @@ beforeEach(() => {
   delete process.env.OPENAI_BASE_URL;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.GROQ_API_KEY;
+  delete process.env.EMAIL_AGENT_ADDRESS;
+  delete process.env.EMAIL_FROM;
+  delete process.env.EMAIL_INBOUND_WEBHOOK_SECRET;
+  delete process.env.RESEND_API_KEY;
+  delete process.env.SENDGRID_API_KEY;
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
+  mockReadAppSecrets.mockImplementation(
+    async ({ keys, scope, scopeId }: any) => {
+      const entries = await Promise.all(
+        keys.map(async (key: string) => [
+          key,
+          await mockReadAppSecret({ key, scope, scopeId }),
+        ]),
+      );
+      return new Map(entries.filter(([, secret]) => secret));
+    },
+  );
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
   mockGetSetting.mockResolvedValue(null);
@@ -609,6 +627,23 @@ describe("resolveBuilderCredential", () => {
     );
   });
 
+  it("uses app-provided email env keys for signed-in production shared-database users", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.SENDGRID_API_KEY = "sendgrid-deploy-key";
+    process.env.EMAIL_FROM = "Clips <clips@example.com>";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("SENDGRID_API_KEY")).toBe("sendgrid-deploy-key");
+    expect(await resolveSecret("EMAIL_FROM")).toBe("Clips <clips@example.com>");
+    expect(canUseDeployCredentialFallbackForRequest("SENDGRID_API_KEY")).toBe(
+      true,
+    );
+    expect(canUseDeployCredentialFallbackForRequest("EMAIL_FROM")).toBe(true);
+  });
+
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {
     process.env.NODE_ENV = "development";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
@@ -825,6 +860,10 @@ describe("resolveBuilderCredential", () => {
       isEnterprise: null,
       isFreeAccount: null,
     });
+    expect(mockReadAppSecrets).toHaveBeenCalledTimes(2);
+    expect(
+      mockReadAppSecrets.mock.calls.map(([request]) => request.scope),
+    ).toEqual(["user", "org"]);
     await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
   });
 
@@ -952,13 +991,21 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
-  it("does not consult process.env in a signed-in production shared-database request", async () => {
+  it("uses app-provided Google OAuth client env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
+    process.env.GOOGLE_CLIENT_ID = "deploy-client-id";
     process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBeNull();
+    expect(await resolveSecret("GOOGLE_CLIENT_ID")).toBe("deploy-client-id");
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe("deploy-secret");
+    expect(canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
+    ).toBe(true);
   });
 
   it("blocks generic deploy env secrets for signed-in production shared-database users even when an LLM key is allowed", async () => {

@@ -232,10 +232,10 @@ export default defineConfig({
 
 ### 3。添加协作服务器插件
 
-始终将 `resourceType` 设置为注册的可共享资源的名称
-通过 `registerShareableResource`。如果没有它，协作推送事件就会被传递
-所有经过身份验证的用户（没有文档级范围）和服务器
-记录一次性警告。
+请选择与数据模型匹配的访问模式。拥有所有者或可共享的记录使用
+`mode: "resource"`，并指定通过 `registerShareableResource` 注册的类型。
+有意向部署中的所有已认证用户开放的记录应显式使用
+`mode: "all-authenticated"`。绝不要仅为消除警告而虚构资源类型。
 
 ```ts
 // server/plugins/collab.ts
@@ -245,14 +245,17 @@ export default createCollabPlugin({
   table: "documents",
   contentColumn: "content",
   idColumn: "id",
-  resourceType: "document", // required for access-scoped event delivery
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
+
+省略 `access` 是已弃用的旧行为。它等同于 `all-authenticated`，
+会记录警告，并由 Doctor 标记。
 
 ### 4.使用客户端钩子
 
 ```ts
-import { useCollaborativeDoc } from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client/collab";
 import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
@@ -425,8 +428,7 @@ import {
 返回远程参与者的反应列表和本地在线状态有效负载的设置器：
 
 ```ts
-import { usePresence } from "@agent-native/core/client";
-
+import { usePresence } from "@agent-native/core/client/collab";
 const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
 
 // Publish cursor position (normalized 0–1)
@@ -488,8 +490,7 @@ import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 每当跟随的参与者的视口发生变化时调用回调：
 
 ```ts
-import { useFollowUser } from "@agent-native/core/client";
-
+import { useFollowUser } from "@agent-native/core/client/collab";
 const { isFollowing, stopFollowing } = useFollowUser({
   others,
   followingId, // null to stop following
@@ -523,8 +524,7 @@ const { isFollowing, stopFollowing } = useFollowUser({
 ### 标准化坐标助手 {#norm-coords}
 
 ```ts
-import { toNormalized, fromNormalized } from "@agent-native/core/client";
-
+import { toNormalized, fromNormalized } from "@agent-native/core/client/collab";
 // In a pointer event handler:
 const norm = toNormalized(
   e.clientX,
@@ -596,22 +596,33 @@ try {
 
 ## 安全 {#security}
 
-### 始终设置 `resourceType`
+### 显式选择访问模型
+
+对于拥有所有者或可共享的资源，请使用通过
+`registerShareableResource` 注册的类型：
 
 ```ts
 createCollabPlugin({
-  resourceType: "document", // the name passed to registerShareableResource
+  access: { mode: "resource", resourceType: "document" },
 });
 ```
 
-如果没有 `resourceType`，插件会记录警告并广播协作推送
-部署中所有经过身份验证的用户的事件，无文档级别
-范围。非所有者退回到状态向量追赶（安全但更高
-延迟），无论是否设置 `resourceType`。
+对于有意在整个部署范围内共享的资源：
+
+```ts
+createCollabPlugin({
+  access: { mode: "all-authenticated" },
+});
+```
+
+不要为了消除警告而虚构 `resourceType`：只有存在相应的所有权和共享模型时，
+`resource` 模式才正确。为兼容旧代码仍支持省略 `access`，但它等同于
+`all-authenticated`，会记录警告，并由 Doctor 标记。拥有显式访问权限的
+非所有者通过状态向量追赶同步（安全，但延迟更高）。
 
 ### 访问检查
 
-所有协作路由都需要身份验证。当 `resourceType` 设置时，读取
+所有协作路由都需要身份验证。在 `resource` 模式下，读取
 至少需要查看者访问权限，并且写入需要编辑者访问权限，使用
 与共享系统相同的 `resolveAccess` / `assertAccess` 帮助程序。 404
 （不是 403）在访问失败时返回，以避免泄漏文档存在。
@@ -624,7 +635,7 @@ createCollabPlugin({
 
 ```ts
 createCollabPlugin({
-  resourceType: "document",
+  access: { mode: "resource", resourceType: "document" },
   maxPayloadBytes: 512 * 1024, // 512 KB
 });
 ```
@@ -756,7 +767,7 @@ Use `emailToColor(email)` and `emailToName(email)` from
 - [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
   提供 `updatedAt` 碰撞驱动编辑器协调的系统。
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
-  和`assertAccess`为`resourceType`引用的访问模型。
+  和 `assertAccess`，用于资源范围内的协作。
 - [Sharing](/docs/sharing) — 如何共享文档以及如何授予访问权限。
 - [Template: Content](/docs/template-content) — 参考实现
   协作富文本编辑。

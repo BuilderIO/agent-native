@@ -4,11 +4,8 @@ import { resolveAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
-import {
-  getLocalFileDocument,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
 
 /**
  * Collab-aware "ingest the final" read for external agents.
@@ -29,12 +26,10 @@ import {
  *      never saw the key, so every external `pull-document` waited the full
  *      timeout and returned stale DB content.
  *   2. The editor polls that key, serializes its current Y.Doc to markdown
- *      through its existing serializer, calls `update-document`, then deletes
- *      the key.
- *   3. We poll (across both candidate sessions) for the key to disappear
- *      (flush acknowledged) and then read the now-fresh row. If the key never
- *      clears (no editor actually open), we fall back to the DB column, which
- *      is the best available snapshot.
+ *      through its existing serializer, calls `update-document`, then writes an
+ *      explicit success/error acknowledgement for that request id.
+ *   3. We poll every active collaborator session for the acknowledgement, fail
+ *      closed on editor errors/timeouts, and then read the now-fresh row.
  *
  * When there is no live collab session the DB column is authoritative and we
  * skip the handshake entirely. The helper bounds the wait so stale collab
@@ -67,30 +62,18 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, format }) => {
-    if (await isContentLocalFileMode()) {
-      const doc = await getLocalFileDocument(id);
-      if (doc.source?.kind === "folder") {
-        throw new Error("Folders cannot be pulled as markdown documents");
-      }
-      return {
-        id: doc.id,
-        title: doc.title,
-        content: formatDocumentContent(doc.content ?? "", format),
-        format,
-        deepLink: buildDeepLink({
-          app: "content",
-          view: "editor",
-          params: { documentId: doc.id },
-        }),
-      };
-    }
-
     const access = await resolveAccess("document", id);
-    if (!access) throw new Error(`Document "${id}" not found`);
+    if (
+      !access ||
+      access.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(id))
+    ) {
+      throw new Error(`Document "${id}" not found`);
+    }
 
     // If a live Yjs collab session is open, the in-memory editor doc is fresher
     // than the SQL column. Ask the open editor to serialize + save, then wait
-    // for it to acknowledge by clearing the flush-request key.
+    // for its explicit request-id-matched acknowledgement.
     await flushOpenDocumentEditorToSql({
       documentId: id,
       ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
@@ -98,7 +81,13 @@ export default defineAction({
 
     // Re-resolve so we read the now-fresh row (and re-check access).
     const fresh = await resolveAccess("document", id);
-    if (!fresh) throw new Error(`Document "${id}" not found`);
+    if (
+      !fresh ||
+      fresh.resource.trashedAt ||
+      (await isSoftDeletedDatabaseDocument(id))
+    ) {
+      throw new Error(`Document "${id}" not found`);
+    }
     const doc = fresh.resource;
     const markdown = (doc.content as string) ?? "";
     const content = formatDocumentContent(markdown, format);
@@ -106,6 +95,7 @@ export default defineAction({
     return {
       id: doc.id,
       title: doc.title,
+      description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
       deepLink: buildDeepLink({

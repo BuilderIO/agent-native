@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["fr-FR"],
   root: {
     commandPresentations: "Présentations",
     searchDecks: "Rechercher des decks",
@@ -34,10 +37,10 @@ const messages = {
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
     openTeamSettings: "Ouvrir les paramètres d’équipe",
     openResourceSettings: "Ouvrir les paramètres des ressources",
-    agentTitle: "Paramètres de l’agent",
+    agentTitle: "Gérer l’agent",
     agentDescription:
-      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-    openAgentSettings: "Ouvrir les paramètres de l’agent",
+      "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+    openAgentSettings: "Gérer l’agent",
   },
   agent: {
     emptyState: "Posez-moi vos questions sur vos présentations",
@@ -106,6 +109,7 @@ const messages = {
     searchImagesPlaceholder: "Rechercher des images...",
     searchForLogosImagesIcons: "Rechercher des logos, images, icônes...",
     search: "Rechercher",
+    searchFailed: "Échec de la recherche",
     logoSearchTitle: "Recherche de logo",
     searchCompanyLogo: "Recherchez une entreprise pour trouver son logo",
     searchCompanyPlaceholder: "Rechercher un nom d’entreprise (ex. Intuit)",
@@ -340,6 +344,8 @@ const messages = {
     hideResolved: "Masquer les résolus",
     showResolved: "Afficher {{count}} résolus",
     noCommentsYet: "Aucun commentaire pour le moment",
+    loadFailed: "Impossible de charger les commentaires",
+    retry: "Réessayer",
     clickToAddComment: "Cliquez pour ajouter un commentaire",
     selectSlideToAdd: "Sélectionnez une diapositive pour en ajouter un",
   },
@@ -565,6 +571,10 @@ const messages = {
     chooseAnotherFile: "Choisir un autre fichier",
   },
   home: {
+    loadFailed: "Impossible de charger votre contenu",
+    loadFailedDescription:
+      "Votre contenu enregistré est toujours disponible. Vérifiez la connexion et réessayez.",
+    retry: "Réessayer",
     decksTitle: "Decks",
     newDeck: "Nouveau deck",
     deckLengthQuestion: "Quelle longueur doit faire ce deck ?",

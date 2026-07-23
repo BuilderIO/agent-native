@@ -203,12 +203,12 @@ function parseScaffoldArgs(argv: string[]): {
 // Track CLI usage (best-effort, non-blocking)
 function trackCli(event: string, props?: Record<string, unknown>): void {
   try {
-    import("../tracking/registry.js").then((m) => {
-      m.track(event, { command, ...props });
-    });
-    import("../tracking/providers.js").then((m) =>
-      m.registerBuiltinProviders(),
-    );
+    void import("../tracking/registry.js")
+      .then((m) => m.track(event, { command, ...props }))
+      .catch(() => undefined);
+    void import("../tracking/providers.js")
+      .then((m) => m.registerBuiltinProviders())
+      .catch(() => undefined);
   } catch {}
 }
 
@@ -219,7 +219,9 @@ process.on("uncaughtException", (err) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: err.message });
   Sentry.captureException(err);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 process.on("unhandledRejection", (reason: any) => {
@@ -228,7 +230,9 @@ process.on("unhandledRejection", (reason: any) => {
   console.error(`  Send feedback:   ${FEEDBACK_URL}\n`);
   trackCli("cli.crash", { error: reason?.message ?? String(reason) });
   Sentry.captureException(reason);
-  Sentry.flush(2000).finally(() => process.exit(1));
+  void Sentry.flush(2000)
+    .catch(() => undefined)
+    .finally(() => process.exit(1));
 });
 
 // Surface a self-heal hint when an interrupted `npx @agent-native/core@latest ...`
@@ -565,6 +569,29 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
+      // Doctor pre-step: scans app source for the security-critical guard
+      // invariants (see `agent-native doctor --help`). Warn-only by
+      // default — prints findings to stderr and always continues. Only
+      // fails the build when `agent-native build --strict` was passed or
+      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      try {
+        const { runDoctorBuildHook } = await import("./doctor.js");
+        const hook = await runDoctorBuildHook({
+          cwd: process.cwd(),
+          strict: args.includes("--strict"),
+        });
+        if (!hook.ok) {
+          console.error(
+            "\nBuild aborted by `agent-native doctor` (see findings above).",
+          );
+          process.exit(1);
+        }
+      } catch (err) {
+        console.warn(
+          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
       if (isReactRouterFramework()) {
         validateReactRouterBuildDependencies();
         const rr = findReactRouterBin();
@@ -733,6 +760,37 @@ switch (command) {
     import("./migrate.js")
       .then((m) => m.runMigrate(args))
       .catch(handleScaffoldImportError);
+    break;
+  }
+
+  case "upgrade": {
+    // Bring an existing app/workspace to current @agent-native/* packages,
+    // refresh scaffold skills, and verify — without framework patches.
+    import("./upgrade.js")
+      .then(async (m) => {
+        const code = await m.runUpgrade(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "doctor": {
+    // Scan app source for security-critical guard invariants (see
+    // `agent-native doctor --help`). For dependency-pin health, see
+    // `agent-native upgrade check` instead.
+    import("./doctor.js")
+      .then(async (m) => {
+        const code = await m.runDoctor(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
     break;
   }
 
@@ -907,14 +965,18 @@ switch (command) {
   }
 
   case "setup-agents": {
-    import("./setup-agents.js").then((m) => m.runSetupAgents());
+    import("./setup-agents.js")
+      .then((m) => m.runSetupAgents())
+      .catch(handleScaffoldImportError);
     break;
   }
 
   case "info": {
     // Print read-only info about an installable package (e.g. @agent-native/scheduling).
     // Lists subpath exports, source paths in node_modules, and docs pointers.
-    import("./info.js").then((m) => m.runInfo(args[0]));
+    import("./info.js")
+      .then((m) => m.runInfo(args[0]))
+      .catch(handleScaffoldImportError);
     break;
   }
 
@@ -926,6 +988,32 @@ switch (command) {
     import("./add.js")
       .then((m) => {
         const code = m.runAdd(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "package": {
+    import("./package-lifecycle.js")
+      .then(async (m) => {
+        const code = await m.runPackageLifecycle(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "eject": {
+    import("./eject.js")
+      .then(async (m) => {
+        const code = await m.runEject(args);
         process.exit(code);
       })
       .catch((err) => {
@@ -1031,8 +1119,8 @@ Usage:
                                 --with-github-action also writes the PR Visual
                                 Recap workflow into .github/workflows/.
   agent-native content local-files <file-or-folder>
-                                Launch Content in local-file mode for a local
-                                docs/content folder. Use --no-open, --port N,
+                                Connect a local docs/content folder to normal
+                                database-backed Content. Use --no-open, --port N,
                                 or --profile docs/no-bookkeeping as needed.
   agent-native design connect  Start a localhost Design bridge for a running
                                 dev server. Use --url, --port, --root, or
@@ -1044,6 +1132,11 @@ Usage:
                                 local serve | local verify | local preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
+  agent-native upgrade          Bring an existing app/workspace to current
+                                @agent-native/* packages, refresh scaffold
+                                skills, and typecheck. Prefer this over
+                                patching core/dispatch. 'upgrade check' is
+                                doctor-only.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
@@ -1059,6 +1152,13 @@ Usage:
                                 Pass a URL instead of a name for a generic
                                 research-and-integrate blueprint. --list to
                                 browse available blueprints.
+  agent-native package <cmd> <package>
+                                Manifest package lifecycle: inspect | add | eject.
+                                add/eject are dry-run unless --apply; --json emits
+                                a machine-readable compatibility/change report.
+  agent-native eject <unit>    Copy a supported feature into app-owned source.
+                                --list discovers units; inspect/diff are read-only;
+                                eject/restore are dry-run unless --apply.
   agent-native changelog <cmd>  Author the app's user-facing changelog.
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in

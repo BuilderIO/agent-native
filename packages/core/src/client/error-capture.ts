@@ -21,6 +21,7 @@
  * the server normalizes + groups it. That keeps one tested source of truth for
  * grouping instead of duplicating parser logic across the wire.
  */
+import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
@@ -317,6 +318,79 @@ function signatureOf(type: string, message: string, stack?: string): string {
   return `${type}|${message}|${firstStackLine(stack)}`;
 }
 
+function normalizeGlobalErrorEvent(event: ErrorEvent): {
+  type: string;
+  message: string;
+  stack?: string;
+} {
+  const error = event?.error;
+  const normalized = error
+    ? normalizeCapturedError(error)
+    : {
+        type: "Error",
+        message: String(event?.message ?? "Uncaught error"),
+      };
+
+  if (!normalized.stack && event?.filename) {
+    const line = event.lineno ?? 0;
+    const col = event.colno ?? 0;
+    normalized.stack = `at ${event.filename}:${line}:${col}`;
+  }
+
+  return normalized;
+}
+
+function shouldIgnoreAutoCapturedError(normalized: {
+  type: string;
+  message: string;
+  stack?: string;
+}): boolean {
+  const message = (normalized.message || "").trim();
+  const stack = normalized.stack || "";
+
+  if (
+    /^ResizeObserver loop (?:limit exceeded|completed with undelivered notifications\.?)$/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
+
+  // Route-chunk recovery reloads the current page after stale lazy chunks or
+  // module scripts fail. Browser-level failures have no useful stack, so do
+  // not retain the transient loader noise as an application issue.
+  if (!stack && isDynamicImportFailureMessage(message)) {
+    return true;
+  }
+
+  if (
+    normalized.type === "InvalidStateError" &&
+    /^Transition was aborted because of invalid state$/i.test(message)
+  ) {
+    return true;
+  }
+
+  if (
+    /^This script should only be loaded in a browser extension\.?$/i.test(
+      message,
+    )
+  ) {
+    return true;
+  }
+
+  const hasExtensionFrame =
+    /\b(?:chrome|moz|safari|webkit)-extension:\/\//i.test(stack) ||
+    /\binjectScriptAdjust\.js\b/i.test(stack);
+  if (
+    hasExtensionFrame &&
+    /^(?:TypeError:\s*)?Failed to fetch$/i.test(message)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function shouldDedupe(
   runtime: ErrorCaptureRuntime,
   signature: string,
@@ -540,13 +614,8 @@ export function installErrorCapture(
   if (runtime.config.captureGlobalErrors) {
     const onError = (event: ErrorEvent) => {
       try {
-        const error = event?.error;
-        const normalized = error
-          ? normalizeCapturedError(error)
-          : {
-              type: "Error",
-              message: String(event?.message ?? "Uncaught error"),
-            };
+        const normalized = normalizeGlobalErrorEvent(event);
+        if (shouldIgnoreAutoCapturedError(normalized)) return;
         // Global errors are already logged by the session replay recorder, so
         // don't re-emit them onto the replay timeline (avoid double-counting).
         dispatch(
@@ -575,6 +644,7 @@ export function installErrorCapture(
         if (!normalized.type || normalized.type === "Error") {
           normalized.type = "UnhandledRejection";
         }
+        if (shouldIgnoreAutoCapturedError(normalized)) return;
         dispatch(
           runtime,
           buildEvent(runtime, normalized, {

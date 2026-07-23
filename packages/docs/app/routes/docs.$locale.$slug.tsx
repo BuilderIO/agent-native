@@ -21,9 +21,17 @@ import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 const SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   "database-adapters": "deployment",
-  resources: "workspace",
+  resources: "agent-resources",
   secrets: "security",
+  workspace: "agent-resources",
   "visual-plans": "template-plan",
+  // Toolkit -ui pages merged into their parent kit doc.
+  "toolkit-app-adapters": "toolkit-ui",
+  "toolkit-shell-hooks": "toolkit-ui",
+  "toolkit-collaboration-ui": "toolkit-collaboration",
+  "toolkit-sharing-ui": "toolkit-sharing",
+  // Migration workbench folded into the code-agents-ui /migrate section.
+  "migration-workbench": "code-agents-ui",
 };
 
 function requireLocale(value: unknown): DocsLocale {

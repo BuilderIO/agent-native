@@ -1,8 +1,8 @@
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
 import {
   agentNativePath,
   appBasePath,
-  markAgentChatHomeHandoff,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -55,7 +55,10 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname, location.search]);
 
-  // Listen for navigate commands from agent
+  // Listen for one-shot navigate commands from the agent. useDbSync
+  // invalidates this exact key when the shared SSE/poll transport receives an
+  // app-state:navigate event, so this stays idle between real commands instead
+  // of charging the host for a request every two seconds.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
@@ -70,7 +73,7 @@ export function useNavigationState() {
       }
       return null;
     },
-    refetchInterval: 2_000,
+    retry: false,
     structuralSharing: false,
   });
 
@@ -105,7 +108,9 @@ export function useNavigationState() {
     deleteCommand();
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
-    if (path !== "/") markAgentChatHomeHandoff("plans");
+    if (location.pathname === "/" && path !== "/") {
+      markAgentChatHomeHandoff("plans");
+    }
     const commitNavigation = () =>
       navigate(path, { replace: true, flushSync: true });
     if (
@@ -195,7 +200,7 @@ function pathForView(view?: string): string {
     case "settings":
       return "/settings";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     default:
       return "/";
   }

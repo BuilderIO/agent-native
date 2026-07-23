@@ -6,11 +6,11 @@
  * authenticated `/_agent-native/actions/get-recording-player-data` route.
  *
  * Only returns data when:
- *   - recording.visibility === 'public' (or the signed-in viewer is owner), AND
+ *   - recording.visibility === 'public', or the signed-in viewer has org/share access, AND
  *   - either no password is set, the viewer is owner, or the provided password matches
  *
- * For `org` or `private` visibility, returns 401 (viewer must sign in and use
- * the authenticated player route).
+ * For `org` or `private` visibility, signed-in org members and explicit shares
+ * may load the same player payload as the authenticated route.
  */
 
 import {
@@ -19,6 +19,7 @@ import {
   signShortLivedToken,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { asc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
@@ -39,12 +40,14 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../../../shared/transcript-segments.js";
+import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
+import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
 import {
   getOrganizationRoleForEmail,
   parseSpaceIds,
-  sameOwnerEmail,
 } from "../../lib/recordings.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
@@ -210,15 +213,24 @@ export default defineEventHandler(async (event) => {
   }
 
   const session = await getSession(event).catch(() => null);
-  const viewerIsOwner = Boolean(
-    session?.email && sameOwnerEmail(session.email, rec.ownerEmail),
-  );
   const tokenAllowsAgentAccess = suppliedAgentAccessToken
     ? verifyScopedAgentAccessToken(suppliedAgentAccessToken, {
         resourceKind: CLIP_AGENT_ACCESS_TOKEN_PREFIX,
         resourceId: rec.id,
       }).ok
     : false;
+
+  // Share links are public-shell routes, so this endpoint cannot rely on the
+  // authenticated player action to authorize private recordings. Resolve the
+  // same registered access policy here so explicit user/org grants work before
+  // the client redirects to the direct player route.
+  const viewerAccess = session?.email
+    ? await resolveAccess("recording", rec.id, {
+        userEmail: session.email,
+        orgId: session.orgId,
+      })
+    : null;
+  const viewerIsOwner = viewerAccess?.role === "owner";
 
   let viewerIsOrgMember = false;
   if (session?.email && rec.visibility === "org" && rec.organizationId) {
@@ -237,7 +249,7 @@ export default defineEventHandler(async (event) => {
 
   if (
     rec.visibility !== "public" &&
-    !viewerIsOwner &&
+    !viewerAccess &&
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
@@ -357,6 +369,10 @@ export default defineEventHandler(async (event) => {
     resolvedVideoUrl,
     protectedMediaToken,
   );
+  const playbackThumbnailUrl = resolvePlayerThumbnailUrl(rec, {
+    accessToken: protectedMediaToken,
+    appPath,
+  });
 
   const canExposeAgentContext =
     (rec.visibility === "public" || tokenAllowsAgentAccess || viewerIsOwner) &&
@@ -382,13 +398,19 @@ export default defineEventHandler(async (event) => {
   // Don't leak the URL (which now carries a short-lived token) into the
   // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  const transcriptPresentation = resolveTranscriptPresentation(transcript);
+  const verificationPending = await isMediaVerificationPending({
+    ownerEmail: rec.ownerEmail,
+    recordingId,
+    recordingStatus: rec.status,
+  });
 
   return {
     recording: {
       id: rec.id,
       title: rec.title,
       description: rec.description,
-      thumbnailUrl: rec.thumbnailUrl,
+      thumbnailUrl: playbackThumbnailUrl,
       animatedThumbnailUrl: rec.animatedThumbnailUrl,
       sourceAppName: rec.sourceAppName,
       durationMs: rec.durationMs,
@@ -400,6 +422,7 @@ export default defineEventHandler(async (event) => {
       hasAudio: Boolean(rec.hasAudio),
       hasCamera: Boolean(rec.hasCamera),
       status: rec.status,
+      verificationPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
       // Don't leak the password to clients; just indicate whether one was set.
@@ -418,10 +441,10 @@ export default defineEventHandler(async (event) => {
     agentContextUrl,
     transcript: transcript
       ? {
-          status: transcript.status,
+          status: transcriptPresentation.status,
           language: transcript.language,
           fullText: transcript.fullText,
-          failureReason: transcript.failureReason,
+          failureReason: transcriptPresentation.failureReason,
           segments: transcriptSegments,
         }
       : null,
@@ -456,11 +479,17 @@ export default defineEventHandler(async (event) => {
       placement: c.placement,
     })),
     viewer: session?.email
-      ? {
-          canEdit: viewerIsOwner,
-          isOwner: viewerIsOwner,
-          role: viewerIsOwner ? "owner" : "viewer",
-        }
+      ? (() => {
+          const role =
+            viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
+          const canEdit =
+            role === "owner" || role === "admin" || role === "editor";
+          return {
+            canEdit,
+            isOwner: role === "owner",
+            role: role ?? "viewer",
+          };
+        })()
       : null,
   };
 });

@@ -30,10 +30,10 @@ const messages = {
       "Gérez les membres, l’accès de l’organisation et les préférences partagées.",
     openTeamSettings: "Ouvrir les paramètres d’équipe",
     openResourceSettings: "Ouvrir les paramètres des ressources",
-    agentTitle: "Paramètres de l’agent",
+    agentTitle: "Gérer l’agent",
     agentDescription:
-      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-    openAgentSettings: "Ouvrir les paramètres de l’agent",
+      "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+    openAgentSettings: "Gérer l’agent",
     editorTitle: "Extension VS Code",
     editorDescription:
       "Ouvrez et examinez les plans dans un panneau latéral de VS Code plutôt que dans un onglet de navigateur séparé.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "Qu’est-ce qui a été livré la semaine dernière ?",
     suggestionUi: "À quoi ressemble cette interface ?",
     suggestionApi: "Quelle est la structure de cette API ?",
+  },
+  contextXray: {
+    panelTitle: "Radiographie du contexte",
+    snapshotsTitle: "Instantanés",
   },
   sidebar: {
     openNavigation: "Ouvrir la navigation",
@@ -294,6 +298,8 @@ const messages = {
       agentMissing:
         "Connectez l'agent à exécuter - ajoutez une clé API ou utilisez Builder.",
       assessment: {
+        design:
+          "Une demande haute fidélité a été détectée automatiquement ; l'agent créera des écrans de marque aboutis.",
         ui: "États ou flux d'interface utilisateur détectés automatiquement ; l'agent élaborera d'abord un plan filaire.",
         visual:
           "Auto demandera à l'agent un plan technique riche avec des schémas et des détails de mise en œuvre.",
@@ -316,6 +322,10 @@ const messages = {
         ui: {
           description: "Flux d'interface utilisateur - wireframes et états",
           label: "Flux d'interface utilisateur",
+        },
+        design: {
+          description: "Design haute fidélité – écrans de marque aboutis",
+          label: "Design haute fidélité",
         },
         visual: {
           description: "Visuel général – diagrammes et notes",
@@ -501,6 +511,16 @@ const messages = {
     localPlanLoadError: {
       message: 'Le dossier du plan local "{{slug}}" n\'a pas pu être lu.',
       title: "Plan local introuvable",
+    },
+    localPlanConnection: {
+      promptTitle: "Se connecter à ce plan local",
+      promptMessage:
+        "Ce plan reste sur votre ordinateur. Plan a besoin de l’autorisation du navigateur pour le lire depuis le pont local.",
+      deniedTitle: "L’accès au réseau local est bloqué",
+      deniedMessage:
+        "Ouvrez les paramètres du site de Plan dans votre navigateur, autorisez l’accès au réseau local, puis vérifiez à nouveau.",
+      connect: "Se connecter au plan local",
+      checkAgain: "Vérifier à nouveau",
     },
     loggedOut: {
       copied: "Copié",

@@ -1,9 +1,13 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
-import { DispatchShell } from "@agent-native/dispatch/components";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  ActionQueryError,
+  DispatchShell,
+} from "@agent-native/dispatch/components";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,6 +128,13 @@ interface WorkspaceConnectionProvider {
   credentialKeys: WorkspaceConnectionCredentialKey[];
   capabilities: string[];
   recommendedTemplateUses: string[];
+  oauth?: {
+    provider: string;
+    authorizationUrl: string;
+    tokenUrl: string;
+    refreshUrl?: string;
+    scopes: string[];
+  };
   readiness?: WorkspaceConnectionProviderReadiness;
 }
 
@@ -715,6 +726,32 @@ function summarizeAppList(
     : t("integrations.noApps");
 }
 
+function startWorkspaceProviderOAuth(provider: WorkspaceConnectionProvider) {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  if (provider.id === "slack") {
+    const params = new URLSearchParams({ return: returnPath });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/integrations/slack/oauth/install?${params.toString()}`,
+      ),
+    );
+    return;
+  }
+  const params = new URLSearchParams({
+    appId: "dispatch",
+    return: returnPath,
+  });
+  window.location.assign(
+    agentNativePath(
+      `/_agent-native/connections/oauth/${provider.id}/start?${params.toString()}`,
+    ),
+  );
+}
+
+function providerHasOAuth(provider: WorkspaceConnectionProvider): boolean {
+  return Boolean(provider.oauth) || provider.id === "slack";
+}
+
 function ProviderCard({
   provider,
   connections,
@@ -785,10 +822,29 @@ function ProviderCard({
                   count: provider.credentialKeys.length,
                 })}
         </span>
-        <Button type="button" variant="outline" size="sm" onClick={onCreate}>
-          <IconPlus size={14} />
-          {t("integrations.connect")}
-        </Button>
+        <div className="flex items-center gap-2">
+          {providerHasOAuth(provider) ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => startWorkspaceProviderOAuth(provider)}
+            >
+              <IconShieldCheck size={14} />
+              {t("integrations.connect")}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant={providerHasOAuth(provider) ? "ghost" : "outline"}
+            size="sm"
+            onClick={onCreate}
+          >
+            <IconKey size={14} />
+            {providerHasOAuth(provider)
+              ? t("integrations.connectionFallback")
+              : t("integrations.connect")}
+          </Button>
+        </div>
       </div>
     </article>
   );
@@ -2364,156 +2420,172 @@ export default function WorkspaceIntegrationsRoute() {
       description={t("integrations.description")}
     >
       <div className="space-y-6">
-        <section
-          data-usage-tracked={usageTracked ? "true" : undefined}
-          className={cx(
-            "dispatch-integrations-summary-grid grid gap-3",
-            usageTracked && "dispatch-integrations-summary-grid-tracked",
-          )}
-        >
-          <SummaryCard
-            icon={IconCheck}
-            label={t("integrations.readyProviders")}
-            value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
-            detail={t("integrations.readyProvidersDetail")}
+        {connectionsQuery.isError || appsQuery.isError ? (
+          <ActionQueryError
+            error={connectionsQuery.error ?? appsQuery.error}
+            onRetry={() => {
+              void connectionsQuery.refetch();
+              void appsQuery.refetch();
+            }}
           />
-          <SummaryCard
-            icon={IconPlugConnected}
-            label={t("integrations.connections")}
-            value={String(connections.length)}
-            detail={t("integrations.connectedCount", {
-              count: connectedCount,
-            })}
-          />
-          <SummaryCard
-            icon={IconShieldCheck}
-            label={t("integrations.appGrants")}
-            value={String(data.grants.length)}
-            detail={t("integrations.appGrantsDetail", {
-              allAppCount: data.counts.allAppConnections ?? 0,
-              selectedCount: data.counts.selectedAppConnections ?? 0,
-            })}
-          />
-          <SummaryCard
-            icon={IconKey}
-            label={t("integrations.keyHealth")}
-            value={
-              connectionsMissingKeys === 0
-                ? t("integrations.healthy")
-                : t("integrations.missingCount", {
-                    count: connectionsMissingKeys,
-                  })
-            }
-            detail={
-              attentionCount
-                ? t("integrations.connectionNeedsAttention", {
-                    count: attentionCount,
-                  })
-                : t("integrations.requiredRefsPresent")
-            }
-          />
-          {usageTracked ? (
-            <SummaryCard
-              icon={IconClock}
-              label={t("integrations.usage")}
-              value={
-                Number.isFinite(mostRecentUsage)
-                  ? formatTimestamp(t, new Date(mostRecentUsage).toISOString())
-                  : t("integrations.time.neverUsed")
-              }
-              detail={
-                neverUsedCount
-                  ? t("integrations.neverUsedCount", {
-                      count: neverUsedCount,
-                    })
-                  : t("integrations.allTrackedAccountsHaveUsage")
-              }
-            />
-          ) : null}
-        </section>
-
-        <IntegrationOnboarding />
-
-        {connectionsQuery.isLoading ? (
-          <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
-            {t("integrations.loadingWorkspaceIntegrations")}
-          </div>
         ) : null}
-
-        <section>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">
-                {t("integrations.providerCatalog")}
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                {t("integrations.providersAvailable", {
-                  count: providers.length,
+        {!connectionsQuery.isError && !appsQuery.isError ? (
+          <>
+            <section
+              data-usage-tracked={usageTracked ? "true" : undefined}
+              className={cx(
+                "dispatch-integrations-summary-grid grid gap-3",
+                usageTracked && "dispatch-integrations-summary-grid-tracked",
+              )}
+            >
+              <SummaryCard
+                icon={IconCheck}
+                label={t("integrations.readyProviders")}
+                value={`${data.counts.readyProviders ?? 0}/${providers.length}`}
+                detail={t("integrations.readyProvidersDetail")}
+              />
+              <SummaryCard
+                icon={IconPlugConnected}
+                label={t("integrations.connections")}
+                value={String(connections.length)}
+                detail={t("integrations.connectedCount", {
+                  count: connectedCount,
                 })}
-              </p>
-            </div>
-          </div>
-          <div className="dispatch-provider-grid grid gap-3">
-            {providers.map((provider) => (
-              <ProviderCard
-                key={provider.id}
-                provider={provider}
-                connections={providerConnections.get(provider.id) ?? []}
-                onCreate={() => openSetup(provider)}
               />
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">
-                {t("integrations.connectedAccounts")}
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                {connections.length === 0
-                  ? t("integrations.noSharedConnectionsYet")
-                  : t("integrations.savedConnectionCount", {
-                      count: connections.length,
-                    })}
-              </p>
-            </div>
-          </div>
-          {connections.length === 0 && !connectionsQuery.isLoading ? (
-            <div className="rounded-lg border border-dashed px-6 py-12 text-center">
-              <IconPlugConnected
-                size={24}
-                className="mx-auto text-muted-foreground"
+              <SummaryCard
+                icon={IconShieldCheck}
+                label={t("integrations.appGrants")}
+                value={String(data.grants.length)}
+                detail={t("integrations.appGrantsDetail", {
+                  allAppCount: data.counts.allAppConnections ?? 0,
+                  selectedCount: data.counts.selectedAppConnections ?? 0,
+                })}
               />
-              <p className="mt-3 text-sm font-medium text-foreground">
-                {t("integrations.noSharedAccountsYet")}
-              </p>
-              <p className="mx-auto mt-1 max-w-md text-sm leading-5 text-muted-foreground">
-                {t("integrations.emptyConnectedAccountsDescription")}
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-3">
-              {connections.map((connection) => (
-                <ConnectionRow
-                  key={connection.id}
-                  connection={connection}
-                  provider={providersById.get(connection.provider)}
-                  grantApps={grantApps}
-                  grants={data.grants}
-                  grantPending={setGrant.isPending}
-                  onEdit={() => openEdit(connection)}
-                  onRepair={() => openRepair(connection)}
-                  onDelete={() => setDeleteTarget(connection)}
-                  onToggleGrant={(appId, granted) =>
-                    toggleGrant(connection, appId, granted)
+              <SummaryCard
+                icon={IconKey}
+                label={t("integrations.keyHealth")}
+                value={
+                  connectionsMissingKeys === 0
+                    ? t("integrations.healthy")
+                    : t("integrations.missingCount", {
+                        count: connectionsMissingKeys,
+                      })
+                }
+                detail={
+                  attentionCount
+                    ? t("integrations.connectionNeedsAttention", {
+                        count: attentionCount,
+                      })
+                    : t("integrations.requiredRefsPresent")
+                }
+              />
+              {usageTracked ? (
+                <SummaryCard
+                  icon={IconClock}
+                  label={t("integrations.usage")}
+                  value={
+                    Number.isFinite(mostRecentUsage)
+                      ? formatTimestamp(
+                          t,
+                          new Date(mostRecentUsage).toISOString(),
+                        )
+                      : t("integrations.time.neverUsed")
+                  }
+                  detail={
+                    neverUsedCount
+                      ? t("integrations.neverUsedCount", {
+                          count: neverUsedCount,
+                        })
+                      : t("integrations.allTrackedAccountsHaveUsage")
                   }
                 />
-              ))}
-            </div>
-          )}
-        </section>
+              ) : null}
+            </section>
+
+            <IntegrationOnboarding />
+
+            {connectionsQuery.isLoading ? (
+              <div className="rounded-lg border border-dashed px-6 py-12 text-center text-sm text-muted-foreground">
+                {t("integrations.loadingWorkspaceIntegrations")}
+              </div>
+            ) : null}
+
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    {t("integrations.providerCatalog")}
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    {t("integrations.providersAvailable", {
+                      count: providers.length,
+                    })}
+                  </p>
+                </div>
+              </div>
+              <div className="dispatch-provider-grid grid gap-3">
+                {providers.map((provider) => (
+                  <ProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    connections={providerConnections.get(provider.id) ?? []}
+                    onCreate={() => openSetup(provider)}
+                  />
+                ))}
+              </div>
+            </section>
+
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">
+                    {t("integrations.connectedAccounts")}
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    {connections.length === 0
+                      ? t("integrations.noSharedConnectionsYet")
+                      : t("integrations.savedConnectionCount", {
+                          count: connections.length,
+                        })}
+                  </p>
+                </div>
+              </div>
+              {connections.length === 0 && !connectionsQuery.isLoading ? (
+                <div className="rounded-lg border border-dashed px-6 py-12 text-center">
+                  <IconPlugConnected
+                    size={24}
+                    className="mx-auto text-muted-foreground"
+                  />
+                  <p className="mt-3 text-sm font-medium text-foreground">
+                    {t("integrations.noSharedAccountsYet")}
+                  </p>
+                  <p className="mx-auto mt-1 max-w-md text-sm leading-5 text-muted-foreground">
+                    {t("integrations.emptyConnectedAccountsDescription")}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {connections.map((connection) => (
+                    <ConnectionRow
+                      key={connection.id}
+                      connection={connection}
+                      provider={providersById.get(connection.provider)}
+                      grantApps={grantApps}
+                      grants={data.grants}
+                      grantPending={setGrant.isPending}
+                      onEdit={() => openEdit(connection)}
+                      onRepair={() => openRepair(connection)}
+                      onDelete={() => setDeleteTarget(connection)}
+                      onToggleGrant={(appId, granted) =>
+                        toggleGrant(connection, appId, granted)
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        ) : null}
       </div>
 
       <SetupWizard

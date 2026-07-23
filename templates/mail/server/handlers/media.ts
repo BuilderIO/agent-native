@@ -4,18 +4,31 @@ import path from "node:path";
 import { streamFile, getSession } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getHeader,
   getQuery,
   readRawBody,
   getRouterParam,
+  sendRedirect,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
 } from "h3";
 import { nanoid } from "nanoid";
 
-import { getStoredUpload, putStoredUpload } from "../lib/upload-store.js";
+import {
+  claimAttachmentUploadTicket,
+  verifyAttachmentUploadTicket,
+} from "../lib/attachment-upload-ticket.js";
+import {
+  MAX_UPLOAD_BYTES,
+  MediaStorageSetupError,
+  mimeTypeForUpload,
+  storeMediaUpload,
+  uploadsDirectory,
+} from "../lib/media-upload.js";
+import { getStoredUpload } from "../lib/upload-store.js";
 
-const UPLOADS_DIR = path.resolve("data/uploads");
+const UPLOADS_DIR = uploadsDirectory();
 
 // Ensure uploads directory exists (guarded for edge runtimes without filesystem)
 try {
@@ -25,26 +38,6 @@ try {
 } catch {
   // Edge runtime (e.g. Cloudflare Workers) — no local filesystem
 }
-
-const MIME_MAP: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-  ".pdf": "application/pdf",
-  ".txt": "text/plain",
-  ".csv": "text/csv",
-  ".doc": "application/msword",
-  ".docx":
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".xls": "application/vnd.ms-excel",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".zip": "application/zip",
-};
-
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
 export const uploadMedia = defineEventHandler(async (event: H3Event) => {
   const session = await getSession(event).catch(() => null);
@@ -67,35 +60,83 @@ export const uploadMedia = defineEventHandler(async (event: H3Event) => {
 
     const originalName = (getQuery(event).filename as string) || "upload";
     const ext = path.extname(originalName).toLowerCase() || ".bin";
-    const id = nanoid(12) + ext;
-    const filePath = path.join(UPLOADS_DIR, id);
-
-    const mimeType = MIME_MAP[ext] || "application/octet-stream";
-    const payload = {
-      url: `/api/media/${id}`,
-      filename: id,
+    return await storeMediaUpload({
+      ownerEmail: session.email,
+      data: body instanceof Uint8Array ? body : new Uint8Array(body),
+      filename: nanoid(12) + ext,
       originalName,
-      mimeType,
-      size: body.byteLength,
-    };
-
-    try {
-      fs.writeFileSync(filePath, body);
-    } catch {
-      await putStoredUpload(session.email, {
-        ...payload,
-        dataBase64: Buffer.from(body).toString("base64"),
-        createdAt: Date.now(),
-      });
-    }
-
-    return payload;
+    });
   } catch (err) {
+    if (err instanceof MediaStorageSetupError) {
+      setResponseStatus(event, 503);
+      return {
+        error: err.message,
+        storageSetupRequired: true,
+      };
+    }
     console.error("[media] Upload failed:", err);
     setResponseStatus(event, 500);
     return { error: "Upload failed" };
   }
 });
+
+export const uploadAttachmentWithTicket = defineEventHandler(
+  async (event: H3Event) => {
+    const uploadId = getRouterParam(event, "uploadId") as string;
+    const authorization = getHeader(event, "authorization") || "";
+    const token = authorization.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length).trim()
+      : "";
+    // Reject an invalid bearer before buffering request bytes. The later
+    // atomic claim remains the concurrency boundary immediately before the
+    // storage side effect.
+    const verified = await verifyAttachmentUploadTicket(uploadId, token);
+    if (!verified) {
+      setResponseStatus(event, 401);
+      return { error: "Invalid or expired attachment upload URL" };
+    }
+    const body = await readRawBody(event, false);
+    if (!body || !body.byteLength) {
+      setResponseStatus(event, 400);
+      return { error: "No file data" };
+    }
+    if (body.byteLength > MAX_UPLOAD_BYTES) {
+      setResponseStatus(event, 413);
+      return { error: "File too large (max 10 MB)" };
+    }
+
+    const claimed = await claimAttachmentUploadTicket(uploadId, token);
+    if (!claimed) {
+      setResponseStatus(event, 401);
+      return { error: "Invalid or expired attachment upload URL" };
+    }
+
+    try {
+      const uploaded = await storeMediaUpload({
+        ownerEmail: claimed.ownerEmail,
+        data: body instanceof Uint8Array ? body : new Uint8Array(body),
+        filename: claimed.ticket.filename,
+        originalName: claimed.ticket.originalName,
+      });
+      return {
+        ...uploaded,
+        attachment: {
+          filename: uploaded.filename,
+          originalName: uploaded.originalName,
+          mimeType: uploaded.mimeType,
+        },
+      };
+    } catch (err) {
+      if (err instanceof MediaStorageSetupError) {
+        setResponseStatus(event, 503);
+        return { error: err.message, storageSetupRequired: true };
+      }
+      console.error("[media] Ticketed attachment upload failed:", err);
+      setResponseStatus(event, 500);
+      return { error: "Upload failed" };
+    }
+  },
+);
 
 export const serveMedia = defineEventHandler(async (event: H3Event) => {
   const filename = getRouterParam(event, "filename") as string;
@@ -118,6 +159,13 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
       setResponseStatus(event, 404);
       return { error: "File not found" };
     }
+    if (stored.url) {
+      return sendRedirect(event, stored.url, 302);
+    }
+    if (!stored.dataBase64) {
+      setResponseStatus(event, 404);
+      return { error: "File data not found" };
+    }
 
     setResponseHeader(event, "Content-Type", stored.mimeType);
     setResponseHeader(
@@ -136,7 +184,7 @@ export const serveMedia = defineEventHandler(async (event: H3Event) => {
     return Buffer.from(stored.dataBase64, "base64");
   }
 
-  const mimeType = MIME_MAP[ext] || "application/octet-stream";
+  const mimeType = mimeTypeForUpload(filename);
 
   setResponseHeader(event, "Content-Type", mimeType);
   setResponseHeader(

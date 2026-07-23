@@ -5,11 +5,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertPlanEditor, nowIso } from "../server/plans.js";
+import { resolveRecapUsageCost } from "./record-recap-usage-cost.js";
 
 /**
- * Attach token usage + a derived cost estimate to an existing recap, keyed by
+ * Attach token usage and an honest cost state to an existing recap, keyed by
  * plan id. The PR Visual Recap workflow calls this AFTER the coding agent
- * (Claude Code / Codex) exits — the recap is created mid-run, before the run's
+ * (Claude Code / Codex / OpenAI-compatible Agent-Native Code) exits — the recap is created mid-run, before the run's
  * own token total exists, so usage can't ride along with create-visual-recap.
  *
  * Internal by design: no `publicAgent`, so it is NOT advertised as an MCP tool
@@ -24,11 +25,11 @@ import { assertPlanEditor, nowIso } from "../server/plans.js";
  */
 export default defineAction({
   description:
-    "Record the LLM token usage and derived cost for a recap, keyed by plan id. Internal mechanic used by the PR Visual Recap workflow after the agent run finishes; not an agent-facing tool.",
+    "Record LLM token usage and reported or estimated cost when available for a recap, keyed by plan id. Internal mechanic used by the PR Visual Recap workflow after the agent run finishes; not an agent-facing tool.",
   agentTool: false,
   schema: z.object({
     planId: z.string().min(1),
-    agent: z.enum(["claude", "codex"]).optional(),
+    agent: z.enum(["claude", "codex", "openai-compatible"]).optional(),
     model: z.string().min(1),
     // Token counts must already be normalized to the cache-exclusive shape
     // calculateCost expects (the recap CLI strips Codex's cached_input_tokens
@@ -37,7 +38,8 @@ export default defineAction({
     outputTokens: z.number().int().nonnegative(),
     cacheReadTokens: z.number().int().nonnegative().default(0),
     cacheWriteTokens: z.number().int().nonnegative().default(0),
-    // Claude Code reports a real dollar cost (total_cost_usd); Codex does not.
+    // Claude Code reports a real dollar cost; Codex and compatible providers
+    // generally provide tokens only.
     reportedCostUsd: z.number().nonnegative().optional(),
   }),
   run: async (args) => {
@@ -54,18 +56,10 @@ export default defineAction({
       .limit(1);
     if (!row) throw new Error(`Plan ${args.planId} not found`);
 
-    // Prefer the agent's reported dollar cost; otherwise estimate from tokens.
-    const reported = args.reportedCostUsd != null;
-    const costCentsX100 = reported
-      ? Math.max(1, Math.round(args.reportedCostUsd! * 10_000)) // USD → centicents
-      : calculateCost(
-          args.inputTokens,
-          args.outputTokens,
-          args.model,
-          args.cacheReadTokens,
-          args.cacheWriteTokens,
-        );
-    const costSource = reported ? "reported" : "estimated";
+    const { costCentsX100, costSource } = resolveRecapUsageCost(
+      args,
+      calculateCost,
+    );
     const recordedAt = nowIso();
 
     await db
@@ -84,10 +78,8 @@ export default defineAction({
       })
       .where(eq(schema.plans.id, args.planId));
 
-    // Mirror into the shared token_usage table so recap spend shows up in the
-    // existing Usage admin panel + cross-app aggregation. refId = plan id makes
-    // it idempotent on re-push; costCentsX100 carries the exact figure stored on
-    // the plan row (reported when available) so the two surfaces agree.
+    // Mirror tokens into the shared usage table. Unknown compatible-provider
+    // prices remain explicitly unavailable instead of inheriting a generic rate.
     await recordUsage({
       ownerEmail: row.ownerEmail,
       inputTokens: args.inputTokens,
@@ -98,7 +90,8 @@ export default defineAction({
       label: "visual-recap",
       app: "plan",
       refId: args.planId,
-      costCentsX100,
+      costCentsX100: costCentsX100 ?? undefined,
+      costSource,
     });
 
     return { planId: args.planId, costCentsX100, costSource };

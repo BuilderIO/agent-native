@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "./docs-locale";
@@ -19,6 +19,18 @@ export default function Footer() {
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >
             {t("footer.download")}
+          </Link>
+          <Link
+            to={localizedPath("/skills")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("header.skills")}
+          </Link>
+          <Link
+            to={localizedPath("/brand")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("footer.brand")}
           </Link>
           <Link
             to={localizedPath("/privacy")}

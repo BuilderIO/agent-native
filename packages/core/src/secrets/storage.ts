@@ -1,13 +1,13 @@
 /**
  * Storage layer for the framework secrets registry.
  *
- * Values are encrypted at rest with AES-256-GCM. The encryption key is
- * derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the existing
- * `BETTER_AUTH_SECRET` env var (fallback so templates don't need a second
- * secret during development). If neither is set in production we fall back
- * to a machine-local key derived from the cwd — the secret is still only
- * readable on this machine, but consider setting `SECRETS_ENCRYPTION_KEY`
- * for a stable, rotatable key.
+ * Values are encrypted at rest with AES-256-GCM. The workspace-shared
+ * encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
+ * existing `BETTER_AUTH_SECRET` env var (fallback so templates don't need a
+ * second secret during development). Deployments that only have the legacy
+ * app-scoped key continue to work until shared key material is configured;
+ * once configured, new rows use the shared key and reads retain a legacy-key
+ * fallback for existing rows.
  *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
@@ -17,8 +17,11 @@ import { randomUUID } from "node:crypto";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
-  encryptSecretValue as encryptValue,
-  decryptSecretValue as decryptValue,
+  encryptSecretValue as encryptLegacyValue,
+  encryptSharedSecretValue as encryptValue,
+  decryptSharedSecretValue as decryptValue,
+  decryptSecretValue as decryptLegacyValue,
+  hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
@@ -61,6 +64,11 @@ async function ensureTable(): Promise<void> {
           "url_allowlist",
           `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
         );
+        await ensureColumnExists(
+          "app_secrets",
+          "shared_encrypted_value",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
+        );
         return;
       }
 
@@ -86,6 +94,16 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists — expected
       }
+
+      // Additive migration: workspace-shared ciphertext. Keep the legacy
+      // encrypted_value column so older app versions remain readable.
+      try {
+        await client.execute(
+          `ALTER TABLE app_secrets ADD COLUMN shared_encrypted_value TEXT`,
+        );
+      } catch {
+        // Column already exists — expected
+      }
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -95,7 +113,9 @@ async function ensureTable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Encryption — see ./crypto.ts (shared with per-user credentials)
+// Encryption — see ./crypto.ts. Keep encrypted_value on the legacy app-key
+// format for mixed-version deployments, and add shared_encrypted_value when a
+// stable workspace key is configured so sibling apps can read the same row.
 // ---------------------------------------------------------------------------
 
 /**
@@ -141,38 +161,80 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   }
   const client = getDbExec();
   const now = Date.now();
-  const encrypted = encryptValue(value);
+  // Dual-write during rollout: old readers continue using encrypted_value,
+  // while new readers prefer the nullable shared ciphertext. An app-only
+  // deployment leaves the shared column null; on an update, a writer without
+  // shared key material clears any existing shared ciphertext rather than
+  // preserving it (see the upsert SQL below for why).
+  const encrypted = encryptLegacyValue(value);
+  const sharedEncrypted = hasSharedSecretEncryptionKeyMaterial()
+    ? encryptValue(value)
+    : null;
+  const id = randomUUID();
 
-  // Upsert by (scope, scope_id, key). Keep the existing row's id on update so
-  // references stay stable.
+  // Atomic upsert by (scope, scope_id, key). Previously this was a
+  // SELECT-then-branch (UPDATE if found, else INSERT): under concurrent
+  // writers for the same key both could see "no row" and both attempt
+  // INSERT, and the loser threw a raw UNIQUE(scope, scope_id, key)
+  // constraint violation (a user-facing 500) instead of updating. A single
+  // `INSERT ... ON CONFLICT DO UPDATE` closes that window — it's one
+  // statement, so there's no gap between "check" and "act". `id` is
+  // deliberately left out of the `DO UPDATE SET` list so an existing row
+  // keeps its original id (any stored references stay stable); only a
+  // genuinely new row gets the freshly generated `id`. This syntax is
+  // portable across SQLite (UPSERT since 3.24) and Postgres.
+  //
+  // shared_encrypted_value is overwritten with `excluded.shared_encrypted_value`
+  // (NULL when this writer lacks shared key material) rather than preserved
+  // via COALESCE. Preserving an existing shared ciphertext across a value
+  // update would let a sibling app silently decrypt a STALE value after the
+  // owner rotates it — a material-less writer has no way to produce the new
+  // shared ciphertext, so it must clear the old one instead of leaving it
+  // pointing at data that's no longer current. Siblings then get an honest
+  // cache miss (falling back to the legacy column or reporting missing) until
+  // the owning app's next read repopulates shared_encrypted_value via
+  // `populateSharedAppSecret`, which only ever fills a NULL column. A
+  // temporary miss is safer than serving rotated-away plaintext.
+  const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (scope, scope_id, key) DO UPDATE SET
+      encrypted_value = excluded.encrypted_value,
+      shared_encrypted_value = excluded.shared_encrypted_value,
+      description = excluded.description,
+      url_allowlist = excluded.url_allowlist,
+      updated_at = excluded.updated_at`;
+  const upsertArgs = [
+    id,
+    scope,
+    scopeId,
+    key,
+    encrypted,
+    sharedEncrypted,
+    description ?? null,
+    urlAllowlist ?? null,
+    now,
+    now,
+  ];
+
+  if (isPostgres()) {
+    const { rows } = await client.execute({
+      sql: `${upsertSql} RETURNING id`,
+      args: upsertArgs,
+    });
+    return String(rows[0]?.id ?? id);
+  }
+
+  // SQLite: RETURNING support varies across better-sqlite3/libsql builds, so
+  // (matching the convention elsewhere in this codebase, e.g.
+  // integrations/pending-tasks-store.ts) re-read the id afterward instead of
+  // relying on it. The row is guaranteed to exist at this point, so this is
+  // a plain lookup rather than a TOCTOU-prone gate on the write itself.
+  await client.execute({ sql: upsertSql, args: upsertArgs });
   const { rows } = await client.execute({
-    sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ?`,
+    sql: `SELECT id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
-  if (rows.length > 0) {
-    const id = rows[0].id as string;
-    await client.execute({
-      sql: `UPDATE app_secrets SET encrypted_value = ?, description = ?, url_allowlist = ?, updated_at = ? WHERE id = ?`,
-      args: [encrypted, description ?? null, urlAllowlist ?? null, now, id],
-    });
-    return id;
-  }
-  const id = randomUUID();
-  await client.execute({
-    sql: `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    args: [
-      id,
-      scope,
-      scopeId,
-      key,
-      encrypted,
-      description ?? null,
-      urlAllowlist ?? null,
-      now,
-      now,
-    ],
-  });
-  return id;
+  return String(rows[0]?.id ?? id);
 }
 
 export interface ReadSecretResult {
@@ -182,25 +244,138 @@ export interface ReadSecretResult {
 }
 
 /**
+ * Read the shared-key format and retain compatibility with rows written before
+ * app_secrets moved to its workspace-shared encryption boundary. The legacy
+ * fallback is only useful when the current app owns the old row; sibling apps
+ * will receive shared-key ciphertext after the next vault sync or update.
+ */
+interface DecryptedAppSecretValue {
+  value: string;
+  /** True when the app-scoped fallback decrypted encrypted_value. */
+  usedLegacyKey: boolean;
+  /** True when shared_encrypted_value was not the source of the plaintext. */
+  needsSharedCiphertext: boolean;
+}
+
+function decryptAppSecretValue(
+  encrypted: string,
+  sharedEncrypted?: string | null,
+): DecryptedAppSecretValue {
+  if (sharedEncrypted) {
+    try {
+      return {
+        value: decryptValue(sharedEncrypted),
+        usedLegacyKey: false,
+        needsSharedCiphertext: false,
+      };
+    } catch {
+      // Fall through to the legacy column. A partially migrated row may have
+      // a stale shared ciphertext while the old app-key value is valid.
+    }
+  }
+  try {
+    return {
+      value: decryptValue(encrypted),
+      usedLegacyKey: false,
+      needsSharedCiphertext: true,
+    };
+  } catch {
+    return {
+      value: decryptLegacyValue(encrypted),
+      usedLegacyKey: true,
+      needsSharedCiphertext: true,
+    };
+  }
+}
+
+/**
+ * Populate the shared column without touching encrypted_value. This is
+ * intentionally best-effort: a read must still succeed if a deployment's DB
+ * role cannot update the row. The NULL predicate prevents a concurrent writer
+ * from overwriting newly-populated shared ciphertext, and leaving updated_at
+ * untouched preserves the row's user-visible ordering/metadata.
+ */
+async function populateSharedAppSecret(
+  id: unknown,
+  value: string,
+): Promise<void> {
+  if (
+    id === undefined ||
+    id === null ||
+    !hasSharedSecretEncryptionKeyMaterial()
+  ) {
+    return;
+  }
+  try {
+    await getDbExec().execute({
+      sql: `UPDATE app_secrets SET shared_encrypted_value = ? WHERE id = ? AND shared_encrypted_value IS NULL`,
+      args: [encryptValue(value), id],
+    });
+  } catch {
+    // Migration is opportunistic. Preserve the successful read if the update
+    // is unavailable due to a read-only role, transient DB failure, or race.
+  }
+}
+
+type AppSecretsReadQuery = { sql: string; args: unknown[] };
+
+/**
+ * True only when the database says the app_secrets table itself is missing.
+ * Other query failures must propagate unchanged: attempting schema bootstrap
+ * for connectivity, permission, or syntax errors both hides the real failure
+ * and can introduce DDL onto a latency-sensitive read path.
+ */
+function isMissingAppSecretsTableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = String((error as Error & { code?: unknown }).code ?? "");
+  const message = error.message.toLowerCase();
+  const namesAppSecrets = /(?:app_secrets|"app_secrets")/.test(message);
+
+  if (code === "42P01") return namesAppSecrets;
+  return (
+    namesAppSecrets &&
+    (message.includes("no such table") ||
+      (message.includes("relation") && message.includes("does not exist")))
+  );
+}
+
+/** Execute a read without schema probes on the normal path. */
+async function executeAppSecretsRead(query: AppSecretsReadQuery) {
+  const client = getDbExec();
+  try {
+    return await client.execute(query);
+  } catch (error) {
+    if (!isMissingAppSecretsTableError(error)) throw error;
+    await ensureTable();
+    return client.execute(query);
+  }
+}
+
+/**
  * Read a secret's plaintext value. Returns null when not found. The caller
  * is responsible for never logging the returned value.
  */
 export async function readAppSecret(
   ref: SecretRef,
 ): Promise<ReadSecretResult | null> {
-  await ensureTable();
   const { key, scope, scopeId } = ref;
-  const client = getDbExec();
-  const { rows } = await client.execute({
-    sql: `SELECT encrypted_value, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+  const { rows } = await executeAppSecretsRead({
+    sql: `SELECT encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
   try {
-    const value = decryptValue(rows[0].encrypted_value as string);
+    const encrypted = rows[0].encrypted_value as string;
+    const decrypted = decryptAppSecretValue(
+      encrypted,
+      rows[0].shared_encrypted_value as string | null,
+    );
+    if (decrypted.needsSharedCiphertext) {
+      await populateSharedAppSecret(rows[0].id, decrypted.value);
+    }
     return {
-      value,
-      last4: last4(value),
+      value: decrypted.value,
+      last4: last4(decrypted.value),
       updatedAt: Number(rows[0].updated_at ?? 0),
     };
   } catch {
@@ -208,6 +383,45 @@ export async function readAppSecret(
     // stack in a way that could leak the ciphertext; just report missing.
     return null;
   }
+}
+
+/** Read several keys from one scope in a single database round trip. */
+export async function readAppSecrets(args: {
+  keys: readonly string[];
+  scope: SecretScope;
+  scopeId: string;
+}): Promise<Map<string, ReadSecretResult>> {
+  const keys = [...new Set(args.keys.filter(Boolean))];
+  if (keys.length === 0) return new Map();
+
+  const placeholders = keys.map(() => "?").join(", ");
+  const { rows } = await executeAppSecretsRead({
+    sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
+    args: [args.scope, args.scopeId, ...keys],
+  });
+  const results = new Map<string, ReadSecretResult>();
+  for (const row of rows) {
+    const key = String(row.key ?? "");
+    if (!key) continue;
+    try {
+      const encrypted = row.encrypted_value as string;
+      const decrypted = decryptAppSecretValue(
+        encrypted,
+        row.shared_encrypted_value as string | null,
+      );
+      if (decrypted.needsSharedCiphertext) {
+        await populateSharedAppSecret(row.id, decrypted.value);
+      }
+      results.set(key, {
+        value: decrypted.value,
+        last4: last4(decrypted.value),
+        updatedAt: Number(row.updated_at ?? 0),
+      });
+    } catch {
+      // Match readAppSecret: corrupted or stale ciphertext behaves as missing.
+    }
+  }
+  return results;
 }
 
 /**
@@ -246,15 +460,22 @@ export async function readAppSecretMeta(
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    sql: `SELECT id, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
   const row = rows[0];
   let last4Value = "";
   try {
-    const value = decryptValue(row.encrypted_value as string);
-    last4Value = last4(value);
+    const encrypted = row.encrypted_value as string;
+    const decrypted = decryptAppSecretValue(
+      encrypted,
+      row.shared_encrypted_value as string | null,
+    );
+    if (decrypted.needsSharedCiphertext) {
+      await populateSharedAppSecret(row.id, decrypted.value);
+    }
+    last4Value = last4(decrypted.value);
   } catch {
     last4Value = "";
   }
@@ -282,18 +503,26 @@ export async function listAppSecretsForScope(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT key, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
+    sql: `SELECT id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
     args: [scope, scopeId],
   });
-  return rows.map((row) => {
+  const results: SecretMeta[] = [];
+  for (const row of rows) {
     let last4Value = "";
     try {
-      const value = decryptValue(row.encrypted_value as string);
-      last4Value = last4(value);
+      const encrypted = row.encrypted_value as string;
+      const decrypted = decryptAppSecretValue(
+        encrypted,
+        row.shared_encrypted_value as string | null,
+      );
+      if (decrypted.needsSharedCiphertext) {
+        await populateSharedAppSecret(row.id, decrypted.value);
+      }
+      last4Value = last4(decrypted.value);
     } catch {
       last4Value = "";
     }
-    return {
+    results.push({
       key: row.key as string,
       scope,
       scopeId,
@@ -302,8 +531,9 @@ export async function listAppSecretsForScope(
       urlAllowlist: parseAllowlist(row.url_allowlist as string | null),
       createdAt: Number(row.created_at ?? 0),
       updatedAt: Number(row.updated_at ?? 0),
-    };
-  });
+    });
+  }
+  return results;
 }
 
 function parseAllowlist(raw: string | null): string[] | null {

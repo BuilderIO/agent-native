@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseJson } from "../server/lib/json.js";
+import { normalizePresetReferences } from "../server/lib/preset-references.js";
 import { requireGenerationSessionInLibrary } from "./_helpers.js";
 import generateImage from "./generate-image.js";
 
@@ -58,6 +59,7 @@ export default defineAction({
         subjectAssetId?: string;
         embeddedText?: string | null;
         textPlacement?: string | null;
+        boardAssignments?: Record<string, string[]>;
       };
       includeLogo?: boolean;
       categories?: string[];
@@ -71,6 +73,40 @@ export default defineAction({
     }>(run.metadata, {});
     const categories =
       metadata.settingsUsed?.categories ?? metadata.categories ?? undefined;
+    let presetReferenceFills:
+      | Array<{ referenceId: string; assetIds: string[] }>
+      | undefined;
+    // Reruns treat the CURRENT preset as authoritative by design: saved
+    // boardAssignments replay only onto entries that still exist and are
+    // still variable. Entries the designer has since removed, renamed, or
+    // converted to fixed re-resolve from today's preset instead of
+    // resurrecting the original run's images — a rerun must never bypass
+    // the designer's current board definition.
+    const boardAssignments = metadata.settingsUsed?.boardAssignments;
+    if (run.presetId && boardAssignments) {
+      const [preset] = await db
+        .select()
+        .from(schema.assetGenerationPresets)
+        .where(eq(schema.assetGenerationPresets.id, run.presetId))
+        .limit(1);
+      const presetSettings = parseJson<{ presetReferences?: unknown }>(
+        preset?.settings,
+        {},
+      );
+      presetReferenceFills = normalizePresetReferences(
+        presetSettings.presetReferences,
+      )
+        .filter((entry) => entry.variable)
+        .map((entry) => ({
+          referenceId: entry.id,
+          assetIds: Array.isArray(boardAssignments[entry.id])
+            ? boardAssignments[entry.id].filter(
+                (assetId): assetId is string => typeof assetId === "string",
+              )
+            : [],
+        }))
+        .filter((fill) => fill.assetIds.length > 0);
+    }
 
     return generateImage.run(
       {
@@ -100,6 +136,7 @@ export default defineAction({
           metadata.styleStrength ??
           "balanced") as any,
         categories: categories as any,
+        presetReferenceFills,
         includeLogo: Boolean(
           metadata.settingsUsed?.includeLogo ?? metadata.includeLogo,
         ),

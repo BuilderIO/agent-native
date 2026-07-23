@@ -6,7 +6,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 ### Core Principles
 
-1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; local PGlite is available as a Postgres-dialect opt-in with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
+1. **Shared SQL database** -- All app state lives in SQL. SQL stores structured records, metadata, references, and searchable text; large files/blob payloads must use file/blob storage and persist only URLs, ids, or handles. Never store large base64, `data:` URLs, images, videos, audio, PDFs, ZIPs, screenshots, thumbnails, or session replay chunks in SQL, `application_state`, `settings`, or `resources`. Local SQLite at `data/app.db` is the zero-setup dev fallback; local PGlite is available as a Postgres-dialect opt-in with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **AI through the right framework surface** -- Product workflows delegate to the agent via `sendToAgentChat()` / `agentChat.submit()`. Use `sendToAgentChat({ message, context, submit })` for simple UI handoffs and prefill/review flows; add `newTab: true, background: true, openSidebar: false` when the agent should work silently without focusing the sidebar. Only use the agent-chat context state helpers (`useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`, `removeAgentChatContextItem`, `clearAgentChatContext`) when the UI needs two-way sync with staged context chips. For rare server-side text transforms that intentionally need no tools, chat history, or run state, use `completeText()` from `@agent-native/core/server` inside an action instead of importing provider SDKs directly.
 3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
@@ -34,13 +34,28 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/docs/content/` directly with `rg`. Search
   `node_modules/@agent-native/core/corpus/` for source examples.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. When intentionally
+customizing shared UI, read `customizing-agent-native`.
+Use the supported ladder: configure → compose → eject the smallest unit →
+propose a shared seam. Preview `agent-native eject <unit>` before `--apply`,
+commit `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+private source, or eject protected runtime auth, data, action, or agent-chat
+internals.
+
 Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
 app-specific rules, then use the corpus for reusable framework/template
 patterns.
-After updating `@agent-native/core`, run `pnpm skills:update` or
-`npx @agent-native/core@latest skills update scaffold --project` from the app
-root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+To bring an older app current, run `pnpm upgrade:agent-native` or
+`npx @agent-native/core@latest upgrade` from the app root. That bumps
+`@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
+Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+`node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
+See the `upgrade-agent-native` and `self-modifying-code` skills.
+After a manual core bump only, `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) still
+refreshes framework-provided `.agents/skills` and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
 
 ### Database Code
@@ -61,16 +76,22 @@ Use `getSession(event)` server-side and `useSession()` client-side. When there i
 
 ## Resources
 
-Resources are SQL-backed persistent files for notes, learnings, and context.
+Resources are persistent files for notes, learnings, and context. Text resources
+live in SQL; binary resource uploads require configured file storage and store
+only the hosted URL/reference in SQL.
 
 **At the start of every conversation, read these resources (workspace, shared, and personal scopes as relevant):**
 
 1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
 2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
-**Update `LEARNINGS.md` when you learn something important.** Built-in app
-chat agents use the `resources` tool with the `action` argument. External CLI
-agents can use the equivalent `pnpm action resource-*` commands.
+**Update the shared `LEARNINGS.md` when you learn something important for the
+team.** Canonical destinations, request fields, metric definitions, routing
+conventions, and corrections learned in Slack belong there with concise source
+links. Shared scope resolves to the active organization. Personal preferences
+and user-specific context go through `save-memory` into `memory/MEMORY.md`.
+Built-in app chat agents use the `resources` tool with the `action` argument.
+External CLI agents can use the equivalent `pnpm action resource-*` commands.
 
 | Built-in agent tool call                                                | CLI equivalent                                                                         | Purpose                 |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------- |
@@ -121,13 +142,15 @@ capability is missing, add or extend a `defineAction` so both the agent and UI
 share the same operation. Do not create `/api/*` routes that only call,
 repackage, or proxy an action.
 
-| Action        | Args                              | Purpose                         |
-| ------------- | --------------------------------- | ------------------------------- |
-| `view-screen` |                                   | See current UI state            |
-| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
-| `hello`       | `[--name <name>]`                 | Example script                  |
-| `db-schema`   |                                   | Show all tables, columns, types |
-| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
+| Action           | Args                                                   | Purpose                                                   |
+| ---------------- | ------------------------------------------------------ | --------------------------------------------------------- |
+| `view-screen`    |                                                        | See current UI state                                      |
+| `navigate`       | `--view <name>` or `--path <url>`                      | Navigate the UI                                           |
+| `hello`          | `[--name <name>]`                                      | Example script                                            |
+| `db-schema`      |                                                        | Show all tables, columns, types                           |
+| `db-query`       | `--sql "SELECT ..."`                                   | Run a SELECT query                                        |
+| `list-mcp-tools` | `--serverId <id>`                                      | List connected MCP tools visible to the authenticated app |
+| `call-mcp-tool`  | `--serverId <id> --toolName <name> --arguments <json>` | Call a connected MCP tool through the scoped app API      |
 
 **For data changes, pick the right surface:**
 
@@ -140,22 +163,26 @@ repackage, or proxy an action.
 
 Skills in `.agents/skills/` provide detailed guidance for each architectural rule. Read them before making changes.
 
-| Skill                  | When to read                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| `agent-native-docs`    | Before using advanced Agent Native framework APIs or generated-app features       |
-| `adding-a-feature`     | **Read first when adding ANY new feature** — the four-area parity checklist       |
-| `real-time-sync`       | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
-| `storing-data`         | Before storing or reading any app state                                           |
-| `internationalization` | Before adding or editing visible UI copy, prompts, toasts, labels, or formatting  |
-| `delegate-to-agent`    | Before adding LLM calls or AI delegation                                          |
-| `actions`              | Before creating or modifying actions                                              |
-| `self-modifying-code`  | Before editing source, components, or styles                                      |
-| `capture-learnings`    | Before recording user preferences or corrections                                  |
-| `frontend-design`      | Before building or restyling any UI component, page, or layout                    |
-| `shadcn-ui`            | Before adding, updating, or debugging shadcn/ui components                        |
-| `agent-engines`        | Before switching LLM providers or registering a custom engine                     |
-| `notifications`        | Before surfacing alerts/progress to the user or adding channels                   |
-| `progress`             | Before running any task that takes more than a few seconds                        |
+| Skill                      | When to read                                                                      |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `agent-native-docs`        | Before using advanced Agent Native framework APIs or generated-app features       |
+| `agent-native-toolkit`     | Before building common workspace, chat, settings, navigation, or collaboration UI |
+| `customizing-agent-native` | Before configuring, composing, or ejecting shared Agent Native features           |
+| `adding-a-feature`         | **Read first when adding ANY new feature** — the four-area parity checklist       |
+| `feature-flags`            | Before shipping a staged production rollout or replacing a compile-time switch    |
+| `real-time-sync`           | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
+| `storing-data`             | Before storing or reading any app state                                           |
+| `internationalization`     | Before adding or editing visible UI copy, prompts, toasts, labels, or formatting  |
+| `delegate-to-agent`        | Before adding LLM calls or AI delegation                                          |
+| `actions`                  | Before creating or modifying actions                                              |
+| `self-modifying-code`      | Before editing source, components, or styles                                      |
+| `upgrade-agent-native`     | Before updating an older app/branch or when tempted to patch `@agent-native/*`    |
+| `capture-learnings`        | Before recording user preferences or corrections                                  |
+| `frontend-design`          | Before building or restyling any UI component, page, or layout                    |
+| `shadcn-ui`                | Before adding, updating, or debugging shadcn/ui components                        |
+| `agent-engines`            | Before switching LLM providers or registering a custom engine                     |
+| `notifications`            | Before surfacing alerts/progress to the user or adding channels                   |
+| `progress`                 | Before running any task that takes more than a few seconds                        |
 
 ## When Adding Features
 

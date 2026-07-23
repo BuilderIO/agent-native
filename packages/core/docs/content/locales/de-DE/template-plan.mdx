@@ -116,7 +116,7 @@ Der Befehl installiert drei Befehle: `/visual-plan`, `/visual-recap` und `/visua
 
 Wenn Sie einen Chat-basierten Host verwenden, der MCP-Connector URLs direkt akzeptiert
 (anstelle eines CLI-konfigurierten Clients) verbinden Sie den gehosteten Plans-Connector unter
-`https://plan.agent-native.com/_agent-native/mcp` – siehe [MCP Clients](/docs/mcp-clients) für kundenspezifische Einrichtung.
+`https://plan.agent-native.com/mcp` – siehe [MCP Clients](/docs/mcp-clients) für kundenspezifische Einrichtung.
 
 Die Authentifizierung ist eine einmalige Browser-Anmeldung beim Setup – das ist so beabsichtigt und
 ermöglicht es dem Agenten, die von ihm generierten Pläne beizubehalten und zu teilen. Was ist die Authentifizierung?
@@ -214,6 +214,13 @@ Wenn es im ersten Durchgang noch verantwortbare Entscheidungen gibt, kann der Ag
 Formular **Offene Fragen** am Ende desselben Plans. Beantworten und senden
 Es wird dem Agenten eine Revisionsrunde gegen den bestehenden Plan eingeleitet.
 
+## Kosten und Modellwahl
+
+Das Erstellen eines Plans oder einer Zusammenfassung führt eine vollständige agentische Sitzung mit dem LLM Ihres Coding-Agenten aus, keine leichtgewichtige Vorlagenbefüllung – die Kosten skalieren daher mit der Größe des Diffs oder Plans und dem gewählten Modell.
+
+- Das eigene Standard-Chat-Modell der App ist Sonnet 5; ändern Sie es jederzeit in den **Einstellungen**. Haiku ist die günstigere Claude-Option, und Luna ist die günstigere Option in der GPT-5.6-Familie.
+- Automatisierte PR-Zusammenfassungen aus der GitHub Action laufen getrennt von der interaktiven App und haben eigene Regler für Modell und Kosten – siehe [PR Visual Recap](/docs/pr-visual-recap) für `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT` und `VISUAL_RECAP_REASONING`.
+
 ## Was Sie damit machen können
 
 - **Überprüfung vor der Implementierung.** React zu Diagrammen, Wireframes, Optionsregisterkarten,
@@ -255,7 +262,7 @@ Teilen und Kommentieren sind die Arbeitsabläufe, für die ein Konto erforderlic
   geräteübergreifende oder Teambewertung) erfordert eine Anmeldung. Die Google-Anmeldung wird angezeigt, wenn
   Die standardmäßigen Google OAuth-Umgebungsvariablen sind konfiguriert.
 
-Der gehostete Plan-Connector befindet sich unter `https://plan.agent-native.com/_agent-native/mcp`.
+Der gehostete Plan-Connector befindet sich unter `https://plan.agent-native.com/mcp`.
 Fügen Sie niemals gemeinsame Geheimnisse in Skill-Dateien ein.
 
 ## Datenschutzmodus für lokale Dateien {#local-files}
@@ -292,7 +299,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 Die Brücke URL sieht aus wie
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 Die Seite ist der normale Plan-Viewer, aber der Browser ruft `plan.mdx` ab,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json` und lokale Bildressourcen von
 die Localhost-Brücke. Planinhalte werden nicht in die gehostete Datenbank geschrieben und sind
@@ -453,7 +460,7 @@ pnpm dev
 Der von der gehosteten App unterstützte Skill verwendet:
 
 - App: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 Die lokale Vorlage ist nützlich, wenn Sie Pläne selbst entwickeln, die lokale Persistenz testen oder eine vollständig selbst gehostete Überprüfungsoberfläche ausführen.
 

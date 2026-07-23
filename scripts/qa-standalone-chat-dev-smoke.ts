@@ -90,6 +90,8 @@ interface ViteReloadTracker {
 interface RunningDev {
   baseUrl: string;
   child: ChildProcessWithoutNullStreams;
+  closed: Promise<void>;
+  isClosed: () => boolean;
   logs: string[];
   dbPath: string;
   viteReload: ViteReloadTracker;
@@ -245,26 +247,6 @@ function hasRecentDatabaseLock(logs: string[]): boolean {
   return tail.includes("database is locked") || tail.includes("SQLITE_BUSY");
 }
 
-function parseDevAutoLoginCredentials(logs: string[]): {
-  email: string;
-  password: string;
-} | null {
-  const text = logs.join("");
-  const match = text.match(
-    /Local dev auto-login ready\.\s+email:\s+([^\s]+)\s+password:\s+([^\s]+)/,
-  );
-  if (!match) return null;
-  return { email: match[1], password: match[2] };
-}
-
-function isLoggedOutBody(body: string): boolean {
-  return (
-    /create an account to get started/i.test(body) ||
-    /sign in to your account/i.test(body) ||
-    /log in to your account/i.test(body)
-  );
-}
-
 /**
  * Wait until no Vite full-page reload log chunk has arrived for `quietMs`.
  * Uses chunk timestamps — old "reloading" text in the log buffer never clears.
@@ -362,10 +344,9 @@ async function startDevOnce(): Promise<RunningDev> {
   const logs: string[] = [];
   const viteReload: ViteReloadTracker = { lastReloadAt: 0 };
   const child = spawn(
-    "pnpm",
+    nodeBin,
     [
-      "exec",
-      "agent-native",
+      cliEntry,
       "dev",
       "--",
       "--host",
@@ -378,8 +359,16 @@ async function startDevOnce(): Promise<RunningDev> {
       cwd: appDir,
       env: devEnv(baseUrl, dbPath),
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     },
   );
+  let closed = false;
+  const closePromise = new Promise<void>((resolve) => {
+    child.once("close", () => {
+      closed = true;
+      resolve();
+    });
+  });
 
   child.stdout.on("data", (chunk) =>
     appendDevLog(logs, chunk.toString(), viteReload),
@@ -395,7 +384,15 @@ async function startDevOnce(): Promise<RunningDev> {
     );
   });
 
-  const running = { baseUrl, child, logs, dbPath, viteReload };
+  const running = {
+    baseUrl,
+    child,
+    closed: closePromise,
+    isClosed: () => closed,
+    logs,
+    dbPath,
+    viteReload,
+  };
   try {
     await waitForDevStable(baseUrl, logs);
     log(`dev server stable at ${baseUrl}`);
@@ -429,17 +426,30 @@ async function startDev(): Promise<RunningDev> {
 }
 
 async function stopDev(running: RunningDev): Promise<void> {
-  if (running.child.exitCode != null) return;
-  running.child.kill("SIGTERM");
-  await Promise.race([
-    new Promise<void>((resolve) => running.child.once("exit", () => resolve())),
-    new Promise<void>((resolve) =>
-      setTimeout(() => {
-        if (running.child.exitCode == null) running.child.kill("SIGKILL");
-        resolve();
-      }, 8_000),
-    ),
-  ]);
+  const signal = (name: NodeJS.Signals) => {
+    try {
+      if (process.platform !== "win32" && running.child.pid) {
+        process.kill(-running.child.pid, name);
+      } else {
+        running.child.kill(name);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  };
+  const waitForClose = (timeoutMs: number) =>
+    Promise.race([
+      running.closed.then(() => true),
+      sleep(timeoutMs).then(() => false),
+    ]);
+
+  if (running.isClosed()) return;
+  signal("SIGTERM");
+  if (await waitForClose(8_000)) return;
+  signal("SIGKILL");
+  if (!(await waitForClose(2_000))) {
+    throw new Error("Dev server process tree did not close after SIGKILL");
+  }
 }
 
 async function launchBrowser(): Promise<Browser> {
@@ -569,54 +579,6 @@ function isBenignHttpError(status: number, url: string): boolean {
   return false;
 }
 
-async function signInViaAuthApi(
-  page: Page,
-  email: string,
-  password: string,
-): Promise<void> {
-  await retryAfterNavigation("auth API login", () =>
-    page.evaluate(
-      async ({ email, password }) => {
-        const post = async (path: string, body: Record<string, unknown>) => {
-          const response = await fetch(path, {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          const text = await response.text();
-          return { ok: response.ok, status: response.status, text };
-        };
-
-        let login = await post("/_agent-native/auth/login", {
-          email,
-          password,
-        });
-        if (!login.ok) {
-          const register = await post("/_agent-native/auth/register", {
-            email,
-            password,
-            name: "Smoke Tester",
-            callbackURL: "/",
-          });
-          if (!register.ok && register.status !== 409) {
-            throw new Error(
-              `register failed with HTTP ${register.status}: ${register.text}`,
-            );
-          }
-          login = await post("/_agent-native/auth/login", { email, password });
-        }
-        if (!login.ok) {
-          throw new Error(
-            `login failed with HTTP ${login.status}: ${login.text}`,
-          );
-        }
-      },
-      { email, password },
-    ),
-  );
-}
-
 interface WaitForHomeLinkOptions {
   baseUrl?: string;
   /** Only safe after Vite deps are quiet — re-goto races active reloads. */
@@ -727,11 +689,10 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
-async function gotoAndWaitForNavLink(
+async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
   path: string,
-  linkName: string,
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
@@ -749,7 +710,7 @@ async function gotoAndWaitForNavLink(
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("link", { name: linkName })
+        .getByRole("tablist", { name: "Agent sections" })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -772,7 +733,7 @@ async function gotoAndWaitForNavLink(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show ${linkName} link before timeout: ${message}\n` +
+    `${path} did not show Agent sections tabs before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }
@@ -783,12 +744,6 @@ async function waitForAuthenticatedShell(
   running: RunningDev,
 ): Promise<string> {
   const serverLogs = running.logs;
-  const fallbackEmail =
-    process.env.STANDALONE_CHAT_DEV_SMOKE_EMAIL ||
-    `standalone-smoke-${Date.now()}@example.test`;
-  const fallbackPassword =
-    process.env.STANDALONE_CHAT_DEV_SMOKE_PASSWORD ||
-    "standalone-chat-smoke-password";
 
   log(`navigating to ${baseUrl}/ (auto-login path)`);
   await gotoCommitted(page, `${baseUrl}/`);
@@ -811,17 +766,6 @@ async function waitForAuthenticatedShell(
     }
 
     if (await homeLink.isVisible().catch(() => false)) break;
-
-    const devCreds = parseDevAutoLoginCredentials(serverLogs);
-    const authEmail = devCreds?.email ?? fallbackEmail;
-    const authPassword = devCreds?.password ?? fallbackPassword;
-
-    if (isLoggedOutBody(lastBody) && devCreds) {
-      log(`auth API login as ${authEmail}`);
-      await signInViaAuthApi(page, authEmail, authPassword);
-      await sleep(2_000);
-      continue;
-    }
 
     // Auto-login redirect or Vite reload in progress — poll, do not page.goto again.
     await sleep(2_000);
@@ -856,12 +800,11 @@ async function runBrowserSmoke(
   browserErrors.length = 0;
   httpErrors.length = 0;
 
-  log("assertion pass: /observability after warmup");
-  await gotoAndWaitForNavLink(
+  log("assertion pass: /agent after warmup");
+  await gotoAndWaitForAgentPage(
     page,
     running,
-    "/observability",
-    "Observability",
+    "/agent",
     browserErrors,
     httpErrors,
   );
@@ -903,8 +846,20 @@ async function main(): Promise<void> {
 
   const running = await startDev();
   let browser: Browser | null = null;
+  let primaryError: Error | null = null;
+  let cleanupError: unknown;
   const browserErrors: string[] = [];
   const httpErrors: string[] = [];
+
+  const captureCleanupError = (error: unknown) => {
+    const message =
+      error instanceof Error ? error.stack || error.message : String(error);
+    if (primaryError) {
+      primaryError.message += `\n\nCleanup error:\n${message}`;
+      return;
+    }
+    cleanupError ??= error;
+  };
 
   try {
     browser = await launchBrowser();
@@ -936,7 +891,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → / → /observability",
+      "  checked:  scaffold → install → dev server → auto-login → / → /agent",
     );
     console.log(
       "  checked:  no Unexpected Server Error, no HydratedRouter in dev logs",
@@ -954,20 +909,36 @@ async function main(): Promise<void> {
       httpErrors.length > 0
         ? `\n\nBrowser HTTP errors:\n${httpErrors.join("\n")}`
         : "";
-    throw new Error(
+    primaryError = new Error(
       `${message}${browserBlock}${httpBlock}\n\nRecent dev logs:\n${logs}`,
     );
   } finally {
-    if (browser) await browser.close();
-    await stopDev(running);
+    try {
+      if (browser) await browser.close();
+    } catch (error) {
+      captureCleanupError(error);
+    }
+    try {
+      await stopDev(running);
+    } catch (error) {
+      captureCleanupError(error);
+    }
     if (!process.env.STANDALONE_CHAT_DEV_SMOKE_DIR && !skipScaffold) {
-      fs.rmSync(scaffoldParent, {
-        recursive: true,
-        force: true,
-        maxRetries: 3,
-      });
+      try {
+        fs.rmSync(scaffoldParent, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 250,
+        });
+      } catch (error) {
+        captureCleanupError(error);
+      }
     }
   }
+
+  if (primaryError) throw primaryError;
+  if (cleanupError) throw cleanupError;
 }
 
 await main();

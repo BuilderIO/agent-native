@@ -1,7 +1,7 @@
 import {
   readClientAppState,
   setClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import type * as monaco from "monaco-editor";
 import {
   useCallback,
@@ -49,6 +49,7 @@ import {
 export interface CodeWorkbenchLocalhostConnection {
   connectionId: string;
   label: string;
+  rootPath?: string;
 }
 
 export interface CodeWorkbenchActiveFile {
@@ -350,9 +351,14 @@ function CodeWorkbenchInner({
       const onUp = () => {
         target.removeEventListener("pointermove", onMove);
         target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointercancel", onUp);
       };
       target.addEventListener("pointermove", onMove);
       target.addEventListener("pointerup", onUp);
+      // A cancelled pointer (e.g. a dialog stealing capture mid-drag) would
+      // otherwise never fire pointerup, leaking these listeners onto the
+      // resize handle until the next drag piles more on top of them.
+      target.addEventListener("pointercancel", onUp);
     },
     [api],
   );

@@ -15,8 +15,6 @@ describe("buildChatModelGroups", () => {
             "claude-sonnet-5",
             "gpt-5-5",
             "gemini-3-1-pro",
-            "grok-code-fast",
-            "qwen3-coder",
           ],
           requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
         },
@@ -42,16 +40,11 @@ describe("buildChatModelGroups", () => {
         models: ["gemini-3-1-pro"],
         configured: true,
       },
-      {
-        engine: "builder",
-        label: "More",
-        models: ["auto", "grok-code-fast", "qwen3-coder"],
-        configured: true,
-      },
+      { engine: "builder", label: "More", models: ["auto"], configured: true },
     ]);
   });
 
-  it("includes installed API-key-backed providers beyond Claude, OpenAI, and Gemini", () => {
+  it("shows the curated providers with OpenRouter last", () => {
     const groups = buildChatModelGroups({
       configuredKeys: [
         "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -106,7 +99,12 @@ describe("buildChatModelGroups", () => {
           label: "Mistral",
           supportedModels: ["mistral-large-latest"],
           requiredEnvVars: ["MISTRAL_API_KEY"],
-          packageInstalled: false,
+        },
+        {
+          name: "ai-sdk:cohere",
+          label: "Cohere",
+          supportedModels: ["command-a-03-2025"],
+          requiredEnvVars: ["COHERE_API_KEY"],
         },
         {
           name: "ai-sdk:ollama",
@@ -121,17 +119,15 @@ describe("buildChatModelGroups", () => {
       "Claude",
       "OpenAI",
       "Gemini",
-      "Groq",
       "OpenRouter",
     ]);
     expect(groups.find((group) => group.label === "Gemini")).toMatchObject({
       engine: "ai-sdk:google",
       configured: true,
     });
-    expect(groups.find((group) => group.label === "Groq")).toMatchObject({
-      engine: "ai-sdk:groq",
-      configured: true,
-    });
+    expect(groups.find((group) => group.label === "Groq")).toBeUndefined();
+    expect(groups.find((group) => group.label === "Mistral")).toBeUndefined();
+    expect(groups.find((group) => group.label === "Cohere")).toBeUndefined();
     expect(groups.find((group) => group.label === "OpenAI")).toMatchObject({
       configured: false,
     });
@@ -142,7 +138,55 @@ describe("buildChatModelGroups", () => {
     });
   });
 
-  it("keeps the current engine visible without marking missing credentials configured", () => {
+  it("keeps a hidden provider visible when it is the current engine", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "ai-sdk:groq",
+      currentModel: "llama-3.3-70b-versatile",
+      engines: [
+        {
+          name: "ai-sdk:groq",
+          label: "Groq",
+          supportedModels: ["llama-3.3-70b-versatile"],
+          requiredEnvVars: ["GROQ_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "ai-sdk:groq",
+        label: "Groq",
+        models: ["llama-3.3-70b-versatile"],
+        configured: false,
+      },
+    ]);
+  });
+
+  it("puts OpenRouter after other installed custom providers", () => {
+    const groups = buildChatModelGroups({
+      engines: [
+        {
+          name: "ai-sdk:openrouter",
+          label: "OpenRouter",
+          supportedModels: ["z-ai/glm-5.2"],
+          requiredEnvVars: ["OPENROUTER_API_KEY"],
+        },
+        {
+          name: "custom",
+          label: "Custom",
+          supportedModels: ["custom/model"],
+          requiredEnvVars: ["CUSTOM_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups.map((group) => group.label)).toEqual([
+      "Custom",
+      "OpenRouter",
+    ]);
+  });
+
+  it("keeps the current engine visible without re-adding unsupported current models", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:anthropic",
       currentModel: "claude-fable-5",
@@ -160,7 +204,31 @@ describe("buildChatModelGroups", () => {
       {
         engine: "ai-sdk:anthropic",
         label: "Claude",
-        models: ["claude-fable-5", "claude-sonnet-5"],
+        models: ["claude-sonnet-5"],
+        configured: false,
+      },
+    ]);
+  });
+
+  it("keeps custom current models visible for engines without a curated model list", () => {
+    const groups = buildChatModelGroups({
+      currentEngineName: "custom",
+      currentModel: "custom/provider-model",
+      engines: [
+        {
+          name: "custom",
+          label: "Custom",
+          supportedModels: [],
+          requiredEnvVars: ["CUSTOM_API_KEY"],
+        },
+      ],
+    });
+
+    expect(groups).toEqual([
+      {
+        engine: "custom",
+        label: "Custom",
+        models: ["custom/provider-model"],
         configured: false,
       },
     ]);

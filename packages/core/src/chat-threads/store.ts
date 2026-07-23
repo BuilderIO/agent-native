@@ -639,6 +639,14 @@ export interface ListThreadsOptions {
   /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
   orgId?: string | null;
+  /**
+   * Include archived threads in the results. Defaults to false: archived
+   * threads (`archived_at` set via `setThreadArchived`) are hidden from the
+   * ordinary chat list/search so archiving actually removes a thread from
+   * view. Pass true for surfaces that explicitly need to see archived chats
+   * (e.g. an "Archived" filter or restoring one via `setThreadArchived`).
+   */
+  includeArchived?: boolean;
 }
 
 function chatThreadAccessSql(
@@ -686,6 +694,9 @@ export async function listThreads(
   );
   const filters: string[] = [access.sql, `message_count > 0`];
   const args: (string | number)[] = [...access.args];
+  if (!opts.includeArchived) {
+    filters.push(`archived_at IS NULL`);
+  }
   if (opts.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(opts.scope.type, opts.scope.id);
@@ -710,7 +721,12 @@ export async function searchThreads(
   ownerEmail: string,
   query: string,
   limit = 50,
-  options: { scope?: { type: string; id: string }; orgId?: string | null } = {},
+  options: {
+    scope?: { type: string; id: string };
+    orgId?: string | null;
+    /** See `ListThreadsOptions.includeArchived` — defaults to false. */
+    includeArchived?: boolean;
+  } = {},
 ): Promise<ChatThreadSummary[]> {
   await ensureTable();
   const client = getDbExec();
@@ -728,6 +744,9 @@ export async function searchThreads(
     `(title LIKE ? ESCAPE '!' OR preview LIKE ? ESCAPE '!' OR thread_data LIKE ? ESCAPE '!')`,
   ];
   const args: (string | number)[] = [...access.args, pattern, pattern, pattern];
+  if (!options.includeArchived) {
+    filters.push(`archived_at IS NULL`);
+  }
   if (options.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
@@ -867,57 +886,71 @@ export async function updateThreadData(
   messageCount: number,
   options: UpdateThreadDataOptions = {},
 ): Promise<void> {
-  await ensureTable();
+  // getThread() ensures the table exists. Keep that bootstrap inside the
+  // retry boundary below so a cold serverless process can recover from a
+  // transient initialization/read failure too.
   const client = getDbExec();
-  const maxAttempts =
-    options.maxAttempts ?? DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS;
+  const maxAttempts = Math.max(
+    1,
+    options.maxAttempts ?? DEFAULT_THREAD_DATA_UPDATE_ATTEMPTS,
+  );
   let lastConflict = false;
+  let lastError: unknown = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const current = await getThread(id);
-    if (!current) return;
-
-    let nextThreadData = threadData;
-    let nextMessageCount = messageCount;
     try {
-      const merged = mergeThreadDataForClientSave(
-        parseThreadData(current.threadData),
-        parseThreadData(threadData),
-        {
-          preserveExistingQueuedMessages:
-            options.preserveExistingQueuedMessages ?? true,
-          preserveExistingTopLevelKeys:
-            options.preserveExistingTopLevelKeys ?? true,
-        },
-      );
-      nextThreadData = JSON.stringify(merged);
-      if (Array.isArray(merged.messages)) {
-        nextMessageCount = merged.messages.length;
+      const current = await getThread(id);
+      if (!current) return;
+
+      let nextThreadData = threadData;
+      let nextMessageCount = messageCount;
+      try {
+        const merged = mergeThreadDataForClientSave(
+          parseThreadData(current.threadData),
+          parseThreadData(threadData),
+          {
+            preserveExistingQueuedMessages:
+              options.preserveExistingQueuedMessages ?? true,
+            preserveExistingTopLevelKeys:
+              options.preserveExistingTopLevelKeys ?? true,
+          },
+        );
+        nextThreadData = JSON.stringify(merged);
+        if (Array.isArray(merged.messages)) {
+          nextMessageCount = merged.messages.length;
+        }
+      } catch {
+        // Keep the caller's serialized value if either JSON blob is malformed.
       }
-    } catch {
-      // Keep the caller's serialized value if either JSON blob is malformed.
+
+      const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
+      const result = await client.execute({
+        sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
+        args: [
+          nextThreadData,
+          title,
+          preview,
+          nextMessageCount,
+          nextUpdatedAt,
+          id,
+          current.updatedAt,
+        ],
+      });
+
+      if (result.rowsAffected > 0) {
+        emitChatThreadChange(id);
+        return;
+      }
+
+      lastConflict = true;
+    } catch (error) {
+      // Completion saves happen after a long model/tool turn, when a
+      // transient connection or serverless DB failure is especially costly.
+      // Retry the whole read/merge/write attempt like a CAS conflict, while
+      // preserving the final error if the database remains unavailable.
+      lastError = error;
     }
 
-    const nextUpdatedAt = Math.max(Date.now(), current.updatedAt + 1);
-    const result = await client.execute({
-      sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = ?, updated_at = ? WHERE id = ? AND updated_at = ?`,
-      args: [
-        nextThreadData,
-        title,
-        preview,
-        nextMessageCount,
-        nextUpdatedAt,
-        id,
-        current.updatedAt,
-      ],
-    });
-
-    if (result.rowsAffected > 0) {
-      emitChatThreadChange(id);
-      return;
-    }
-
-    lastConflict = true;
     if (attempt < maxAttempts - 1) {
       await new Promise((resolve) =>
         setTimeout(
@@ -927,6 +960,8 @@ export async function updateThreadData(
       );
     }
   }
+
+  if (lastError) throw lastError;
 
   if (lastConflict) {
     if (options.ignoreConflicts) return;

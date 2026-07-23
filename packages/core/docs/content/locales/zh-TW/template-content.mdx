@@ -89,9 +89,8 @@ description: "MDX 的開放原始碼 Obsidian：編輯本機 Markdown/MDX 檔案
 - **在樹中組織頁面** — 無限嵌套、拖動重新排序、釘選您經常使用的頁面。
 - **搜尋所有內容**，透過標題和內容進行全文搜尋。
 - **像 Obsidian 一樣編輯本機 Markdown/MDX 檔案。**使用 `/local-files` 檢視
-  將工作區匯出到檔案，在您自己的工具中編輯它們，預覽
-  更改，並將其匯入回來。在本機檔案模式下，內容直接寫入
-  選定的 `.md` 或 `.mdx` 檔案。
+  將資料夾連接至 Files，使用自己的工具編輯並同步變更，然後在 SQL 應用程式
+  中審查衝突。
 - **生成豐富的互動式自訂塊。**註冊本機 React 元件，
   將它們插入為 MDX，並讓代理建立或更新元件檔案
   您的檔案。
@@ -133,32 +132,18 @@ description: "MDX 的開放原始碼 Obsidian：編輯本機 Markdown/MDX 檔案
 評論、權限和即時協作；本機資料夾是顯式的
 同步表面。
 
-內容還可以在**本機檔案模式**下執行，其中檔案是內容的來源
-真相而不是 SQL 檔案。將 `agent-native.json` 新增到倉庫，設定
-`mode: "local-files"`，並設定`docs/`、`blog/`等根，
-`content/` 和 `resources/`。然後標準內容編輯器填充其
-來自本機 `.md`/`.mdx` 檔案的左側邊欄，並將編輯寫回
-透過普通檔案actions選取檔案。將其用於回購優先檔案，
-由 MDX 驅動的部落格、資源庫或黑曜石風格的個人內容
-元件；當您需要託管協作時切換回資料庫模式並且
-SQL 支援的共用。請參閱 [Local File Mode](/docs/local-file-mode)
-獨立儲存庫布局、設定、自訂 MDX 元件、本機
-`extensions/`小工具、安全正式環境指南。
+本機資料夾現在與所有頁面使用相同的 SQL 模型。每個頁面屬於一個空間和它的
+Files 資料庫；資料夾是該資料庫的來源介面卡。策略、衝突、MDX 元件與舊模式
+移轉請參閱[本機資料夾來源](/docs/local-file-mode)。
 
-要將內容本機檔案技能安裝到現有儲存庫中：
+要在既有儲存庫中開啟 Content：
 
 ```bash
-npx @agent-native/core@latest skills add content --mode local-files --scope project
+npx @agent-native/core@latest content .
 ```
 
-安裝程式會複製您的編碼代理的 `content` 技能並寫入或
-使用 `docs/`、`blog/`、`content/` 的內容根更新 `agent-native.json`
-和`resources/`。當本機內容應用、Agent Native 桌面或受信任
-本機網橋正在執行，代理應使用內容actions，例如
-`list-documents`、`get-document`、`edit-document`、`update-document` 和
-`share-local-file-document` 而不是原始檔案系統寫入。沒有那個本機
-bridge，已安裝的技能仍然為代理提供了回購編輯合同
-安全 Markdown/MDX 編輯。
+CLI 會啟動一般的資料庫版 Content，註冊資料夾來源，並在不設定模式環境變數的
+情況下開啟連線畫面。
 
 ## 對於開發者
 

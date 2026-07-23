@@ -145,6 +145,8 @@ struct MeetingItem {
     join_url: Option<String>,
     #[serde(default)]
     platform: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -289,9 +291,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let limit = MEETING_POLL_LIMIT.to_string();
     // Include meetings that started within the hold window so a late-open
     // desktop still surfaces the reminder until 5 minutes after start.
-    let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60
-        + 1)
-    .to_string();
+    let within_min = ((NOTIFY_LEAD_SECS + NOTIFY_HOLD_AFTER_START_SECS) / 60 + 1).to_string();
     let mut req = client.get(&url).query(&[
         ("view", "upcoming"),
         ("limit", limit.as_str()),
@@ -299,6 +299,8 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
         // list-meetings also uses this for the lower bound when we widen the
         // upcoming window to include recently-started events (see action).
         ("includeStartedWithinMin", "5"),
+        ("excludePersonalSoloEvents", "true"),
+        ("excludeDeclinedEvents", "true"),
     ]);
     req = req.header("X-Request-Source", "clips-desktop");
     if let Some(c) = cookie.as_deref() {
@@ -345,6 +347,9 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     let now = chrono::Utc::now();
     let now_ts = now.timestamp();
     for m in meetings {
+        if !is_calendar_reminder_candidate(&m) {
+            continue;
+        }
         let Some(start_str) = m.scheduled_start.as_deref() else {
             continue;
         };
@@ -368,8 +373,8 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
 
             // Eligible from 1 min before start through 5 min after start.
             // secs_until > 0 => still upcoming; negative => already started.
-            let in_window = secs_until <= NOTIFY_LEAD_SECS
-                && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
+            let in_window =
+                secs_until <= NOTIFY_LEAD_SECS && secs_until >= -NOTIFY_HOLD_AFTER_START_SECS;
 
             let eligible = match g.snoozed_until.get(&m.id).copied() {
                 Some(until) if now_ts < until => false, // still snoozed
@@ -445,6 +450,10 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     Ok(())
 }
 
+fn is_calendar_reminder_candidate(meeting: &MeetingItem) -> bool {
+    meeting.source.as_deref() != Some("adhoc")
+}
+
 fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
     if let Ok(parsed) = serde_json::from_value::<ListMeetingsResponse>(body.clone()) {
         if let Some(v) = parsed.upcoming {
@@ -461,4 +470,46 @@ fn parse_meetings(body: &serde_json::Value) -> Vec<MeetingItem> {
         return arr;
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_calendar_reminder_candidate, parse_meetings};
+
+    #[test]
+    fn excludes_adhoc_meetings_from_calendar_reminders() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                {
+                    "id": "adhoc-meeting",
+                    "scheduledStart": "2026-07-22T19:10:00Z",
+                    "source": "adhoc"
+                },
+                {
+                    "id": "calendar-meeting",
+                    "scheduledStart": "2026-07-22T19:10:00Z",
+                    "source": "calendar"
+                }
+            ]
+        }));
+
+        assert_eq!(meetings.len(), 2);
+        assert!(!is_calendar_reminder_candidate(&meetings[0]));
+        assert!(is_calendar_reminder_candidate(&meetings[1]));
+    }
+
+    #[test]
+    fn keeps_meetings_without_source_eligible_for_legacy_payloads() {
+        let meetings = parse_meetings(&serde_json::json!({
+            "meetings": [
+                {
+                    "id": "legacy-meeting",
+                    "scheduledStart": "2026-07-22T19:10:00Z"
+                }
+            ]
+        }));
+
+        assert_eq!(meetings.len(), 1);
+        assert!(is_calendar_reminder_candidate(&meetings[0]));
+    }
 }

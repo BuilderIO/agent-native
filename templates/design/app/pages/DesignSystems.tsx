@@ -1,14 +1,14 @@
 import {
-  ShareButton,
-  VisibilityBadge,
   useActionQuery,
   useActionMutation,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
+import { VisibilityBadge } from "@agent-native/toolkit/sharing";
 import {
   IconCheckbox,
   IconChecks,
@@ -70,6 +70,10 @@ import {
   getCssColorToken,
 } from "@/lib/design-system-preview";
 
+import type { DesignSystemTemplateId } from "../../shared/design-system-templates";
+import { ProductionDesignSystemShowcase } from "../components/design-system/ProductionDesignSystemShowcase";
+import { QueryErrorState } from "../components/QueryErrorState";
+
 interface DesignSystem {
   id: string;
   title: string;
@@ -119,14 +123,17 @@ export default function DesignSystems() {
   const [selectedSystemIds, setSelectedSystemIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [pendingTemplateId, setPendingTemplateId] =
+    useState<DesignSystemTemplateId | null>(null);
 
-  const { data, isLoading } = useActionQuery<{
+  const { data, isLoading, isError, isFetching, refetch } = useActionQuery<{
     designSystems: DesignSystem[];
   }>("list-design-systems");
 
   const setDefaultMutation = useActionMutation("set-default-design-system");
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
+  const createMutation = useActionMutation("create-design-system");
 
   const designSystems = data?.designSystems ?? [];
   const selectedDesignSystemId = searchParams.get("designSystemId");
@@ -238,6 +245,33 @@ export default function DesignSystems() {
       });
     },
     [queryClient, setDefaultMutation],
+  );
+
+  const handleAddProductionTemplate = useCallback(
+    (templateId: DesignSystemTemplateId) => {
+      setPendingTemplateId(templateId);
+      createMutation.mutate({ templateId } as any, {
+        onSuccess: (result: any) => {
+          setPendingTemplateId(null);
+          toast.success(t("designSystems.showcase.addSuccess"));
+          const id =
+            result && typeof result.id === "string" ? result.id : undefined;
+          navigate(
+            id
+              ? `/design-systems?designSystemId=${encodeURIComponent(id)}`
+              : "/design-systems",
+          );
+        },
+        onError: (error) => {
+          setPendingTemplateId(null);
+          toast.error(t("designSystems.showcase.addError"), {
+            description:
+              error instanceof Error ? error.message : t("common.genericError"),
+          });
+        },
+      });
+    },
+    [createMutation, navigate, t],
   );
 
   const handleDelete = useCallback(() => {
@@ -378,13 +412,11 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      <Button
-        size="sm"
-        onClick={() => navigate("/design-systems/setup")}
-        className="cursor-pointer"
-      >
-        <IconPlus className="w-3.5 h-3.5" />
-        {t("designSystems.actions.new")}
+      <Button asChild size="sm" className="cursor-pointer">
+        <Link to="/design-systems/setup">
+          <IconPlus className="w-3.5 h-3.5" />
+          {t("designSystems.actions.new")}
+        </Link>
       </Button>
     </div>,
   );
@@ -395,8 +427,21 @@ export default function DesignSystems() {
         <main className="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
           {isLoading ? (
             <LoadingSkeleton />
+          ) : isError ? (
+            <QueryErrorState
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
           ) : designSystems.length === 0 ? (
-            <EmptyState />
+            <>
+              <EmptyState />
+              <div className="border-t border-border pt-8">
+                <ProductionDesignSystemShowcase
+                  pendingTemplateId={pendingTemplateId}
+                  onAdd={handleAddProductionTemplate}
+                />
+              </div>
+            </>
           ) : (
             <>
               {isSelectionMode ? (
@@ -453,196 +498,214 @@ export default function DesignSystems() {
                   </div>
                 </div>
               ) : null}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {/* New design system card */}
-                <button
-                  onClick={() => navigate("/design-systems/setup")}
-                  className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
+              <section aria-labelledby="your-design-systems-heading">
+                <h2
+                  id="your-design-systems-heading"
+                  className="mb-4 text-base font-semibold text-foreground"
                 >
-                  <div className="aspect-video flex items-center justify-center bg-muted/30">
-                    <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
-                      <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                  {t("designSystems.yoursTitle")}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {/* New design system card */}
+                  <Link
+                    to="/design-systems/setup"
+                    className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
+                  >
+                    <div className="aspect-video flex items-center justify-center bg-muted/30">
+                      <div className="w-12 h-12 rounded-xl bg-accent/50 flex items-center justify-center group-hover:bg-accent">
+                        <IconPlus className="w-6 h-6 text-muted-foreground/70 group-hover:text-muted-foreground" />
+                      </div>
                     </div>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
-                      {t("designSystems.actions.new")}
-                    </h3>
-                    <div className="text-xs text-muted-foreground/70 mt-1">
-                      {t("designSystems.newCardDescription")}
+                    <div className="p-4">
+                      <h3 className="font-medium text-sm text-muted-foreground group-hover:text-foreground/70">
+                        {t("designSystems.actions.new")}
+                      </h3>
+                      <div className="text-xs text-muted-foreground/70 mt-1">
+                        {t("designSystems.newCardDescription")}
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </Link>
 
-                {/* Design system cards */}
-                {designSystems.map((ds) => {
-                  const parsed = parseData(ds.data);
-                  const colors = parsed?.colors;
-                  const primaryColor = getCssColorToken(colors?.primary);
-                  const secondaryColor = getCssColorToken(colors?.secondary);
-                  const accentColor = getCssColorToken(colors?.accent);
-                  const headingFont = formatDesignTokenValue(
-                    parsed?.typography?.headingFont,
-                  );
-                  const isSelected = selectedSystemIds.has(ds.id);
-                  return (
-                    <div
-                      key={ds.id}
-                      aria-selected={isSelected}
-                      className={`group relative rounded-xl border bg-card overflow-hidden ${
-                        isSelected
-                          ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40"
-                          : "border-border"
-                      }`}
-                    >
-                      <button
-                        onClick={() => {
-                          if (isSelectionMode) {
-                            if (ds.canManage) toggleSystemSelection(ds.id);
-                            return;
-                          }
-                          openDesignSystemDetails(ds.id);
-                        }}
-                        aria-pressed={isSelectionMode ? isSelected : undefined}
-                        className="block w-full text-start cursor-pointer"
+                  {/* Design system cards */}
+                  {designSystems.map((ds) => {
+                    const parsed = parseData(ds.data);
+                    const colors = parsed?.colors;
+                    const primaryColor = getCssColorToken(colors?.primary);
+                    const secondaryColor = getCssColorToken(colors?.secondary);
+                    const accentColor = getCssColorToken(colors?.accent);
+                    const headingFont = formatDesignTokenValue(
+                      parsed?.typography?.headingFont,
+                    );
+                    const isSelected = selectedSystemIds.has(ds.id);
+                    return (
+                      <div
+                        key={ds.id}
+                        aria-selected={isSelected}
+                        className={`group relative rounded-xl border bg-card overflow-hidden ${
+                          isSelected
+                            ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40"
+                            : "border-border"
+                        }`}
                       >
-                        {/* Color preview */}
-                        <div className="aspect-video bg-muted/50 flex items-center justify-center gap-2 p-4">
-                          {primaryColor && (
-                            <div
-                              className="w-10 h-10 rounded-lg"
-                              style={{ backgroundColor: primaryColor }}
-                            />
-                          )}
-                          {secondaryColor && (
-                            <div
-                              className="w-10 h-10 rounded-lg"
-                              style={{ backgroundColor: secondaryColor }}
-                            />
-                          )}
-                          {accentColor && (
-                            <div
-                              className="w-10 h-10 rounded-lg"
-                              style={{ backgroundColor: accentColor }}
-                            />
-                          )}
-                          {!primaryColor && !secondaryColor && !accentColor && (
-                            <IconPalette className="w-8 h-8 text-muted-foreground/40" />
-                          )}
-                        </div>
-                        <div className="p-4 pb-3">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
-                              {ds.title}
-                            </h3>
-                            {ds.isDefault && (
-                              <span className="text-[10px] text-[#609FF8] font-medium">
-                                {t("designSystems.defaultBadge")}
-                              </span>
+                        <button
+                          onClick={() => {
+                            if (isSelectionMode) {
+                              if (ds.canManage) toggleSystemSelection(ds.id);
+                              return;
+                            }
+                            openDesignSystemDetails(ds.id);
+                          }}
+                          aria-pressed={
+                            isSelectionMode ? isSelected : undefined
+                          }
+                          className="block w-full text-start cursor-pointer"
+                        >
+                          {/* Color preview */}
+                          <div className="aspect-video bg-muted/50 flex items-center justify-center gap-2 p-4">
+                            {primaryColor && (
+                              <div
+                                className="w-10 h-10 rounded-lg"
+                                style={{ backgroundColor: primaryColor }}
+                              />
+                            )}
+                            {secondaryColor && (
+                              <div
+                                className="w-10 h-10 rounded-lg"
+                                style={{ backgroundColor: secondaryColor }}
+                              />
+                            )}
+                            {accentColor && (
+                              <div
+                                className="w-10 h-10 rounded-lg"
+                                style={{ backgroundColor: accentColor }}
+                              />
+                            )}
+                            {!primaryColor &&
+                              !secondaryColor &&
+                              !accentColor && (
+                                <IconPalette className="w-8 h-8 text-muted-foreground/40" />
+                              )}
+                          </div>
+                          <div className="p-4 pb-3">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-medium text-sm text-foreground/90 truncate flex-1">
+                                {ds.title}
+                              </h3>
+                              {ds.isDefault && (
+                                <span className="text-[10px] text-[#609FF8] font-medium">
+                                  {t("designSystems.defaultBadge")}
+                                </span>
+                              )}
+                            </div>
+                            {headingFont && (
+                              <div className="text-xs text-muted-foreground/70">
+                                {headingFont}
+                              </div>
                             )}
                           </div>
-                          {headingFont && (
-                            <div className="text-xs text-muted-foreground/70">
-                              {headingFont}
-                            </div>
-                          )}
+                        </button>
+                        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4">
+                          <VisibilityBadge
+                            visibility={ds.visibility}
+                            className="!text-[11px]"
+                          />
+                          <ShareButton
+                            resourceType="design-system"
+                            resourceId={ds.id}
+                            resourceTitle={ds.title}
+                          />
                         </div>
-                      </button>
-                      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-4">
-                        <VisibilityBadge
-                          visibility={ds.visibility}
-                          className="!text-[11px]"
-                        />
-                        <ShareButton
-                          resourceType="design-system"
-                          resourceId={ds.id}
-                          resourceTitle={ds.title}
-                        />
-                      </div>
-                      {isSelectionMode && ds.canManage ? (
-                        <div className="absolute top-2 start-2 z-10">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() =>
-                                  toggleSystemSelection(ds.id)
-                                }
-                                onClick={(event) => event.stopPropagation()}
-                                aria-label={t("designSystems.selectAria", {
-                                  title: ds.title,
-                                })}
-                                className="h-5 w-5 border-white/60 bg-black/60 text-white data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
-                              />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {t("designSystems.selectAria", {
-                                title: ds.title,
-                              })}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      ) : (
-                        <>
-                          {/* Star button */}
-                          {ds.accessRole === "owner" && (
+                        {isSelectionMode && ds.canManage ? (
+                          <div className="absolute top-2 start-2 z-10">
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <button
-                                  onClick={() => handleSetDefault(ds.id)}
-                                  className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
-                                >
-                                  {ds.isDefault ? (
-                                    <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
-                                  ) : (
-                                    <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
-                                  )}
-                                </button>
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() =>
+                                    toggleSystemSelection(ds.id)
+                                  }
+                                  onClick={(event) => event.stopPropagation()}
+                                  aria-label={t("designSystems.selectAria", {
+                                    title: ds.title,
+                                  })}
+                                  className="h-5 w-5 border-white/60 bg-black/60 text-white data-[state=checked]:border-[#609FF8] data-[state=checked]:bg-[#609FF8]"
+                                />
                               </TooltipTrigger>
                               <TooltipContent>
-                                {ds.isDefault
-                                  ? t("designSystems.currentlyDefault")
-                                  : t("designSystems.actions.setDefault")}
+                                {t("designSystems.selectAria", {
+                                  title: ds.title,
+                                })}
                               </TooltipContent>
                             </Tooltip>
-                          )}
-                          {ds.canManage && (
-                            <div
-                              className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
-                                ds.accessRole === "owner" ? "end-10" : "end-2"
-                              }`}
-                            >
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
-                                    aria-label={t(
-                                      "designSystems.moreActionsAria",
-                                      { title: ds.title },
+                          </div>
+                        ) : (
+                          <>
+                            {/* Star button */}
+                            {ds.accessRole === "owner" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    onClick={() => handleSetDefault(ds.id)}
+                                    className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 w-7 h-7 flex items-center justify-center rounded-md bg-black/60 hover:bg-black/80 cursor-pointer"
+                                  >
+                                    {ds.isDefault ? (
+                                      <IconStarFilled className="w-3.5 h-3.5 text-yellow-400" />
+                                    ) : (
+                                      <IconStar className="w-3.5 h-3.5 text-muted-foreground" />
                                     )}
-                                  >
-                                    <IconDots className="w-3.5 h-3.5 text-foreground/70" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    onClick={() => setDeleteId(ds.id)}
-                                    className="text-red-400 focus:text-red-400 cursor-pointer"
-                                  >
-                                    <IconTrash className="w-3.5 h-3.5 me-2" />
-                                    {t("designSystems.actions.delete")}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {ds.isDefault
+                                    ? t("designSystems.currentlyDefault")
+                                    : t("designSystems.actions.setDefault")}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                            {ds.canManage && (
+                              <div
+                                className={`absolute top-2 z-10 opacity-0 group-hover:opacity-100 ${
+                                  ds.accessRole === "owner" ? "end-10" : "end-2"
+                                }`}
+                              >
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 bg-black/60 hover:bg-black/80 cursor-pointer"
+                                      aria-label={t(
+                                        "designSystems.moreActionsAria",
+                                        { title: ds.title },
+                                      )}
+                                    >
+                                      <IconDots className="w-3.5 h-3.5 text-foreground/70" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      onClick={() => setDeleteId(ds.id)}
+                                      className="text-red-400 focus:text-red-400 cursor-pointer"
+                                    >
+                                      <IconTrash className="w-3.5 h-3.5 me-2" />
+                                      {t("designSystems.actions.delete")}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+              <div className="mt-12 border-t border-border pt-8">
+                <ProductionDesignSystemShowcase
+                  pendingTemplateId={pendingTemplateId}
+                  onAdd={handleAddProductionTemplate}
+                />
               </div>
             </>
           )}
@@ -1158,7 +1221,7 @@ function LoadingSkeleton() {
 function EmptyState() {
   const t = useT();
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+    <div className="flex flex-col items-center justify-center py-10 sm:py-14 text-center">
       <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#609FF8]/20 to-[#4080E0]/20 border border-[#609FF8]/20 flex items-center justify-center mb-6">
         <IconPalette className="w-7 h-7 text-[#609FF8]" />
       </div>

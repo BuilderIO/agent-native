@@ -43,16 +43,15 @@ interface PlatformInfo {
 const PLATFORMS: PlatformInfo[] = [
   {
     id: "slack",
-    label: "Slack",
+    label: "Slack (legacy)",
     icon: IconBrandSlack,
-    description: "Message your agent from any Slack channel or DM.",
+    description:
+      "Legacy single-workspace setup. Use Settings → Messaging for new Slack connections.",
     envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
-      "Create a Slack app at api.slack.com/apps",
-      'Enable "Event Subscriptions" and point to your webhook URL',
-      "Subscribe to message.im and app_mention events",
-      "Install the app to your workspace",
-      "Copy the Bot Token and Signing Secret into your environment",
+      "Open Settings → Messaging for the supported managed Slack setup",
+      "Use this legacy setup only for an existing single-workspace installation",
+      "Managed OAuth stores workspace bot tokens automatically; do not add SLACK_BOT_TOKEN for new connections",
     ],
     docsUrl: "https://api.slack.com/apps",
   },
@@ -135,7 +134,8 @@ const PLATFORMS: PlatformInfo[] = [
       "Builder.io discovers each agent's skills via A2A",
       "Chat with one agent that can trigger actions across all your apps",
     ],
-    docsUrl: "https://www.builder.io",
+    docsUrl:
+      "https://www.builder.io?utm_source=agent-native&utm_medium=product&utm_campaign=integrations&utm_content=integrations_panel",
   },
 ];
 
@@ -534,17 +534,19 @@ export function IntegrationsPanel() {
             {t("integrations.chatIntegrationsDescription")}
           </div>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setShowPicker(true)}
-              className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            >
-              <IconPlus size={12} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
-        </Tooltip>
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <IconPlus size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t("integrations.addIntegration")}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {loading ? (

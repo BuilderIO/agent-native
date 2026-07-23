@@ -1,9 +1,4 @@
-/**
- * Self-contained i18n for the Error capture feature. English is the source of
- * truth; other locales fall back to English per key. Do NOT move these into the
- * shared app i18n — this feature owns its copy.
- */
-import { useLocale } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
 
 const MESSAGES = {
   "en-US": {
@@ -57,7 +52,18 @@ const MESSAGES = {
     metaUsers: "Users affected",
     metaEnvironment: "Environment",
     metaRelease: "Release",
+    frequency: "Error frequency",
+    frequencyWindow: "Last {days} days",
+    frequencyBarLabel: "{count} occurrences on {date}",
+    recentOccurrences: "recent",
+    noRecentVolume: "No recent volume",
+    latestOccurrence: "Latest occurrence",
+    message: "Message",
+    url: "URL",
+    occurrenceTime: "Occurred",
     stackTrace: "Stack trace",
+    stackFrameCount: "{count} frames",
+    rawStack: "Raw stack",
     noStack: "No stack trace was captured for this error.",
     inApp: "In app",
     vendor: "Vendor",
@@ -75,6 +81,9 @@ const MESSAGES = {
     viewIssue: "View issue",
     viewIssueTooltip:
       "Open this error's issue — how many users hit it, the stack trace, and recent occurrences",
+    searchIssues: "Find similar",
+    searchIssuesTooltip:
+      "Search Monitoring for all captured issues matching this console error",
     // Toasts
     resolvedToast: "Issue resolved.",
     reopenedToast: "Issue reopened.",

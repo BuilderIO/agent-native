@@ -2,16 +2,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
   getRequestOrgId,
+  getRequestContext,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import {
+  registerTrackingProvider,
+  unregisterTrackingProvider,
+} from "../tracking/registry.js";
 import { handleJsonRpcH3 as handleJsonRpc } from "./handlers.js";
 import type { A2AConfig, Message } from "./types.js";
 
 const resolveOrgByDomainMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const getA2ASecretByDomainMock = vi.hoisted(() => vi.fn());
+const callActionMock = vi.hoisted(() => vi.fn());
+const findWorkspaceDispatchAgentMock = vi.hoisted(() => vi.fn());
 
 // Mock h3's setResponseStatus and setResponseHeader
 vi.mock("h3", () => ({
+  getHeader: (event: any, name: string) =>
+    event.req?.headers?.get?.(name) ?? event.node?.req?.headers?.[name],
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
   },
@@ -24,34 +34,70 @@ vi.mock("h3", () => ({
 vi.mock("./task-store.js", () => {
   let tasks: Record<string, any> = {};
   let counter = 0;
+  const createTask = async (
+    message: Message,
+    contextId?: string,
+    metadata?: Record<string, unknown>,
+    ownerEmail?: string | null,
+    ownerScope?: string | null,
+  ) => {
+    const id = `task-${++counter}`;
+    const task = {
+      id,
+      contextId,
+      status: { state: "submitted", timestamp: new Date().toISOString() },
+      history: [message],
+      artifacts: [],
+      metadata,
+      ownerEmail: ownerEmail ?? null,
+      ownerScope: ownerScope ?? null,
+      idempotencyKey: undefined as string | undefined,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    tasks[id] = task;
+    return task;
+  };
   return {
-    async createTask(
+    A2A_PERSONAL_OWNER_SCOPE: "__personal__",
+    MAX_A2A_IDEMPOTENCY_KEY_CHARS: 128,
+    createTask,
+    async createOrReuseTask(
       message: Message,
       contextId?: string,
       metadata?: Record<string, unknown>,
       ownerEmail?: string | null,
+      ownerScope?: string | null,
+      idempotencyKey?: string,
     ) {
-      const id = `task-${++counter}`;
-      const task = {
-        id,
+      if (ownerEmail && idempotencyKey) {
+        const existing = Object.values(tasks).find(
+          (task) =>
+            task.ownerEmail?.toLowerCase() === ownerEmail.toLowerCase() &&
+            task.ownerScope === ownerScope &&
+            task.idempotencyKey === idempotencyKey,
+        );
+        if (existing) return { task: existing, reused: true };
+      }
+      const task = await createTask(
+        message,
         contextId,
-        status: { state: "submitted", timestamp: new Date().toISOString() },
-        history: [message],
-        artifacts: [],
         metadata,
-        ownerEmail: ownerEmail ?? null,
-        updatedAt: Date.now(),
-      };
-      tasks[id] = task;
-      return task;
+        ownerEmail,
+        ownerScope,
+      );
+      task.idempotencyKey = idempotencyKey;
+      return { task, reused: false };
     },
     async getTask(id: string) {
       return tasks[id] ?? null;
     },
-    async getTaskOwner(id: string) {
+    async getTaskOwnership(id: string) {
       const task = tasks[id];
-      if (!task) return null;
-      return task.ownerEmail ?? null;
+      return {
+        ownerEmail: task?.ownerEmail ?? null,
+        ownerScope: task?.ownerScope ?? null,
+      };
     },
     async updateTask(id: string, update: any) {
       const task = tasks[id];
@@ -64,6 +110,23 @@ vi.mock("./task-store.js", () => {
         };
         task.updatedAt = Date.now();
       }
+      if (update.message && task.history) {
+        task.history.push(update.message);
+      }
+      if (update.artifacts) {
+        task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
+      }
+      return task;
+    },
+    async settleProcessingA2ATask(id: string, update: any) {
+      const task = tasks[id];
+      if (!task || task.status.state !== "processing") return null;
+      task.status = {
+        state: update.state,
+        message: update.message ?? task.status.message,
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
       if (update.message && task.history) {
         task.history.push(update.message);
       }
@@ -95,6 +158,10 @@ vi.mock("./task-store.js", () => {
           typeof task.metadata?.testUpdatedAt === "number"
             ? task.metadata.testUpdatedAt
             : task.updatedAt,
+        createdAt:
+          typeof task.metadata?.testCreatedAt === "number"
+            ? task.metadata.testCreatedAt
+            : task.createdAt,
       };
     },
     async touchQueuedA2ATaskDispatch() {
@@ -112,6 +179,22 @@ vi.mock("./task-store.js", () => {
     async failStuckA2ATask(id: string, _cutoff: number, reason: string) {
       const task = tasks[id];
       if (!task || task.status.state !== "processing") return false;
+      task.status = {
+        state: "failed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: reason }],
+        },
+        timestamp: new Date().toISOString(),
+      };
+      task.updatedAt = Date.now();
+      return true;
+    },
+    async failStuckQueuedA2ATask(id: string, _cutoff: number, reason: string) {
+      const task = tasks[id];
+      if (!task || !["submitted", "working"].includes(task.status.state)) {
+        return false;
+      }
       task.status = {
         state: "failed",
         message: {
@@ -146,8 +229,17 @@ vi.mock("../shared/agent-chat.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  getA2ASecretByDomain: getA2ASecretByDomainMock,
   resolveOrgByDomain: resolveOrgByDomainMock,
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+}));
+
+vi.mock("./client.js", () => ({
+  callAction: callActionMock,
+}));
+
+vi.mock("../server/agent-discovery.js", () => ({
+  findWorkspaceDispatchAgent: findWorkspaceDispatchAgentMock,
 }));
 
 /** Create a mock H3 event for testing handleJsonRpcH3 */
@@ -174,6 +266,24 @@ describe("handleJsonRpc", () => {
   beforeEach(() => {
     resolveOrgByDomainMock.mockReset();
     resolveOrgIdForEmailMock.mockReset();
+    getA2ASecretByDomainMock.mockReset();
+    callActionMock.mockReset();
+    findWorkspaceDispatchAgentMock.mockReset();
+    findWorkspaceDispatchAgentMock.mockReturnValue({
+      id: "dispatch",
+      name: "Dispatch",
+      description: "Workspace control plane",
+      url: "https://dispatch.agent-native.test",
+      color: "#000000",
+    });
+    callActionMock.mockResolvedValue({
+      action: "resolve-integration-source-context",
+      status: "completed",
+      output: JSON.stringify({
+        platform: "slack",
+        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+      }),
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("ok")),
@@ -181,8 +291,10 @@ describe("handleJsonRpc", () => {
   });
 
   afterEach(() => {
+    unregisterTrackingProvider("a2a-read-invoke-test");
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
@@ -216,6 +328,184 @@ describe("handleJsonRpc", () => {
     expect(result.error.message).toContain("unknown/method");
   });
 
+  it("runs direct actions only with a verified user request context", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    const executeReadOnlyAction = vi.fn(async ({ action, input }) => ({
+      status: "completed" as const,
+      output: JSON.stringify({
+        action,
+        input,
+        userEmail: getRequestUserEmail(),
+        orgId: getRequestOrgId(),
+      }),
+    }));
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 12,
+        method: "actions/invoke",
+        params: {
+          action: "gong-calls",
+          input: { company: "Acme" },
+        },
+      },
+      event,
+      { ...customHandler, executeReadOnlyAction },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.id).toBe(12);
+    expect(result.result).toEqual({
+      action: "gong-calls",
+      status: "completed",
+      output: JSON.stringify({
+        action: "gong-calls",
+        input: { company: "Acme" },
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-qa",
+      }),
+    });
+    expect(executeReadOnlyAction).toHaveBeenCalledOnce();
+  });
+
+  it("tracks content-free direct read correlation with verified identity", async () => {
+    const events: any[] = [];
+    registerTrackingProvider({
+      name: "a2a-read-invoke-test",
+      track: (event) => events.push(event),
+    });
+    const executeReadOnlyAction = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "sensitive-result-content",
+    }));
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "actions/invoke",
+        params: {
+          action: "gong-calls",
+          input: { secretArgument: "do-not-track" },
+          metadata: {
+            callerApp: "mail",
+            callerThreadId: "thread-qa",
+            parentRunId: "run-qa",
+            parentTurnId: "turn-qa",
+            invocationId: "invoke-qa",
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        appId: "analytics",
+        executeReadOnlyAction,
+      },
+    );
+
+    expect(executeReadOnlyAction).toHaveBeenCalledWith({
+      action: "gong-calls",
+      input: { secretArgument: "do-not-track" },
+      invocationId: expect.any(String),
+    });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      name: "$a2a_read_invoke",
+      userId: "alice+qa@agent-native.test",
+      properties: {
+        action: "gong-calls",
+        receiver_app: "analytics",
+        caller_app: "mail",
+        status: "completed",
+        invocation_id: expect.any(String),
+        caller_invocation_id: "invoke-qa",
+        parent_run_id: "run-qa",
+        parent_turn_id: "turn-qa",
+        duration_ms: expect.any(Number),
+      },
+    });
+    expect(events[0].properties).not.toHaveProperty("input");
+    expect(events[0].properties).not.toHaveProperty("output");
+    expect(JSON.stringify(events[0])).not.toContain("do-not-track");
+    expect(JSON.stringify(events[0])).not.toContain("sensitive-result-content");
+  });
+
+  it("rejects direct action invocation without a verified identity", async () => {
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 13,
+        method: "actions/invoke",
+        params: { action: "gong-calls", input: {} },
+      },
+      mockEvent(),
+      {
+        ...customHandler,
+        executeReadOnlyAction: vi.fn(),
+      },
+    );
+
+    expect(result.error).toMatchObject({
+      code: -32001,
+      message: expect.stringContaining("audience-bound user identity"),
+    });
+  });
+
+  it("rejects direct action invocation from a legacy non-audience token", async () => {
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 14,
+        method: "actions/invoke",
+        params: { action: "gong-calls", input: {} },
+      },
+      event,
+      { ...customHandler, executeReadOnlyAction: vi.fn() },
+    );
+
+    expect(result.error).toMatchObject({ code: -32001 });
+  });
+
+  it("caps direct action input before receiver execution", async () => {
+    const executeReadOnlyAction = vi.fn();
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 15,
+        method: "actions/invoke",
+        params: { action: "gong-calls", input: { value: "x".repeat(70_000) } },
+      },
+      event,
+      { ...customHandler, executeReadOnlyAction },
+    );
+
+    expect(result.error).toMatchObject({ code: -32602 });
+    expect(executeReadOnlyAction).not.toHaveBeenCalled();
+  });
+
   it("handles message/send with custom handler", async () => {
     const event = mockEvent();
     const result = await handleJsonRpc(
@@ -238,6 +528,296 @@ describe("handleJsonRpc", () => {
     const task = result.result;
     expect(task.status.state).toBe("completed");
     expect(task.status.message.parts[0].text).toBe("custom response");
+  });
+
+  it("reuses an authenticated owner's task for duplicate message/send keys", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aAudienceVerified: true,
+      __a2aOrgDomain: "acme.test",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: 21,
+      method: "message/send",
+      params: {
+        async: true,
+        idempotencyKey: "v1:stable-message",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "do this once" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, event, config);
+    const duplicate = await handleJsonRpc(request, event, config);
+
+    expect(duplicate.result.id).toBe(first.result.id);
+    expect(duplicate.result.status.state).toBe("working");
+    expect(duplicate.result.ownerEmail).toBeUndefined();
+    expect(duplicate.result.ownerScope).toBeUndefined();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse an unfinished synchronous submission", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aAudienceVerified: true,
+      __a2aOrgDomain: "acme.test",
+    };
+    const request = {
+      jsonrpc: "2.0",
+      id: 24,
+      method: "message/send",
+      params: {
+        idempotencyKey: "v1:sync-key",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "run synchronously" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, event, config);
+    const second = await handleJsonRpc(request, event, config);
+
+    expect(second.result.id).not.toBe(first.result.id);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not expose a task to the same user in another org scope", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "acme.test",
+    };
+    const created = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 25,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "scoped work" }],
+          },
+        },
+      },
+      ownerEvent,
+      customHandler,
+    );
+    const otherOrgEvent = mockEvent();
+    otherOrgEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "other.test",
+    };
+
+    const denied = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 26,
+        method: "tasks/get",
+        params: { id: created.result.id },
+      },
+      otherOrgEvent,
+      customHandler,
+    );
+
+    expect(denied.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+  });
+
+  it("preserves current submission behavior without an authenticated owner", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const config = { ...customHandler, handler };
+    const request = {
+      jsonrpc: "2.0",
+      id: 22,
+      method: "message/send",
+      params: {
+        idempotencyKey: "v1:ignored-without-owner",
+        message: {
+          role: "user",
+          parts: [{ type: "text", text: "run normally" }],
+        },
+      },
+    };
+
+    const first = await handleJsonRpc(request, mockEvent(), config);
+    const second = await handleJsonRpc(request, mockEvent(), config);
+
+    expect(second.result.id).not.toBe(first.result.id);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails safely on an oversized authenticated idempotency key", async () => {
+    const handler = vi.fn(customHandler.handler!);
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice@example.test" };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 23,
+        method: "message/send",
+        params: {
+          idempotencyKey: "x".repeat(129),
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "do not enqueue" }],
+          },
+        },
+      },
+      event,
+      { ...customHandler, handler },
+    );
+
+    expect(result.error).toMatchObject({ code: -32602 });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("preserves an approval pause as input-required", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "send it" }],
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        handler: async function* () {
+          yield {
+            role: "agent",
+            metadata: { agentNativeTaskState: "input-required" },
+            parts: [{ type: "text", text: "Approval required" }],
+          };
+        },
+      },
+    );
+
+    expect(result.result).toMatchObject({
+      status: {
+        state: "input-required",
+        message: { parts: [{ type: "text", text: "Approval required" }] },
+      },
+    });
+  });
+
+  it("uses the receiving request origin instead of metadata for sync calls", async () => {
+    const event = mockEvent();
+    event.req = {
+      headers: new Headers({
+        host: "target.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.requestOrigin ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+
+    for (const requestOrigin of [
+      "https://attacker.example.test",
+      "http://localhost:3000",
+      "http://169.254.169.254",
+      "file:///tmp/receiver",
+    ]) {
+      const result = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            metadata: { requestOrigin },
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "hi" }],
+            },
+          },
+        },
+        event,
+        contextConfig,
+      );
+
+      expect(result.result.status.message.parts[0].text).toBe(
+        "https://target.example.test",
+      );
+    }
+  });
+
+  it("accepts a configured public origin distinct from the A2A transport", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_URL", "https://app.example.test");
+    vi.stubEnv("BETTER_AUTH_URL", "https://a2a.example.test");
+    const event = mockEvent();
+    event.req = {
+      headers: new Headers({
+        host: "a2a.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.requestOrigin ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: { requestOrigin: "https://app.example.test" },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    expect(result.result.status.message.parts[0].text).toBe(
+      "https://app.example.test",
+    );
   });
 
   it("passes the H3 event through sync message/send handler context", async () => {
@@ -377,6 +957,58 @@ describe("handleJsonRpc", () => {
     const chunks = event.node.res._writes.join("");
     expect(chunks).toContain("event-present");
     expect(chunks).not.toContain("event-missing");
+  });
+
+  it("scopes streamed tasks to the caller's verified organization", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "acme.test",
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      ownerEvent,
+      { ...customHandler, streaming: true },
+    );
+
+    const streamEvents = ownerEvent.node.res._writes.map((chunk: string) =>
+      JSON.parse(chunk.replace(/^data: /, "").trim()),
+    );
+    const taskId = streamEvents.find((entry: any) => entry.result?.id)?.result
+      .id;
+    expect(taskId).toBeTruthy();
+
+    const otherOrgEvent = mockEvent();
+    otherOrgEvent.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aOrgDomain: "other.test",
+    };
+    const denied = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      otherOrgEvent,
+      customHandler,
+    );
+
+    expect(denied.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
   });
 
   it("handles tasks/get for unknown task", async () => {
@@ -553,6 +1185,247 @@ describe("handleJsonRpc", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("fails a queued async task that never leaves submitted/working past the lifetime cap", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Past the 3-minute A2A_QUEUED_LIFETIME_MAX_MS default — dispatch
+            // never got the task out of submitted/working.
+            testCreatedAt: Date.now() - 3 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.result.status.state).toBe("working");
+    const taskId = result.result.id;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "dispatch kept failing",
+    );
+  });
+
+  it("fails a processing async task past the processing lifetime cap even though the heartbeat kept it fresh", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      return new Promise<never>(() => {});
+    });
+    const sideEffectConfig: A2AConfig = {
+      ...customHandler,
+      handler,
+    };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Fresh heartbeat (well under the 5-minute stale check) but past
+            // the 30-minute A2A_PROCESSING_LIFETIME_MAX_MS default — a hung
+            // await inside an otherwise-alive process.
+            testUpdatedAt: Date.now(),
+            testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      sideEffectConfig,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    void processA2ATaskFromQueue(taskId, sideEffectConfig);
+    await startedPromise;
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      sideEffectConfig,
+    );
+
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("failed");
+    expect(status.result.status.message.parts[0].text).toContain(
+      "maximum run time",
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the lifetime failure terminal when the original processor later completes", async () => {
+    let started: (value: unknown) => void = () => {};
+    const startedPromise = new Promise((resolve) => {
+      started = resolve;
+    });
+    let release: (value: unknown) => void = () => {};
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    const handler = vi.fn(async () => {
+      started(undefined);
+      await gate;
+      return {
+        message: {
+          role: "agent" as const,
+          parts: [{ type: "text" as const, text: "late success" }],
+        },
+      };
+    });
+    const config: A2AConfig = { ...customHandler, handler };
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            testUpdatedAt: Date.now(),
+            testCreatedAt: Date.now() - 30 * 60 * 1000 - 1,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "create something" }],
+          },
+        },
+      },
+      event,
+      config,
+    );
+    const taskId = result.result.id;
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    const processorPromise = processA2ATaskFromQueue(taskId, config);
+    await startedPromise;
+
+    const timedOut = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      config,
+    );
+    expect(timedOut.result.status.state).toBe("failed");
+
+    release(undefined);
+    await processorPromise;
+    const afterLateCompletion = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      config,
+    );
+    expect(afterLateCompletion.result.status.state).toBe("failed");
+    expect(afterLateCompletion.result.status.message.parts[0].text).toContain(
+      "maximum run time",
+    );
+    expect(afterLateCompletion.result.history).not.toContainEqual({
+      role: "agent",
+      parts: [{ type: "text", text: "late success" }],
+    });
+  });
+
+  it("returns false without an unhandled rejection when refire dispatch keeps throwing", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: {
+            // Past the 10s queued-dispatch-stuck threshold, but well under
+            // the 3-minute lifetime cap — should attempt one refire.
+            testUpdatedAt: Date.now() - 11_000,
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+    expect(result.error).toBeUndefined();
+    const taskId = result.result.id;
+
+    // Every dispatch attempt (including the initial one above) fails from
+    // here on — mirrors a persistently missing background function or bad
+    // A2A secret.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+
+    const status = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      event,
+      customHandler,
+    );
+
+    // No throw out of handleJsonRpc (no unhandled rejection) and the task is
+    // left exactly as it was — still working, not incorrectly marked failed.
+    expect(status.error).toBeUndefined();
+    expect(status.result.status.state).toBe("working");
+  });
+
   it("refuses async message/send on hosted runtimes without A2A auth config", async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     const previousNetlify = process.env.NETLIFY;
@@ -693,6 +1566,100 @@ describe("handleJsonRpc", () => {
     );
   });
 
+  it("routes env-opted-in async A2A tasks through the Netlify durable background worker", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
+    vi.stubEnv("APP_BASE_PATH", "/docs");
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://app.test/.netlify/functions/server-agent-background",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          taskId: result.result.id,
+          __agentNativeProcessor: "a2a",
+        }),
+      }),
+    );
+  });
+
+  it("falls back to the portable processor when the durable worker rejects dispatch", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    vi.stubEnv("AGENT_CHAT_DURABLE_BACKGROUND", "true");
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(new Response("accepted"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = {
+      headers: {
+        host: "app.test",
+        "x-forwarded-proto": "https",
+      },
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "go" }],
+          },
+        },
+      },
+      event,
+      { ...customHandler, durableBackgroundRuns: true },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://app.test/.netlify/functions/server-agent-background",
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      "https://app.test/_agent-native/a2a/_process-task",
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
   it("does not trust unauthenticated caller metadata for A2A request context", async () => {
     resolveOrgByDomainMock.mockResolvedValue({ orgId: "acme" });
     const contextConfig: A2AConfig = {
@@ -784,6 +1751,314 @@ describe("handleJsonRpc", () => {
     expect(resolveOrgByDomainMock).toHaveBeenCalledWith("acme.test");
     expect(resolveOrgByDomainMock).not.toHaveBeenCalledWith("evil.test");
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("restores the queued caller origin without trusting it for identity", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: `${getRequestUserEmail() ?? "none"}|${getRequestContext()?.requestOrigin ?? "none"}`,
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    event.req = {
+      headers: new Headers({
+        host: "workspace.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: { requestOrigin: "https://attacker.example.test" },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+
+    const { getTask } = await import("./task-store.js");
+    expect(
+      (await getTask(result.result.id))?.metadata?.__a2a_processor,
+    ).toEqual(
+      expect.objectContaining({
+        requestOrigin: "https://workspace.example.test",
+      }),
+    );
+    expect(result.result.metadata?.__a2a_processor).toBeUndefined();
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+
+    const followupEvent = mockEvent();
+    followupEvent.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      followupEvent,
+      contextConfig,
+    );
+    expect(followup.result.status.message.parts[0].text).toBe(
+      "alice+qa@agent-native.test|https://workspace.example.test",
+    );
+  });
+
+  it("preserves exact action grants across an authenticated async processor hop", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.approvedActions ?? []),
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    const approvedActions = [
+      { tool: "send-email", input: { to: "alice@example.test" } },
+    ];
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          approvedActions,
+          message: { role: "user", parts: [{ type: "text", text: "send" }] },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      event,
+      contextConfig,
+    );
+    expect(JSON.parse(followup.result.status.message.parts[0].text)).toEqual(
+      approvedActions,
+    );
+    expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
+  });
+
+  it("preserves verified Slack source context across an async processor hop", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.sourceContext ?? null),
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+    const sourceContext = {
+      platform: "slack",
+      sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+    };
+    const sourceReference = {
+      platform: "slack",
+      integrationTaskId: "integration-task-1",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: { sourceContext: sourceReference },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      event,
+      contextConfig,
+    );
+
+    expect(JSON.parse(followup.result.status.message.parts[0].text)).toEqual(
+      sourceContext,
+    );
+    expect(followup.result.metadata?.sourceContext).toBeUndefined();
+    expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
+  });
+
+  it("drops action grants when the A2A caller has no verified user identity", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.approvedActions ?? []),
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          approvedActions: [
+            { tool: "send-email", input: { to: "victim@example.test" } },
+          ],
+          message: { role: "user", parts: [{ type: "text", text: "send" }] },
+        },
+      },
+      mockEvent(),
+      contextConfig,
+    );
+
+    expect(result.result.status.message.parts[0].text).toBe("[]");
+  });
+
+  it("captures the inbound origin for legacy async callers without metadata", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.requestOrigin ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    event.req = {
+      headers: new Headers({
+        host: "legacy.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+
+    const { getTask } = await import("./task-store.js");
+    expect(
+      (await getTask(result.result.id))?.metadata?.__a2a_processor,
+    ).toEqual(
+      expect.objectContaining({
+        requestOrigin: "https://legacy.example.test",
+      }),
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+
+    const followupEvent = mockEvent();
+    followupEvent.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      followupEvent,
+      contextConfig,
+    );
+    expect(followup.result.status.message.parts[0].text).toBe(
+      "https://legacy.example.test",
+    );
   });
 
   it("resolves org context from verified email when no verified org domain is present", async () => {
@@ -1005,6 +2280,184 @@ describe("default handler (no custom handler)", () => {
     expect(task.artifacts).toHaveLength(1);
     expect(task.artifacts[0].name).toBe("files-changed");
     expect(task.artifacts[0].parts[0].data.files).toEqual(["events.json"]);
+  });
+
+  it("provides verified Slack source metadata as hidden agent context", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            sourceContext: {
+              platform: "slack",
+              integrationTaskId: "integration-task-1",
+            },
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture this" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).toHaveBeenCalledWith("capture this", {
+      context: expect.stringContaining(
+        '"sourceUrl":"https://example-workspace.slack.com/archives/C123/p123456"',
+      ),
+    });
+    expect(callActionMock).toHaveBeenCalledWith(
+      "https://dispatch.agent-native.test",
+      "resolve-integration-source-context",
+      { integrationTaskId: "integration-task-1" },
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        requestTimeoutMs: 5_000,
+      }),
+    );
+  });
+
+  it("rejects an opaque source reference from a verified but audience-unbound token", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    callActionMock.mockClear();
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            sourceContext: {
+              platform: "slack",
+              integrationTaskId: "integration-task-1",
+            },
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture this" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(callActionMock).not.toHaveBeenCalled();
+    expect(agentChat.call).toHaveBeenCalledWith("capture this");
+  });
+
+  it.each([
+    {
+      label: "an unsigned caller",
+      verified: false,
+      sourceContext: {
+        platform: "slack",
+        integrationTaskId: "integration-task-1",
+      },
+    },
+    {
+      label: "legacy caller-supplied Slack URL metadata",
+      verified: true,
+      sourceContext: {
+        platform: "slack",
+        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+      },
+    },
+    {
+      label: "a non-Slack platform",
+      verified: true,
+      sourceContext: {
+        platform: "email",
+        integrationTaskId: "integration-task-1",
+      },
+    },
+  ])(
+    "rejects source context from $label",
+    async ({ verified, sourceContext }) => {
+      const { agentChat } = await import("../shared/agent-chat.js");
+      vi.mocked(agentChat.call).mockClear();
+      const event = mockEvent();
+      if (verified) {
+        event.context = {
+          __a2aVerifiedEmail: "alice+qa@agent-native.test",
+          __a2aAudienceVerified: true,
+        };
+      }
+
+      await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            metadata: { sourceContext },
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "capture this" }],
+            },
+          },
+        },
+        event,
+        defaultConfig,
+      );
+
+      expect(agentChat.call).toHaveBeenCalledWith("capture this");
+    },
+  );
+
+  it("fails closed when Dispatch cannot verify the referenced integration task", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    vi.mocked(agentChat.call).mockClear();
+    callActionMock.mockResolvedValueOnce({
+      action: "resolve-integration-source-context",
+      status: "completed",
+      output: "null",
+    });
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            sourceContext: {
+              platform: "slack",
+              integrationTaskId: "forged-task-id",
+            },
+            callerApp: "dispatch",
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture this" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).toHaveBeenCalledWith("capture this");
   });
 
   it("handles empty text message gracefully", async () => {

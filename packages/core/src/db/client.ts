@@ -10,6 +10,11 @@
  */
 import path from "path";
 
+import {
+  beginDatabaseOperation,
+  recordDatabaseRetry,
+} from "./request-telemetry.js";
+
 const recyclingPostgresPools = new WeakSet<object>();
 const loggedNeonPools = new WeakSet<object>();
 
@@ -24,6 +29,9 @@ export interface DbExec {
     sql: string | { sql: string; args?: unknown[] },
   ): Promise<{ rows: any[]; rowsAffected: number }>;
   transaction?<T>(fn: (tx: DbExec) => Promise<T>): Promise<T>;
+  atomicBatch?(
+    statements: readonly (string | { sql: string; args?: unknown[] })[],
+  ): Promise<Array<{ rows: any[]; rowsAffected: number }>>;
   /**
    * Release the underlying connection/pool held by this exec.
    * Only non-singleton execs created via `createDbExec()` (e.g. the migration
@@ -37,6 +45,16 @@ export interface DbExecConfig {
   url?: string;
   authToken?: string;
   d1Binding?: any;
+}
+
+/** Read the request-scoped Cloudflare binding without requiring every
+ * consuming app's TypeScript program to include core's ambient Worker globals. */
+export function getCloudflareD1Binding(): unknown {
+  return (
+    globalThis as typeof globalThis & {
+      __cf_env?: { DB?: unknown };
+    }
+  ).__cf_env?.DB;
 }
 
 // ---------------------------------------------------------------------------
@@ -412,7 +430,7 @@ export function getDialect(): Dialect {
     return _dialect;
   }
 
-  const d1 = globalThis.__cf_env?.DB;
+  const d1 = getCloudflareD1Binding();
   if (d1) {
     _dialect = "d1";
     return _dialect;
@@ -631,6 +649,8 @@ const CONNECTION_ERROR_CODES = new Set([
   "ETIMEDOUT",
   "EPIPE",
   "ENOTFOUND",
+  "EMAXCONN",
+  "53300",
   "CONNECT_TIMEOUT",
   "CONNECTION_ENDED",
   "CONNECTION_DESTROYED",
@@ -654,8 +674,64 @@ export function isConnectionError(err: any): boolean {
     return true;
   }
   const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
+  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
     msg,
+  );
+}
+
+/**
+ * Classify database failures that should temporarily shed request load.
+ * Statement timeouts are not included in isConnectionError() because retrying
+ * every timed-out mutation would not be safe, but request handlers can still
+ * return a retryable service-unavailable response for them.
+ */
+export function isTransientDatabaseError(err: unknown): boolean {
+  const error = err as {
+    code?: unknown;
+    name?: unknown;
+    message?: unknown;
+    stack?: unknown;
+    cause?: {
+      code?: unknown;
+      name?: unknown;
+      message?: unknown;
+      stack?: unknown;
+    };
+  };
+  const code = String(error?.code ?? error?.cause?.code ?? "");
+  if (
+    code === "ECHECKOUTTIMEOUT" ||
+    code === "EMAXCONN" ||
+    code === "53300" ||
+    code === "57014" ||
+    /^08/.test(code) ||
+    /^57P0[123]$/.test(code)
+  ) {
+    return true;
+  }
+
+  const message = [error?.message, error?.cause?.message]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  if (
+    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
+  ) {
+    return true;
+  }
+
+  const databaseSurface = [
+    error?.name,
+    error?.cause?.name,
+    error?.stack,
+    error?.cause?.stack,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return (
+    isConnectionError(error) &&
+    /@neondatabase|@libsql|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
+      databaseSurface,
+    )
   );
 }
 
@@ -670,6 +746,7 @@ export async function retryOnConnectionError<T>(
     } catch (e) {
       last = e;
       if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
   }
@@ -725,6 +802,9 @@ export async function withDbTimeout<T>(
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let settled = false;
+  const finishTelemetry = beginDatabaseOperation(
+    op === "connect" ? "connect" : "query",
+  );
 
   const runCleanup = async () => {
     if (!onTimeout) return;
@@ -746,12 +826,14 @@ export async function withDbTimeout<T>(
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("success");
       complete(value);
     };
     const fail = (err: unknown) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      finishTelemetry("error");
       reject(err);
     };
 
@@ -760,6 +842,7 @@ export async function withDbTimeout<T>(
       settled = true;
       void (async () => {
         await runCleanup();
+        finishTelemetry("timeout");
         reject(new DbTimeoutError(op, ms));
       })();
     }, ms);
@@ -800,10 +883,10 @@ export function isServerlessRuntime(): boolean {
 
 /**
  * postgres.js pool options tuned per runtime. A serverless instance handles
- * one request at a time, so a tiny pool is enough — but we cap at 2 (not 1)
- * so a single slow query or open transaction can't serialize every other
- * query in the same request. Total connections stay bounded to ≈ 2×
- * concurrent-instance count instead of 10×. idle_timeout is shortened on
+ * one request at a time, so a single connection is enough. Keeping the
+ * foreground pool at 1 is important because each instance can also open an
+ * app and Better Auth pool; a max of 2 on each pool still exhausted Neon
+ * under a burst of warm instances. idle_timeout is shortened on
  * serverless so a thawed-but-idle instance releases its connections quickly.
  * Long-lived Node servers keep the normal pool for throughput.
  */
@@ -811,7 +894,7 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
   const serverless = isServerlessRuntime();
   return {
     onnotice: () => {},
-    max: serverless ? 2 : 10,
+    max: serverless ? 1 : 10,
     idle_timeout: serverless ? 20 : 240,
     max_lifetime: 60 * 30,
     connect_timeout: 10,
@@ -823,9 +906,9 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
 
 /**
  * Connection cap for the @neondatabase/serverless `Pool`. Same instance
- * accumulation risk as postgres.js — a small pool (2) is enough on serverless
- * and keeps total connections bounded while still letting a second query
- * proceed when one connection is busy.
+ * accumulation risk as postgres.js — one connection is enough for a
+ * foreground serverless invocation and keeps the aggregate app/framework/auth
+ * budget bounded.
  */
 export function neonPoolMax(): number {
   if (!isServerlessRuntime()) return 10;
@@ -841,7 +924,7 @@ export function neonPoolMax(): number {
   // burst; keep the foreground serverless pool tiny to avoid "Max client
   // connections reached" across many warm instances.
   if (isBackgroundFunctionPoolContext()) return 8;
-  return 2;
+  return 1;
 }
 
 /**
@@ -1023,7 +1106,17 @@ async function createDbExecInternal(
     };
     return {
       execute,
-      transaction: explicitTransaction(execute),
+      async atomicBatch(statements) {
+        const prepared = statements.map((statement) => {
+          if (typeof statement === "string") return d1.prepare(statement);
+          return d1.prepare(statement.sql).bind(...(statement.args ?? []));
+        });
+        const results = await d1.batch(prepared);
+        return results.map((result: any) => ({
+          rows: result.results || [],
+          rowsAffected: result.meta?.changes ?? 0,
+        }));
+      },
     };
   }
 
@@ -1106,13 +1199,7 @@ async function createDbExecInternal(
             return retryOnConnectionError<{
               rows: unknown[];
               rowsAffected: number;
-            }>(() =>
-              withDbTimeout(
-                "http-query",
-                () => queryNeonClient(pool, sql),
-                dbOpTimeoutMs(),
-              ),
-            );
+            }>(() => queryNeonClient(pool, sql));
           }
           const result = await retryOnConnectionError<{
             rows: unknown[];
@@ -1447,7 +1534,7 @@ async function initClient(): Promise<void> {
     {
       url,
       authToken: getDatabaseAuthToken(),
-      d1Binding: dialect === "d1" ? globalThis.__cf_env?.DB : undefined,
+      d1Binding: dialect === "d1" ? getCloudflareD1Binding() : undefined,
     },
     true,
   );
@@ -1487,6 +1574,10 @@ export function getDbExec(): DbExec {
       // After init, swap to a sanitizing wrapper around the real client
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (fn) =>
               _exec!.transaction!((tx) =>
@@ -1511,6 +1602,10 @@ export function getDbExec(): DbExec {
       }
       const wrapper: DbExec = {
         execute: (s) => _exec!.execute(sanitize(s)),
+        atomicBatch: _exec!.atomicBatch
+          ? (statements) =>
+              _exec!.atomicBatch!(statements.map((s) => sanitize(s)))
+          : undefined,
         transaction: _exec!.transaction
           ? (innerFn) =>
               _exec!.transaction!((tx) =>
@@ -1530,7 +1625,29 @@ export function getDbExec(): DbExec {
           }),
         );
       }
+      if (_exec!.atomicBatch) {
+        throw new Error(
+          "This database supports atomic batches, not interactive transactions.",
+        );
+      }
       return explicitTransaction(wrapper.execute)(fn);
+    },
+    async atomicBatch(statements) {
+      if (!_initPromise) _initPromise = initClient();
+      try {
+        await _initPromise;
+      } catch (err) {
+        _initPromise = undefined;
+        _exec = undefined;
+        throw err;
+      }
+      if (!_exec!.atomicBatch) {
+        throw new Error("This database does not support atomic batches.");
+      }
+      const batch = (items: typeof statements) =>
+        _exec!.atomicBatch!(items.map((item) => sanitize(item)));
+      Object.assign(proxy, { atomicBatch: batch });
+      return batch(statements);
     },
   };
   return proxy;

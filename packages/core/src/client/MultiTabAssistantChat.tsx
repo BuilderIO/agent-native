@@ -1,24 +1,11 @@
-import {
-  IconX,
-  IconPlus,
-  IconHistory,
-  IconSearch,
-  IconLink,
-  IconLinkOff,
-  IconCheck,
-} from "@tabler/icons-react";
-import React, {
-  useState,
-  useRef,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
+import { IconPlus, IconHistory, IconX } from "@tabler/icons-react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
-  getReasoningEffortOptionsForModel,
+  DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
@@ -30,8 +17,13 @@ import {
   claimAgentChatSubmit,
   drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  getAgentChatContextState,
+  isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
+  removeAgentChatContextItem,
+  reportAgentChatSubmitResult,
+  setAgentChatContextItem,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import { agentNativePath, appPath } from "./api-path.js";
@@ -45,10 +37,14 @@ import {
   type EngineModelGroup,
 } from "./chat-model-groups.js";
 import {
+  ChatHistoryList,
+  type ChatHistoryItem,
+  type ChatHistorySection,
+} from "./chat/ChatHistoryList.js";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
-  PopoverTrigger,
 } from "./components/ui/popover.js";
 import {
   Tooltip,
@@ -57,9 +53,9 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
-import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
+import { useChangeVersion } from "./use-change-version.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -79,6 +75,8 @@ interface PendingSend {
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
+  /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
+  submitMessageId?: string;
 }
 
 /**
@@ -93,14 +91,18 @@ interface PendingDelivery {
 
 /** The single path that hands a queued send to a mounted chat ref. */
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode) {
+  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.submitMessageId
+        ? { submitMessageId: send.submitMessageId }
+        : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -120,7 +122,10 @@ function readStoredModelSelection(key: string): ModelSelection | undefined {
     }
     const selection: ModelSelection = {
       model: parsed.model,
-      effort: isReasoningEffort(parsed.effort) ? parsed.effort : "auto",
+      effort: resolveReasoningEffortSelection(
+        parsed.model,
+        isReasoningEffort(parsed.effort) ? parsed.effort : undefined,
+      ),
     };
     if (typeof parsed.engine === "string") selection.engine = parsed.engine;
     return selection;
@@ -142,14 +147,12 @@ function resolveModelSelection(
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
   if (groups.length === 0) {
-    const requestedEffort = selection.effort ?? "auto";
-    const effortOptions = getReasoningEffortOptionsForModel(selection.model);
     return {
       model: selection.model,
-      effort:
-        requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-          ? requestedEffort
-          : "auto",
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
     };
   }
   const preferredGroup = groups.find(
@@ -167,12 +170,10 @@ function resolveModelSelection(
     preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
   if (!engine && groups.length > 0) return undefined;
 
-  const requestedEffort = selection.effort ?? "auto";
-  const effortOptions = getReasoningEffortOptionsForModel(selection.model);
-  const effort =
-    requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-      ? requestedEffort
-      : "auto";
+  const effort = resolveReasoningEffortSelection(
+    selection.model,
+    selection.effort,
+  );
   const resolved: ModelSelection = { model: selection.model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
@@ -215,151 +216,10 @@ function ChatSkeleton({
   );
 }
 
-// ─── Scope Badge ─────────────────────────────────────────────────────────────
+// ─── Resource context ────────────────────────────────────────────────────────
 
 function formatScopeType(type: string) {
   return type.replace(/[-_]+/g, " ");
-}
-
-function indefiniteArticleFor(value: string) {
-  return /^[aeiou]/i.test(value.trim()) ? "an" : "a";
-}
-
-function getScopeCopy(scope: ChatThreadScope, isCurrentScope: boolean) {
-  const type = formatScopeType(scope.type);
-  const fallbackObject = isCurrentScope
-    ? `this ${type}`
-    : `${indefiniteArticleFor(type)} ${type}`;
-  const objectLabel = scope.label || fallbackObject;
-  return {
-    objectLabel,
-    chipLabel:
-      scope.label || (isCurrentScope ? `this ${type}` : `${type} context`),
-  };
-}
-
-/**
- * Compact context tab above the composer. Click → popover with related chats
- * and the remove-context action. It stays attached to the chat field so scoped
- * context is visible right where the next message will be composed.
- */
-function ScopeBadge({
-  scope,
-  currentScope,
-  onDetach,
-  otherScopedThreads,
-  activeThreadId,
-  openTabIds,
-  onSelectThread,
-}: {
-  scope: ChatThreadScope;
-  currentScope?: ChatThreadScope | null;
-  onDetach: () => void;
-  /** Other threads scoped to the same resource (excluding the active one),
-   *  pre-sorted most-recent-first. The chip popover lists these so the user
-   *  can hop between this resource's chats without opening the full history. */
-  otherScopedThreads: ChatThreadSummary[];
-  activeThreadId: string;
-  openTabIds: Set<string>;
-  onSelectThread: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const isCurrentScope = Boolean(
-    currentScope &&
-    currentScope.type === scope.type &&
-    currentScope.id === scope.id,
-  );
-  const hasDifferentCurrentScope = Boolean(currentScope && !isCurrentScope);
-  const { objectLabel, chipLabel } = getScopeCopy(scope, isCurrentScope);
-  const heading = `Using ${chipLabel}`;
-  const detailSuffix = hasDifferentCurrentScope
-    ? "Start a new chat to use the current page."
-    : isCurrentScope
-      ? "New chats here keep this context."
-      : "Start a new chat for a general conversation.";
-  const otherCount = otherScopedThreads.length;
-  return (
-    <div className="agent-scope-badge-wrapper relative z-[1] -mb-2 flex shrink-0 items-end justify-center px-3 pt-1 text-[11px] text-muted-foreground">
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
-            aria-label={heading}
-          >
-            <IconLink size={11} className="shrink-0 opacity-70" />
-            <span className="min-w-0 truncate">{heading}</span>
-            {otherCount > 0 && (
-              <span
-                className="ms-0.5 shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] leading-none text-muted-foreground"
-                aria-label={`${otherCount} other chats for ${objectLabel}`}
-              >
-                +{otherCount}
-              </span>
-            )}
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="center" side="top" className="w-72 p-0">
-          <p className="px-3 pt-2 pb-1.5 text-[11px] text-muted-foreground">
-            This chat can see{" "}
-            <span className="text-foreground">{objectLabel}</span>.{" "}
-            {detailSuffix}
-          </p>
-          {otherCount > 0 && (
-            <div className="border-t border-border">
-              <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                Chats for {objectLabel}
-              </div>
-              <div className="max-h-56 overflow-y-auto pb-1">
-                {otherScopedThreads.map((thread) =>
-                  renderThreadRow(
-                    thread,
-                    activeThreadId,
-                    openTabIds,
-                    formatThreadTime,
-                    onSelectThread,
-                    () => setOpen(false),
-                  ),
-                )}
-              </div>
-            </div>
-          )}
-          <div className="border-t border-border p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onDetach();
-              }}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent cursor-pointer"
-            >
-              <IconLinkOff size={13} />
-              <span>Remove context</span>
-            </button>
-          </div>
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-/**
- * Thin confirmation banner shown briefly after detach. The chip itself
- * unmounts the moment scope clears on the active thread, so this banner
- * holds the visual feedback long enough for the user to register what
- * just happened and learn where the chat went (History popover).
- */
-function DetachConfirmationBanner() {
-  return (
-    <div className="agent-scope-badge-wrapper relative z-[1] -mb-2 flex shrink-0 items-end justify-center px-3 pt-1 text-[11px] text-muted-foreground">
-      <span className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-foreground shadow-[0_-8px_24px_hsl(var(--background)/0.72)] sm:max-w-80">
-        <IconCheck size={11} className="shrink-0 opacity-80" />
-        <span className="min-w-0 truncate">
-          Context removed. Find this chat in History.
-        </span>
-      </span>
-    </div>
-  );
 }
 
 // ─── History Popover ─────────────────────────────────────────────────────────
@@ -376,58 +236,10 @@ function formatThreadTime(ts: number): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function renderThreadRow(
-  thread: ChatThreadSummary,
-  activeThreadId: string | null,
-  openTabIds: Set<string>,
-  formatTime: (ts: number) => string,
-  onSelect: (id: string) => void,
-  onClose: () => void,
-) {
-  const isActive = thread.id === activeThreadId;
-  return (
-    <button
-      key={thread.id}
-      onClick={() => {
-        onSelect(thread.id);
-        onClose();
-      }}
-      className={cn(
-        "w-full px-3 py-2 text-start hover:bg-accent/50 cursor-pointer",
-        isActive && "bg-accent/30",
-      )}
-    >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-foreground truncate">
-          {thread.title || thread.preview || "Chat"}
-        </span>
-        <span className="text-[10px] text-muted-foreground shrink-0">
-          {isActive
-            ? "Active"
-            : openTabIds.has(thread.id)
-              ? "Open"
-              : formatTime(thread.updatedAt)}
-        </span>
-      </div>
-      {thread.preview && thread.title !== thread.preview && (
-        <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-          {thread.preview}
-        </div>
-      )}
-      {thread.scope?.label && (
-        <div className="mt-0.5 text-[10px] text-muted-foreground/70 truncate">
-          {thread.scope.label}
-        </div>
-      )}
-    </button>
-  );
-}
-
 function HistoryPopover({
   threads,
   openTabIds,
   activeThreadId,
-  currentScope,
   hasMoreThreads = false,
   isLoadingMoreThreads = false,
   loadError,
@@ -435,11 +247,12 @@ function HistoryPopover({
   onClose,
   onLoadMore,
   onSearch,
+  onTogglePin,
+  onRename,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
-  currentScope?: ChatThreadScope | null;
   hasMoreThreads?: boolean;
   isLoadingMoreThreads?: boolean;
   loadError?: string | null;
@@ -447,6 +260,11 @@ function HistoryPopover({
   onClose: () => void;
   onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
+  /** Presence enables the pin/unpin row action. Receives the thread's
+   * current pinned state so the caller can flip it. */
+  onTogglePin?: (id: string, pinned: boolean) => void;
+  /** Presence enables the inline rename row action. */
+  onRename?: (id: string, nextTitle: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<
@@ -503,25 +321,46 @@ function HistoryPopover({
       )
     : visibleThreads;
 
-  // When scope is set we split history into two sections so the user can
-  // see "this deck's chats" first without losing access to general /
-  // other-deck chats. Section labels intentionally use the current
-  // resource type (deck/design/dashboard) instead of a generic phrase.
-  const sectionedThreads = currentScope
-    ? {
-        scoped: filtered.filter(
-          (t) =>
-            t.scope?.type === currentScope.type &&
-            t.scope?.id === currentScope.id,
-        ),
-        other: filtered.filter(
-          (t) =>
-            !t.scope ||
-            t.scope.type !== currentScope.type ||
-            t.scope.id !== currentScope.id,
-        ),
-      }
-    : null;
+  // Pinned threads always float to the top of `threads` already (see
+  // `sortThreadSummaries` in use-chat-threads.ts and the matching server
+  // ORDER BY), but pulling them into their own labeled section — instead of
+  // just relying on sort order within "All chats" — makes the pin affordance
+  // visible at a glance, matching common chat-history UX.
+  const pinnedThreads = filtered.filter((t) => t.pinnedAt != null);
+  const unpinnedThreads = filtered.filter((t) => t.pinnedAt == null);
+
+  const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
+    const isActive = thread.id === activeThreadId;
+    const title = thread.title || thread.preview || "Chat";
+    return {
+      id: thread.id,
+      title,
+      titleText: title,
+      subtitle:
+        thread.preview && thread.title !== thread.preview
+          ? thread.preview
+          : undefined,
+      timestamp: isActive
+        ? "Active"
+        : openTabIds.has(thread.id)
+          ? "Open"
+          : formatThreadTime(thread.updatedAt),
+      pinned: thread.pinnedAt != null,
+    };
+  };
+
+  const historySections: ChatHistorySection[] = [
+    ...(pinnedThreads.length > 0
+      ? [
+          {
+            id: "pinned",
+            label: "Pinned",
+            items: pinnedThreads.map(toHistoryItem),
+          },
+        ]
+      : []),
+    { id: "all", items: unpinnedThreads.map(toHistoryItem) },
+  ];
 
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
@@ -538,90 +377,45 @@ function HistoryPopover({
         }}
         className="w-72 rounded-lg p-0"
       >
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-          <IconSearch size={13} />
-          <input
-            ref={inputRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search chats..."
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
-          />
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1">
-          {loadError && !search.trim() ? (
-            <div className="px-3 py-4 text-xs text-amber-500 text-center">
-              {loadError}
-            </div>
-          ) : isSearching ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              Searching...
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              {search ? "No matching chats" : "No chats yet"}
-            </div>
-          ) : sectionedThreads ? (
-            <>
-              {sectionedThreads.scoped.length > 0 && (
-                <>
-                  <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    This {currentScope!.type}
-                  </div>
-                  {sectionedThreads.scoped.map((thread) =>
-                    renderThreadRow(
-                      thread,
-                      activeThreadId,
-                      openTabIds,
-                      formatThreadTime,
-                      onSelect,
-                      onClose,
-                    ),
-                  )}
-                </>
-              )}
-              {sectionedThreads.other.length > 0 && (
-                <>
-                  <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    All chats
-                  </div>
-                  {sectionedThreads.other.map((thread) =>
-                    renderThreadRow(
-                      thread,
-                      activeThreadId,
-                      openTabIds,
-                      formatThreadTime,
-                      onSelect,
-                      onClose,
-                    ),
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            filtered.map((thread) =>
-              renderThreadRow(
-                thread,
-                activeThreadId,
-                openTabIds,
-                formatThreadTime,
-                onSelect,
-                onClose,
-              ),
-            )
-          )}
-          {!search.trim() && hasMoreThreads && (
-            <button
-              type="button"
-              onClick={() => onLoadMore?.()}
-              disabled={isLoadingMoreThreads}
-              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
-            >
-              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
-            </button>
-          )}
-        </div>
+        <ChatHistoryList
+          sections={historySections}
+          activeId={activeThreadId}
+          onSelect={(id) => {
+            onSelect(id);
+            onClose();
+          }}
+          onTogglePin={
+            onTogglePin
+              ? (id) => {
+                  const isPinned =
+                    threads.find((t) => t.id === id)?.pinnedAt != null;
+                  onTogglePin(id, !isPinned);
+                }
+              : undefined
+          }
+          onRename={onRename}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search chats..."
+          searchInputRef={inputRef}
+          loading={isSearching}
+          loadingLabel="Searching..."
+          error={loadError && !search.trim() ? loadError : undefined}
+          emptyLabel="No chats yet"
+          emptySearchLabel="No matching chats"
+          footer={
+            !search.trim() && hasMoreThreads ? (
+              <button
+                type="button"
+                onClick={() => onLoadMore?.()}
+                disabled={isLoadingMoreThreads}
+                className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+              >
+                {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+              </button>
+            ) : undefined
+          }
+        />
       </PopoverContent>
     </Popover>
   );
@@ -908,7 +702,7 @@ export type MultiTabAssistantChatProps = Omit<
   showTabBar?: boolean;
   /** Optional custom single-row header renderer */
   renderHeader?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
-  /** Optional overlay actions renderer for the active tab */
+  /** Optional page-level top-bar actions renderer for the active tab. */
   renderOverlay?: (props: MultiTabAssistantChatHeaderProps) => React.ReactNode;
   /** Hide the chat content while keeping the header visible. Used when CLI/resources mode is active. */
   contentHidden?: boolean;
@@ -924,15 +718,9 @@ export type MultiTabAssistantChatProps = Omit<
    * route params such as `/chat/:threadId`.
    */
   threadUrlSync?: boolean | ChatThreadUrlSyncOptions;
-  /**
-   * Bind new chats to a resource (deck, design, dashboard, etc.). When set,
-   * new chats automatically inherit this scope and scoped chats tuck away when
-   * the user leaves the resource. General chats remain visible across resource
-   * navigation, and the user can detach a scoped chat via the scope chip above
-   * the composer.
-   */
+  /** Ambient resource context to show as a composer chip. */
   scope?: ChatThreadScope | null;
-  /** Show the compact scope chip above the composer. Default: true. */
+  /** @deprecated Scope context is now rendered in the composer. */
   showScopeBadge?: boolean;
 };
 
@@ -947,7 +735,6 @@ export function MultiTabAssistantChat({
   browserTabId,
   threadUrlSync = false,
   scope = null,
-  showScopeBadge = true,
   ...props
 }: MultiTabAssistantChatProps) {
   const {
@@ -965,10 +752,15 @@ export function MultiTabAssistantChat({
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
-        ? (routeThreadId ?? null)
+        ? (routeThreadId ?? readUrlThreadId(threadUrlParamName))
         : readUrlThreadId(threadUrlParamName)
       : null,
   );
+  const [deepLinkedThreadId] = useState<string | null>(() =>
+    threadUrlSyncEnabled ? null : readUrlThreadId(DEFAULT_THREAD_URL_PARAM),
+  );
+  const [activeDeepLinkedThreadId, setActiveDeepLinkedThreadId] =
+    useState(deepLinkedThreadId);
   const urlThreadIdRef = useRef(urlThreadId);
   urlThreadIdRef.current = urlThreadId;
 
@@ -992,8 +784,28 @@ export function MultiTabAssistantChat({
 
   useEffect(() => {
     if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
-    setUrlThreadId(routeThreadId ?? null);
-  }, [routeThreadId, threadRouteControlsActiveThread, threadUrlSyncEnabled]);
+    setUrlThreadId(routeThreadId ?? readUrlThreadId(threadUrlParamName));
+  }, [
+    routeThreadId,
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+  ]);
+
+  useEffect(() => {
+    if (threadUrlSyncEnabled) return;
+    const update = () =>
+      setActiveDeepLinkedThreadId(readUrlThreadId(DEFAULT_THREAD_URL_PARAM));
+    const uninstallHistoryPatch = installHistoryThreadUrlPatch();
+    update();
+    window.addEventListener("popstate", update);
+    window.addEventListener(THREAD_URL_CHANGED_EVENT, update);
+    return () => {
+      uninstallHistoryPatch();
+      window.removeEventListener("popstate", update);
+      window.removeEventListener(THREAD_URL_CHANGED_EVENT, update);
+    };
+  }, [threadUrlSyncEnabled]);
 
   const writeThreadUrl = useCallback(
     (threadId: string | null, options: { replace?: boolean } = {}): void => {
@@ -1054,7 +866,6 @@ export function MultiTabAssistantChat({
     isLoading,
     createThread,
     switchThread: switchThreadState,
-    detachThread,
     forkThread,
     saveThreadData,
     generateTitle,
@@ -1065,9 +876,13 @@ export function MultiTabAssistantChat({
     isLoadingMoreThreads,
     threadsLoadError,
     isNewThread,
-  } = useChatThreads(apiUrl, storageKey, scope, {
+    pinThread,
+    renameThread,
+  } = useChatThreads(apiUrl, storageKey, null, {
     restoreActiveThread,
-    routeThreadId: threadUrlSyncEnabled ? urlThreadId : undefined,
+    routeThreadId: threadUrlSyncEnabled
+      ? urlThreadId
+      : (activeDeepLinkedThreadId ?? undefined),
   });
 
   const switchThread = useCallback(
@@ -1096,12 +911,33 @@ export function MultiTabAssistantChat({
   );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setPageOverlayScrolled(false);
+  }, [activeThreadId]);
+
+  const handlePageOverlayScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        !renderOverlay ||
+        !(target instanceof HTMLElement) ||
+        !target.closest(".agent-chat-scroll")
+      ) {
+        return;
+      }
+      setPageOverlayScrolled(target.scrollTop > 1);
+    },
+    [renderOverlay],
+  );
 
   // ─── Model state ─────────────────────────────────────────────────────────
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
+  const [modelListLoading, setModelListLoading] = useState(true);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
@@ -1191,12 +1027,7 @@ export function MultiTabAssistantChat({
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
       const existing = threadModelRef.current.get(threadId);
-      const existingEffort = existing?.effort ?? "auto";
-      const effortOptions = getReasoningEffortOptionsForModel(model);
-      const effort =
-        existingEffort === "auto" || effortOptions.includes(existingEffort)
-          ? existingEffort
-          : "auto";
+      const effort = resolveReasoningEffortSelection(model, existing?.effort);
       const selection = { model, engine, effort };
       threadModelRef.current.set(threadId, selection);
       persistModelSelection(selection);
@@ -1231,6 +1062,7 @@ export function MultiTabAssistantChat({
   );
 
   const refreshEngines = useCallback(() => {
+    setModelListLoading(true);
     Promise.all([
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
@@ -1264,7 +1096,8 @@ export function MultiTabAssistantChat({
         setAvailableModels(groups);
         setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setModelListLoading(false));
   }, []);
 
   useEffect(() => {
@@ -1323,11 +1156,7 @@ export function MultiTabAssistantChat({
   }, [subAgentNames, SUB_AGENT_NAMES_KEY]);
 
   // Open tabs — persisted to localStorage so they survive refresh.
-  // Per-scope: when scope changes (e.g. user navigates from Deck A to Deck
-  // B), the tab bar reflects whichever tabs they had open for *that*
-  // resource. We do not bleed deck A's tabs into deck B's view.
-  const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
-  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
+  const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}`;
   const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
     if (!restoreActiveThread && activeThreadId) {
       for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
@@ -1350,87 +1179,50 @@ export function MultiTabAssistantChat({
   openTabIdsRef.current = openTabIds;
   const initializedRef = useRef(false);
 
-  // Rehydrate open tabs when the scope flips. Mirrors `persistedKeyRef` in
-  // `useChatThreads`: on a scope change we need to read the new key BEFORE
-  // the persistence effect writes the current (now-wrong) tab list under
-  // that new key.
   const openTabsKeyRef = useRef(OPEN_TABS_KEY);
-  useEffect(() => {
-    if (openTabsKeyRef.current === OPEN_TABS_KEY) return;
-    openTabsKeyRef.current = OPEN_TABS_KEY;
-    initializedRef.current = false;
-    if (!restoreActiveThread) {
-      setOpenTabIds(activeThreadId ? [activeThreadId] : []);
-      return;
-    }
-    try {
-      const saved = localStorage.getItem(OPEN_TABS_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          setOpenTabIds(parsed);
-          return;
-        }
-      }
-    } catch {}
-    setOpenTabIds([]);
-  }, [OPEN_TABS_KEY, activeThreadId, restoreActiveThread]);
 
-  // Look up the active thread's actual scope from the list — when the
-  // user opens a chat from history that was scoped to a different
-  // resource, the badge should advertise that thread's binding, not
-  // necessarily the resource currently in the viewport. When the thread
-  // and the live prop refer to the same resource, prefer the prop's
-  // label so a rename or a deferred deck-title load shows up in the UI
-  // without waiting on the next persistence cycle.
-  const activeThreadScope = useMemo<ChatThreadScope | null>(() => {
-    if (!activeThreadId) return null;
-    const t = threads.find((x) => x.id === activeThreadId);
-    const stored = t?.scope ?? null;
-    if (!stored) return null;
-    if (scope && stored.type === scope.type && stored.id === scope.id) {
-      return { ...stored, label: scope.label || stored.label };
-    }
-    return stored;
-  }, [threads, activeThreadId, scope?.type, scope?.id, scope?.label]);
-
-  // Brief confirmation banner shown after detach. The chip itself disappears
-  // the instant scope clears, which the user described as "nothing different
-  // happened." We hold the confirmation in the same slot for ~2s so the
-  // detach is visually acknowledged and the user is pointed at History.
-  const [detachConfirmType, setDetachConfirmType] = useState<string | null>(
-    null,
-  );
-  const detachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    const nextScope = scope;
+    if (!nextScope) return;
+    const type = formatScopeType(nextScope.type);
+    const title =
+      nextScope.label?.trim() ||
+      type.replace(/^./, (character) => character.toUpperCase());
+    const key = nextScope.contextKey || "agent-current-resource-context";
+    const marker = `Resource context: ${nextScope.type}:${nextScope.id}`;
+    const existing = getAgentChatContextState().items.find(
+      (item) => item.key === key,
+    );
+    let ownsContextItem = false;
+    if (!existing || existing.context.startsWith(marker)) {
+      setAgentChatContextItem({
+        key,
+        title,
+        context: [
+          marker,
+          `The user is currently viewing this ${type}.`,
+          nextScope.label ? `Resource name: ${nextScope.label}` : "",
+          `Resource id: ${nextScope.id}`,
+          typeof window !== "undefined"
+            ? `Current URL: ${window.location.pathname}${window.location.search}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        openSidebar: false,
+        focus: false,
+      });
+      ownsContextItem = true;
+    }
     return () => {
-      if (detachTimerRef.current) clearTimeout(detachTimerRef.current);
+      const current = getAgentChatContextState().items.find(
+        (item) => item.key === key,
+      );
+      if (ownsContextItem && current?.context.startsWith(marker)) {
+        removeAgentChatContextItem(key);
+      }
     };
-  }, []);
-  const handleDetachActiveThread = useCallback(() => {
-    if (!activeThreadId || !activeThreadScope) return;
-    const type = activeThreadScope.type;
-    setDetachConfirmType(type);
-    if (detachTimerRef.current) clearTimeout(detachTimerRef.current);
-    detachTimerRef.current = setTimeout(() => setDetachConfirmType(null), 2200);
-    detachThread(activeThreadId);
-  }, [activeThreadId, activeThreadScope, detachThread]);
-
-  // Other chats scoped to the active thread's resource (excluding the active
-  // thread itself). Sorted most-recent-first to match user expectation in the
-  // chip popover and empty-state addon.
-  const otherScopedThreads = useMemo<ChatThreadSummary[]>(() => {
-    if (!activeThreadScope) return [];
-    return threads
-      .filter(
-        (t) =>
-          t.id !== activeThreadId &&
-          t.scope?.type === activeThreadScope.type &&
-          t.scope?.id === activeThreadScope.id,
-      )
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-  }, [threads, activeThreadId, activeThreadScope]);
+  }, [scope?.contextKey, scope?.id, scope?.label, scope?.type]);
 
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
@@ -1508,9 +1300,8 @@ export function MultiTabAssistantChat({
   // Use functional update to check inside the setter — avoids race with the
   // initialization effect that may have already added the ID in the same batch.
   //
-  // Scoped navigation can reset openTabIds from a different localStorage key
-  // without changing activeThreadId. Re-check after tab-list resets so the
-  // sidebar cannot end up with a live active thread but no mounted chat.
+  // Re-check after tab-list resets so the sidebar cannot end up with a live
+  // active thread but no mounted chat.
   useEffect(() => {
     if (!activeThreadId || openTabIds.includes(activeThreadId)) return;
     if (parentMap[activeThreadId]) return;
@@ -1767,6 +1558,7 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        submitMessageId,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1777,7 +1569,14 @@ export function MultiTabAssistantChat({
       if (openSidebar !== false && !background) {
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
-      if (postMessageSubmissionsDisabled) return;
+      if (postMessageSubmissionsDisabled) {
+        reportAgentChatSubmitResult(
+          submitMessageId,
+          false,
+          "composer-disabled",
+        );
+        return;
+      }
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
@@ -1791,22 +1590,21 @@ export function MultiTabAssistantChat({
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
+        ...(submitMessageId ? { submitMessageId } : {}),
       };
 
       const sendToTab = (threadId: string) => {
+        if (isAgentChatSubmitCancelled(submitMessageId)) return;
         // If a model override was specified, apply it only if we recognize it
         if (model) {
           const matchedGroup = availableModels.find((g) =>
             g.models.includes(model),
           );
           if (matchedGroup) {
-            const requestedEffort = isReasoningEffort(effort) ? effort : "auto";
-            const effortOptions = getReasoningEffortOptionsForModel(model);
-            const selectedEffort =
-              requestedEffort === "auto" ||
-              effortOptions.includes(requestedEffort)
-                ? requestedEffort
-                : "auto";
+            const selectedEffort = resolveReasoningEffortSelection(
+              model,
+              isReasoningEffort(effort) ? effort : undefined,
+            );
             threadModelRef.current.set(threadId, {
               model,
               engine: matchedGroup.engine,
@@ -1826,8 +1624,17 @@ export function MultiTabAssistantChat({
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
-        createThread(requestedTabId).then((newId) => {
-          if (newId) {
+        createThread(requestedTabId)
+          .then((newId) => {
+            if (isAgentChatSubmitCancelled(submitMessageId)) return;
+            if (!newId) {
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "thread-create-failed",
+              );
+              return;
+            }
             newThreadIds.current.add(newId);
             if (background) {
               mountedTabsRef.current.add(newId);
@@ -1842,8 +1649,14 @@ export function MultiTabAssistantChat({
             if (background && previousTabId) {
               switchThreadState(previousTabId);
             }
-          }
-        });
+          })
+          .catch(() => {
+            reportAgentChatSubmitResult(
+              submitMessageId,
+              false,
+              "thread-create-failed",
+            );
+          });
       } else {
         const currentTabId = activeThreadIdRef.current;
         if (currentTabId) {
@@ -1901,6 +1714,7 @@ export function MultiTabAssistantChat({
     const active = activeThreadIdRef.current;
     const remaining: PendingDelivery[] = [];
     for (const delivery of pendingDeliveries.current) {
+      if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
       const threadId = delivery.threadId ?? active ?? null;
       const ref = threadId ? chatRefs.current.get(threadId) : null;
       if (threadId && ref) {
@@ -2090,12 +1904,30 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { threadId?: unknown; newThread?: unknown; openRequestId?: unknown }
+        | {
+            threadId?: unknown;
+            newThread?: unknown;
+            onlyIfActiveThreadId?: unknown;
+            openRequestId?: unknown;
+          }
         | undefined;
       const threadId =
         typeof detail?.threadId === "string" ? detail.threadId : "";
       if (!detail || !threadId) return;
       if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
+
+      const onlyIfActiveThreadId =
+        typeof detail.onlyIfActiveThreadId === "string"
+          ? detail.onlyIfActiveThreadId.trim()
+          : "";
+      const activeThreadId = activeThreadIdRef.current;
+      if (
+        onlyIfActiveThreadId &&
+        activeThreadId &&
+        activeThreadId !== onlyIfActiveThreadId
+      ) {
+        return;
+      }
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
@@ -2212,13 +2044,15 @@ export function MultiTabAssistantChat({
     }
   }, []);
 
-  // Watch for agent-issued chat-command in application-state
+  // Watch for agent-issued chat-command in application-state. The shared
+  // DB-sync transport advances this key-specific version, so the command gets
+  // one initial read and one read per actual write instead of a 2s loop.
   const lastChatCommandRef = useRef(0);
+  const chatCommandVersion = useChangeVersion("app-state:chat-command");
   useEffect(() => {
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function pollChatCommand() {
+    async function readChatCommand() {
       if (stopped) return;
       try {
         const res = await fetch(
@@ -2234,9 +2068,9 @@ export function MultiTabAssistantChat({
             lastChatCommandRef.current = data.value.timestamp;
             const threadId = data.value.threadId as string;
             // Open the thread as a tab and focus it
-            if (!openTabIds.includes(threadId)) {
-              setOpenTabIds((prev) => [...prev, threadId]);
-            }
+            setOpenTabIds((prev) =>
+              prev.includes(threadId) ? prev : [...prev, threadId],
+            );
             switchThread(threadId);
             // Clear the command
             fetch(
@@ -2249,17 +2083,13 @@ export function MultiTabAssistantChat({
           }
         }
       } catch {}
-      if (!stopped) {
-        timer = setTimeout(pollChatCommand, 2000);
-      }
     }
 
-    pollChatCommand();
+    void readChatCommand();
     return () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
     };
-  }, [openTabIds, switchThread]);
+  }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
@@ -2610,7 +2440,17 @@ export function MultiTabAssistantChat({
           : null}
 
       {/* Chat content with optional overlay */}
-      <div className="relative flex-1 flex flex-col min-h-0">
+      <div
+        className={cn(
+          "relative flex-1 flex flex-col min-h-0",
+          renderOverlay && "pt-14",
+        )}
+        data-agent-page-chat-topbar={renderOverlay ? "" : undefined}
+        data-agent-page-chat-scrolled={
+          renderOverlay && pageOverlayScrolled ? "" : undefined
+        }
+        onScrollCapture={renderOverlay ? handlePageOverlayScroll : undefined}
+      >
         {renderOverlay ? renderOverlay(headerProps) : null}
 
         {/* History popover — rendered inside relative container so positioning works */}
@@ -2619,7 +2459,6 @@ export function MultiTabAssistantChat({
             threads={threads}
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
-            currentScope={scope}
             hasMoreThreads={hasMoreThreads}
             isLoadingMoreThreads={isLoadingMoreThreads}
             loadError={threadsLoadError}
@@ -2627,6 +2466,8 @@ export function MultiTabAssistantChat({
             onClose={() => setShowHistory(false)}
             onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
+            onTogglePin={pinThread}
+            onRename={renameThread}
           />
         )}
 
@@ -2643,37 +2484,10 @@ export function MultiTabAssistantChat({
           )
           .map((tabId) => {
             const modelSelection = resolveThreadModelSelection(tabId);
-            const tabThread = threads.find((thread) => thread.id === tabId);
-            const tabScope =
-              tabThread?.scope ??
-              (tabId === activeThreadId ? activeThreadScope : null);
             const tabDynamicSuggestions =
               tabId === activeThreadId && !contentHidden
                 ? props.dynamicSuggestions
                 : false;
-            const scopeComposerSlot =
-              showScopeBadge && tabId === activeThreadId && !contentHidden ? (
-                tabScope && activeThreadId ? (
-                  <ScopeBadge
-                    scope={tabScope}
-                    currentScope={scope}
-                    onDetach={handleDetachActiveThread}
-                    otherScopedThreads={otherScopedThreads}
-                    activeThreadId={activeThreadId}
-                    openTabIds={new Set(openTabIds)}
-                    onSelectThread={openFromHistory}
-                  />
-                ) : detachConfirmType ? (
-                  <DetachConfirmationBanner />
-                ) : null
-              ) : null;
-            const composerSlot =
-              scopeComposerSlot || props.composerSlot ? (
-                <>
-                  {props.composerSlot}
-                  {scopeComposerSlot}
-                </>
-              ) : undefined;
             return (
               <div
                 key={tabId}
@@ -2683,17 +2497,15 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
-                <KeepTabOpenNotice
-                  threadId={tabId}
-                  enabled={tabId === activeThreadId}
-                  apiUrl={apiUrl}
-                />
                 <RunStuckBanner
                   threadId={tabId}
                   enabled={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   autoRetry
                   autoRetryOwnerId={browserTabId}
+                  hasInFlightWork={() =>
+                    chatRefs.current.get(tabId)?.hasInFlightWork() ?? false
+                  }
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(
@@ -2705,11 +2517,6 @@ export function MultiTabAssistantChat({
                 <AssistantChat
                   {...props}
                   dynamicSuggestions={tabDynamicSuggestions}
-                  emptyStateText={
-                    tabScope?.label && tabId === activeThreadId
-                      ? `Ask about ${tabScope.label}`
-                      : props.emptyStateText
-                  }
                   ref={(handle) => {
                     if (handle) {
                       chatRefs.current.set(tabId, handle);
@@ -2720,7 +2527,6 @@ export function MultiTabAssistantChat({
                   threadId={tabId}
                   tabId={tabId}
                   browserTabId={browserTabId}
-                  contextScope={tabScope}
                   isActiveComposer={tabId === activeThreadId}
                   apiUrl={apiUrl}
                   isNewThread={
@@ -2738,10 +2544,13 @@ export function MultiTabAssistantChat({
                   onSlashCommand={handleSlashCommand}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
-                  selectedEffort={modelSelection?.effort ?? "auto"}
-                  composerSlot={composerSlot}
+                  selectedEffort={
+                    modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
+                  }
+                  composerSlot={props.composerSlot}
                   defaultModel={defaultModel}
                   availableModels={availableModels}
+                  modelListLoading={modelListLoading}
                   onModelChange={handleModelChange}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}

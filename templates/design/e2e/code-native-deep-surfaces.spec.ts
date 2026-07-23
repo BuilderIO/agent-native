@@ -125,7 +125,12 @@ async function waitForAction(
 }
 
 async function selectedElementBackgroundImage(page: Page): Promise<string> {
-  return designFrame(page)
+  return page
+    .locator(
+      `iframe[data-design-preview-iframe][data-screen-iframe-id="${fileId}"]`,
+    )
+    .first()
+    .contentFrame()
     .locator('[data-agent-native-node-id="e2e-alpha-button"]')
     .evaluate((el) => window.getComputedStyle(el).backgroundImage);
 }
@@ -207,7 +212,7 @@ test.beforeEach(async ({ page }) => {
 test("Inspect Code shows the opening tag and copyable selected HTML", async ({
   page,
 }) => {
-  await selectByText(page, "Alpha Button");
+  await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Inspect code", exact: true }).click();
 
   await expect(page.getByText("Inspect code", { exact: true })).toBeVisible();
@@ -215,13 +220,16 @@ test("Inspect Code shows the opening tag and copyable selected HTML", async ({
     page
       .locator("code")
       .filter({
-        hasText: /<button[^>]*data-agent-native-node-id="e2e-alpha-button"/,
+        hasText: /^<button>\s+\.\.\.\s+<\/button>$/,
       })
       .first(),
   ).toBeVisible();
-  await expect(
-    page.locator("pre").filter({ hasText: "Alpha Button" }).first(),
-  ).toContainText('data-agent-native-layer-name="Alpha Button"');
+  const inspectCode = page
+    .locator("pre")
+    .filter({ hasText: "<button>" })
+    .first();
+  await expect(inspectCode).not.toContainText("data-agent-native-");
+  await expect(inspectCode).not.toContainText("style=");
   await expect(
     page.getByRole("button", { name: "Copy", exact: true }),
   ).toBeEnabled();
@@ -231,7 +239,7 @@ test("component boolean and text prop controls persist through reload", async ({
   page,
   request,
 }) => {
-  await selectByText(page, "Widget Surface");
+  await selectByText(page, "Widget Surface", { screenId: fileId });
   const componentSection = page.getByTestId("component-section");
   await expect(componentSection).toContainText("E2EWidget");
 
@@ -280,7 +288,7 @@ test("component boolean and text prop controls persist through reload", async ({
 
   await gotoEditor(page, designId);
   await page.getByRole("tab", { name: "Design", exact: true }).click();
-  await selectByText(page, "Widget Surface");
+  await selectByText(page, "Widget Surface", { screenId: fileId });
   await expect
     .poll(() =>
       designFrame(page)
@@ -334,10 +342,10 @@ test("shader preview is transient while apply-shader-fill persists", async ({
   page,
   request,
 }) => {
-  await selectByText(page, "Alpha Button");
+  await selectByText(page, "Alpha Button", { screenId: fileId });
   await expect.poll(() => selectedElementBackgroundImage(page)).toBe("none");
 
-  await page.getByRole("tab", { name: "Extensions", exact: true }).click();
+  await page.getByRole("button", { name: "Tools", exact: true }).click();
   await page.getByRole("button", { name: /Shader Fills/ }).click();
   await page.getByRole("button", { name: "Browse Shaders" }).click();
   await page.getByRole("button", { name: "Mesh Gradient" }).click();
@@ -370,7 +378,7 @@ test("shader preview is transient while apply-shader-fill persists", async ({
       currentContent: shaderCurrentContent,
     },
   });
-  expect(applied.ok).toBe(true);
+  expect(applied.ok, JSON.stringify(applied, null, 2)).toBe(true);
   expect(applied.persisted).toBe(true);
   expect(typeof applied.updatedAt).toBe("string");
   expect(applied.updatedAt).not.toBe(shaderSourceFile.updatedAt);
@@ -455,7 +463,13 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
   request,
 }) => {
   const motionPendingSentinel = "<!-- motion-current-content-sentinel -->";
-  const motionCurrentContent = (await fileContent(request)).replace(
+  const motionSourceFile = await fileRecord(request);
+  if (!motionSourceFile.updatedAt) {
+    throw new Error(
+      "Motion fixture file did not include an updatedAt revision",
+    );
+  }
+  const motionCurrentContent = motionSourceFile.content.replace(
     "</body>",
     `${motionPendingSentinel}\n  </body>`,
   );
@@ -463,6 +477,7 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
     designId,
     fileId,
     currentContent: motionCurrentContent,
+    revision: motionSourceFile.updatedAt,
     tracks: [
       {
         targetNodeId: "e2e-alpha-button",
@@ -478,11 +493,16 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
   });
   expect(first.persisted).toBe(true);
 
+  const secondMotionSourceFile = await fileRecord(request);
+  if (!secondMotionSourceFile.updatedAt) {
+    throw new Error("Saved motion file did not include an updatedAt revision");
+  }
   const second = await postAction(request, "apply-motion-edit", {
     designId,
     fileId,
     timelineId: first.timelineId,
-    currentContent: await fileContent(request),
+    currentContent: secondMotionSourceFile.content,
+    revision: secondMotionSourceFile.updatedAt,
     tracks: [
       {
         targetNodeId: "e2e-alpha-button",
@@ -513,12 +533,14 @@ test("repeated motion writes replace the managed CSS block instead of duplicatin
   await gotoEditor(page, designId);
   await expect
     .poll(() =>
-      designFrame(page).locator("style[data-agent-native-motion]").count(),
+      designFrame(page, fileId)
+        .locator("style[data-agent-native-motion]")
+        .count(),
     )
     .toBe(1);
   await expect
     .poll(() =>
-      designFrame(page)
+      designFrame(page, fileId)
         .locator("style[data-agent-native-motion]")
         .first()
         .textContent(),
@@ -586,6 +608,10 @@ test("export actions include multi-file content across HTML, SVG, ZIP, and PDF p
 
   const pdf = await getAction(request, "export-pdf", { id: designId });
   expect(pdf.exportInfo.format).toBe("pdf");
+  expect(pdf.exportInfo.note).toContain("single-page raster PDF");
+  expect(pdf.exportInfo.note).toContain(
+    "does not provide selectable/vector text",
+  );
   expect(pdf.files.map((file: { filename: string }) => file.filename)).toEqual(
     expect.arrayContaining(["index.html", "secondary.html", "theme.css"]),
   );

@@ -1,4 +1,4 @@
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -27,6 +27,11 @@ describe("TemplateCard", () => {
       expect(html).not.toContain(
         `href="/templates/${template.slug}">View Docs`,
       );
+      if (template.screenshot) {
+        expect(html).toContain('loading="lazy"');
+        expect(html).toContain('decoding="async"');
+        expect(html).not.toContain(`rel="preload" as="image"`);
+      }
     }
   });
 });

@@ -50,6 +50,9 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+
 /**
  * Path prefixes (relative to the framework prefix `/_agent-native`) that are
  * allowed to receive cross-origin state-changing POSTs without first-party
@@ -144,9 +147,10 @@ function requestHasCookies(event: any): boolean {
 }
 
 /**
- * Path passed in is the full request URL pathname (e.g. `/_agent-native/actions/foo`).
- * `frameworkPrefix` should be the framework route prefix without trailing slash,
- * e.g. `/_agent-native`.
+ * The path is the full request URL pathname (e.g.
+ * `/_agent-native/actions/foo` or `/app/_agent-native/actions/foo`).
+ * `frameworkPrefix` is the root framework route prefix without a trailing
+ * slash, e.g. `/_agent-native`.
  */
 function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
   if (!pathname.startsWith(frameworkPrefix)) return false;
@@ -155,6 +159,37 @@ function isOnAllowlist(pathname: string, frameworkPrefix: string): boolean {
     if (sub.startsWith(allowed)) return true;
   }
   return false;
+}
+
+function matchingFrameworkPrefix(
+  pathname: string,
+  frameworkPrefix: string,
+): string | undefined {
+  if (pathname.startsWith(frameworkPrefix)) return frameworkPrefix;
+
+  if (
+    pathname === MCP_PUBLIC_ROUTE_PREFIX ||
+    pathname.startsWith(`${MCP_PUBLIC_ROUTE_PREFIX}/`)
+  ) {
+    return MCP_PUBLIC_ROUTE_PREFIX;
+  }
+
+  const basePath = getConfiguredAppBasePath();
+  const basePathFrameworkPrefix = `${basePath}${frameworkPrefix}`;
+  if (basePath && pathname.startsWith(basePathFrameworkPrefix)) {
+    return basePathFrameworkPrefix;
+  }
+
+  const basePathMcpPrefix = `${basePath}${MCP_PUBLIC_ROUTE_PREFIX}`;
+  if (
+    basePath &&
+    (pathname === basePathMcpPrefix ||
+      pathname.startsWith(`${basePathMcpPrefix}/`))
+  ) {
+    return basePathMcpPrefix;
+  }
+
+  return undefined;
 }
 
 /**
@@ -176,8 +211,9 @@ export function createCsrfMiddleware(
     if (!STATE_CHANGING_METHODS.has(method)) return undefined;
 
     const pathname = event.url?.pathname ?? "";
-    if (!pathname.startsWith(frameworkPrefix)) return undefined;
-    if (isOnAllowlist(pathname, frameworkPrefix)) return undefined;
+    const matchingPrefix = matchingFrameworkPrefix(pathname, frameworkPrefix);
+    if (!matchingPrefix) return undefined;
+    if (isOnAllowlist(pathname, matchingPrefix)) return undefined;
 
     // No cookie = no risk of confused-deputy CSRF on the session cookie.
     if (!requestHasCookies(event)) return undefined;

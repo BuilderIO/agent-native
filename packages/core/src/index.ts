@@ -41,6 +41,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export * from "./user-profile/index.js";
 export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
@@ -105,6 +106,58 @@ export {
   mountAgentNativeEmbedded,
   type AgentNativeEmbeddedPluginOptions,
 } from "./server/embedded.js";
+export {
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type AutomationCapabilities,
+  type BuiltInChannelId,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
+} from "./integrations/catalog.js";
+export {
+  AutomationConnectorError,
+  createAutomationCallbackHandler,
+  createAutomationRuntime,
+  createInvokeAutomationWorkflowAction,
+  type AutomationCallbackAuthentication,
+  type AutomationCallbackInput,
+  type AutomationCallbackResult,
+  type AutomationInboundDefinition,
+  type AutomationInvocation,
+  type AutomationInvocationResult,
+  type AutomationInvocationStatus,
+  type AutomationOutboundDefinition,
+  type AutomationResponseMode,
+  type AutomationRetryPolicy,
+  type AutomationRuntime,
+  type AutomationRuntimeOptions,
+  type AutomationWorkflowCapabilities,
+  type AutomationWorkflowDefinition,
+  type JsonSchema,
+} from "./automation/index.js";
+export {
+  createFeatureFlagsPlugin,
+  defineFeatureFlag,
+  defineFeatureFlags,
+  evaluateFeatureFlag,
+  getFeatureFlagDefinition,
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  listFeatureFlags,
+  registerFeatureFlags,
+  type FeatureFlagDefinition,
+  type FeatureFlagMode,
+  type FeatureFlagRules,
+  type FeatureFlagScope,
+} from "./feature-flags/index.js";
 
 // Server
 export {
@@ -199,6 +252,8 @@ export {
   BUILDER_CREDIT_USAGE_BILLING,
   USD_USAGE_BILLING,
   type UsageRecord,
+  type UsageCostSource,
+  type UsageCostAggregate,
   type UsageSummary,
   type UsageBillingMode,
   type UsageBillingUnit,
@@ -260,6 +315,9 @@ export {
   type WorkspaceConnectionPublicCredentialRef,
   type WorkspaceConnectionStatus,
   workspaceConnectionIsAvailableToApp,
+  registerWorkspaceConnectionLifecycleListener,
+  type WorkspaceConnectionLifecycleEvent,
+  type WorkspaceConnectionLifecycleListener,
 } from "./workspace-connections/index.js";
 
 // Reusable workspace connection provider catalog
@@ -278,6 +336,7 @@ export {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   providerReaderSupports,
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
@@ -342,6 +401,8 @@ export * from "./review/index.js";
 export * from "./org-team/index.js";
 export * from "./navigation/index.js";
 export * from "./command-navigation/index.js";
+export * from "./search/index.js";
+export * from "./embeddings/index.js";
 export {
   registerWorkspaceConnectionOnboardingStep,
   type RegisterWorkspaceConnectionOnboardingStepOptions,

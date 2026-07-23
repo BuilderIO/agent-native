@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/skills",
-  "version": "0.2.270",
+  "version": "0.2.393",
   "description": "Install BuilderIO skills for coding agents.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -42,7 +42,6 @@
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vitest": "catalog:"
   }

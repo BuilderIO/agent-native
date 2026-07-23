@@ -1,13 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { emit } from "@agent-native/core/event-bus";
-import {
-  buildDeepLink,
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
@@ -21,9 +20,11 @@ import {
   googleColorIdInput,
   ensureOrganizerInAttendees,
   normalizeAttendees,
+  resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
+  validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
@@ -68,6 +69,10 @@ export default defineAction({
     colorId: googleColorIdInput.describe(
       "Google Calendar event color id, 1 through 11.",
     ),
+    recurrence: z
+      .array(z.string())
+      .optional()
+      .describe("Google recurrence rules such as RRULE:FREQ=WEEKLY;BYDAY=MO."),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
     ),
@@ -105,7 +110,9 @@ export default defineAction({
     accountEmail: z
       .string()
       .optional()
-      .describe("Account email to create the event on"),
+      .describe(
+        "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
+      ),
   }),
   run: async (args) => {
     const email = getRequestUserEmail();
@@ -114,12 +121,12 @@ export default defineAction({
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
-    if (
-      (args.eventType === "outOfOffice" || args.eventType === "focusTime") &&
-      args.allDay === true
-    ) {
-      throw new Error("Out of office and focus time events must be timed.");
-    }
+    validateStatusEventTiming({
+      eventType: args.eventType,
+      allDay: args.allDay,
+      start: args.start,
+      end: args.end,
+    });
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(
@@ -127,19 +134,7 @@ export default defineAction({
       );
     }
 
-    // Resolve account email
-    let acctEmail = email;
-    if (args.accountEmail && args.accountEmail !== email) {
-      const status = await googleCalendar.getAuthStatus(
-        email,
-        getRequestOrgId(),
-      );
-      const isOwned = status.accounts.some(
-        (a) => a.email === args.accountEmail,
-      );
-      if (!isOwned) throw new Error("Account not owned by current user");
-      acctEmail = args.accountEmail;
-    }
+    const acctEmail = await resolveOwnedAccountEmail(args.accountEmail, email);
 
     const attendees = ensureOrganizerInAttendees(
       normalizeAttendees(args.attendees),
@@ -177,6 +172,7 @@ export default defineAction({
       attendees,
       attachments: args.attachments,
       colorId: args.colorId,
+      recurrence: args.recurrence,
       ...reminderFields,
       ...statusEventFields,
       createdAt: new Date().toISOString(),
@@ -191,7 +187,11 @@ export default defineAction({
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: args.addGoogleMeet,
+      account: { ownerEmail: email, accountEmail: acctEmail },
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet: args.addGoogleMeet,
+        addZoom: args.addZoom,
+      }),
       sendUpdates: args.sendUpdates ?? (attendees?.length ? "all" : undefined),
     });
     if (result.id) {

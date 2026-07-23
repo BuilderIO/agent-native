@@ -9,6 +9,14 @@ description: >-
 
 The content app can sync documents bidirectionally with Notion. Documents can be linked to Notion pages, pulled from Notion, or pushed to Notion.
 
+Notion sync is not creative-context retrieval. When drafting new copy from a
+synced page, read the `creative-context` skill first and retrieve voice,
+terminology, audience guidance, and factual evidence as separate roles. Apply
+its exact reuse ladder, respect opt-out/pinned packs, and use app-local Notion
+content as the fallback when the shared corpus has no relevant evidence. Keep
+the resulting immutable `contextPackId` and reuse labels with document
+generation provenance; never infer them from a later Notion sync snapshot.
+
 ## Scripts
 
 ### connect-notion-status
@@ -113,6 +121,22 @@ find a page to link to).
 ```bash
 pnpm action search-notion-pages --query "meeting notes"
 ```
+
+### list-notion-database-sources
+
+List Notion data sources visible to the current user's OAuth connection before
+attaching one to a Content database:
+
+```bash
+pnpm action list-notion-database-sources --query "projects"
+```
+
+The database-source pilot is read-only and uses the same per-user OAuth
+connection as page sync. Choose a returned data-source ID, run
+`suggest-source-join-key`, then attach it with
+`attach-content-database-source --sourceType notion-database
+--relationshipMode details`. Use `refresh-content-database-source` to pull a
+new bounded snapshot. Never use a pasted token or claim Notion write-back.
 
 ### disconnect-notion
 

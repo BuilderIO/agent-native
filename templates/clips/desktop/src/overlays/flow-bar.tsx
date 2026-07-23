@@ -16,6 +16,7 @@ type FlowState = "idle" | "recording" | "processing" | "complete" | "error";
  * Events:
  *   - `voice:state-change` { state: "idle"|"recording"|"processing"|"complete"|"error" }
  *   - `voice:audio-level` { level: number } (0-1) for waveform visualization
+ *   - `voice:dictation-preview` { text: string }
  */
 export function FlowBar() {
   // Default to "recording" not "idle" — there's a race between the Rust
@@ -23,6 +24,8 @@ export function FlowBar() {
   // "idle" caused the bar to flash an "EN" language pill that never went
   // away if the start event was missed.
   const [state, setState] = useState<FlowState>("recording");
+  const [transcript, setTranscript] = useState("");
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const levelRef = useRef(0);
   const rafRef = useRef<number | null>(null);
@@ -48,12 +51,19 @@ export function FlowBar() {
     trackListen(
       listen<{ state: FlowState }>("voice:state-change", (ev) => {
         setState(ev.payload.state);
+        if (ev.payload.state === "recording") setTranscript("");
       }),
     );
 
     trackListen(
       onAudioLevel(({ level }) => {
         levelRef.current = Math.max(0, Math.min(1, level));
+      }),
+    );
+
+    trackListen(
+      listen<{ text: string }>("voice:dictation-preview", (ev) => {
+        setTranscript(ev.payload.text.trim());
       }),
     );
 
@@ -70,6 +80,11 @@ export function FlowBar() {
     };
   }, []);
 
+  useEffect(() => {
+    const preview = transcriptRef.current;
+    if (preview) preview.scrollTop = preview.scrollHeight;
+  }, [transcript]);
+
   // Waveform canvas rendering loop — only runs during the "recording" state.
   useEffect(() => {
     if (state !== "recording") {
@@ -83,8 +98,17 @@ export function FlowBar() {
     const BAR_COUNT = 14;
     const BAR_WIDTH = 2;
     const BAR_GAP = 3;
+    // A bar waveform reads the same well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the bar is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
+    let lastDrawMs = 0;
 
-    function draw() {
+    function draw(timestamp: number) {
+      rafRef.current = requestAnimationFrame(draw);
+      if (timestamp - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = timestamp;
+
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -119,8 +143,6 @@ export function FlowBar() {
         ctx.roundRect(x, y, BAR_WIDTH, h, 1);
         ctx.fill();
       }
-
-      rafRef.current = requestAnimationFrame(draw);
     }
 
     rafRef.current = requestAnimationFrame(draw);
@@ -144,6 +166,16 @@ export function FlowBar() {
 
   return (
     <div className="flow-bar-root">
+      {transcript ? (
+        <div
+          ref={transcriptRef}
+          className="flow-bar-transcript-preview"
+          aria-live="polite"
+        >
+          {transcript}
+        </div>
+      ) : null}
+
       {/* Pill is ALWAYS mounted — when state goes idle we fade the
           opacity to 0 (see CSS) instead of removing it from the DOM.
           Inner content keeps its last frame rendered during the fade

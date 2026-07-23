@@ -1,7 +1,6 @@
 import {
   IconArrowBackUp,
   IconChevronRight,
-  IconCode,
   IconDotsVertical,
   IconHistory,
   IconLoader2,
@@ -17,10 +16,10 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
 import { getThemeVars } from "../../extensions/theme.js";
+import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "../../session-replay-iframe-protocol.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath, appPath } from "../api-path.js";
-import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog.js";
 import {
   Popover,
   PopoverContent,
@@ -32,8 +31,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
+import { useT } from "../i18n.js";
 import { ShareButton } from "../sharing/ShareButton.js";
 import {
   deleteOrHideExtension,
@@ -44,6 +44,7 @@ import {
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -51,6 +52,7 @@ import {
   type BridgePolicyContext,
   type ExtensionBridgeRole,
 } from "./iframe-bridge.js";
+import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -82,6 +84,9 @@ const THEME_CSS_VARS = [
   "--sidebar-border",
   "--sidebar-ring",
 ];
+
+const EXTENSION_IFRAME_SANDBOX =
+  normalizeAgentNativeExtensionSandbox(undefined);
 
 function getParentThemeVars(): Record<string, string> {
   const computed = getComputedStyle(document.documentElement);
@@ -261,6 +266,40 @@ function compactDiffLines(
   return result;
 }
 
+function ExtensionUnavailableState({ status }: { status?: number }) {
+  const sessionExpired = status === 401;
+  const accessDenied = status === 403;
+  const unavailable = status === 404;
+  const title = sessionExpired
+    ? "Session expired"
+    : accessDenied
+      ? "Extension is not shared"
+      : unavailable
+        ? "Extension is unavailable"
+        : "Extension not found";
+  const message = sessionExpired
+    ? "Sign in again to view this extension."
+    : accessDenied
+      ? "You do not have access to this extension. Ask the owner to share it with your organization or open a different extension."
+      : "This extension may not be shared with you, may have been deleted, or is not available to your account.";
+  return (
+    <div className="flex h-full min-h-[20rem] items-center justify-center bg-muted/20 p-6">
+      <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 text-center shadow-sm">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {message}
+        </p>
+        <Link
+          to="/extensions"
+          className="mt-4 inline-flex h-9 items-center justify-center rounded-md border border-input px-3 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          Back to extensions
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function diffLineClass(line: CompactDiffLine): string {
   switch (line.type) {
     case "insert":
@@ -323,131 +362,6 @@ function applyCanonicalLink(path: string): () => void {
       link.dataset.agentNativeExtensionCanonical = previousMarker;
     }
   };
-}
-
-function SourceCodeDialog({
-  extension,
-  onSaved,
-}: {
-  extension: Extension;
-  onSaved?: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [code, setCode] = useState(extension.content ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Sync in when the dialog opens, or when the viewed extension changes
-  // while the dialog stays mounted (e.g. re-parented to a different id).
-  useEffect(() => {
-    if (open) setCode(extension.content ?? "");
-  }, [open, extension.id]);
-
-  const isDirty = code !== (extension.content ?? "");
-
-  // Block Escape / outside-click from closing while there are unsaved edits.
-  const handleOpenChange = (next: boolean) => {
-    if (!next && isDirty) return;
-    setOpen(next);
-    if (!next) setError(null);
-  };
-
-  const handleCancel = () => {
-    setCode(extension.content ?? "");
-    setOpen(false);
-    setError(null);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/extensions/${extension.id}`),
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: code }),
-        },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body?.error ?? `Save failed (${res.status})`);
-      }
-      setOpen(false);
-      queryClient.setQueryData<Extension>(["extension", extension.id], (old) =>
-        old ? { ...old, content: code } : old,
-      );
-      queryClient.invalidateQueries({
-        queryKey: ["extension", extension.id],
-      });
-      queryClient.invalidateQueries({ queryKey: ["extensions"] });
-      onSaved?.();
-    } catch (err: any) {
-      setError(err?.message ?? "Save failed");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="inline-flex items-center justify-center rounded-md h-8 w-8 text-muted-foreground hover:bg-accent hover:text-accent-foreground cursor-pointer"
-          >
-            <IconCode className="h-4 w-4" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>View / edit source</TooltipContent>
-      </Tooltip>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="flex h-[85vh] w-[90vw] max-w-[900px] flex-col gap-0 overflow-hidden p-0">
-          <div className="flex shrink-0 items-center border-b border-border px-5 py-3 pr-12">
-            <DialogTitle className="truncate text-sm font-medium">
-              {extension.name} — source
-            </DialogTitle>
-          </div>
-          <textarea
-            className="flex-1 resize-none bg-muted/40 px-5 py-4 font-mono text-xs leading-relaxed text-foreground focus:outline-none"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            spellCheck={false}
-          />
-          <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-3">
-            {error ? (
-              <p className="text-xs text-destructive">{error}</p>
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                Alpine.js / HTML &middot; {code.length.toLocaleString()} chars
-              </span>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="inline-flex h-8 cursor-pointer items-center rounded-md border border-input px-3 text-xs hover:bg-accent"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="inline-flex h-8 cursor-pointer items-center rounded-md bg-primary px-4 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
 }
 
 function EditToolPopover({
@@ -539,6 +453,7 @@ function ExtensionHistoryPopover({
   onRestored?: () => void;
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
@@ -660,6 +575,13 @@ function ExtensionHistoryPopover({
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                   Loading history
                 </div>
+              ) : historyQuery.isError ? (
+                <ExtensionQueryErrorState
+                  compact
+                  message={t("extensions.historyLoadError")}
+                  onRetry={() => void historyQuery.refetch()}
+                  retrying={historyQuery.isFetching}
+                />
               ) : history.length === 0 ? (
                 <p className="px-2 py-3 text-xs text-muted-foreground">
                   No history yet.
@@ -729,9 +651,11 @@ function ExtensionHistoryPopover({
                   Loading diff
                 </div>
               ) : detailQuery.isError ? (
-                <div className="p-4 text-xs text-destructive">
-                  Could not load this version.
-                </div>
+                <ExtensionQueryErrorState
+                  message={t("extensions.versionLoadError")}
+                  onRetry={() => void detailQuery.refetch()}
+                  retrying={detailQuery.isFetching}
+                />
               ) : compactedDiff.length === 0 ? (
                 <div className="p-4 text-xs text-muted-foreground">
                   No content changes in this version.
@@ -764,6 +688,7 @@ function ExtensionHistoryPopover({
 }
 
 export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
+  const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
@@ -1071,14 +996,20 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
   const {
     data: extension,
     error: extensionError,
+    failureReason: extensionFailureReason,
     isFetching,
     isLoading,
+    isError,
+    refetch,
   } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extensionId}`),
       );
+      if (res.status === 401) {
+        throw extensionLoadError(401, "Session expired");
+      }
       if (res.status === 404) {
         throw extensionLoadError(404, "Extension not found");
       }
@@ -1092,6 +1023,7 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     },
     retry: shouldRetryExtensionLoad,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    refetchOnMount: "always",
   });
 
   toolRef.current = extension ?? null;
@@ -1130,6 +1062,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     if (!extension?.content || !isEmbedMcpChatBridgeActive()) return undefined;
     return buildExtensionViewerSrcDoc(extension, isDark);
   }, [extension, isDark]);
+  const unavailableStatus = extensionLoadErrorStatus(
+    extensionError ?? extensionFailureReason,
+  );
+  const latestFetchDenied =
+    unavailableStatus === 401 ||
+    unavailableStatus === 403 ||
+    unavailableStatus === 404;
 
   useEffect(() => {
     setIframeReady(false);
@@ -1187,13 +1126,19 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
     );
   }
 
-  if (!extension) {
-    const status = extensionLoadErrorStatus(extensionError);
+  if (isError && !latestFetchDenied) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        {status === 403 ? "Extension access denied" : "Extension not found"}
-      </div>
+      <ExtensionQueryErrorState
+        className="h-full min-h-[20rem]"
+        message={t("extensions.loadError")}
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
     );
+  }
+
+  if (latestFetchDenied || !extension) {
+    return <ExtensionUnavailableState status={unavailableStatus} />;
   }
 
   const isLocalExtension = extension.source?.mode === "local-files";
@@ -1270,12 +1215,6 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
                   onRestored={() => setRefreshKey((k) => k + 1)}
                   onOpenChange={onPopoverOpenChange}
                 />
-                {extension.canEdit && (
-                  <SourceCodeDialog
-                    extension={extension}
-                    onSaved={() => setRefreshKey((k) => k + 1)}
-                  />
-                )}
                 <EditToolPopover
                   extension={extension}
                   onOpenChange={onPopoverOpenChange}
@@ -1329,12 +1268,13 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             </div>
           )}
           <iframe
+            {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
             ref={iframeRef}
             key={`${extension.updatedAt}-${refreshKey}`}
             src={iframeSrcDoc ? undefined : iframeSrc}
             srcDoc={iframeSrcDoc}
             className="h-full w-full border-0"
-            sandbox="allow-scripts allow-forms"
+            sandbox={EXTENSION_IFRAME_SANDBOX}
             title={extension.name}
             style={{
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",
@@ -1369,6 +1309,7 @@ function ToolMoreMenu({
   sourceMode?: "database" | "local-files";
   onOpenChange?: (open: boolean) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const queryClient = useQueryClient();
@@ -1378,17 +1319,20 @@ function ToolMoreMenu({
     onOpenChange?.(v);
   };
 
-  const { data: slots = [] } = useQuery<SlotDeclaration[]>({
+  const slotsQuery = useQuery<SlotDeclaration[]>({
     queryKey: ["extension-slots", extensionId],
     queryFn: async () => {
       const res = await fetch(
         agentNativePath(`/_agent-native/slots/extension/${extensionId}`),
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`Failed to load extension slots (${res.status})`);
+      }
       return res.json();
     },
     enabled: open,
   });
+  const slots = slotsQuery.data ?? [];
 
   const closeMenu = () => {
     setOpenAndNotify(false);
@@ -1452,7 +1396,15 @@ function ToolMoreMenu({
           <>
             <div className="px-3 py-2 border-b border-border/40">
               <p className="text-[12px] font-medium">Appears in</p>
-              {slots.length === 0 ? (
+              {slotsQuery.isError ? (
+                <ExtensionQueryErrorState
+                  compact
+                  className="px-0"
+                  message={t("extensions.widgetAreasLoadError")}
+                  onRetry={() => void slotsQuery.refetch()}
+                  retrying={slotsQuery.isFetching}
+                />
+              ) : slots.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                   Not installed in any widget areas. Ask the agent to add it
                   somewhere.
@@ -1511,7 +1463,7 @@ function ToolMoreMenu({
                   <span>
                     {canDelete === false
                       ? "Remove from my list..."
-                      : "Delete extension..."}
+                      : "Archive extension..."}
                   </span>
                 </button>
               </div>
@@ -1520,11 +1472,11 @@ function ToolMoreMenu({
         ) : (
           <div className="flex flex-col gap-2 p-3">
             <p className="text-[12px]">
-              {canDelete === false ? "Remove " : "Delete "}
+              {canDelete === false ? "Remove " : "Archive "}
               <span className="font-medium">{toolName}</span>?
               {canDelete === false
                 ? " This hides it from your Extensions list without deleting it for anyone else."
-                : " This removes the extension everywhere, for everyone it's shared with."}
+                : " This archives the extension everywhere, for everyone it's shared with."}
             </p>
             <div className="flex justify-end gap-1">
               <button
@@ -1539,7 +1491,7 @@ function ToolMoreMenu({
                 onClick={deleteExtension}
                 className="rounded-md bg-destructive px-2 py-1 text-[12px] text-destructive-foreground hover:bg-destructive/90 cursor-pointer"
               >
-                {canDelete === false ? "Remove" : "Delete"}
+                {canDelete === false ? "Remove" : "Archive"}
               </button>
             </div>
           </div>

@@ -56,9 +56,21 @@ function panelSummaries(config: Record<string, unknown>) {
       width: typeof panel.width === "number" ? panel.width : undefined,
       columns: typeof panel.columns === "number" ? panel.columns : undefined,
       tab: typeof panel.tab === "string" ? panel.tab : undefined,
+      timeScope:
+        typeof panelConfig.timeScope === "string"
+          ? panelConfig.timeScope
+          : undefined,
       description:
         typeof panelConfig.description === "string"
           ? panelConfig.description
+          : undefined,
+      extensionId:
+        typeof panelConfig.extensionId === "string"
+          ? panelConfig.extensionId
+          : undefined,
+      extensionSlotId:
+        typeof panelConfig.extensionSlotId === "string"
+          ? panelConfig.extensionSlotId
           : undefined,
     };
   });

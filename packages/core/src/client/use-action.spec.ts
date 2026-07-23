@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const analyticsMocks = vi.hoisted(() => ({
+  trackEvent: vi.fn(),
+}));
+vi.mock("./analytics.js", () => analyticsMocks);
+
 import {
+  ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,
   defaultActionQueryRetry,
   defaultActionQueryRetryDelay,
   serializeActionQueryParams,
   shouldRetryActionQueryForError,
+  tryCallActionKeepalive,
 } from "./use-action.js";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
@@ -17,6 +24,19 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+  delete (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_BUILD_ID__?: string;
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+    }
+  ).__AGENT_NATIVE_BUILD_ID__;
+  delete (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+    }
+  ).__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__;
 });
 
 describe("serializeActionQueryParams", () => {
@@ -37,6 +57,124 @@ describe("serializeActionQueryParams", () => {
 });
 
 describe("callAction", () => {
+  it("sends build compatibility and hard-refreshes once on a mismatch", async () => {
+    Object.assign(globalThis, {
+      __AGENT_NATIVE_BUILD_ID__: "client-build",
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: "spaces-v1",
+    });
+    const replace = vi.fn();
+    vi.stubGlobal("window", {
+      location: { href: "https://content.example/page/one", replace },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { code: "client_build_mismatch" },
+        {
+          status: 409,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Client-Mismatch": "1",
+            "X-Agent-Native-Build-Id": "server-build",
+            "X-Agent-Native-Client-Compatibility": "spaces-v2",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction("list-files", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 409, code: "client_build_mismatch" });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Client-Compatibility": "spaces-v1",
+      "X-Agent-Native-Build-Id": "client-build",
+    });
+    expect(replace).toHaveBeenCalledWith(
+      "https://content.example/page/one?__an_build=server-build",
+    );
+  });
+
+  it("correlates browser timing with server and database phases", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { ok: true },
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": "11",
+            "X-Agent-Native-Request-Id": "request-123",
+            "Server-Timing":
+              "app;dur=120, startup;dur=45, startup-db;dur=44, startup-db-connect;dur=30, db;dur=60, db-connect;dur=35, db-slowest;dur=40",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction("list-plans", {}, { method: "GET" }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "list-plans",
+        request_id: "request-123",
+        status_code: 200,
+        outcome: "success",
+        server_duration_ms: 120,
+        framework_ready_wait_ms: 45,
+        db_operation_wall_ms: 60,
+        db_connect_total_ms: 35,
+        db_slowest_operation_ms: 40,
+        startup_db_operation_wall_ms: 44,
+        startup_db_connect_total_ms: 30,
+        response_bytes: 11,
+      }),
+    );
+  });
+
+  it("always tracks 4xx action responses when success sampling is disabled", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "0");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          { error: "Forbidden" },
+          {
+            status: 403,
+            headers: {
+              "Content-Type": "application/json",
+              "X-Agent-Native-Request-Id": "request-forbidden",
+            },
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      callAction("get-visual-plan", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "get-visual-plan",
+        request_id: "request-forbidden",
+        status_code: 403,
+        status_class: "4xx",
+        outcome: "http-error",
+      }),
+    );
+  });
+
   it("calls mutating actions through the framework action transport", async () => {
     const fetchMock = vi
       .fn()
@@ -61,25 +199,8 @@ describe("callAction", () => {
         signal: expect.any(AbortSignal),
       }),
     );
-  });
-
-  it("forwards an optional request source for origin-tab sync suppression", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await callAction(
-      "set-document-property",
-      { documentId: "doc-1" },
-      { requestSource: "content-tab-1" },
-    );
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/_agent-native/actions/set-document-property",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          "X-Request-Source": "content-tab-1",
-        }),
-      }),
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "X-Request-Source",
     );
   });
 
@@ -103,6 +224,9 @@ describe("callAction", () => {
         cache: "no-store",
         signal: expect.any(AbortSignal),
       }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "X-Request-Source",
     );
   });
 
@@ -205,6 +329,143 @@ describe("callAction", () => {
     // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
+  });
+});
+
+describe("tryCallActionKeepalive", () => {
+  it("uses the normal action transport and exposes response completion", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ ok: true, version: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = tryCallActionKeepalive<{ ok: boolean; version: number }>(
+      "update-file",
+      { id: "file-1", content: "updated" },
+    );
+
+    expect(attempt.accepted).toBe(true);
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true, version: 3 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/update-file",
+      expect.objectContaining({
+        method: "POST",
+        keepalive: true,
+        cache: "no-store",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        }),
+        body: JSON.stringify({ id: "file-1", content: "updated" }),
+      }),
+    );
+  });
+
+  it("holds the aggregate reservation until the response body completes", async () => {
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { content: "x".repeat(30_000) };
+
+    const first = tryCallActionKeepalive("save-one", payload);
+    const blocked = tryCallActionKeepalive("save-two", payload);
+    expect(first.accepted).toBe(true);
+    expect(blocked).toMatchObject({
+      accepted: false,
+      reason: "budget-exhausted",
+    });
+
+    resolveFirst?.(jsonResponse({ ok: true }));
+    if (!first.accepted)
+      throw new Error("Expected first request to be accepted");
+    await first.completion;
+
+    const afterCompletion = tryCallActionKeepalive("save-three", payload);
+    expect(afterCompletion.accepted).toBe(true);
+    if (!afterCompletion.accepted) {
+      throw new Error("Expected released reservation to be reusable");
+    }
+    await afterCompletion.completion;
+  });
+
+  it("releases the aggregate reservation after a rejected fetch", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { content: "x".repeat(30_000) };
+
+    const failed = tryCallActionKeepalive("save-one", payload);
+    expect(failed.accepted).toBe(true);
+    if (!failed.accepted) throw new Error("Expected request to be accepted");
+    await expect(failed.completion).rejects.toThrow(/network unavailable/);
+
+    const retry = tryCallActionKeepalive("save-two", payload);
+    expect(retry.accepted).toBe(true);
+    if (!retry.accepted) {
+      throw new Error("Expected rejected request to release its reservation");
+    }
+    await retry.completion;
+  });
+
+  it("releases the aggregate reservation after caller abort", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      )
+      .mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const payload = { content: "x".repeat(30_000) };
+
+    const aborted = tryCallActionKeepalive("save-one", payload, {
+      signal: controller.signal,
+    });
+    expect(aborted.accepted).toBe(true);
+    if (!aborted.accepted) throw new Error("Expected request to be accepted");
+    controller.abort();
+    await expect(aborted.completion).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    const retry = tryCallActionKeepalive("save-two", payload);
+    expect(retry.accepted).toBe(true);
+    if (!retry.accepted) {
+      throw new Error("Expected aborted request to release its reservation");
+    }
+    await retry.completion;
+  });
+
+  it("rejects a body larger than the conservative keepalive budget", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const attempt = tryCallActionKeepalive("update-file", {
+      content: "x".repeat(ACTION_KEEPALIVE_BODY_BUDGET_BYTES),
+    });
+
+    expect(attempt).toMatchObject({
+      accepted: false,
+      reason: "body-too-large",
+      completion: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

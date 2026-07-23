@@ -17,6 +17,10 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import {
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
+import {
   listPropertiesForDocument,
   nanoid,
   optionsForNewProperty,
@@ -32,6 +36,12 @@ export default defineAction({
       .string()
       .describe("Document ID used to scope the property workspace"),
     name: z.string().min(1).describe("Property name"),
+    description: z
+      .string()
+      .optional()
+      .describe(
+        "Stable guidance describing what this property means and which value belongs here",
+      ),
     type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
     visibility: z
       .enum(DOCUMENT_PROPERTY_VISIBILITIES)
@@ -45,6 +55,7 @@ export default defineAction({
               id: z.string(),
               name: z.string(),
               color: z.string(),
+              description: z.string().optional(),
             }),
           )
           .optional(),
@@ -107,6 +118,9 @@ export default defineAction({
           ),
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
+      if (existing.systemRole) {
+        throw new Error("System properties cannot be changed.");
+      }
       if (
         isComputedPropertyType(existing.type as DocumentPropertyType) &&
         existing.type !== type
@@ -158,6 +172,9 @@ export default defineAction({
         .update(schema.documentPropertyDefinitions)
         .set({
           name,
+          ...(args.description === undefined
+            ? {}
+            : { description: args.description.trim() }),
           type,
           visibility:
             args.visibility === undefined
@@ -168,34 +185,40 @@ export default defineAction({
         })
         .where(eq(schema.documentPropertyDefinitions.id, args.id));
     } else {
-      const [maxPos] = await db
-        .select({
-          max: sql<number>`COALESCE(MAX(position), -1)`,
-        })
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(
-              schema.documentPropertyDefinitions.ownerEmail,
-              document.ownerEmail,
-            ),
-            eq(schema.documentPropertyDefinitions.databaseId, database.id),
-          ),
-        );
+      await withPositionLock(
+        propertyDefinitionsPositionScope(database.id),
+        async () => {
+          const [maxPos] = await db
+            .select({
+              max: sql<number>`COALESCE(MAX(position), -1)`,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.ownerEmail,
+                  document.ownerEmail,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
 
-      await db.insert(schema.documentPropertyDefinitions).values({
-        id: nanoid(),
-        ownerEmail: document.ownerEmail,
-        orgId: document.orgId ?? null,
-        databaseId: database.id,
-        name,
-        type,
-        visibility: normalizePropertyVisibility(args.visibility),
-        optionsJson,
-        position: (maxPos?.max ?? -1) + 1,
-        createdAt: now,
-        updatedAt: now,
-      });
+          await db.insert(schema.documentPropertyDefinitions).values({
+            id: nanoid(),
+            ownerEmail: document.ownerEmail,
+            orgId: document.orgId ?? null,
+            databaseId: database.id,
+            name,
+            description: args.description?.trim() ?? "",
+            type,
+            visibility: normalizePropertyVisibility(args.visibility),
+            optionsJson,
+            position: (maxPos?.max ?? -1) + 1,
+            createdAt: now,
+            updatedAt: now,
+          });
+        },
+      );
     }
 
     await writeAppState("refresh-signal", { ts: Date.now() });

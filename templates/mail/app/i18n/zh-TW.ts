@@ -429,10 +429,9 @@ const messages = {
     suggestionWidget: "為我的收件箱建立自訂小元件",
   },
   settings: {
-    openAgentSettings: "開啟代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    agentTitle: "代理設定",
+    openAgentSettings: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    agentTitle: "管理代理",
     aliasName: "別名名稱",
     aliasNamePlaceholder: "例如：設計團隊",
     recipientsOnePerLine: "收件人（每行一個信箱）",
@@ -502,9 +501,9 @@ const messages = {
     slackUpdateFailed: "更新 Slack 收件入口失敗",
     slackConfigured: "Slack 憑證已設定。",
     slackNeedsCredentials:
-      "新增 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET 以啟用 Slack 收件入口。",
-    slackIntake: "Slack 收件入口",
-    slackDescription: "允許組織成員從 Slack 排隊郵件草稿。",
+      "舊版自訂收件入口需要 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET。新的 Slack 訊息自動化請在設定 > 訊息中連接工作區。",
+    slackIntake: "Slack 收件入口（舊版）",
+    slackDescription: "允許組織成員從 Slack 排隊郵件草稿的舊版自訂整合。",
     enabled: "已啟用",
     disable: "停用",
     enable: "啟用",

@@ -1,4 +1,5 @@
-import { AgentToggleButton, LanguagePicker } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { LanguagePicker } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { IconLayoutSidebar } from "@tabler/icons-react";
 import { useLocation, useNavigate } from "react-router";

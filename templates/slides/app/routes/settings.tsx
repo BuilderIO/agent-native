@@ -1,12 +1,12 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
-  ChangelogSettingsCard,
-  LanguagePicker,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
   type SettingsSearchEntry,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
+import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 
@@ -49,10 +49,12 @@ export default function SettingsRoute() {
       extraTabs={agentSettingsTabs}
       generalSearchEntries={generalSearchEntries}
       general={
-        <div className="mx-auto w-full max-w-3xl space-y-6">
+        <div className="mx-auto w-full max-w-2xl space-y-6">
           <p className="text-sm leading-6 text-muted-foreground">
             {t("settings.description")}
           </p>
+
+          <CreativeContextSettingsLink />
 
           <Card id="language" className="scroll-mt-16">
             <CardHeader>
@@ -79,7 +81,7 @@ export default function SettingsRoute() {
         </div>
       }
       whatsNew={
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-2xl">
           <ChangelogSettingsCard markdown={changelog} />
         </div>
       }

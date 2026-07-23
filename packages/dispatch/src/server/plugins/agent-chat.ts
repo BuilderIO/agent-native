@@ -30,6 +30,7 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "dispatch",
   initialToolNames: INITIAL_TOOL_NAMES,
+  connectorCatalog: ["resolve-integration-source-context"],
   // Without this, AGENT_ORG_ID is never set on agent action calls and every
   // row written through the frontend (vault secrets, destinations, workspace
   // resources) lands with org_id=NULL — breaking data isolation across orgs.
@@ -55,7 +56,8 @@ Use the standard workspace primitives:
 - Use recurring jobs for scheduled behavior.
 - Use custom agent profiles in agents/*.md for local spawned work and remote-agents/*.json for remote A2A apps.
 - You receive a compact available-apps block with sibling workspace app names and descriptions. Use it to pick the right A2A target, and call list-connected-agents or tool-search only when you need fresh details.
-- When answering whether workspace apps expose agent cards or A2A endpoints, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
+- Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
+- When answering whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. If you have not requested that probe, absence of agent-card fields means unchecked, not unavailable.
 - When creating a new workspace app, create a separate app under apps/<app-id> with apps/<app-id>/package.json including a concise generated description, mount it at /<app-id>, use relative /<app-id> links, never hardcode localhost or dev ports, use shadcn/ui with @tabler/icons-react rather than lucide-react, and ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath(). There is no separate workspace app registry to edit.
 - If the chat template is used, treat it as scaffolding only: the finished app must be branded as the requested app with its own home screen/navigation/package metadata/manifest, and must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.

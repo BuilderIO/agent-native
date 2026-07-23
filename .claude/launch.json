@@ -2,6 +2,42 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "chat-mui",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/967cecd3-5ccc-46c6-af9c-e706fd1acd04/scratchpad/chat-mui-verify.sqlite",
+        "PORT=3210",
+        "pnpm",
+        "--dir",
+        "examples/chat-mui",
+        "dev",
+        "--port",
+        "3210"
+      ],
+      "port": 3210
+    },
+    {
+      "name": "chat-antd",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/967cecd3-5ccc-46c6-af9c-e706fd1acd04/scratchpad/chat-antd-verify.sqlite",
+        "PORT=3211",
+        "pnpm",
+        "--dir",
+        "examples/chat-antd",
+        "dev",
+        "--port",
+        "3211"
+      ],
+      "port": 3211
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "packages/docs", "dev"],
+      "port": 3000
+    },
+    {
       "name": "plan",
       "runtimeExecutable": "env",
       "runtimeArgs": [
@@ -31,6 +67,74 @@
         "3101"
       ],
       "port": 3101
+    },
+    {
+      "name": "design-w1",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-w1.sqlite",
+        "PORT=9317",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9317"
+      ],
+      "port": 9317
+    },
+    {
+      "name": "design-dragdrop",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-dragdrop.sqlite",
+        "PORT=9319",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9319"
+      ],
+      "port": 9319
+    },
+    {
+      "name": "design-w3",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-w3.sqlite",
+        "PORT=9320",
+        "AUTH_MODE=local",
+        "APP_NAME=design-w3",
+        "APP_URL=http://localhost:9320",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9320"
+      ],
+      "port": 9320
+    },
+    {
+      "name": "design-w5",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/eff198fb-ffbe-43eb-9d3d-ddec43ab82b9/scratchpad/design-w5.sqlite",
+        "PORT=9322",
+        "AUTH_MODE=local",
+        "APP_NAME=design-w5",
+        "APP_URL=http://localhost:9322",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "9322"
+      ],
+      "port": 9322
     },
     {
       "name": "analytics",
@@ -91,6 +195,118 @@
         "3104"
       ],
       "port": 3104
+    },
+    {
+      "name": "slides",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/726cb1e5-ab5f-4658-b340-e7877455395b/scratchpad/slides-verify.sqlite",
+        "PORT=3106",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3106"
+      ],
+      "port": 3106
+    },
+    {
+      "name": "slides-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/slides-feelcheck.sqlite",
+        "PORT=3206",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/slides",
+        "dev",
+        "--port",
+        "3206"
+      ],
+      "port": 3206
+    },
+    {
+      "name": "analytics-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/analytics-feelcheck.sqlite",
+        "PORT=3205",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/analytics",
+        "dev",
+        "--port",
+        "3205"
+      ],
+      "port": 3205
+    },
+    {
+      "name": "mail-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/mail-feelcheck.sqlite",
+        "PORT=3204",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/mail",
+        "dev",
+        "--port",
+        "3204"
+      ],
+      "port": 3204
+    },
+    {
+      "name": "mail-agentpage",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/fcf5c006-2fb3-4d71-b331-0bd985e81884/scratchpad/mail-agentpage.sqlite",
+        "PORT=3208",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/mail",
+        "dev",
+        "--port",
+        "3208"
+      ],
+      "port": 3208
+    },
+    {
+      "name": "design-feelcheck",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/f673eba0-ed64-4361-ad9e-ff7ae76e9f3c/scratchpad/design-feelcheck.sqlite",
+        "PORT=3207",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/design",
+        "dev",
+        "--port",
+        "3207"
+      ],
+      "port": 3207
+    },
+    {
+      "name": "analytics-watchdog",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DATABASE_URL=file:/private/tmp/claude-501/-Users-steve-Projects-builder-agent-native-framework/0d5fec40-429d-49d1-b0f6-0634054cb468/scratchpad/analytics-watchdog.sqlite",
+        "PORT=3209",
+        "AUTH_MODE=local",
+        "pnpm",
+        "--dir",
+        "templates/analytics",
+        "dev",
+        "--port",
+        "3209"
+      ],
+      "port": 3209
     }
   ]
 }

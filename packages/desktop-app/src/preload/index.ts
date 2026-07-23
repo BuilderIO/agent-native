@@ -4,6 +4,8 @@ import {
   IPC,
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
+  type CodeAgentComputerSetupAction,
+  type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpRequest,
@@ -34,6 +36,11 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopAppContextAction,
+  type DesktopAppCreationSettings,
+  type DesktopAppRuntimeStatus,
+  type DesktopCreateAppRequest,
+  type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -42,6 +49,23 @@ import {
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
+import {
+  MULTI_FRONTIER_CHANNELS,
+  type MultiFrontierActionResult,
+  type MultiFrontierCreateIntent,
+  type MultiFrontierProviderStatusEnvelope,
+  type MultiFrontierProviderStatusEvent,
+  type MultiFrontierReReviewIntent,
+  type MultiFrontierRendererApi,
+  type MultiFrontierSettings,
+  type MultiFrontierSubscriptionEnvelope,
+  type MultiFrontierSubscriptionResult,
+} from "@shared/multi-frontier-channels";
+import type {
+  MultiFrontierIpcEvent,
+  MultiFrontierProviderId,
+  MultiFrontierRendererState,
+} from "@shared/multi-frontier-ipc";
 import { isDesktopSentryConfigured } from "@shared/sentry-config";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -152,9 +176,33 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.APPS_REMOVE, id),
     update: (id: string, updates: Partial<AppConfig>): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_UPDATE, id, updates),
+    reorder: (id: string, direction: "up" | "down"): Promise<AppConfig[]> =>
+      ipcRenderer.invoke(IPC.APPS_REORDER, id, direction),
     reset: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_RESET),
     chooseLocalFolder: (): Promise<LocalAppFolderSelectResult> =>
       ipcRenderer.invoke(IPC.APPS_CHOOSE_LOCAL_FOLDER),
+    getCreationSettings: (): Promise<DesktopAppCreationSettings> =>
+      ipcRenderer.invoke(IPC.APPS_GET_CREATION_SETTINGS),
+    updateCreationSettings: (
+      settings: Partial<DesktopAppCreationSettings>,
+    ): Promise<DesktopAppCreationSettings> =>
+      ipcRenderer.invoke(IPC.APPS_UPDATE_CREATION_SETTINGS, settings),
+    createFromPrompt: (
+      request: DesktopCreateAppRequest,
+    ): Promise<DesktopCreateAppResult> =>
+      ipcRenderer.invoke(IPC.APPS_CREATE_FROM_PROMPT, request),
+    showContextMenu: (appId: string): Promise<DesktopAppContextAction | null> =>
+      ipcRenderer.invoke(IPC.APPS_SHOW_CONTEXT_MENU, appId),
+    onRuntimeStatus: (
+      cb: (status: DesktopAppRuntimeStatus) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        status: DesktopAppRuntimeStatus,
+      ) => cb(status);
+      ipcRenderer.on(IPC.APP_STATUS, handler);
+      return () => ipcRenderer.removeListener(IPC.APP_STATUS, handler);
+    },
   },
 
   /** Tell main process which app webview is currently active (for DevTools targeting) */
@@ -267,6 +315,10 @@ const electronAPI = {
       }),
     getHostMetadata: (): Promise<CodeAgentHostMetadata> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_GET_HOST_METADATA),
+    runComputerSetupAction: (
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_COMPUTER_SETUP, action),
     listCodePacks: (cwd?: string): Promise<CodeAgentCodePackResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS, { cwd }),
     listProjects: (): Promise<CodeAgentProjectListResult> =>
@@ -282,6 +334,8 @@ const electronAPI = {
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL, request),
+    openCodexLogin: (): Promise<CodeAgentTerminalResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_CODEX_LOGIN),
     getRemoteConnectorStatus: (): Promise<CodeAgentRemoteConnectorStatus> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS),
     setRemoteConnectorEnabled: (
@@ -312,6 +366,119 @@ const electronAPI = {
       return () => ipcRenderer.removeListener(IPC.DEEP_LINK_OPEN, handler);
     },
   },
+
+  multiFrontier: {
+    getSettings: (): Promise<MultiFrontierSettings> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.settingsGet),
+    updateSettings: (
+      settings: Partial<MultiFrontierSettings>,
+    ): Promise<MultiFrontierSettings> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.settingsUpdate, settings),
+    getProviderStatus: (
+      providerId: MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.providerStatus, providerId),
+    beginProviderLogin: (
+      providerId: MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.providerLogin, providerId),
+    refreshProviderStatus: (
+      providerId: MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.providerRefresh, providerId),
+    list: (): Promise<MultiFrontierRendererState[]> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.list),
+    create: (
+      intent: MultiFrontierCreateIntent,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.create, intent),
+    start: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.start, collaborationId),
+    go: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.go, collaborationId),
+    pause: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.pause, collaborationId),
+    resume: (
+      collaborationId: string,
+      prompt?: string,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(
+        MULTI_FRONTIER_CHANNELS.resume,
+        prompt ? { collaborationId, prompt } : collaborationId,
+      ),
+    cancel: (collaborationId: string): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.cancel, collaborationId),
+    reReview: (
+      collaborationId: string,
+      input: MultiFrontierReReviewIntent,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.reReview, {
+        collaborationId,
+        reviewArtifactId: input.reviewArtifactId,
+        ...(input.instruction ? { instruction: input.instruction } : {}),
+      }),
+    roleSwap: (
+      collaborationId: string,
+      nextDriverParticipantId: string,
+    ): Promise<MultiFrontierActionResult> =>
+      ipcRenderer.invoke(MULTI_FRONTIER_CHANNELS.roleSwap, {
+        collaborationId,
+        nextDriverParticipantId,
+      }),
+    subscribe: (
+      collaborationId: string,
+      callback: (event: MultiFrontierIpcEvent) => void,
+    ): (() => void) => {
+      const subscriptionId = `mf-subscription-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        envelope: MultiFrontierSubscriptionEnvelope,
+      ) => {
+        if (envelope?.subscriptionId !== subscriptionId) return;
+        callback(envelope.event);
+      };
+      ipcRenderer.on(MULTI_FRONTIER_CHANNELS.events, handler);
+      ipcRenderer.send(MULTI_FRONTIER_CHANNELS.subscribe, {
+        subscriptionId,
+        collaborationId,
+      });
+      return () => {
+        ipcRenderer.removeListener(MULTI_FRONTIER_CHANNELS.events, handler);
+        ipcRenderer.send(MULTI_FRONTIER_CHANNELS.unsubscribe, {
+          subscriptionId,
+        });
+      };
+    },
+    subscribeProviderStatus: (
+      callback: (event: MultiFrontierProviderStatusEvent) => void,
+    ): (() => void) => {
+      const subscriptionId = `mf-provider-status-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        envelope: MultiFrontierProviderStatusEnvelope,
+      ) => {
+        if (envelope?.subscriptionId !== subscriptionId) return;
+        callback(envelope.event);
+      };
+      ipcRenderer.on(MULTI_FRONTIER_CHANNELS.providerStatusEvents, handler);
+      ipcRenderer.send(MULTI_FRONTIER_CHANNELS.providerStatusSubscribe, {
+        subscriptionId,
+      });
+      return () => {
+        ipcRenderer.removeListener(
+          MULTI_FRONTIER_CHANNELS.providerStatusEvents,
+          handler,
+        );
+        ipcRenderer.send(MULTI_FRONTIER_CHANNELS.providerStatusUnsubscribe, {
+          subscriptionId,
+        });
+      };
+    },
+  } satisfies MultiFrontierRendererApi,
 
   /** Inter-app communication — relay messages between loaded apps */
   interApp: {

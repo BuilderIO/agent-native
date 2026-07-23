@@ -47,6 +47,13 @@ Meeting capture records **two streams** and tags transcript segments by source:
 
 Each transcript segment carries a `source: "mic" | "system"` tag, which we use to attribute action items to the right attendee. This is why **per-attendee action items only work reliably with mic + system capture** — mic-only recordings make remote attendees silent. Document this caveat whenever you surface action items.
 
+The iOS/Android companion is intentionally different: mobile background meeting
+capture is microphone-only because the operating systems do not expose another
+phone app's Zoom/Meet/Teams audio. It is appropriate for in-person rooms and for
+capturing audio played from a separate device. Mobile recordings still receive
+Clips transcription and summaries, but do not promise desktop-quality remote
+speaker attribution or per-attendee action items.
+
 ## Bidirectional recording ↔ meeting link
 
 A meeting can have an associated recording, and a recording can be linked back to a meeting:
@@ -58,7 +65,7 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 ## Calendar reminders
 
-Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Agents do not need to schedule reminders manually.
+Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live and excludes events the current user has declined, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. The normal Meetings list remains calendar-backed and is not filtered by the reminder-only exclusion. Desktop Zoom joins use Zoom's native `zoommtg://` link so the Zoom app opens directly without an intermediate browser tab; unsupported Zoom link shapes and other providers retain their HTTPS join URL. Agents do not need to schedule reminders manually.
 
 ## Adhoc Zoom / Teams detection (desktop)
 
@@ -71,7 +78,7 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 | `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams detection passes `source: "adhoc"` |
-| `update-meeting`          | Inline title edit, notes edits                                        |
+| `update-meeting`          | Inline title/notes edits; owners/admins can opt the full transcript into or out of the meeting share link with `shareTranscript` |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
@@ -83,6 +90,15 @@ When meetings are enabled, the Clips desktop app also watches for native Zoom (`
 | `disconnect-calendar`     | Revoke + clear secret refs                                            |
 
 All actions go through `accessFilter` / `assertAccess`. AI work delegates via `sendToAgentChat` per the `delegate-to-agent` skill — never inline LLM calls.
+
+## Sharing meeting notes and transcripts
+
+Meeting share links always include generated notes: the summary, key points,
+and action items. Full transcripts are more sensitive and stay excluded by
+default. Owners and share admins can call `update-meeting` with
+`shareTranscript=true|false` or use the Share popover's transcript switch.
+The setting controls only the meeting share payload; it must not change the
+linked recording's visibility or expose recording media and comments.
 
 ## Cleanup credential order
 
@@ -114,6 +130,7 @@ The app exposes `view`, `meetingId`, and `dictationId` so the agent always knows
     "scheduledStart": "...",
     "scheduledEnd": "...",
     "transcriptStatus": "ready",
+    "shareTranscript": false,
     "participants": [{ "email": "alice@ex.com", "name": "Alice" }, ...],
     "actionItems": [{ "assigneeEmail": "alice@ex.com", "text": "..." }, ...],
     "hasRecording": true,

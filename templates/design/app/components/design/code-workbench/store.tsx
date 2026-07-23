@@ -341,6 +341,12 @@ export function WorkbenchProvider({
     if (dirtySubscribedModelsRef.current.has(entry.model)) return;
     dirtySubscribedModelsRef.current.add(entry.model);
     entry.model.onDidChangeContent(() => {
+      // Programmatic content replacement (agent edit, external reload) fires
+      // this synchronously before the model registry updates its saved
+      // version marker; treating that as a real edit would incorrectly mark
+      // the buffer dirty (and pin a preview tab) for a change the user never
+      // made. See modelRegistry.isApplyingExternalContent.
+      if (modelRegistry.isApplyingExternalContent(uri)) return;
       apiRef.current?.markDirty(uri, modelRegistry.isDirty(uri));
     });
   }, []);
@@ -369,7 +375,18 @@ export function WorkbenchProvider({
       try {
         const read = await provider.readFile(path);
         const language = read.language ?? languageForPath(path);
-        modelRegistry.ensureModel(uri, read.content, language);
+        // loadBuffer is also used by reloadBuffer to force an already-open
+        // buffer back to the latest server content (e.g. the "File changed
+        // elsewhere — reload latest" conflict action). `ensureModel` is
+        // intentionally a no-op on content when a model already exists (so
+        // the initial-open path here never clobbers a buffer someone is
+        // mid-edit on) — reloadContent is the explicit, caller-opted-in
+        // discard-local-edits path for that case.
+        if (modelRegistry.has(uri)) {
+          modelRegistry.reloadContent(uri, read.content, language);
+        } else {
+          modelRegistry.ensureModel(uri, read.content, language);
+        }
         subscribeDirtyTracking(uri);
         rememberVersionHash(uri, read.versionHash);
         const firstLoad = !loadedOnceRef.current.has(uri);
@@ -382,7 +399,7 @@ export function WorkbenchProvider({
             dirty: modelRegistry.isDirty(uri),
             conflict: false,
             saving: false,
-            readonly: read.readonly ?? false,
+            readonly: read.readonly ?? existingMeta?.readonly ?? false,
             language,
             fileId: read.fileId,
             savedVersionHash: read.versionHash,

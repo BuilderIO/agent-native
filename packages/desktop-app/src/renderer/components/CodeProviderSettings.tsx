@@ -3,6 +3,7 @@ import {
   IconChevronRight,
   IconExternalLink,
   IconLoader2,
+  IconRefresh,
   IconTerminal2,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
@@ -169,6 +170,8 @@ export function CodeProviderSettings({
   const [providerSavingId, setProviderSavingId] =
     useState<CodeAgentProviderId | null>(null);
   const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [codexConnecting, setCodexConnecting] = useState(false);
+  const [codexRefreshing, setCodexRefreshing] = useState(false);
   const [providerMessage, setProviderMessage] = useState<string | null>(null);
 
   const builderProvider = settings.providers.find(
@@ -249,6 +252,50 @@ export function CodeProviderSettings({
     [onProvidersChanged, onSettingsChanged],
   );
 
+  const handleConnectCodex = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.openCodexLogin) {
+      setProviderMessage(
+        "Open Agent Native Desktop to sign in to your ChatGPT subscription.",
+      );
+      return;
+    }
+    setCodexConnecting(true);
+    setProviderMessage(
+      "Terminal opened. Finish `codex login`, then refresh this status.",
+    );
+    try {
+      const result = await api.openCodexLogin();
+      if (!result.ok)
+        setProviderMessage(result.error ?? "Terminal was not opened.");
+    } catch (err) {
+      setProviderMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexConnecting(false);
+    }
+  }, []);
+
+  const refreshCodexStatus = useCallback(async () => {
+    const api = window.electronAPI?.codeAgents;
+    if (!api?.getProviderSettings) return;
+    setCodexRefreshing(true);
+    try {
+      const nextSettings = await api.getProviderSettings();
+      onSettingsChanged(nextSettings);
+      onProvidersChanged?.();
+      setProviderMessage(
+        nextSettings.providers.find((provider) => provider.id === "codex")
+          ?.configured
+          ? "ChatGPT subscription is ready on this computer."
+          : "Codex is not signed in yet. Finish `codex login` in Terminal.",
+      );
+    } catch (err) {
+      setProviderMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexRefreshing(false);
+    }
+  }, [onProvidersChanged, onSettingsChanged]);
+
   useEffect(() => {
     if (!consumePendingBuilderConnectReload()) return;
     void handleConnectBuilder(false);
@@ -324,7 +371,7 @@ export function CodeProviderSettings({
     <div className="settings-provider-card">
       <div className="settings-provider-card-header">
         <div>
-          <span className="settings-mode-card-title">Code providers</span>
+          <span className="settings-mode-card-title">Agent runtimes</span>
           <span className="settings-mode-card-status">
             {settings.configured
               ? `${settings.configuredProviders.join(", ")} ready`
@@ -344,7 +391,7 @@ export function CodeProviderSettings({
             {builderConnected
               ? builderProvider?.source === "environment"
                 ? "Connected through environment credentials."
-                : "Connected for Code chats."
+                : "Connected for Agent tasks."
               : "Free credits to start - no API key needed."}
           </span>
         </div>
@@ -389,23 +436,67 @@ export function CodeProviderSettings({
         }`}
       >
         <div className="settings-builder-connect-copy">
-          <span className="settings-builder-title">Codex CLI</span>
+          <span className="settings-builder-title">ChatGPT subscription</span>
           <span className="settings-builder-description">
             {codexConnected
-              ? `Using ${codexProvider?.label ?? "Codex CLI"} for Code chats.`
+              ? "Ready to run Agent tasks on this computer through Codex."
               : codexAvailable
-                ? "Run codex login in Terminal; Desktop will pick up the local session."
-                : "Install the OpenAI Codex CLI, then run codex login in Terminal."}
+                ? "Use your ChatGPT subscription locally through Codex."
+                : "Install the OpenAI Codex CLI to use your ChatGPT subscription locally."}
           </span>
         </div>
-        <span
-          className={`settings-codex-status${
-            codexConnected ? " settings-codex-status--ok" : ""
-          }`}
-        >
-          <IconTerminal2 size={13} />
-          {codexConnected ? "Ready" : codexAvailable ? "Sign in" : "Install"}
-        </span>
+        <div className="settings-builder-actions">
+          <span
+            className={`settings-codex-status${
+              codexConnected ? " settings-codex-status--ok" : ""
+            }`}
+          >
+            <IconTerminal2 size={13} />
+            {codexConnected
+              ? "Ready"
+              : codexAvailable
+                ? "Not signed in"
+                : "Install"}
+          </span>
+          {codexAvailable && !codexConnected && (
+            <button
+              type="button"
+              className="settings-builder-connect-button"
+              onClick={() => void handleConnectCodex()}
+              disabled={codexConnecting}
+            >
+              {codexConnecting ? (
+                <>
+                  <IconLoader2
+                    size={13}
+                    className="settings-codex-status-spinner"
+                  />
+                  Opening...
+                </>
+              ) : (
+                "Sign in"
+              )}
+            </button>
+          )}
+          {codexAvailable && (
+            <button
+              type="button"
+              className="settings-provider-text-button"
+              onClick={() => void refreshCodexStatus()}
+              disabled={codexRefreshing}
+            >
+              {codexRefreshing ? (
+                <IconLoader2
+                  size={13}
+                  className="settings-codex-status-spinner"
+                />
+              ) : (
+                <IconRefresh size={13} />
+              )}
+              Refresh
+            </button>
+          )}
+        </div>
       </div>
 
       <button

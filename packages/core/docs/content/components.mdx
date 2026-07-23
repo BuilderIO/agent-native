@@ -13,7 +13,7 @@ components when you can, and drop down a layer when you need custom product UI.
 Import browser UI from focused client subpaths:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -186,6 +186,13 @@ for the connector usage, the normalized event stream, and when to reach for
 Use `@agent-native/core/client/composer` when you need to place the same chat
 field used by the sidebar inside custom UI.
 
+Toolkit owns the shared Tiptap and composer UI implementation. The
+`@agent-native/core/client/composer` entry is its framework-wired wrapper: it
+binds the Core runtime adapters used by attachments, mentions, skills, voice,
+and model selection. Reusable packages that need portable bare UI can import
+`@agent-native/toolkit/composer` instead, but must render it inside
+`ComposerRuntimeAdaptersProvider` and supply the required framework services.
+
 | API                               | Use when                                                                                                                                                            |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | You need a ready-to-submit chat field with attachments, slash commands, references, pasted-text handling, draft persistence, voice input, and submission semantics. |
@@ -229,19 +236,25 @@ tool-call display.
 ## Native Tool Widgets {#native-tool-widgets}
 
 Use native tool widgets when an action result should render as app-quality UI
-inside chat instead of plain JSON. Built-in reusable outputs include
-`DataTableWidget`, `DataChartWidget`, and `DataWidgetResult`; they are exported
-from `@agent-native/core/client/chat` and the root client entry. See
-[Native Chat UI](/docs/native-chat-ui) for the action result contract.
+inside chat instead of plain JSON. You don't import or mount a widget
+component yourself — an action builds its result with a server-safe helper
+(`createDataTableWidgetResult()`, `createDataChartWidgetResult()`) from
+`@agent-native/core/data-widgets`, and the runtime picks the matching built-in
+React renderer automatically. `DataTableWidget`, `DataChartWidget`, and
+`DataWidgetResult` are the **result-shape types** — exported from
+`@agent-native/core/client/chat` and the root client entry for typing action
+results, not renderable components. See
+[Native Chat UI](/docs/native-chat-ui#action-declared-widgets) for the full action result
+contract and a worked example.
 
-| API                              | Use when                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `DataTableWidget`                | You want an action result to render rows and columns in native chat.                    |
-| `DataChartWidget`                | You want compact bar, line, or area chart output in native chat.                        |
-| `DataWidgetResult`               | You want a typed result shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
-| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.               |
-| `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                 |
-| `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.           |
+| API                              | Use when                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `createDataTableWidgetResult()`  | Your action returns rows and columns that should render as a native table in chat.       |
+| `createDataChartWidgetResult()`  | Your action returns series data that should render as a native bar, line, or area chart. |
+| `DataWidgetResult`               | You need the typed union shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
+| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.                |
+| `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                  |
+| `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.            |
 
 ## Realtime Collab And Presence {#collab-presence}
 
@@ -388,14 +401,14 @@ const collab = useCollaborativeDoc({
 />;
 ```
 
-## Workspace Resources {#resources}
+## Agent Resources {#resources}
 
 Use `@agent-native/core/client/resources` when you want to expose the same
-workspace resource model that powers the agent panel's Workspace tab.
+agent resource model that powers the agent panel's Resources tab.
 
 | API                                                                   | Use when                                                                |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `<ResourcesPanel>`                                                    | You want the complete Workspace tab as a page, drawer, or custom panel. |
+| `<ResourcesPanel>`                                                    | You want the complete Resources tab as a page, drawer, or custom panel. |
 | `<ResourceTree>`                                                      | You want to render your own resource browser around framework data.     |
 | `<ResourceEditor>`                                                    | You want the framework editor for a selected resource.                  |
 | `useResourceTree()`                                                   | You need a scoped tree for personal, shared, or workspace resources.    |
@@ -482,10 +495,12 @@ action so the UI and agent share the same capability.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -500,3 +515,11 @@ export default defineAction({
 Use `sendToAgentChat({ background: true, openSidebar: false })` instead when
 the work needs tools, state, auditability, user steering, or multi-step
 reasoning.
+
+## What's next {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentSidebar>` and `<AgentPanel>` with a tutorial-first walkthrough
+- [**Native Chat UI**](/docs/native-chat-ui) — the action result contract behind data widgets and custom renderers
+- [**Actions**](/docs/actions) — `defineAction()`, schemas, and the action surface these components call
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the collab hooks and presence components in depth
+- [**Sharing**](/docs/sharing) — `<ShareButton>` and `<ShareDialog>` wiring for ownable resources

@@ -108,12 +108,18 @@ Severity drives the badge styling in the dropdown and is passed through to chann
 
 ## Built-in channels {#channels}
 
-| Channel   | Delivery                                                  | Requires                                            |
-| --------- | --------------------------------------------------------- | --------------------------------------------------- |
-| `inbox`   | Persists to the `notifications` table; drives the bell UI | Always on — part of the primitive.                  |
-| `webhook` | POST JSON to a configured URL                             | `NOTIFICATIONS_WEBHOOK_URL` env var set at startup. |
+| Channel   | Delivery                                                  | Requires                                                                              |
+| --------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `inbox`   | Persists to the `notifications` table; drives the bell UI | Always on — part of the primitive.                                                    |
+| `email`   | Sends email via Resend/SendGrid                           | Per-notification `metadata.emailRecipients` and/or `NOTIFICATIONS_EMAIL_RECIPIENTS`.  |
+| `slack`   | POST Slack Block Kit JSON to an incoming webhook          | Per-notification `metadata.slackWebhookUrl` and/or `NOTIFICATIONS_SLACK_WEBHOOK_URL`. |
+| `webhook` | POST JSON to a configured URL                             | Per-notification `metadata.webhookUrl` and/or `NOTIFICATIONS_WEBHOOK_URL`.            |
 
-The webhook channel resolves `${keys.NAME}` references in both the URL and `NOTIFICATIONS_WEBHOOK_AUTH` against the owner's ad-hoc [secrets](/docs/security), so the raw value never enters the agent's context. Per-key URL allowlists are enforced — same rule the automations `web-request` tool uses.
+Email, Slack, and webhook are all always registered alongside the inbox. Delivery prefers the per-notification
+metadata URL/recipients, then falls back to the matching env var. If neither is set, that
+channel no-ops for the emission.
+
+The webhook and Slack channels resolve `${keys.NAME}` references in both the URL and `NOTIFICATIONS_*_AUTH` against the owner's ad-hoc [secrets](/docs/security), so the raw value never enters the agent's context. Per-key URL allowlists are enforced — same rule the automations `web-request` tool uses.
 
 <Diagram id="doc-block-1lduyog" title="Channels and severity" summary={"inbox is always on; webhook needs an env var; custom channels register at startup. Severity drives badge styling and is passed through to every channel."}>
 
@@ -203,7 +209,7 @@ await notify(
 
 Register a custom channel from any server plugin.
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +280,15 @@ interface NotificationMeta {
 
 Mounted at `/_agent-native/notifications/*` by the core-routes plugin. All routes are scoped to the authenticated session's email.
 
-| Method   | Path                                                |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| Method   | Path                                                           |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-12hm3kj" title="List notifications" summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary="List recent notifications for the current user" auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-12hm3kj" title="List notifications" summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +302,13 @@ Mounted at `/_agent-native/notifications/*` by the core-routes plugin. All route
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "ISO timestamp cursor — returns notifications created before this time, for pagination."
   }
 ]} responses={[
   {
@@ -308,7 +321,7 @@ Mounted at `/_agent-native/notifications/*` by the core-routes plugin. All route
 
 ## UI component {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

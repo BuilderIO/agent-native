@@ -1,3 +1,11 @@
+import { TextAttachmentAdapter } from "@agent-native/toolkit/composer/attachment-accept";
+import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
+import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
+import {
+  appendRealtimeVoiceTranscriptToRepository,
+  realtimeVoiceTranscriptRegistry,
+} from "@agent-native/toolkit/composer/realtime-voice-transcript";
+import type { ComposerImageModelMenu } from "@agent-native/toolkit/composer/TiptapComposer";
 import {
   AssistantRuntimeProvider,
   useLocalRuntime,
@@ -18,9 +26,10 @@ import { CompositeAttachmentAdapter } from "@assistant-ui/react";
 import {
   IconMessage,
   IconX,
-  IconPlayerStop,
+  IconPlayerStopFilled,
   IconTerminal,
   IconAlertTriangle,
+  IconChevronDown,
   IconRefresh,
 } from "@tabler/icons-react";
 import React, {
@@ -34,11 +43,11 @@ import React, {
   useImperativeHandle,
 } from "react";
 
-import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
-  ACTIVE_RUN_STATE_EVENT,
+  clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
+  getPendingTurn,
   getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
@@ -55,9 +64,11 @@ import {
   appendAgentChatContextToMessage,
   formatAgentChatContextItemsForPrompt,
   getAgentChatContextState,
+  isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   refreshAgentChatContext,
+  reportAgentChatSubmitResult,
   subscribeAgentChatContext,
   type AgentChatContextItem,
 } from "./agent-chat.js";
@@ -101,7 +112,7 @@ import {
   dropEmptyAssistantMessages,
 } from "./chat/repo-helpers.js";
 import {
-  BuilderSetupCard,
+  BuilderSetupContent,
   LoopLimitContinueCard,
   RunErrorRecoveryCard,
   PlanModeCallout,
@@ -118,39 +129,41 @@ import {
 } from "./chat/runtime.js";
 import {
   ChatRunningContext,
+  ChatRunDurationContext,
   ApprovalContext,
   type ApprovalContextValue,
   ReconnectStreamMessage,
 } from "./chat/tool-call-display.js";
+import { useAgentChatLifecycleTracking } from "./chat/use-agent-chat-lifecycle-tracking.js";
+import { useReconnectReaderOwner } from "./chat/use-reconnect-reader-owner.js";
 import {
   MessageScroller,
-  MessageScrollerButton,
   MessageScrollerContent,
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "./components/ui/message-scroller.js";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./components/ui/popover.js";
+import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
-import { AgentComposerFrame } from "./composer/AgentComposerFrame.js";
-import { TextAttachmentAdapter } from "./composer/attachment-accept.js";
-import { isPastedTextAttachmentName } from "./composer/pasted-text.js";
-import { PastedTextChip } from "./composer/PastedTextChip.js";
 import {
+  AgentComposerFrame,
   TiptapComposer,
+  type AgentComposerLayoutVariant,
   type ComposerSubmitIntent,
-  type ComposerImageModelMenu,
+  type Reference,
   type TiptapComposerHandle,
-} from "./composer/TiptapComposer.js";
-import type {
-  AgentComposerLayoutVariant,
-  Reference,
-} from "./composer/types.js";
+} from "./composer/index.js";
 import { ContextMeter } from "./context-xray/ContextMeter.js";
+import { useNearBottomAutoscroll } from "./conversation/index.js";
 import {
   useAgentDynamicSuggestionsResult,
   type AgentDynamicSuggestionsOption,
@@ -159,6 +172,13 @@ import {
   GuidedQuestionFlow,
   useGuidedQuestionFlow,
 } from "./guided-questions.js";
+import { useT } from "./i18n.js";
+import {
+  addMcpConnectionCompleteListener,
+  consumeMcpConnectionResume,
+  type McpConnectionResumeRequest,
+} from "./resources/mcp-connection-resume.js";
+import { McpConnectionSuggestion } from "./resources/McpConnectionSuggestion.js";
 import {
   AgentAutoContinueSignal,
   type ContentPart,
@@ -197,6 +217,8 @@ export type AgentRecoveryAction = "continue" | "retry";
 export interface AssistantChatSendOptions {
   trackInRunsTray?: boolean;
   requestMode?: AgentRequestMode;
+  /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
+  submitMessageId?: string;
 }
 
 function createUserMessageRunConfig(
@@ -282,6 +304,7 @@ type ActiveRunLookup = {
   dispatchMode?: string | null;
   terminalReason?: string | null;
   serverNow?: number;
+  awaitingRedispatch?: boolean;
 };
 
 type PendingReconnectRecovery = {
@@ -345,6 +368,27 @@ function activeRunMatchesThread(
   return Boolean(threadId && state?.threadId === threadId && state.runId);
 }
 
+export function assistantMessageRunId(message: unknown): string | undefined {
+  const metadata = (message as { metadata?: unknown })?.metadata as
+    | { custom?: { runId?: unknown }; runId?: unknown }
+    | undefined;
+  return typeof metadata?.custom?.runId === "string"
+    ? metadata.custom.runId
+    : typeof metadata?.runId === "string"
+      ? metadata.runId
+      : undefined;
+}
+
+export function shouldAcceptRunError(args: {
+  errorRunId?: string;
+  activeRunId?: string;
+  latestAssistantRunId?: string;
+}): boolean {
+  if (!args.errorRunId) return true;
+  const expectedRunId = args.activeRunId ?? args.latestAssistantRunId;
+  return !expectedRunId || args.errorRunId === expectedRunId;
+}
+
 function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return (
@@ -353,9 +397,66 @@ function isAssistantUiDuplicateMessageIdError(error: unknown): boolean {
   );
 }
 
+type AssistantUiMessageRepository = {
+  addOrUpdateMessage: (parentId: unknown, message: unknown) => unknown;
+  __agentNativePatched?: boolean;
+  head?: { current?: { id?: string } } | null;
+};
+
+type AssistantUiThreadBinding = {
+  getState?: () => { repository?: AssistantUiMessageRepository };
+  outerSubscribe?: (callback: () => void) => void | (() => void);
+};
+
+/**
+ * Keep the assistant-ui repository race recovery installed across runtime-core
+ * replacements. The public ThreadRuntime object stays stable when its binding
+ * swaps to another local runtime (thread activation, reconnect, history load),
+ * but each core owns a different MessageRepository instance.
+ */
+export function installAssistantUiMessageRepositoryRecovery(
+  threadRuntime: unknown,
+): () => void {
+  const binding = (
+    threadRuntime as {
+      __internal_threadBinding?: AssistantUiThreadBinding;
+    }
+  )?.__internal_threadBinding;
+  if (!binding?.getState) return () => {};
+
+  const patchCurrentRepository = () => {
+    const repo = binding.getState?.()?.repository;
+    if (!repo || typeof repo.addOrUpdateMessage !== "function") return;
+    if (repo.__agentNativePatched) return;
+    repo.__agentNativePatched = true;
+    const original = repo.addOrUpdateMessage.bind(repo);
+    repo.addOrUpdateMessage = function (parentId: unknown, message: unknown) {
+      try {
+        return original(parentId, message);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        if (parentId && errorMessage.includes("Parent message not found")) {
+          const fallbackParent = this.head?.current?.id ?? null;
+          if (fallbackParent && fallbackParent !== parentId) {
+            return original(fallbackParent, message);
+          }
+          return original(null, message);
+        }
+        if (errorMessage.includes("same id already exists")) return;
+        throw error;
+      }
+    };
+  };
+
+  patchCurrentRepository();
+  const unsubscribe = binding.outerSubscribe?.(patchCurrentRepository);
+  return typeof unsubscribe === "function" ? unsubscribe : () => {};
+}
+
 function cloneContentParts(content: ContentPart[]): ContentPart[] {
   return content.map((part) =>
-    part.type === "text"
+    part.type === "text" || part.type === "reasoning"
       ? { ...part }
       : {
           ...part,
@@ -364,6 +465,44 @@ function cloneContentParts(content: ContentPart[]): ContentPart[] {
           ...(part.chatUI ? { chatUI: { ...part.chatUI } } : {}),
         },
   );
+}
+
+export function settleInterruptedAssistantToolCallsInRepo<
+  T extends { messages?: unknown[] },
+>(repo: T): { repo: T; changed: boolean } {
+  if (!Array.isArray(repo.messages)) return { repo, changed: false };
+  let changed = false;
+  const nextMessages = repo.messages.map((entry) => {
+    const wrapper =
+      entry && typeof entry === "object" && "message" in entry
+        ? (entry as { message?: unknown })
+        : null;
+    const message = (wrapper?.message ?? entry) as
+      | { role?: unknown; content?: unknown; status?: unknown }
+      | null
+      | undefined;
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) {
+      return entry;
+    }
+    const content = cloneContentParts(message.content as ContentPart[]);
+    if (
+      !settleInterruptedToolCalls(content, undefined, { includeActivity: true })
+    ) {
+      return entry;
+    }
+    changed = true;
+    const nextMessage = {
+      ...message,
+      content,
+      status: { type: "incomplete", reason: "error" },
+    };
+    return wrapper
+      ? { ...(entry as Record<string, unknown>), message: nextMessage }
+      : nextMessage;
+  });
+  return changed
+    ? { repo: { ...repo, messages: nextMessages }, changed }
+    : { repo, changed };
 }
 
 function clearPendingSelection() {
@@ -389,9 +528,28 @@ function clearPendingSelection() {
 // not-yet-sent chat). Reset on a full page reload.
 const knownAbsentThreadIds = new Set<string>();
 
-async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
-  if (!threadId) return;
+export async function waitForThreadRunToClear(
+  apiUrl: string,
+  threadId?: string,
+): Promise<boolean> {
+  if (!threadId) return true;
   const deadline = Date.now() + ACTIVE_RUN_CLEAR_TIMEOUT_MS;
+  let activeRunToResume: ActiveRunLookup | null = null;
+
+  const resumeActiveRun = (info: ActiveRunLookup) => {
+    if (!info.runId) return;
+    const stored = getActiveRun();
+    const sameStoredRun =
+      stored?.threadId === threadId && stored.runId === info.runId;
+    setActiveRun({
+      threadId,
+      runId: info.runId,
+      lastSeq: sameStoredRun ? stored.lastSeq : -1,
+      ...(sameStoredRun && stored.activityTool
+        ? { activityTool: stored.activityTool }
+        : {}),
+    });
+  };
 
   while (Date.now() < deadline) {
     try {
@@ -405,7 +563,19 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
           info?.status !== "running" ||
           activeRunLooksStale(info)
         )
-          return;
+          return true;
+        if (info.runId) {
+          activeRunToResume = info;
+          if (info.awaitingRedispatch === true) {
+            // This is not the brief terminal-write lag the 5s waiter was built
+            // for. The server has pre-inserted a durable successor and owns its
+            // recovery. Reattach the UI immediately and leave the queued
+            // message untouched; posting it now can only 409 against that
+            // successor and eventually render a false terminal error.
+            resumeActiveRun(info);
+            return false;
+          }
+        }
       }
     } catch {
       // Transient poll failure — try again until the short grace period ends.
@@ -415,6 +585,15 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
       window.setTimeout(resolve, ACTIVE_RUN_POLL_INTERVAL_MS),
     );
   }
+
+  if (activeRunToResume) {
+    // The run remained live beyond the normal SQL terminal-write grace. Keep
+    // the follow-up queued and restore active-run tracking so the reconnect
+    // reader owns this run until it actually becomes terminal.
+    resumeActiveRun(activeRunToResume);
+    return false;
+  }
+  return true;
 }
 
 // ─── Composer Attachment Preview ─────────────────────────────────────────────
@@ -554,11 +733,80 @@ function getMessageText(message: unknown): string {
   return typeof content === "string" ? displayableUserMessageText(content) : "";
 }
 
+function contentPartFollowKey(part: unknown): string {
+  if (!part || typeof part !== "object") return "unknown";
+  const candidate = part as {
+    type?: unknown;
+    text?: unknown;
+    toolCallId?: unknown;
+    toolName?: unknown;
+    status?: { type?: unknown };
+    argsText?: unknown;
+    result?: unknown;
+    image?: unknown;
+  };
+  const type = typeof candidate.type === "string" ? candidate.type : "unknown";
+  if (type === "text" || type === "reasoning") {
+    return `${type}:${String(candidate.text ?? "").length}`;
+  }
+  if (type === "tool-call") {
+    return [
+      type,
+      candidate.toolCallId ?? "",
+      candidate.toolName ?? "",
+      candidate.status?.type ?? "",
+      String(candidate.argsText ?? "").length,
+      String(candidate.result ?? "").length,
+    ].join(":");
+  }
+  if (type === "image") return `image:${String(candidate.image ?? "").length}`;
+  return `${type}:${String(candidate.text ?? candidate.result ?? "").length}`;
+}
+
+function contentFollowKey(content: unknown): string {
+  if (typeof content === "string") return `text:${content.length}`;
+  if (!Array.isArray(content)) return "";
+  return content.map(contentPartFollowKey).join("|");
+}
+
+function messageFollowKey(message: unknown): string {
+  const candidate = ((message as { message?: unknown })?.message ??
+    message) as {
+    id?: unknown;
+    role?: unknown;
+    status?: { type?: unknown; reason?: unknown };
+    content?: unknown;
+  };
+  return [
+    candidate.id ?? "",
+    candidate.role ?? "",
+    candidate.status?.type ?? "",
+    candidate.status?.reason ?? "",
+    contentFollowKey(candidate.content),
+  ].join(",");
+}
+
+function queuedMessageFollowKey(message: QueuedMessage): string {
+  return [
+    message.id,
+    message.text.length,
+    message.images?.length ?? 0,
+    message.attachments?.length ?? 0,
+    message.references?.length ?? 0,
+    message.requestMode ?? "",
+    message.recoveryAction ?? "",
+  ].join(":");
+}
+
+function reconnectContentFollowKey(content: readonly ContentPart[]): string {
+  return content.map(contentPartFollowKey).join("|");
+}
+
 export function reconnectActivityFallbackContent(
   toolName: string | null | undefined,
 ): ContentPart[] {
   const tool = toolName?.trim();
-  if (!tool) return [];
+  if (!tool || tool === "call-agent") return [];
   return [
     {
       type: "tool-call",
@@ -584,6 +832,28 @@ function toolCallPartHasResult(part: unknown): boolean {
   if (!part || typeof part !== "object") return false;
   const candidate = part as { type?: unknown; result?: unknown };
   return candidate.type === "tool-call" && "result" in candidate;
+}
+
+/**
+ * Monotonic progress rank for a tool-call part. Higher means the UI should
+ * prefer this copy over a lower-ranked duplicate of the same logical call.
+ * Used so reconnect overlays that are ahead of lagging thread messages stay
+ * visible instead of flickering back to an older pending spinner.
+ */
+function toolCallProgressRank(part: unknown): number {
+  if (!part || typeof part !== "object") return 0;
+  const candidate = part as {
+    type?: unknown;
+    result?: unknown;
+    activity?: unknown;
+    argsText?: unknown;
+  };
+  if (candidate.type !== "tool-call") return 0;
+  if ("result" in candidate) return 4;
+  if (candidate.activity === true) return 1;
+  return typeof candidate.argsText === "string" && candidate.argsText.length > 0
+    ? 2
+    : 1;
 }
 
 /**
@@ -614,11 +884,50 @@ function toolCallFingerprintFromContentPart(part: unknown): string | null {
   return `${name}\u0000${argsText}`;
 }
 
+function toolCallNameFromContentPart(part: unknown): string | null {
+  if (!part || typeof part !== "object") return null;
+  const candidate = part as { type?: unknown; toolName?: unknown };
+  if (candidate.type !== "tool-call") return null;
+  return typeof candidate.toolName === "string" && candidate.toolName
+    ? candidate.toolName
+    : null;
+}
+
+function toolCallIdsRepresentSameLocalCall(
+  renderedId: string,
+  reconnectId: string,
+): boolean {
+  return renderedId === reconnectId || renderedId.endsWith(`:${reconnectId}`);
+}
+
+function toolCallIdIsReaderLocal(id: string): boolean {
+  return (
+    /^tc_\d+$/.test(id) ||
+    /:tc_\d+$/.test(id) ||
+    id.startsWith("reconnect-activity:")
+  );
+}
+
+function toolCallReaderLocalKey(id: string): string | null {
+  const counterMatch = id.match(/(?:^|:)(tc_\d+)$/);
+  if (counterMatch?.[1]) return counterMatch[1];
+  return id.startsWith("reconnect-activity:") ? id : null;
+}
+
 function collectRenderedToolCallStates(messages: readonly unknown[]): {
-  byId: Map<string, { hasResult: boolean }>;
-  latestAssistantByFingerprint: Map<string, { hasResult: boolean }>;
+  byId: Map<string, { rank: number }>;
+  latestAssistantByFingerprint: Map<string, { rank: number }>;
+  latestAssistantByName: Map<
+    string,
+    {
+      rank: number;
+      ids: Set<string>;
+      pendingIds: Set<string>;
+      pendingRank: number;
+    }
+  >;
 } {
-  const byId = new Map<string, { hasResult: boolean }>();
+  const byId = new Map<string, { rank: number }>();
   for (const message of messages) {
     const msg = (message as { message?: unknown })?.message ?? message;
     const content = (msg as { content?: unknown })?.content;
@@ -626,34 +935,59 @@ function collectRenderedToolCallStates(messages: readonly unknown[]): {
     for (const part of content) {
       const id = toolCallIdFromContentPart(part);
       if (!id) continue;
-      const hasResult = toolCallPartHasResult(part);
+      const rank = toolCallProgressRank(part);
       const existing = byId.get(id);
       byId.set(id, {
-        hasResult: Boolean(existing?.hasResult || hasResult),
+        rank: Math.max(existing?.rank ?? 0, rank),
       });
     }
   }
 
-  const latestAssistantByFingerprint = new Map<
+  const latestAssistantByFingerprint = new Map<string, { rank: number }>();
+  const latestAssistantByName = new Map<
     string,
-    { hasResult: boolean }
+    {
+      rank: number;
+      ids: Set<string>;
+      pendingIds: Set<string>;
+      pendingRank: number;
+    }
   >();
   const latestEntry = messages.at(-1);
   const latestMessage = getRepoMessage(latestEntry as any);
   const latestContent = latestMessage?.content;
   if (latestMessage?.role === "assistant" && Array.isArray(latestContent)) {
     for (const part of latestContent) {
+      const rank = toolCallProgressRank(part);
       const fingerprint = toolCallFingerprintFromContentPart(part);
-      if (!fingerprint) continue;
-      const hasResult = toolCallPartHasResult(part);
-      const existing = latestAssistantByFingerprint.get(fingerprint);
-      latestAssistantByFingerprint.set(fingerprint, {
-        hasResult: Boolean(existing?.hasResult || hasResult),
-      });
+      if (fingerprint) {
+        const existing = latestAssistantByFingerprint.get(fingerprint);
+        latestAssistantByFingerprint.set(fingerprint, {
+          rank: Math.max(existing?.rank ?? 0, rank),
+        });
+      }
+      const name = toolCallNameFromContentPart(part);
+      if (name) {
+        const existing = latestAssistantByName.get(name);
+        const id = toolCallIdFromContentPart(part);
+        const ids = new Set(existing?.ids);
+        const pendingIds = new Set(existing?.pendingIds);
+        if (id) ids.add(id);
+        if (id && rank < 4) pendingIds.add(id);
+        latestAssistantByName.set(name, {
+          rank: Math.max(existing?.rank ?? 0, rank),
+          ids,
+          pendingIds,
+          pendingRank:
+            rank < 4
+              ? Math.max(existing?.pendingRank ?? 0, rank)
+              : (existing?.pendingRank ?? 0),
+        });
+      }
     }
   }
 
-  return { byId, latestAssistantByFingerprint };
+  return { byId, latestAssistantByFingerprint, latestAssistantByName };
 }
 
 function assistantTextFromContent(content: unknown): string {
@@ -675,10 +1009,102 @@ function latestRenderedAssistantText(messages: readonly unknown[]): string {
   return assistantTextFromContent(latestMessage.content);
 }
 
+function latestRenderedAssistantReasoning(
+  messages: readonly unknown[],
+): string[] {
+  const latestEntry = messages.at(-1);
+  const latestMessage = getRepoMessage(latestEntry as any);
+  if (
+    latestMessage?.role !== "assistant" ||
+    !Array.isArray(latestMessage.content)
+  ) {
+    return [];
+  }
+  return latestMessage.content.flatMap((part) =>
+    part?.type === "reasoning" &&
+    typeof part.text === "string" &&
+    part.text.length > 0
+      ? [part.text]
+      : [],
+  );
+}
+
+function trimReconnectReasoningAlreadyRendered(
+  content: ContentPart[],
+  renderedReasoning: readonly string[],
+  options?: { trimTailOverlap?: boolean },
+): ContentPart[] {
+  if (renderedReasoning.length === 0) return content;
+  const firstReconnectReasoning = content.find(
+    (part): part is Extract<ContentPart, { type: "reasoning" }> =>
+      part.type === "reasoning" && part.text.length > 0,
+  )?.text;
+  let renderedOffset = 0;
+  if (options?.trimTailOverlap && firstReconnectReasoning) {
+    for (let index = renderedReasoning.length - 1; index >= 0; index -= 1) {
+      const rendered = renderedReasoning[index];
+      if (
+        rendered === firstReconnectReasoning ||
+        rendered.startsWith(firstReconnectReasoning) ||
+        firstReconnectReasoning.startsWith(rendered) ||
+        longestSuffixPrefixOverlap(rendered, firstReconnectReasoning) > 0
+      ) {
+        renderedOffset = index;
+        break;
+      }
+    }
+  }
+  let reasoningIndex = 0;
+  let changed = false;
+  const next: ContentPart[] = [];
+
+  for (const part of content) {
+    if (part.type !== "reasoning") {
+      next.push(part);
+      continue;
+    }
+    const rendered = renderedReasoning[renderedOffset + reasoningIndex];
+    reasoningIndex += 1;
+    if (!rendered) {
+      next.push(part);
+      continue;
+    }
+    if (rendered === part.text || rendered.startsWith(part.text)) {
+      changed = true;
+      continue;
+    }
+    if (part.text.startsWith(rendered)) {
+      const tail = part.text.slice(rendered.length);
+      if (tail) next.push({ ...part, text: tail });
+      changed = true;
+      continue;
+    }
+    if (options?.trimTailOverlap) {
+      const overlap = longestSuffixPrefixOverlap(rendered, part.text);
+      if (overlap > 0) {
+        const tail = part.text.slice(overlap);
+        if (tail) next.push({ ...part, text: tail });
+        changed = true;
+        continue;
+      }
+    }
+    next.push(part);
+  }
+
+  return changed ? next : content;
+}
+
 function dedupePendingToolCallReplaysWithinContent(
   content: ContentPart[],
 ): ContentPart[] {
-  const seenLaterFingerprints = new Set<string>();
+  const laterStatesByFingerprint = new Map<
+    string,
+    {
+      ids: Set<string>;
+      readerLocalKeys: Set<string>;
+      hasStableId: boolean;
+    }
+  >();
   let changed = false;
   const nextReversed: ContentPart[] = [];
 
@@ -686,53 +1112,153 @@ function dedupePendingToolCallReplaysWithinContent(
     const part = content[i];
     if (!part) continue;
     const fingerprint = toolCallFingerprintFromContentPart(part);
-    if (
-      fingerprint &&
-      !toolCallPartHasResult(part) &&
-      seenLaterFingerprints.has(fingerprint)
-    ) {
+    const laterState = fingerprint
+      ? laterStatesByFingerprint.get(fingerprint)
+      : undefined;
+    const id = toolCallIdFromContentPart(part);
+    const readerLocalKey = id ? toolCallReaderLocalKey(id) : null;
+    const isReaderReplay = Boolean(
+      id &&
+      laterState &&
+      (laterState.ids.has(id) ||
+        (readerLocalKey && laterState.readerLocalKeys.has(readerLocalKey)) ||
+        (toolCallIdIsReaderLocal(id) && laterState.hasStableId)),
+    );
+    if (fingerprint && !toolCallPartHasResult(part) && isReaderReplay) {
       changed = true;
       continue;
     }
-    if (fingerprint) seenLaterFingerprints.add(fingerprint);
+    if (fingerprint) {
+      const state = laterState ?? {
+        ids: new Set(),
+        readerLocalKeys: new Set(),
+        hasStableId: false,
+      };
+      if (id) {
+        state.ids.add(id);
+        const key = toolCallReaderLocalKey(id);
+        if (key) state.readerLocalKeys.add(key);
+        else state.hasStableId = true;
+      }
+      laterStatesByFingerprint.set(fingerprint, state);
+    }
     nextReversed.push(part);
   }
 
   return changed ? nextReversed.reverse() : content;
 }
 
+function pendingToolCallCountsByName(
+  content: readonly ContentPart[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const part of content) {
+    const name = toolCallNameFromContentPart(part);
+    if (!name || toolCallProgressRank(part) >= 4) continue;
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/**
+ * Linear-time longest overlap where a suffix of `renderedText` equals a prefix
+ * of `reconnectText`. The reconnect overlay is recalculated during render on
+ * every stream tick, so a descending slice/endsWith scan becomes quadratic on
+ * large repeated output.
+ */
+function longestSuffixPrefixOverlap(
+  renderedText: string,
+  reconnectText: string,
+): number {
+  const maxOverlap = Math.min(renderedText.length, reconnectText.length);
+  if (maxOverlap === 0) return 0;
+
+  const pattern = reconnectText.slice(0, maxOverlap);
+  const prefixLengths = new Array<number>(pattern.length).fill(0);
+  for (let index = 1; index < pattern.length; index += 1) {
+    let matched = prefixLengths[index - 1] ?? 0;
+    while (matched > 0 && pattern[index] !== pattern[matched]) {
+      matched = prefixLengths[matched - 1] ?? 0;
+    }
+    if (pattern[index] === pattern[matched]) matched += 1;
+    prefixLengths[index] = matched;
+  }
+
+  let matched = 0;
+  const renderedStart = renderedText.length - maxOverlap;
+  for (let index = renderedStart; index < renderedText.length; index += 1) {
+    const character = renderedText[index];
+    while (matched > 0 && character !== pattern[matched]) {
+      matched = prefixLengths[matched - 1] ?? 0;
+    }
+    if (character === pattern[matched]) matched += 1;
+    if (matched === pattern.length && index < renderedText.length - 1) {
+      matched = prefixLengths[matched - 1] ?? 0;
+    }
+  }
+  return matched;
+}
+
 function trimReconnectTextAlreadyRendered(
   content: ContentPart[],
   renderedAssistantText: string,
+  options?: { trimTailOverlap?: boolean },
 ): ContentPart[] {
   if (!renderedAssistantText) return content;
 
-  let remainingOverlap = renderedAssistantText;
+  const reconnectText = assistantTextFromContent(content);
+  if (!reconnectText) return content;
+
+  let overlapLength = 0;
+  if (reconnectText.startsWith(renderedAssistantText)) {
+    overlapLength = renderedAssistantText.length;
+  } else if (renderedAssistantText.startsWith(reconnectText)) {
+    overlapLength = reconnectText.length;
+  } else if (options?.trimTailOverlap) {
+    const tailOverlap = longestSuffixPrefixOverlap(
+      renderedAssistantText,
+      reconnectText,
+    );
+    if (tailOverlap > 0) {
+      // Tail reconnects begin after the last remembered event, so their first
+      // text can be the final suffix of a thread snapshot imported in parallel.
+      // For a partial overlap, require a whole word/phrase boundary so a
+      // coincidental shared character at the join cannot eat legitimate text.
+      const renderedBeforeOverlap =
+        renderedAssistantText[renderedAssistantText.length - tailOverlap - 1];
+      const reconnectAfterOverlap = reconnectText[tailOverlap];
+      const isWordCharacter = (value: string | undefined) =>
+        value ? /[\p{L}\p{N}_]/u.test(value) : false;
+      const isWholeBoundary =
+        !isWordCharacter(renderedBeforeOverlap) &&
+        !isWordCharacter(reconnectAfterOverlap);
+      if (tailOverlap === reconnectText.length || isWholeBoundary) {
+        overlapLength = tailOverlap;
+      }
+    }
+  }
+
+  if (overlapLength === 0) return content;
+
+  let remainingOverlap = overlapLength;
   let changed = false;
   const next: ContentPart[] = [];
 
   for (const part of content) {
-    if (part.type !== "text" || remainingOverlap.length === 0) {
+    if (part.type !== "text" || remainingOverlap === 0) {
       next.push(part);
       continue;
     }
 
-    if (remainingOverlap.startsWith(part.text)) {
-      remainingOverlap = remainingOverlap.slice(part.text.length);
+    if (part.text.length <= remainingOverlap) {
+      remainingOverlap -= part.text.length;
       changed = true;
       continue;
     }
 
-    if (part.text.startsWith(remainingOverlap)) {
-      const text = part.text.slice(remainingOverlap.length);
-      remainingOverlap = "";
-      changed = true;
-      if (text) next.push({ ...part, text });
-      continue;
-    }
-
-    remainingOverlap = "";
-    next.push(part);
+    next.push({ ...part, text: part.text.slice(remainingOverlap) });
+    remainingOverlap = 0;
+    changed = true;
   }
 
   return changed ? next : content;
@@ -741,56 +1267,158 @@ function trimReconnectTextAlreadyRendered(
 export function dedupeReconnectContentAgainstMessages(
   content: ContentPart[],
   messages: readonly unknown[],
+  options?: {
+    suppressToolRepeats?: boolean;
+    trimTailTextOverlap?: boolean;
+  },
 ): ContentPart[] {
   if (content.length === 0) return content;
   const snapshotDeduped = dedupePendingToolCallReplaysWithinContent(content);
+  const reconnectPendingCounts = pendingToolCallCountsByName(snapshotDeduped);
   let changed = snapshotDeduped !== content;
   if (messages.length === 0) return changed ? snapshotDeduped : content;
-  const { byId, latestAssistantByFingerprint } =
+  const { byId, latestAssistantByFingerprint, latestAssistantByName } =
     collectRenderedToolCallStates(messages);
   const renderedAssistantText = latestRenderedAssistantText(messages);
+  const renderedAssistantReasoning = latestRenderedAssistantReasoning(messages);
   if (
     byId.size === 0 &&
     latestAssistantByFingerprint.size === 0 &&
-    !renderedAssistantText
+    latestAssistantByName.size === 0 &&
+    !renderedAssistantText &&
+    renderedAssistantReasoning.length === 0
   ) {
     return changed ? snapshotDeduped : content;
   }
 
   const filtered =
-    byId.size > 0 || latestAssistantByFingerprint.size > 0
+    byId.size > 0 ||
+    latestAssistantByFingerprint.size > 0 ||
+    latestAssistantByName.size > 0
       ? snapshotDeduped.filter((part) => {
+          const reconnectRank = toolCallProgressRank(part);
           const id = toolCallIdFromContentPart(part);
           const existing = id ? byId.get(id) : undefined;
           if (existing) {
-            changed = true;
-            return false;
+            if (options?.suppressToolRepeats) {
+              changed = true;
+              return false;
+            }
+            // Keep reconnect copies that are strictly ahead of the rendered
+            // message (e.g. completed overlay vs lagging pending thread data).
+            // Same-or-behind ranks are duplicates and should stay hidden.
+            if (reconnectRank <= existing.rank) {
+              changed = true;
+              return false;
+            }
+            return true;
           }
           // Fingerprint fallback for the id-convergence window: two readers of
           // the same active run can assign unrelated ids to the same logical tool
           // call before the server id converges. Suppress the reconnect overlay
-          // whenever it matches the latest rendered assistant tool call and either
-          // side is still pending; completed-vs-completed remains visible so a
-          // legitimately repeated identical call is not hidden.
+          // only when the rendered message is at least as far along; completed
+          // reconnect copies stay visible over pending message copies so the UI
+          // does not pop back to an older spinner.
           const fingerprint = toolCallFingerprintFromContentPart(part);
           const latestByFingerprint = fingerprint
             ? latestAssistantByFingerprint.get(fingerprint)
             : undefined;
+          const isCompletedRepeat =
+            reconnectRank >= 4 && latestByFingerprint?.rank === 4;
+          const keepCompletedRepeat =
+            isCompletedRepeat && !options?.suppressToolRepeats;
+          if (latestByFingerprint && options?.suppressToolRepeats) {
+            changed = true;
+            return false;
+          }
           if (
             latestByFingerprint &&
-            (!toolCallPartHasResult(part) || !latestByFingerprint.hasResult)
+            !keepCompletedRepeat &&
+            reconnectRank <= latestByFingerprint.rank
           ) {
             changed = true;
             return false;
           }
+          // Activity / arg-less fallback. A reconnect spinner (activity===true)
+          // or a pending tool whose args have not materialized yet has no
+          // fingerprint, and its reader-local id (`tc_N`) never matches the
+          // server-scoped id (`${runId}:tc_N`) rendered in the message, so it
+          // slips past BOTH checks above and paints a second card beside the
+          // live one ("one spinning, one static"). Suppress it only when the
+          // latest assistant message renders the same tool that is ITSELF still
+          // pending (rank < 4) at an equal-or-greater rank: a spinner alongside
+          // a live pending card is the same in-flight call seen by two readers.
+          // If the rendered same-name tool is already completed, a fresh spinner
+          // is more likely a genuinely repeated call, so it must stay visible
+          // (an empty-args fingerprint would over-match — see the completed
+          // repeat cases below).
+          if (!fingerprint) {
+            const name = toolCallNameFromContentPart(part);
+            const latestByName = name
+              ? latestAssistantByName.get(name)
+              : undefined;
+            const reconnectPendingCount = name
+              ? (reconnectPendingCounts.get(name) ?? 0)
+              : 0;
+            const hasReaderLocalIdentity = Boolean(
+              (id && toolCallIdIsReaderLocal(id)) ||
+              (latestByName &&
+                Array.from(latestByName.pendingIds).some(
+                  toolCallIdIsReaderLocal,
+                )),
+            );
+            if (
+              options?.suppressToolRepeats &&
+              latestByName &&
+              latestByName.pendingIds.size === 1 &&
+              reconnectPendingCount === 1 &&
+              hasReaderLocalIdentity &&
+              latestByName.pendingRank >= reconnectRank
+            ) {
+              // During reconnect -> live-adapter handoff both accumulators own
+              // the same run. Their pre-tool-start activity cards can have
+              // unrelated reader-local ids and no args fingerprint, so name +
+              // pending progress is the only stable identity available.
+              changed = true;
+              return false;
+            }
+            const matchesRenderedLocalId =
+              id && latestByName
+                ? Array.from(latestByName.ids).some((renderedId) =>
+                    toolCallIdsRepresentSameLocalCall(renderedId, id),
+                  )
+                : false;
+            const matchesRenderedPendingLocalId =
+              id && latestByName
+                ? Array.from(latestByName.pendingIds).some((renderedId) =>
+                    toolCallIdsRepresentSameLocalCall(renderedId, id),
+                  )
+                : false;
+            if (
+              latestByName &&
+              matchesRenderedLocalId &&
+              matchesRenderedPendingLocalId &&
+              reconnectRank <= latestByName.pendingRank
+            ) {
+              changed = true;
+              return false;
+            }
+          }
           return true;
         })
       : snapshotDeduped;
-  const textDeduped = trimReconnectTextAlreadyRendered(
+  const reasoningDeduped = trimReconnectReasoningAlreadyRendered(
     filtered,
-    renderedAssistantText,
+    renderedAssistantReasoning,
+    { trimTailOverlap: options?.trimTailTextOverlap },
   );
-  if (textDeduped !== filtered) changed = true;
+  if (reasoningDeduped !== filtered) changed = true;
+  const textDeduped = trimReconnectTextAlreadyRendered(
+    reasoningDeduped,
+    renderedAssistantText,
+    { trimTailOverlap: options?.trimTailTextOverlap },
+  );
+  if (textDeduped !== reasoningDeduped) changed = true;
   return changed ? textDeduped : content;
 }
 
@@ -890,6 +1518,117 @@ export function resolveAssistantChatRunningStatusLabel({
   return "Thinking";
 }
 
+function contentHasVisibleTailReasoning(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  for (let index = content.length - 1; index >= 0; index -= 1) {
+    const part = content[index];
+    if (!part || typeof part !== "object") continue;
+    const candidate = part as { type?: unknown; text?: unknown };
+    if (
+      (candidate.type === "text" || candidate.type === "reasoning") &&
+      (typeof candidate.text !== "string" || candidate.text.trim().length === 0)
+    ) {
+      continue;
+    }
+    return candidate.type === "reasoning";
+  }
+  return false;
+}
+
+function contentHasToolCall(
+  content: unknown,
+  toolName?: string | null,
+): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const candidate = part as {
+      type?: unknown;
+      toolName?: unknown;
+      result?: unknown;
+    };
+    return (
+      candidate.type === "tool-call" &&
+      (!toolName || candidate.toolName === toolName)
+    );
+  });
+}
+
+export function shouldShowGlobalRunningStatus({
+  showRunningInUI,
+  runningActivityLabel,
+  runningActivityTool,
+  latestMessage,
+  reconnectContent,
+}: {
+  showRunningInUI: boolean;
+  runningActivityLabel: string | null | undefined;
+  runningActivityTool?: string | null;
+  latestMessage: unknown;
+  reconnectContent: readonly ContentPart[];
+}): boolean {
+  if (!showRunningInUI) return false;
+
+  const message =
+    latestMessage && typeof latestMessage === "object"
+      ? (latestMessage as { role?: unknown; content?: unknown })
+      : null;
+  const latestMessageHasTailReasoning =
+    message?.role === "assistant" &&
+    contentHasVisibleTailReasoning(message.content);
+  const latestMessageHasTool =
+    message?.role === "assistant" && contentHasToolCall(message.content);
+  const reconnectHasTool = contentHasToolCall(reconnectContent);
+  const reconnectHasTailReasoning =
+    contentHasVisibleTailReasoning(reconnectContent);
+  const matchingActivityToolIsVisible = Boolean(
+    runningActivityTool &&
+    ((message?.role === "assistant" &&
+      contentHasToolCall(message.content, runningActivityTool)) ||
+      contentHasToolCall(reconnectContent, runningActivityTool)),
+  );
+
+  // A pending card for the same tool is already the running indicator.
+  // Rendering its global activity label as well shows the logical call twice
+  // (for example, `generate design` plus `Writing generate design...`).
+  if (runningActivityLabel && matchingActivityToolIsVisible) {
+    return false;
+  }
+  if (!runningActivityLabel && (latestMessageHasTool || reconnectHasTool)) {
+    return false;
+  }
+  // The reasoning cell already owns the generic Thinking state. Activity
+  // events can briefly reassert that same label between reasoning deltas;
+  // rendering both makes a second Thinking row flash beneath the thought.
+  if (
+    runningActivityLabel === "Thinking" &&
+    (latestMessageHasTool ||
+      reconnectHasTool ||
+      latestMessageHasTailReasoning ||
+      reconnectHasTailReasoning)
+  ) {
+    return false;
+  }
+  if (runningActivityLabel) return true;
+
+  return (
+    !latestMessageHasTool &&
+    !reconnectHasTool &&
+    !latestMessageHasTailReasoning &&
+    !reconnectHasTailReasoning
+  );
+}
+
+export function assistantChatAutoscrollStatusKey({
+  showGlobalRunningStatus,
+  runningStatusLabel,
+}: {
+  showGlobalRunningStatus: boolean;
+  runningStatusLabel: string;
+}): string {
+  return showGlobalRunningStatus ? runningStatusLabel : "idle";
+}
+
 type QueuedMessage = {
   id: string;
   text: string;
@@ -902,12 +1641,35 @@ type QueuedMessage = {
   hideUserMessage?: boolean;
 };
 
+export function queuedMessageImageSources(
+  message: Pick<QueuedMessage, "attachments" | "images">,
+): string[] {
+  const sources = (message.attachments ?? []).flatMap((attachment) =>
+    attachment.content.flatMap((part) =>
+      part.type === "image" &&
+      "image" in part &&
+      typeof part.image === "string" &&
+      part.image.trim().length > 0
+        ? [part.image]
+        : [],
+    ),
+  );
+
+  for (const image of message.images ?? []) {
+    if (image.trim().length > 0 && !sources.includes(image)) {
+      sources.push(image);
+    }
+  }
+
+  return sources;
+}
+
 function AssistantChatUserMessageItem() {
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
   if (isHiddenUserMessage(message)) return null;
   return (
-    <MessageScrollerItem messageId={message.id} scrollAnchor>
+    <MessageScrollerItem messageId={message.id}>
       <UserMessage />
     </MessageScrollerItem>
   );
@@ -957,6 +1719,14 @@ export interface AssistantChatHandle {
   queueMessage(text: string, images?: string[]): void;
   /** Whether the chat is currently running */
   isRunning(): boolean;
+  /**
+   * Whether the current run has a tool call or sub-agent (A2A) call that
+   * hasn't returned a result yet. Mirrors the server's in-flight-work
+   * tracking client-side so callers (e.g. `RunStuckBanner`) can tell a
+   * genuinely stalled run apart from one still waiting on a long-running
+   * tool/A2A call before treating "no progress" as safe to abort.
+   */
+  hasInFlightWork(): boolean;
   /** Focus the composer input */
   focusComposer(): void;
   /** Export the currently visible client-side thread for operations like fork. */
@@ -1033,6 +1803,12 @@ export interface AssistantChatProps {
   onGenerateTitle?: (threadId: string, message: string) => void;
   /** Optional content rendered just above the composer input */
   composerSlot?: React.ReactNode;
+  /**
+   * Called with the active composer's current plain text as it changes.
+   * Host apps can use this to render contextual, non-destructive affordances
+   * beside the shared composer without replacing the composer stack.
+   */
+  onComposerTextChange?: (text: string) => void;
   /** Class applied to the shared composer area for host-specific sizing/skin. */
   composerAreaClassName?: string;
   /** Placeholder for the shared composer in its normal idle state. */
@@ -1080,6 +1856,8 @@ export interface AssistantChatProps {
     models: string[];
     configured: boolean;
   }>;
+  /** Whether the model list is still being resolved. */
+  modelListLoading?: boolean;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort from the picker */
@@ -1093,6 +1871,8 @@ export interface AssistantChatProps {
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   /** Override Builder/provider connect routing for embedded hosts. */
   onConnectProvider?: () => void;
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: (engine: string) => void;
   /**
    * Controls the shared composer + menu. Sidebar keeps the full menu by default;
    * hosts without the sidebar provider stack can use upload-only.
@@ -1130,6 +1910,17 @@ export interface AssistantChatProps {
   historyReloadKey?: string | number | null;
   /** Smooth the last assistant message while an external transcript is updating. */
   externalStreaming?: boolean;
+  /**
+   * Optional host hooks for the inline `needsApproval` affordance beyond the
+   * built-in Approve. Additive: omit entirely to keep today's default
+   * behavior (Deny is local-only, no "Always allow" button). Code sessions
+   * pass these through to the same `host.controlRun` commands their
+   * standalone approval banner already uses (see CodeAgentsApp).
+   */
+  approvalActions?: {
+    onDeny?: (approvalKey: string) => void;
+    onAlwaysAllow?: (approvalKey: string) => void;
+  };
 }
 
 export const CHAT_STORAGE_PREFIX = "agent-chat:";
@@ -1315,6 +2106,87 @@ function stripBase64FromRepo(repo: unknown): unknown {
   return { ...r, messages };
 }
 
+/**
+ * Owns the "Resuming…" status shown during the adapter's auto-continuation
+ * window — the gap between the end of one serverless chunk and the POST for
+ * the next. Set true the moment the adapter dispatches
+ * `agent-chat:auto-continue`. Cleared here as soon as the successor chunk
+ * produces real output (`agent-chat:stream-progress` — dispatched by the SSE
+ * processor for non-empty text/reasoning deltas) or the run is force-stopped;
+ * a 30s failsafe timer covers any case neither fires. The caller clears it
+ * via the returned `clearAutoResume` for other real-progress signals (tool
+ * activity, an accepted run error, an explicit stop) that live outside this
+ * hook.
+ *
+ * Deliberately NOT cleared by `agent-chat:activity-clear` or merely-idle
+ * `isRunning`: both also fire for old-chunk `tool_done` replays / server
+ * retries, and clearing on those would re-expose terminal message controls
+ * during the exact gap this state exists to cover.
+ */
+export function useAutoResumeStatus(
+  tabId: string | undefined,
+  forceStopped: boolean,
+): { isAutoResuming: boolean; clearAutoResume: () => void } {
+  const [isAutoResuming, setIsAutoResuming] = useState(false);
+  const autoResumeTimerRef = useRef<number | null>(null);
+
+  const clearAutoResume = useCallback(() => {
+    if (autoResumeTimerRef.current !== null) {
+      window.clearTimeout(autoResumeTimerRef.current);
+      autoResumeTimerRef.current = null;
+    }
+    setIsAutoResuming(false);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+      }
+      setIsAutoResuming(true);
+      autoResumeTimerRef.current = window.setTimeout(() => {
+        autoResumeTimerRef.current = null;
+        setIsAutoResuming(false);
+      }, AUTO_RESUME_STATUS_TIMEOUT_MS);
+    };
+    window.addEventListener("agent-chat:auto-continue", handler);
+    return () => {
+      if (autoResumeTimerRef.current !== null) {
+        window.clearTimeout(autoResumeTimerRef.current);
+        autoResumeTimerRef.current = null;
+      }
+      window.removeEventListener("agent-chat:auto-continue", handler);
+    };
+  }, [tabId]);
+
+  // Real forward progress in the current chunk (visible text or reasoning
+  // deltas) means the run is not stuck between chunks — clear the indicator
+  // immediately rather than waiting on the 30s failsafe. This is the
+  // plain-text-continuation case: no tool call fires `agent-chat:activity`
+  // to clear it, so without this listener "Resuming" would linger for up to
+  // AUTO_RESUME_STATUS_TIMEOUT_MS after the run already resumed or finished.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { tabId?: string };
+      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
+      clearAutoResume();
+    };
+    window.addEventListener("agent-chat:stream-progress", handler);
+    return () =>
+      window.removeEventListener("agent-chat:stream-progress", handler);
+  }, [clearAutoResume, tabId]);
+
+  useEffect(() => {
+    if (forceStopped) {
+      clearAutoResume();
+    }
+  }, [clearAutoResume, forceStopped]);
+
+  return { isAutoResuming, clearAutoResume };
+}
+
 const AssistantChatInner = forwardRef<
   AssistantChatHandle,
   AssistantChatProps & { apiUrl: string }
@@ -1338,6 +2210,7 @@ const AssistantChatInner = forwardRef<
     onSaveThread,
     onGenerateTitle,
     composerSlot,
+    onComposerTextChange,
     composerAreaClassName,
     composerPlaceholder,
     missingApiKeySetupLayout = "default",
@@ -1352,27 +2225,32 @@ const AssistantChatInner = forwardRef<
     onSlashCommand,
     execMode,
     onExecModeChange,
+    approvalActions,
     planModeDisabled,
     planModeDisabledReason,
     selectedModel,
     defaultModel,
     selectedEffort,
     availableModels,
+    modelListLoading,
     onModelChange,
     onEffortChange,
     imageModelMenu,
     onForkChat,
     onConnectProvider,
+    onConnectLocalRuntime,
     plusMenuMode = "full",
     providerStatusChecksEnabled = true,
     loadHistoryRepository,
     historyReloadKey,
     externalStreaming = false,
+    agentChatSurface = "app",
   },
   ref,
 ) {
   const thread = useThread();
   const threadRuntime = useThreadRuntime();
+  const t = useT();
   const composerRuntime = useComposerRuntime();
   const isRuntimeRunning = thread.isRunning;
   // Latest-value ref so long-lived async closures (the reconnect reader, its
@@ -1384,6 +2262,15 @@ const AssistantChatInner = forwardRef<
   const isRuntimeRunningRef = useRef(isRuntimeRunning);
   isRuntimeRunningRef.current = isRuntimeRunning;
   const messages = thread.messages;
+  // Latest-value ref (same pattern as isRuntimeRunningRef above) so the
+  // `hasInFlightWork` imperative handle method — called from outside React's
+  // render cycle by RunStuckBanner right before a destructive Retry — always
+  // sees the current message content, including tool-call parts pushed into
+  // the last assistant message in place while a long tool/A2A call streams.
+  // useImperativeHandle only depends on `messages.length` (see below), which
+  // does not change while an in-flight call's content mutates.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const { suggestions: resolvedSuggestions } = useAgentDynamicSuggestionsResult(
     {
       staticSuggestions: suggestions,
@@ -1409,6 +2296,14 @@ const AssistantChatInner = forwardRef<
   // (unsupported format, size cap, body-size rejection, drop errors).
   // Cleared on the next message send.
   const [composerError, setComposerError] = useState<string | null>(null);
+  const [composerText, setComposerText] = useState("");
+  const handleComposerTextChange = useCallback(
+    (text: string) => {
+      setComposerText(text);
+      onComposerTextChange?.(text);
+    },
+    [onComposerTextChange],
+  );
   const dropDepthRef = useRef(0);
   const handleChatDragEnter = useCallback((e: React.DragEvent) => {
     if (!Array.from(e.dataTransfer?.types ?? []).includes("Files")) return;
@@ -1472,57 +2367,35 @@ const AssistantChatInner = forwardRef<
   // assets.agent-native.com prompt composer (AGENT-NATIVE-BROWSER-18). Fix
   // it by relinking to the current head whenever the requested parent has
   // gone missing instead of throwing.
-  useEffect(() => {
-    const repo = (threadRuntime as any)?.__internal_threadBinding?.getState?.()
-      ?.repository as
-      | { addOrUpdateMessage?: (parentId: any, message: any) => void }
-      | undefined;
-    if (!repo || typeof repo.addOrUpdateMessage !== "function") return;
-    const patched = repo as any;
-    if (patched.__agentNativePatched) return;
-    patched.__agentNativePatched = true;
-    const original = repo.addOrUpdateMessage.bind(repo);
-    repo.addOrUpdateMessage = function (parentId: any, message: any) {
-      try {
-        return original(parentId, message);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (parentId && msg.includes("Parent message not found")) {
-          const fallbackParent = (this as any).head?.current?.id ?? null;
-          if (fallbackParent && fallbackParent !== parentId) {
-            return original(fallbackParent, message);
-          }
-          return original(null, message);
-        }
-        if (msg.includes("same id already exists")) {
-          return;
-        }
-        throw err;
-      }
-    };
-  }, [threadRuntime]);
+  useEffect(
+    () => installAssistantUiMessageRepositoryRecovery(threadRuntime),
+    [threadRuntime],
+  );
   const agentEngineConfigured = useAgentEngineConfigured(
     providerStatusChecksEnabled,
     { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
-  const isComposerDisabled = missingApiKey || composerDisabled;
-  // Once a provider connects, `useAgentEngineConfigured` flips to "configured"
-  // off the `agent-engine:configured-changed` event. The composer banner is a
-  // separate piece of state that would otherwise only clear on manual dismiss
-  // or the next successful send, so drop the stale "no LLM provider" message
-  // here to match the resolved connection.
+  const isProviderStatusChecking =
+    providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
+  const isProviderStatusUnavailable =
+    providerStatusChecksEnabled &&
+    agentEngineConfigured.state === "unavailable";
+  const isComposerDisabled =
+    missingApiKey || isProviderStatusUnavailable || composerDisabled;
+  const retryAgentEngineStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
+  const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
+  const requestMissingKeySetup = useCallback(() => {
+    setMissingKeySetupOpen(true);
+  }, []);
   useEffect(() => {
     if (agentEngineConfigured.state !== "configured") return;
-    setComposerError((current) =>
-      current === LLM_MISSING_CREDENTIALS_MESSAGE ? null : current,
-    );
+    setMissingKeySetupOpen(false);
   }, [agentEngineConfigured.state]);
-  const missingApiKeySetupAboveComposer =
-    missingApiKeySetupLayout === "sidebar";
-  // Increments each time the user tries to chat while no LLM is connected.
-  // `BuilderSetupCard` watches this to replay a one-shot bounce.
-  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const ensureAgentEngineReadyForSubmit = useCallback(async () => {
     const state =
       agentEngineConfigured.state === "missing"
@@ -1530,10 +2403,14 @@ const AssistantChatInner = forwardRef<
         : await fetchAgentEngineConfiguredState(providerStatusChecksEnabled, {
             timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
           });
-    if (state !== "missing") return true;
+    if (state === "configured") return true;
 
-    setComposerError(LLM_MISSING_CREDENTIALS_MESSAGE);
-    setMissingKeyBouncePulse((p) => p + 1);
+    // Unknown means the readiness endpoint is unavailable or still resolving.
+    // Do not start a run optimistically: that recreates the long failure path
+    // this preflight exists to prevent. The mounted hook retries automatically.
+    if (state === "unknown" || state === "unavailable") return false;
+
+    requestMissingKeySetup();
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:missing-api-key", {
@@ -1545,6 +2422,7 @@ const AssistantChatInner = forwardRef<
   }, [
     agentEngineConfigured.state,
     providerStatusChecksEnabled,
+    requestMissingKeySetup,
     tabId,
     threadId,
   ]);
@@ -1553,10 +2431,16 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [authSessionAvailable, setAuthSessionAvailable] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  // The dequeue guard briefly stays locked after appending a queued turn so
+  // the adapter has time to claim the run. Wake the effect when that guard
+  // expires; otherwise a fast-completing turn can leave the remaining queue
+  // pending with no state transition left to trigger another dequeue.
+  const [queueWakeVersion, setQueueWakeVersion] = useState(0);
   const queuedMessagesRef = useRef<QueuedMessage[]>([]);
   const queueDirtyRef = useRef(false);
   const queueMutationVersionRef = useRef(0);
   const dequeueInFlightRef = useRef(false);
+  const queueStopVersionRef = useRef(0);
   const [composerContextItems, setComposerContextItems] = useState<
     AgentChatContextItem[]
   >([]);
@@ -1692,15 +2576,6 @@ const AssistantChatInner = forwardRef<
     runId?: string;
   } | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
-  // True during the 250ms continuation window and startup of the next chunk
-  // (adapter's auto-continue delay before POSTing the next chunk).
-  const [isAutoResuming, setIsAutoResuming] = useState(false);
-  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
-  // during an adapter auto-continuation the runtime can flick false between
-  // chunks while the adapter is still driving the turn.
-  const isAutoResumingRef = useRef(isAutoResuming);
-  isAutoResumingRef.current = isAutoResuming;
-  const autoResumeTimerRef = useRef<number | null>(null);
   const [optimisticRunning, setOptimisticRunning] = useState(false);
   const [runningActivityLabel, setRunningActivityLabel] = useState<
     string | null
@@ -1728,11 +2603,18 @@ const AssistantChatInner = forwardRef<
   const [reconnectContent, setReconnectContent] = useState<ContentPart[]>([]);
   // When stop is clicked during reconnect, keep content visible (don't wipe it)
   const [reconnectFrozen, setReconnectFrozen] = useState(false);
+  // Adapter took over while reconnect still had visible tool cards — keep the
+  // overlay until the adapter message catches up so we don't flash an empty gap.
+  const [adapterHandoffPending, setAdapterHandoffPending] = useState(false);
   const reconnectRunIdRef = useRef<string | null>(null);
   const reconnectTailOnlyRef = useRef(false);
   const reconnectCanMaterializeRef = useRef(false);
   const reconnectAbortRef = useRef<AbortController | null>(null);
   const reconnectAutoRecoveryCountRef = useRef(0);
+  const reconnectOwnerMountedRef = useReconnectReaderOwner(
+    reconnectRunIdRef,
+    reconnectAbortRef,
+  );
   const [pendingReconnectRecovery, setPendingReconnectRecovery] =
     useState<PendingReconnectRecovery | null>(null);
   // Nuclear stop: user clicked stop. Clears the stop button/indicator AND
@@ -1740,27 +2622,26 @@ const AssistantChatInner = forwardRef<
   // queueing forever" state where isReconnecting or isRuntimeRunning gets
   // wedged (e.g. after a tab refresh + stop during reconnect).
   const [forceStopped, setForceStopped] = useState(false);
+  // True during the 250ms continuation window and startup of the next chunk
+  // (adapter's auto-continue delay before POSTing the next chunk).
+  const { isAutoResuming, clearAutoResume } = useAutoResumeStatus(
+    tabId,
+    forceStopped,
+  );
+  // Latest-value ref for the same single-reader checks as isRuntimeRunningRef:
+  // during an adapter auto-continuation the runtime can flick false between
+  // chunks while the adapter is still driving the turn.
+  const isAutoResumingRef = useRef(isAutoResuming);
+  isAutoResumingRef.current = isAutoResuming;
   const [hasActiveServerRun, setHasActiveServerRun] = useState(() =>
     activeRunMatchesThread(getActiveRun(), threadId),
   );
-  useEffect(() => {
-    const syncActiveRun = (state = getActiveRun()) => {
-      setHasActiveServerRun(activeRunMatchesThread(state, threadId));
-    };
-    syncActiveRun();
-    const handler = (event: Event) => {
-      const state = (event as CustomEvent<{ state?: ActiveRunState | null }>)
-        .detail?.state;
-      syncActiveRun(state ?? null);
-    };
-    const storageHandler = () => syncActiveRun();
-    window.addEventListener(ACTIVE_RUN_STATE_EVENT, handler);
-    window.addEventListener("storage", storageHandler);
-    return () => {
-      window.removeEventListener(ACTIVE_RUN_STATE_EVENT, handler);
-      window.removeEventListener("storage", storageHandler);
-    };
-  }, [threadId]);
+  const trackStoppedRun = useAgentChatLifecycleTracking({
+    surface: agentChatSurface,
+    threadId,
+    tabId,
+    onActiveRunChange: setHasActiveServerRun,
+  });
   // Real running state drives submission/queue gating; UI running also covers
   // short auto-continuation gaps so the latest assistant message does not flash
   // into a done state while the agent is still working.
@@ -1773,6 +2654,25 @@ const AssistantChatInner = forwardRef<
     hasActiveServerRun,
   });
   const textStreaming = showRunningInUI || externalStreaming;
+  const chatRunStartedAtRef = useRef<number | null>(null);
+  const [lastChatRunDurationMs, setLastChatRunDurationMs] = useState<
+    number | null
+  >(null);
+  useEffect(() => {
+    if (showRunningInUI) {
+      if (chatRunStartedAtRef.current == null) {
+        chatRunStartedAtRef.current = Date.now();
+        setLastChatRunDurationMs(null);
+      }
+      return;
+    }
+    if (chatRunStartedAtRef.current != null) {
+      setLastChatRunDurationMs(
+        Math.max(0, Date.now() - chatRunStartedAtRef.current),
+      );
+      chatRunStartedAtRef.current = null;
+    }
+  }, [showRunningInUI]);
   // A revealed activity label wins; otherwise keep recovery states calm and
   // product-facing. Reconnect is transport machinery, so normal replay reads as
   // ongoing work instead of exposing "Reconnecting" mid-chat.
@@ -1784,16 +2684,28 @@ const AssistantChatInner = forwardRef<
   });
   const reconnectActivityContent = useMemo(
     () =>
-      isReconnecting || reconnectFrozen
+      isReconnecting || reconnectFrozen || adapterHandoffPending
         ? reconnectActivityFallbackContent(runningActivityTool)
         : [],
-    [isReconnecting, reconnectFrozen, runningActivityTool],
+    [
+      adapterHandoffPending,
+      isReconnecting,
+      reconnectFrozen,
+      runningActivityTool,
+    ],
   );
   const lastBroadcastRunningRef = useRef(isRunning);
   const tiptapRef = useRef<TiptapComposerHandle>(null);
+  const focusComposerAfterConnectRef = useRef(false);
   // Stable ref to the "stop active run" action so addToQueue can abort
   // a running turn without adding many unstable closure deps to its dep list.
-  const stopActiveRunRef = useRef<() => void>(() => {});
+  const stopActiveRunRef = useRef<
+    (options?: { preserveQueuedMessages?: boolean }) => void
+  >(() => {});
+  // addToQueue is declared before the autoscroll hook because it also feeds
+  // the reconnect/imperative APIs. Keep a stable bridge so an accepted visible
+  // submit can explicitly reattach bottom-following without closure churn.
+  const resumeFollowingRef = useRef<() => void>(() => {});
 
   const markOptimisticRunning = useCallback(() => {
     setOptimisticRunning(true);
@@ -1888,13 +2800,21 @@ const AssistantChatInner = forwardRef<
       let settledRepo = repo;
       if (repo?.messages?.length > 0) {
         let shouldImport = true;
-        try {
-          shouldImport = shouldImportServerThreadData(
-            normalizeThreadRepository(threadRuntime.export()),
-            repo,
-          );
-        } catch {
-          shouldImport = true;
+        // Adapter owns the live turn (including auto-continuation gaps). Do not
+        // let a lagging server thread snapshot clobber in-flight tool cards.
+        if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+          shouldImport = false;
+        } else {
+          try {
+            shouldImport = shouldImportServerThreadData(
+              normalizeThreadRepository(threadRuntime.export()),
+              repo,
+            );
+          } catch {
+            // If the runtime/export comparison itself fails, do not fail open by
+            // importing a server snapshot that may be stale relative to local UI.
+            shouldImport = false;
+          }
         }
         if (shouldImport) {
           if (options?.markTitleGenerated) {
@@ -1907,7 +2827,7 @@ const AssistantChatInner = forwardRef<
           settled = false;
         }
       }
-      if (Array.isArray(repo?.queuedMessages)) {
+      if (settled && Array.isArray(repo?.queuedMessages)) {
         const incomingQueue = repo.queuedMessages as QueuedMessage[];
         const incomingSerialized = JSON.stringify(incomingQueue);
         const currentSerialized = JSON.stringify(queuedMessagesRef.current);
@@ -1959,6 +2879,32 @@ const AssistantChatInner = forwardRef<
       ensureMessageMetadata(normalizeThreadRepository(threadRuntime.export())),
     [threadRuntime],
   );
+
+  const appendRealtimeVoiceTranscript = useCallback(
+    (
+      transcript: Parameters<typeof realtimeVoiceTranscriptRegistry.publish>[0],
+    ) => {
+      if (isRestoring || isRunning) return false;
+      const result = appendRealtimeVoiceTranscriptToRepository(
+        exportCleanThreadRepo(),
+        transcript,
+      );
+      if (!result.appended) return true;
+      threadRuntime.import(ensureMessageMetadata(result.repository));
+      return true;
+    },
+    [exportCleanThreadRepo, isRestoring, isRunning, threadRuntime],
+  );
+
+  useEffect(() => {
+    const transcriptThreadId = threadId ?? tabId;
+    if (!transcriptThreadId) return;
+    return realtimeVoiceTranscriptRegistry.register({
+      threadId: transcriptThreadId,
+      active: isActiveComposer,
+      append: appendRealtimeVoiceTranscript,
+    });
+  }, [appendRealtimeVoiceTranscript, isActiveComposer, tabId, threadId]);
 
   const appendThreadMessage = useCallback(
     (message: Parameters<typeof threadRuntime.append>[0]) => {
@@ -2036,6 +2982,7 @@ const AssistantChatInner = forwardRef<
   const startReconnectToRun = useCallback(
     (runInfo: ActiveRunLookup): boolean => {
       if (
+        !reconnectOwnerMountedRef.current ||
         !threadId ||
         !runInfo.runId ||
         (runInfo.status !== "running" && !isReplayableTerminalRun(runInfo))
@@ -2056,6 +3003,25 @@ const AssistantChatInner = forwardRef<
         return false;
       }
 
+      // SUPERSEDE THE PREVIOUS RECONNECT GENERATION. A turn that keeps failing
+      // (e.g. repeated stale_run at "Contacting model") produces a new runId
+      // every few seconds; each call here used to OVERWRITE the single-slot
+      // refs below without tearing down the prior closure, leaving its
+      // watchdog (1s) + idleCheck (1s) + thread poll (2s) + SSE retry loop all
+      // running. 4-5 stacked generations = a ~20 req/s request storm that
+      // hammers the same Neon pool the server needs for heartbeats, deepening
+      // the DB saturation that causes the failures in the first place. Abort
+      // the prior generation's AbortController so its stream loop exits and its
+      // `finally` clears every interval before we start a fresh one.
+      if (reconnectAbortRef.current) {
+        try {
+          reconnectAbortRef.current.abort();
+        } catch {
+          // Already aborted / detached — nothing to unwind.
+        }
+        reconnectAbortRef.current = null;
+      }
+
       reconnectRunIdRef.current = runId;
       const afterSeq = resolveReconnectAfterSeq(threadId, runId);
       reconnectTailOnlyRef.current = afterSeq > 0;
@@ -2070,6 +3036,7 @@ const AssistantChatInner = forwardRef<
       });
       setIsReconnecting(true);
       setReconnectFrozen(false);
+      setAdapterHandoffPending(false);
       setReconnectContent([]);
       window.dispatchEvent(
         new CustomEvent("agentNative.chatRunning", {
@@ -2150,6 +3117,19 @@ const AssistantChatInner = forwardRef<
         let noProgressDuringReconnect = false;
         let latestContent: ContentPart[] = [];
         const preparingActionState: PreparingActionState = {};
+        // Exponential backoff for the reattach retry loop. A run that is
+        // "active" server-side but producing no stream (the exact stuck state
+        // that triggers a reconnect) would otherwise re-fetch /runs/:id/events
+        // every ~250ms — several req/s per generation. Back off 250ms → 5s so a
+        // genuinely stuck run stops hammering the server; reset the moment real
+        // progress streams in (see the onSeq callback) so a recovering run
+        // re-tightens immediately.
+        let reconnectRetryCount = 0;
+        const backoffRetryDelay = () => {
+          const ms = Math.min(250 * 2 ** reconnectRetryCount, 5000);
+          reconnectRetryCount += 1;
+          return new Promise((resolve) => window.setTimeout(resolve, ms));
+        };
         const sameRunStillActive = async (): Promise<
           "active" | "inactive" | "unknown"
         > => {
@@ -2174,6 +3154,11 @@ const AssistantChatInner = forwardRef<
           afterSeq > 0
             ? window.setInterval(() => {
                 if (reconnectRunIdRef.current !== runId) return;
+                // Adapter took over mid-poll — skip imports that would race the
+                // live stream and flicker tool cards back to older snapshots.
+                if (isRuntimeRunningRef.current || isAutoResumingRef.current) {
+                  return;
+                }
                 void refreshThreadFromServer();
               }, 2000)
             : undefined;
@@ -2195,7 +3180,7 @@ const AssistantChatInner = forwardRef<
             if (!sseRes.ok || !sseRes.body) {
               const activeState = await sameRunStillActive();
               if (activeState !== "inactive") {
-                await new Promise((resolve) => window.setTimeout(resolve, 250));
+                await backoffRetryDelay();
                 continue;
               }
               break;
@@ -2208,6 +3193,12 @@ const AssistantChatInner = forwardRef<
               rafPending = true;
               requestAnimationFrame(() => {
                 rafPending = false;
+                if (
+                  !reconnectOwnerMountedRef.current ||
+                  reconnectRunIdRef.current !== runId
+                ) {
+                  return;
+                }
                 setReconnectContent(latestSnapshot);
               });
             };
@@ -2221,6 +3212,7 @@ const AssistantChatInner = forwardRef<
                 scheduleUpdate,
                 (seq) => {
                   markReconnectProgress();
+                  reconnectRetryCount = 0;
                   updateActiveRunSeq(seq);
                 },
                 { preparingActionState },
@@ -2239,9 +3231,7 @@ const AssistantChatInner = forwardRef<
                 }
                 const activeState = await sameRunStillActive();
                 if (activeState !== "inactive") {
-                  await new Promise((resolve) =>
-                    window.setTimeout(resolve, 250),
-                  );
+                  await backoffRetryDelay();
                   continue;
                 }
               }
@@ -2278,11 +3268,18 @@ const AssistantChatInner = forwardRef<
           clearInterval(idleCheck);
         }
 
+        // A newer reader, live adapter, stop action, or component unmount took
+        // ownership while this async loop was unwinding. Do not let the stale
+        // generation refresh/import or update reconnect state afterwards.
+        if (reconnectRunIdRef.current !== runId) return;
+
         if (noProgressDuringReconnect && reconnectRunIdRef.current === runId) {
           const reconnectErrorCode =
             reconnectTerminalReason === "run_timeout"
               ? "run_timeout"
-              : "reconnect_no_progress";
+              : reconnectTerminalReason === "stream_ended"
+                ? "reconnect_stream_ended"
+                : "reconnect_no_progress";
           captureError(new Error(`agent-chat:${reconnectErrorCode}`), {
             tags: {
               context: "agent-native-chat",
@@ -2354,9 +3351,11 @@ const AssistantChatInner = forwardRef<
           }
           setRunErrorInfo({
             message:
-              reconnectTerminalReason === "run_timeout"
+              reconnectErrorCode === "run_timeout"
                 ? "The previous background agent run reached its time limit before finishing. The partial work was preserved; continue or retry to pick up from here."
-                : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
+                : reconnectErrorCode === "reconnect_stream_ended"
+                  ? "The previous agent stream ended while the run was recovering. Continue or retry to reconnect to the run."
+                  : "The previous agent run stopped producing visible progress during recovery, so it was stopped before it could keep looping.",
             errorCode: reconnectErrorCode,
             recoverable: true,
             runId,
@@ -2521,18 +3520,29 @@ const AssistantChatInner = forwardRef<
                 markTitleGenerated: true,
               });
               if (repo) {
-                const { title, preview } = extractThreadMeta(repo);
-                writeCachedThreadSnapshot(apiUrl, threadId, {
-                  threadData:
-                    typeof data.threadData === "string"
-                      ? data.threadData
-                      : JSON.stringify(data.threadData),
-                  title: data.title || title,
-                  preview,
-                  messageCount: Array.isArray(repo.messages)
-                    ? repo.messages.length
-                    : 0,
-                });
+                let shouldCacheServerSnapshot = true;
+                try {
+                  shouldCacheServerSnapshot = shouldImportServerThreadData(
+                    normalizeThreadRepository(threadRuntime.export()),
+                    repo,
+                  );
+                } catch {
+                  shouldCacheServerSnapshot = false;
+                }
+                if (shouldCacheServerSnapshot) {
+                  const { title, preview } = extractThreadMeta(repo);
+                  writeCachedThreadSnapshot(apiUrl, threadId, {
+                    threadData:
+                      typeof data.threadData === "string"
+                        ? data.threadData
+                        : JSON.stringify(data.threadData),
+                    title: data.title || title,
+                    preview,
+                    messageCount: Array.isArray(repo.messages)
+                      ? repo.messages.length
+                      : 0,
+                  });
+                }
               }
             }
             // Also skip title generation if thread already has a title
@@ -2591,7 +3601,8 @@ const AssistantChatInner = forwardRef<
       !loadHistoryRepository ||
       !hasRestoredRef.current ||
       isRestoring ||
-      isRunning
+      isRunning ||
+      isAutoResuming
     ) {
       return;
     }
@@ -2608,6 +3619,7 @@ const AssistantChatInner = forwardRef<
   }, [
     historyReloadKey,
     importThreadData,
+    isAutoResuming,
     isRestoring,
     isRunning,
     loadHistoryRepository,
@@ -2780,8 +3792,21 @@ const AssistantChatInner = forwardRef<
 
   // Nudge the shared hook to re-check after a Builder connect.
   const handleBuilderConnected = useCallback(() => {
+    focusComposerAfterConnectRef.current = true;
+    setMissingKeySetupOpen(false);
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
+  useEffect(() => {
+    if (
+      agentEngineConfigured.state !== "configured" ||
+      !focusComposerAfterConnectRef.current
+    ) {
+      return;
+    }
+    focusComposerAfterConnectRef.current = false;
+    const timer = window.setTimeout(() => tiptapRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [agentEngineConfigured.state]);
 
   // Listen for auth error events from the adapter
   const checkAuthSession =
@@ -2898,6 +3923,16 @@ const AssistantChatInner = forwardRef<
     return () => window.removeEventListener("agent-chat:loop-limit", handler);
   }, [tabId]);
 
+  const latestAssistantRunId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== "assistant") continue;
+      const runId = assistantMessageRunId(message);
+      if (runId) return runId;
+    }
+    return undefined;
+  }, [messages]);
+
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as RunErrorInfo & {
@@ -2905,6 +3940,19 @@ const AssistantChatInner = forwardRef<
       };
       if (tabId && detail?.tabId && detail.tabId !== tabId) return;
       if (!detail?.message) return;
+      const activeRun = getActiveRun();
+      const activeRunId = activeRunMatchesThread(activeRun, threadId)
+        ? activeRun?.runId
+        : undefined;
+      if (
+        !shouldAcceptRunError({
+          errorRunId: detail.runId,
+          activeRunId,
+          latestAssistantRunId,
+        })
+      ) {
+        return;
+      }
       const stopped = userStoppedRunRef.current;
       if (
         stopped &&
@@ -2921,10 +3969,13 @@ const AssistantChatInner = forwardRef<
         ...(detail.recoverable ? { recoverable: detail.recoverable } : {}),
       });
       setDismissedRunErrorKey(null);
+      // An errored continuation must not keep showing "Resuming" — there is
+      // no further chunk coming to clear it.
+      clearAutoResume();
     };
     window.addEventListener("agent-chat:run-error", handler);
     return () => window.removeEventListener("agent-chat:run-error", handler);
-  }, [tabId]);
+  }, [clearAutoResume, latestAssistantRunId, tabId, threadId]);
 
   // Real activity means the next chunk has started. Surface longer-lived
   // activity such as "Still generating image" so active-run reconnects do not
@@ -2941,7 +3992,7 @@ const AssistantChatInner = forwardRef<
         typeof detail?.label === "string" ? detail.label.trim() : "";
       if (!label) return;
       const tool = typeof detail?.tool === "string" ? detail.tool.trim() : "";
-      setIsAutoResuming(false);
+      clearAutoResume();
       setRunningActivityTool(tool || null);
       updateActiveRunActivity(tool || null);
       latestActivityLabelRef.current = label;
@@ -2976,50 +4027,23 @@ const AssistantChatInner = forwardRef<
       window.removeEventListener("agent-chat:activity", handler);
       window.removeEventListener("agent-chat:activity-clear", clear);
     };
-  }, [resetRunningActivity, tabId]);
+  }, [clearAutoResume, resetRunningActivity, tabId]);
 
-  // Show "Resuming…" during the adapter's auto-continuation window (the
-  // ~250ms gap between the end of one serverless chunk and the POST for the
-  // next). The adapter dispatches `agent-chat:auto-continue` at that moment.
+  // "Resuming…" itself (auto-continue → stream-progress/forceStopped clear,
+  // plus the 30s failsafe) is owned by useAutoResumeStatus above. Real
+  // next-chunk activity (tool start/activity events) clears it in the
+  // activity handler above; real streamed output (text/reasoning) clears it
+  // via that hook's own stream-progress listener. This effect only handles
+  // the running-activity reset once both running signals go idle — it does
+  // NOT clear auto-resume merely because `isRunning` is still true: the
+  // adapter dispatches auto-continue before the old chunk's runtime flips
+  // idle, so doing that would expose terminal message controls during the
+  // exact gap this state is meant to cover.
   useEffect(() => {
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as { tabId?: string };
-      if (tabId && detail?.tabId && detail.tabId !== tabId) return;
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-      }
-      setIsAutoResuming(true);
-      autoResumeTimerRef.current = window.setTimeout(() => {
-        autoResumeTimerRef.current = null;
-        setIsAutoResuming(false);
-      }, AUTO_RESUME_STATUS_TIMEOUT_MS);
-    };
-    window.addEventListener("agent-chat:auto-continue", handler);
-    return () => {
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-        autoResumeTimerRef.current = null;
-      }
-      window.removeEventListener("agent-chat:auto-continue", handler);
-    };
-  }, [tabId]);
-
-  // Clear auto-resume once the next chunk has visibly started or the user stops.
-  // Do not clear solely because `isRunning` is false: auto-resume intentionally
-  // covers that between-chunk gap so the chat never looks idle while work is
-  // still scheduled.
-  useEffect(() => {
-    if (isRunning || forceStopped) {
-      if (autoResumeTimerRef.current !== null) {
-        window.clearTimeout(autoResumeTimerRef.current);
-        autoResumeTimerRef.current = null;
-      }
-      setIsAutoResuming(false);
-    }
     if (!isRunning && !isAutoResuming) {
       resetRunningActivity();
     }
-  }, [forceStopped, isAutoResuming, isRunning, resetRunningActivity]);
+  }, [isAutoResuming, isRunning, resetRunningActivity]);
 
   // Auto-dequeue: when the agent is idle, send the next queued message. This
   // intentionally does not depend on observing the running -> idle transition:
@@ -3033,6 +4057,7 @@ const AssistantChatInner = forwardRef<
 
     const next = queuedMessages[0];
     if (!next) return;
+    const stopVersion = queueStopVersionRef.current;
 
     dequeueInFlightRef.current = true;
     let cancelled = false;
@@ -3047,10 +4072,13 @@ const AssistantChatInner = forwardRef<
           // terminal SSE event a beat before SQL has marked the previous run
           // complete. Starting the queued turn during that window can reconnect
           // to the old run and replay the old answer under the new prompt.
-          await waitForThreadRunToClear(apiUrl, threadId);
-          if (cancelled) return;
+          const runCleared = await waitForThreadRunToClear(apiUrl, threadId);
+          if (cancelled || !runCleared) return;
 
-          if (queuedMessagesRef.current[0]?.id !== next.id) {
+          if (
+            queueStopVersionRef.current !== stopVersion ||
+            queuedMessagesRef.current[0]?.id !== next.id
+          ) {
             return;
           }
 
@@ -3087,6 +4115,7 @@ const AssistantChatInner = forwardRef<
         } catch (err) {
           if (
             removedForAppend &&
+            queueStopVersionRef.current === stopVersion &&
             !queuedMessagesRef.current.some((message) => message.id === next.id)
           ) {
             applyLocalQueuedMessages((prev) => [next, ...prev]);
@@ -3105,6 +4134,7 @@ const AssistantChatInner = forwardRef<
           if (appended) {
             window.setTimeout(() => {
               dequeueInFlightRef.current = false;
+              setQueueWakeVersion((version) => version + 1);
             }, 500);
           } else {
             dequeueInFlightRef.current = false;
@@ -3126,6 +4156,7 @@ const AssistantChatInner = forwardRef<
     applyLocalQueuedMessages,
     isRestoring,
     isRunning,
+    queueWakeVersion,
     queuedMessages,
     threadId,
   ]);
@@ -3141,29 +4172,67 @@ const AssistantChatInner = forwardRef<
     prevIsRuntimeRunningRef.current = isRuntimeRunning;
     if (isRuntimeRunning && !wasRunning) {
       // SINGLE-READER OWNERSHIP: the adapter runtime just took over (a new run
-      // started or an adopted run resumed). Any live reconnect reader is now a
-      // duplicate accumulator — abort it and DISCARD its content; the adapter's
-      // stream renders the canonical message. Null the run ref first so the
-      // reader's own cleanup paths (which all check reconnectRunIdRef) no-op.
+      // started or an adopted run resumed). Abort the reconnect reader, but keep
+      // its visible content until the adapter message has tool/text parts so the
+      // UI does not flash an empty gap between readers.
       if (reconnectRunIdRef.current !== null) {
+        const keepOverlay = reconnectContent.length > 0;
         reconnectRunIdRef.current = null;
         reconnectAbortRef.current?.abort();
         reconnectAbortRef.current = null;
         setIsReconnecting(false);
-        setReconnectContent([]);
         setReconnectFrozen(false);
         reconnectCanMaterializeRef.current = false;
         reconnectTailOnlyRef.current = false;
+        if (keepOverlay) {
+          setAdapterHandoffPending(true);
+        } else {
+          setReconnectContent([]);
+          setAdapterHandoffPending(false);
+        }
       } else if (reconnectFrozen) {
         setReconnectFrozen(false);
         setReconnectContent([]);
+        setAdapterHandoffPending(false);
         reconnectCanMaterializeRef.current = false;
       }
       if (forceStopped) {
         setForceStopped(false);
       }
     }
-  }, [isRuntimeRunning, reconnectFrozen, forceStopped]);
+  }, [
+    isRuntimeRunning,
+    reconnectFrozen,
+    forceStopped,
+    reconnectContent.length,
+  ]);
+
+  // Release the deferred reconnect overlay once thread messages have caught
+  // up enough that dedupe would hide the overlay, or after a short timeout so
+  // a stuck handoff cannot leave duplicate tool cards forever.
+  useEffect(() => {
+    if (!adapterHandoffPending) return;
+    if (!isRuntimeRunning) {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+      return;
+    }
+    const stillNeeded =
+      dedupeReconnectContentAgainstMessages(reconnectContent, messages, {
+        suppressToolRepeats: true,
+        trimTailTextOverlap: true,
+      }).length > 0;
+    if (!stillNeeded) {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setReconnectContent([]);
+      setAdapterHandoffPending(false);
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [adapterHandoffPending, isRuntimeRunning, messages, reconnectContent]);
 
   // Same transition guard for isReconnecting: only clear forceStopped on
   // the false→true edge (a new reconnect starting on page load).
@@ -3181,6 +4250,7 @@ const AssistantChatInner = forwardRef<
     if (!reconnectCanMaterializeRef.current) {
       setReconnectFrozen(false);
       setReconnectContent([]);
+      setAdapterHandoffPending(false);
       return;
     }
     try {
@@ -3223,6 +4293,7 @@ const AssistantChatInner = forwardRef<
       threadRuntime.import(ensureMessageMetadata(repo));
       setReconnectFrozen(false);
       setReconnectContent([]);
+      setAdapterHandoffPending(false);
       reconnectCanMaterializeRef.current = false;
     } catch (err) {
       captureError(err, {
@@ -3246,61 +4317,118 @@ const AssistantChatInner = forwardRef<
     threadRuntime,
   ]);
 
+  const settleVisibleInterruptedTools = useCallback(() => {
+    try {
+      const repo = normalizeThreadRepository(threadRuntime.export());
+      const settled = settleInterruptedAssistantToolCallsInRepo(repo);
+      if (settled.changed) {
+        threadRuntime.import(ensureMessageMetadata(settled.repo));
+      }
+    } catch (err) {
+      captureError(err, {
+        tags: {
+          source: "agent-chat-client",
+          phase: "settle-stopped-tool-calls",
+        },
+        extra: {
+          threadId: threadId ?? null,
+          tabId: tabId ?? null,
+        },
+      });
+    }
+  }, [tabId, threadId, threadRuntime]);
+
   // Abort the active server run (identical to what the Stop button does) so
   // an immediate-while-running send can proceed cleanly without a 409 race.
   // Captured in a stable ref so addToQueue can call it without listing
   // all the stop-related state in its own dep array.
-  const stopActiveRun = useCallback(() => {
-    setForceStopped(true);
-    setOptimisticRunning(false);
-    const activeRun = getActiveRun();
-    const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
-    userStoppedRunRef.current = {
-      at: Date.now(),
-      ...(runIdToAbort ? { runId: runIdToAbort } : {}),
-    };
-    setRunErrorInfo(null);
-    setDismissedRunErrorKey(null);
-    if (runIdToAbort) {
-      if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
-      fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
-        method: "POST",
-      }).catch(() => {});
-    }
-    if (isReconnecting) {
-      reconnectAbortRef.current?.abort();
-      reconnectAbortRef.current = null;
-      reconnectRunIdRef.current = null;
-      setIsReconnecting(false);
-      const shouldFreezeReconnectContent =
-        !reconnectTailOnlyRef.current &&
-        reconnectCanMaterializeRef.current &&
-        reconnectContent.length > 0;
-      if (shouldFreezeReconnectContent) {
-        setReconnectFrozen(true);
-      } else {
-        setReconnectFrozen(false);
-        setReconnectContent([]);
-        reconnectCanMaterializeRef.current = false;
+  const stopActiveRun = useCallback(
+    (options?: { preserveQueuedMessages?: boolean }) => {
+      setForceStopped(true);
+      setOptimisticRunning(false);
+      setHasActiveServerRun(false);
+      setPendingReconnectRecovery(null);
+      clearAutoResume();
+      resetRunningActivity();
+      if (!options?.preserveQueuedMessages) {
+        queueStopVersionRef.current += 1;
+        dequeueInFlightRef.current = false;
+        applyLocalQueuedMessages(() => []);
       }
-      reconnectTailOnlyRef.current = false;
-    }
-    threadRuntime.cancelRun();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agentNative.chatRunning", {
-          detail: { isRunning: false, tabId: tabId || threadId },
-        }),
-      );
-    }
-  }, [
-    apiUrl,
-    isReconnecting,
-    reconnectContent.length,
-    tabId,
-    threadId,
-    threadRuntime,
-  ]);
+      const activeRun = getActiveRun();
+      const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+      const pendingTurn = threadId ? getPendingTurn(threadId) : null;
+      userStoppedRunRef.current = {
+        at: Date.now(),
+        ...(runIdToAbort ? { runId: runIdToAbort } : {}),
+      };
+      trackStoppedRun(runIdToAbort);
+      setRunErrorInfo(null);
+      setDismissedRunErrorKey(null);
+      if (runIdToAbort) {
+        if (threadId) clearActiveRunIfMatches(threadId, runIdToAbort);
+        fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
+          method: "POST",
+        }).catch(() => {});
+      } else if (pendingTurn && threadId) {
+        clearPendingTurnIfMatches(threadId, pendingTurn.turnId);
+        fetch(
+          `${apiUrl}/runs/turn/${encodeURIComponent(pendingTurn.turnId)}/abort`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threadId }),
+          },
+        ).catch(() => {});
+      }
+      if (isReconnecting) {
+        reconnectAbortRef.current?.abort();
+        reconnectAbortRef.current = null;
+        reconnectRunIdRef.current = null;
+        setIsReconnecting(false);
+        setAdapterHandoffPending(false);
+        const shouldFreezeReconnectContent =
+          !reconnectTailOnlyRef.current &&
+          reconnectCanMaterializeRef.current &&
+          reconnectContent.length > 0;
+        if (shouldFreezeReconnectContent) {
+          const frozenContent = cloneContentParts(reconnectContent);
+          settleInterruptedToolCalls(frozenContent, undefined, {
+            includeActivity: true,
+          });
+          setReconnectContent(frozenContent);
+          setReconnectFrozen(true);
+        } else {
+          setReconnectFrozen(false);
+          setReconnectContent([]);
+          reconnectCanMaterializeRef.current = false;
+        }
+        reconnectTailOnlyRef.current = false;
+      }
+      threadRuntime.cancelRun();
+      settleVisibleInterruptedTools();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId: tabId || threadId },
+          }),
+        );
+      }
+    },
+    [
+      apiUrl,
+      applyLocalQueuedMessages,
+      clearAutoResume,
+      isReconnecting,
+      resetRunningActivity,
+      reconnectContent,
+      settleVisibleInterruptedTools,
+      tabId,
+      threadId,
+      threadRuntime,
+      trackStoppedRun,
+    ],
+  );
   // Keep the ref current so addToQueue can call it without a stale closure.
   stopActiveRunRef.current = stopActiveRun;
 
@@ -3317,8 +4445,12 @@ const AssistantChatInner = forwardRef<
       trackInRunsTray = false,
       preserveReconnectAutoRecoveryBudget = false,
       hideUserMessage = false,
+      submitMessageId?: string,
     ) => {
-      if (!(await ensureAgentEngineReadyForSubmit())) {
+      if (isAgentChatSubmitCancelled(submitMessageId)) return;
+      if (agentEngineConfigured.state === "missing") {
+        void ensureAgentEngineReadyForSubmit();
+        reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
         return;
       }
       if (!preserveReconnectAutoRecoveryBudget) {
@@ -3334,9 +4466,6 @@ const AssistantChatInner = forwardRef<
       // Selection context attached via Cmd+I is one-shot — clear it as soon
       // as the user actually sends a message so it can't be re-used.
       clearPendingSelection();
-      // Sending a message is an explicit user action. The scroller anchors the
-      // appended user turn so the new message and reply land in view without
-      // re-pinning the viewport during ordinary streaming.
       const submitted = includeComposerContext
         ? buildComposerContextSubmission(text)
         : { text, includesContext: false };
@@ -3352,8 +4481,10 @@ const AssistantChatInner = forwardRef<
             ? err.message
             : "Attachment could not be processed.";
         setComposerError(msg);
+        reportAgentChatSubmitResult(submitMessageId, false, "attachment-error");
         return;
       }
+      if (isAgentChatSubmitCancelled(submitMessageId)) return;
       const imageAttachments = createAgentImageAttachments(images);
       const allAttachments = [
         ...(queuedAttachments ?? []),
@@ -3447,6 +4578,11 @@ const AssistantChatInner = forwardRef<
               setComposerError(
                 `"${rejected.name}" makes the message too large to send (combined attachments must be under ${Math.round(MAX_ESTIMATED_BODY_BYTES / 1024 / 1024)} MB). Remove it or use a smaller image.`,
               );
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "attachment-too-large",
+              );
               return;
             }
           }
@@ -3454,6 +4590,7 @@ const AssistantChatInner = forwardRef<
         }
       }
       // ── End body-size guard ──────────────────────────────────────────
+      if (isAgentChatSubmitCancelled(submitMessageId)) return;
       // Snapshot the exec mode at enqueue time when the caller didn't
       // pass an explicit override. Without this, a plan-mode message that
       // sits in the queue runs as 'act' if the user flips the global toggle
@@ -3487,7 +4624,7 @@ const AssistantChatInner = forwardRef<
             hideUserMessage,
           },
         ]);
-        stopActiveRunRef.current();
+        stopActiveRunRef.current({ preserveQueuedMessages: true });
       } else if (isRunning && intent === "queued") {
         applyLocalQueuedMessages((prev) => [
           ...prev,
@@ -3528,15 +4665,27 @@ const AssistantChatInner = forwardRef<
           } as Parameters<typeof threadRuntime.append>[0]);
         } catch (error) {
           setOptimisticRunning(false);
+          reportAgentChatSubmitResult(submitMessageId, false, "append-failed");
           throw error;
         }
       }
+      // The turn is now either queued behind the active run or already a
+      // visible message — either way it has reached the chat. This is
+      // intentionally reported before the agent's response resolves: a
+      // caller like sendToAgentChatAndConfirm only needs to know the submit
+      // wasn't silently dropped, not whether the run itself later succeeds.
+      // A visible submit is explicit user intent to see the new turn. Reattach
+      // following only after the message was queued/appended successfully;
+      // hidden reconnect recovery turns must leave the user's viewport alone.
+      if (!hideUserMessage) resumeFollowingRef.current();
+      reportAgentChatSubmitResult(submitMessageId, true);
       if (submitted.includesContext) {
         updateComposerContextItems(() => []);
       }
     },
     [
       applyLocalQueuedMessages,
+      agentEngineConfigured.state,
       buildComposerContextSubmission,
       ensureAgentEngineReadyForSubmit,
       execMode,
@@ -3546,6 +4695,40 @@ const AssistantChatInner = forwardRef<
       appendThreadMessage,
       updateComposerContextItems,
     ],
+  );
+
+  const mcpResumeTimerRef = useRef<number | null>(null);
+  const scheduleMcpConnectionResume = useCallback(
+    (request: McpConnectionResumeRequest) => {
+      if (mcpResumeTimerRef.current !== null) {
+        window.clearTimeout(mcpResumeTimerRef.current);
+      }
+      mcpResumeTimerRef.current = window.setTimeout(() => {
+        mcpResumeTimerRef.current = null;
+        void addToQueue(request.message);
+      }, 0);
+    },
+    [addToQueue],
+  );
+
+  useEffect(() => {
+    const pending = consumeMcpConnectionResume();
+    if (pending) scheduleMcpConnectionResume(pending);
+
+    return addMcpConnectionCompleteListener(() => {
+      const completed = consumeMcpConnectionResume();
+      if (completed) scheduleMcpConnectionResume(completed);
+    });
+  }, [scheduleMcpConnectionResume]);
+
+  useEffect(
+    () => () => {
+      if (mcpResumeTimerRef.current !== null) {
+        window.clearTimeout(mcpResumeTimerRef.current);
+        mcpResumeTimerRef.current = null;
+      }
+    },
+    [],
   );
 
   useEffect(() => {
@@ -3591,6 +4774,9 @@ const AssistantChatInner = forwardRef<
           undefined,
           false,
           options?.trackInRunsTray === true,
+          false,
+          false,
+          options?.submitMessageId,
         );
       },
       prefillMessage(text: string) {
@@ -3636,6 +4822,26 @@ const AssistantChatInner = forwardRef<
       isRunning() {
         return isRunning;
       },
+      hasInFlightWork() {
+        const current = messagesRef.current;
+        const last = current[current.length - 1] as
+          | { role?: unknown; content?: unknown }
+          | undefined;
+        if (
+          !last ||
+          last.role !== "assistant" ||
+          !Array.isArray(last.content)
+        ) {
+          return false;
+        }
+        return last.content.some(
+          (part) =>
+            part &&
+            typeof part === "object" &&
+            (part as { type?: unknown }).type === "tool-call" &&
+            !toolCallPartHasResult(part),
+        );
+      },
       focusComposer() {
         tiptapRef.current?.focus();
       },
@@ -3660,10 +4866,91 @@ const AssistantChatInner = forwardRef<
     ],
   );
 
-  const visibleReconnectContent = useMemo(
-    () => dedupeReconnectContentAgainstMessages(reconnectContent, messages),
-    [messages, reconnectContent],
+  // Do not memoize this on `messages` identity. assistant-ui can update the
+  // live assistant message content in place while streaming, and the reconnect
+  // overlay must hide as soon as that live message has caught up.
+  const visibleReconnectContent = dedupeReconnectContentAgainstMessages(
+    reconnectContent,
+    messages,
+    {
+      suppressToolRepeats: adapterHandoffPending,
+      trimTailTextOverlap:
+        adapterHandoffPending || reconnectTailOnlyRef.current,
+    },
   );
+  const latestMessage = messages[messages.length - 1];
+  const reconnectStatusContent =
+    visibleReconnectContent.length > 0
+      ? visibleReconnectContent
+      : reconnectContent.length === 0
+        ? reconnectActivityContent
+        : [];
+  const showGlobalRunningStatus = shouldShowGlobalRunningStatus({
+    showRunningInUI,
+    runningActivityLabel,
+    runningActivityTool,
+    latestMessage,
+    reconnectContent: reconnectStatusContent,
+  });
+  const autoscrollFollowKey = [
+    messages.map(messageFollowKey).join(";"),
+    `q:${queuedMessages.map(queuedMessageFollowKey).join("|")}`,
+    `r:${reconnectContentFollowKey(visibleReconnectContent)}`,
+    `status:${assistantChatAutoscrollStatusKey({
+      showGlobalRunningStatus,
+      runningStatusLabel,
+    })}`,
+  ].join(";;");
+  const {
+    scrollRef,
+    isNearBottomRef,
+    showScrollToBottom,
+    scrollToBottom,
+    scrollToBottomAfterPaint,
+    resumeFollowing,
+  } = useNearBottomAutoscroll<HTMLDivElement>({
+    followKey: autoscrollFollowKey,
+    streaming: textStreaming,
+  });
+  resumeFollowingRef.current = resumeFollowing;
+
+  const scrollToBottomWhileLayoutSettles = useCallback(() => {
+    scrollToBottomAfterPaint();
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+
+    let stopped = false;
+    const observer = new ResizeObserver(() => {
+      if (!stopped && isNearBottomRef.current) scrollToBottom();
+    });
+    observer.observe(element);
+    const timeout = window.setTimeout(() => {
+      stopped = true;
+      observer.disconnect();
+      if (isNearBottomRef.current) scrollToBottom();
+    }, 1600);
+
+    return () => {
+      stopped = true;
+      window.clearTimeout(timeout);
+      observer.disconnect();
+    };
+  }, [isNearBottomRef, scrollRef, scrollToBottom, scrollToBottomAfterPaint]);
+
+  const wasRestoringRef = useRef(isRestoring);
+  useEffect(() => {
+    const wasRestoring = wasRestoringRef.current;
+    wasRestoringRef.current = isRestoring;
+    if (wasRestoring && !isRestoring) {
+      return scrollToBottomWhileLayoutSettles();
+    }
+  }, [isRestoring, scrollToBottomWhileLayoutSettles]);
+
+  useEffect(() => {
+    if (!textStreaming && isNearBottomRef.current) {
+      scrollToBottomAfterPaint();
+    }
+  }, [isNearBottomRef, scrollToBottomAfterPaint, textStreaming]);
   const chatScrollResetKey = `${tabId ?? ""}:${threadId ?? ""}`;
 
   const { isDevMode: cpDevMode } = useDevMode(apiUrl);
@@ -3686,11 +4973,11 @@ const AssistantChatInner = forwardRef<
     () => latestNonRecoveryUserMessageText(messages),
     [messages],
   );
-  const latestMessage = messages[messages.length - 1];
   const latestMessageRole = latestMessage?.role;
   const latestAssistantWasPlan =
     latestMessageRole === "assistant" &&
     getRequestModeMetadata(latestMessage) === "plan";
+  const showMissingKeySetup = missingApiKey && !authError;
   const showPlanModeCallout =
     execMode === "plan" &&
     !planModeDisabled &&
@@ -3772,7 +5059,7 @@ const AssistantChatInner = forwardRef<
   const showComposerSlot =
     Boolean(composerSlot) && (!centerComposerWhenEmpty || centeredEmptyState);
   const compactMissingKeyEmptyState =
-    missingApiKeySetupAboveComposer &&
+    missingApiKeySetupLayout === "sidebar" &&
     missingApiKey &&
     !authError &&
     showEmptyState &&
@@ -3801,6 +5088,7 @@ const AssistantChatInner = forwardRef<
     showComposerSlot ||
     showCenteredEmptyThreadFooterSlot ||
     (guidedQuestions && guidedQuestions.length > 0) ||
+    showScrollToBottom ||
     composerContextItems.length > 0 ||
     showPlanModeCallout,
   );
@@ -3834,574 +5122,655 @@ const AssistantChatInner = forwardRef<
           ),
         } as Parameters<typeof threadRuntime.append>[0]);
       },
+      ...(approvalActions?.onDeny ? { onDeny: approvalActions.onDeny } : {}),
+      ...(approvalActions?.onAlwaysAllow
+        ? { onAlwaysAllow: approvalActions.onAlwaysAllow }
+        : {}),
     }),
-    [appendThreadMessage, execMode, markOptimisticRunning],
+    [appendThreadMessage, execMode, markOptimisticRunning, approvalActions],
   );
 
   return (
     <CheckpointContext.Provider value={checkpointCtx}>
       <MessageActionsContext.Provider value={messageActionsCtx}>
         <ApprovalContext.Provider value={approvalCtx}>
-          <ChatRunningContext.Provider value={showRunningInUI}>
-            <TextStreamingContext.Provider value={textStreaming}>
-              <div
-                data-agent-empty-state={
-                  centeredEmptyState
-                    ? "centered"
-                    : compactMissingKeyEmptyState
-                      ? "compact-setup"
-                      : undefined
-                }
-                className={cn(
-                  "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
-                  className,
-                )}
-                onDragEnter={handleChatDragEnter}
-                onDragOver={handleChatDragOver}
-                onDragLeave={handleChatDragLeave}
-                onDropCapture={handleChatDropCapture}
-                onDrop={handleChatDrop}
-              >
-                {dropActive && (
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
-                  >
-                    <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
-                      Drop to attach
-                    </span>
-                  </div>
-                )}
-                {showHeader && (
-                  <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
-                    <span className="text-[13px] font-medium text-muted-foreground">
-                      Agent
-                    </span>
-                    <div className="flex items-center gap-1">
-                      {onSwitchToCli && (
-                        <TooltipProvider delayDuration={200}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={onSwitchToCli}
-                                aria-label="Switch to CLI"
-                                className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
-                              >
-                                <IconTerminal className="h-3.5 w-3.5" />
-                                CLI
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Switch to CLI</TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
+          <ChatRunDurationContext.Provider value={lastChatRunDurationMs}>
+            <ChatRunningContext.Provider value={showRunningInUI}>
+              <TextStreamingContext.Provider value={textStreaming}>
+                <div
+                  data-agent-empty-state={
+                    centeredEmptyState
+                      ? "centered"
+                      : compactMissingKeyEmptyState
+                        ? "compact-setup"
+                        : undefined
+                  }
+                  className={cn(
+                    "relative flex flex-1 flex-col h-full min-h-0 text-foreground",
+                    className,
+                  )}
+                  onDragEnter={handleChatDragEnter}
+                  onDragOver={handleChatDragOver}
+                  onDragLeave={handleChatDragLeave}
+                  onDropCapture={handleChatDropCapture}
+                  onDrop={handleChatDrop}
+                >
+                  {dropActive && (
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center rounded-md border-2 border-dashed border-primary/70 bg-primary/5 backdrop-blur-[1px]"
+                    >
+                      <span className="rounded-md bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-sm">
+                        Drop to attach
+                      </span>
                     </div>
-                  </div>
-                )}
+                  )}
+                  {showHeader && (
+                    <div className="flex h-11 shrink-0 items-center justify-between border-b border-border px-4">
+                      <span className="text-[13px] font-medium text-muted-foreground">
+                        Agent
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {onSwitchToCli && (
+                          <TooltipProvider delayDuration={200}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={onSwitchToCli}
+                                  aria-label="Switch to CLI"
+                                  className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md hover:bg-accent"
+                                >
+                                  <IconTerminal className="h-3.5 w-3.5" />
+                                  CLI
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>Switch to CLI</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-                {/* Messages area */}
-                <MessageScrollerProvider key={chatScrollResetKey} autoScroll>
-                  <MessageScroller className="agent-chat-scroll">
-                    <MessageScrollerViewport>
-                      {authError ? (
-                        <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            {authSessionAvailable ? (
-                              <IconRefresh className="h-5 w-5 text-muted-foreground" />
-                            ) : (
-                              <IconMessage className="h-5 w-5 text-muted-foreground" />
-                            )}
-                          </div>
-                          <div className="text-center max-w-[280px]">
-                            <p className="text-sm font-medium text-foreground mb-1">
-                              {authSessionAvailable
-                                ? "Chat session needs refresh"
-                                : authError.sessionExpired
-                                  ? "Session expired"
-                                  : "Authentication required"}
-                            </p>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                              {authSessionAvailable
-                                ? "You're signed in, but this chat connection needs to reconnect."
-                                : authError.sessionExpired
-                                  ? "Your session may have expired. Log out and log back in to reconnect."
-                                  : "You need to log in to use the agent."}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            {!authError.sessionExpired &&
-                              !authSessionAvailable && (
-                                <button
-                                  onClick={() => {
-                                    const ret =
-                                      window.location.pathname +
-                                      window.location.search;
-                                    window.location.href =
-                                      agentNativePath(
-                                        "/_agent-native/sign-in",
-                                      ) + `?return=${encodeURIComponent(ret)}`;
-                                  }}
-                                  className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
-                                >
-                                  Log in
-                                </button>
+                  {/* Messages area */}
+                  <MessageScrollerProvider
+                    key={chatScrollResetKey}
+                    autoScroll={false}
+                  >
+                    <MessageScroller className="agent-chat-scroll">
+                      <MessageScrollerViewport ref={scrollRef}>
+                        {authError ? (
+                          <div className="flex flex-col items-center justify-center h-full px-4 gap-3">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                              {authSessionAvailable ? (
+                                <IconRefresh className="h-5 w-5 text-muted-foreground" />
+                              ) : (
+                                <IconMessage className="h-5 w-5 text-muted-foreground" />
                               )}
-                            {authError.sessionExpired &&
-                              !authSessionAvailable && (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await fetch(
+                            </div>
+                            <div className="text-center max-w-[280px]">
+                              <p className="text-sm font-medium text-foreground mb-1">
+                                {authSessionAvailable
+                                  ? "Chat session needs refresh"
+                                  : authError.sessionExpired
+                                    ? "Session expired"
+                                    : "Authentication required"}
+                              </p>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                {authSessionAvailable
+                                  ? "You're signed in, but this chat connection needs to reconnect."
+                                  : authError.sessionExpired
+                                    ? "Your session may have expired. Log out and log back in to reconnect."
+                                    : "You need to log in to use the agent."}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              {!authError.sessionExpired &&
+                                !authSessionAvailable && (
+                                  <button
+                                    onClick={() => {
+                                      const ret =
+                                        window.location.pathname +
+                                        window.location.search;
+                                      window.location.href =
                                         agentNativePath(
-                                          "/_agent-native/auth/logout",
-                                        ),
-                                        {
-                                          method: "POST",
-                                        },
-                                      );
-                                    } catch {}
-                                    window.location.reload();
-                                  }}
-                                  className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
-                                >
-                                  Log out
-                                </button>
-                              )}
-                            <button
-                              onClick={() => {
-                                setAuthError(null);
-                                window.location.reload();
-                              }}
-                              className={
-                                authSessionAvailable
-                                  ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
-                                  : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
-                              }
-                            >
-                              Refresh chat
-                            </button>
-                          </div>
-                        </div>
-                      ) : isRestoring && centeredRestoringState ? (
-                        <div
-                          className={cn(
-                            "agent-empty-state",
-                            emptyStateDisplay === "hidden"
-                              ? "sr-only"
-                              : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
-                          )}
-                          aria-busy="true"
-                        >
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <IconMessage className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <p className="sr-only">
-                            {emptyStateText ?? "Loading chat..."}
-                          </p>
-                        </div>
-                      ) : isRestoring ? (
-                        <div className="flex flex-col gap-3 p-4">
-                          <div className="flex justify-end">
-                            <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
-                          </div>
-                          <div className="flex flex-col gap-1.5">
-                            <div className="h-4 w-48 rounded bg-muted animate-pulse" />
-                            <div className="h-4 w-64 rounded bg-muted animate-pulse" />
-                            <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-                          </div>
-                        </div>
-                      ) : showEmptyState ? (
-                        <div
-                          className={cn(
-                            "agent-empty-state",
-                            emptyStateDisplay === "hidden"
-                              ? "sr-only"
-                              : "flex h-full flex-col items-center justify-center gap-4 px-4 py-16",
-                          )}
-                        >
-                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted">
-                            <IconMessage className="h-5 w-5 text-muted-foreground" />
-                          </div>
-                          <p className="sr-only">
-                            {emptyStateText ?? "How can I help you?"}
-                          </p>
-                          {emptyStateAddon}
-                          {resolvedSuggestions &&
-                          resolvedSuggestions.length > 0 ? (
-                            <div className="flex flex-col gap-1.5 w-full max-w-[280px]">
-                              {resolvedSuggestions.map((suggestion) => (
-                                <button
-                                  key={suggestion}
-                                  onClick={() => {
-                                    if (missingApiKey) {
-                                      setMissingKeyBouncePulse((p) => p + 1);
-                                      return;
-                                    }
-                                    void addToQueue(suggestion);
-                                  }}
-                                  className="w-full rounded-lg border border-border px-3 py-2 text-start text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
-                                >
-                                  {suggestion}
-                                </button>
-                              ))}
+                                          "/_agent-native/sign-in",
+                                        ) +
+                                        `?return=${encodeURIComponent(ret)}`;
+                                    }}
+                                    className="text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                  >
+                                    Log in
+                                  </button>
+                                )}
+                              {authError.sessionExpired &&
+                                !authSessionAvailable && (
+                                  <button
+                                    onClick={async () => {
+                                      try {
+                                        await fetch(
+                                          agentNativePath(
+                                            "/_agent-native/auth/logout",
+                                          ),
+                                          {
+                                            method: "POST",
+                                          },
+                                        );
+                                      } catch {}
+                                      window.location.reload();
+                                    }}
+                                    className="text-xs text-destructive hover:text-destructive/80 px-3 py-1.5 rounded-md border border-destructive/30 hover:bg-destructive/10"
+                                  >
+                                    Log out
+                                  </button>
+                                )}
+                              <button
+                                onClick={() => {
+                                  setAuthError(null);
+                                  window.location.reload();
+                                }}
+                                className={
+                                  authSessionAvailable
+                                    ? "text-xs text-background bg-foreground hover:opacity-90 px-3 py-1.5 rounded-md"
+                                    : "text-xs text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-md border border-border hover:bg-accent"
+                                }
+                              >
+                                Refresh chat
+                              </button>
                             </div>
-                          ) : null}
-                          {showInlineEmptyThreadFooterSlot ? (
-                            <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
-                              {resolvedThreadFooterSlot}
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
-                          <AssistantMessageListErrorBoundary
-                            resetKey={messageListResetKey}
+                          </div>
+                        ) : isRestoring && centeredRestoringState ? (
+                          <div
+                            className={cn(
+                              "agent-empty-state",
+                              emptyStateDisplay === "hidden"
+                                ? "sr-only"
+                                : "flex h-full flex-col items-center justify-center gap-3 px-4 py-16",
+                            )}
+                            aria-busy="true"
                           >
-                            <ThreadPrimitive.Messages
-                              components={{
-                                UserMessage: AssistantChatUserMessageItem,
-                                AssistantMessage:
-                                  AssistantChatAssistantMessageItem,
-                              }}
-                            />
-                          </AssistantMessageListErrorBoundary>
-                          {visibleLoopLimit && !showRunningInUI && (
-                            <MessageScrollerItem>
-                              <LoopLimitContinueCard
-                                info={visibleLoopLimit}
-                                onContinue={() => {
-                                  setShowContinue(false);
-                                  setLoopLimitInfo(null);
-                                  addToQueue(
-                                    "Continue from where you left off.",
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    "queued",
-                                    "continue",
-                                  );
-                                }}
-                              />
-                            </MessageScrollerItem>
-                          )}
-                          {shouldShowRunError && visibleRunError && (
-                            <MessageScrollerItem>
-                              <RunErrorRecoveryCard
-                                info={visibleRunError}
-                                onContinue={() => {
-                                  setRunErrorInfo(null);
-                                  addToQueue(
-                                    RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    "queued",
-                                    "continue",
-                                  );
-                                }}
-                                onRetry={() => {
-                                  setRunErrorInfo(null);
-                                  addToQueue(
-                                    lastUserText
-                                      ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
-                                      : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    undefined,
-                                    "queued",
-                                    "retry",
-                                  );
-                                }}
-                                onFork={onForkChat}
-                                onDismiss={() => {
-                                  if (visibleRunErrorKey) {
-                                    setDismissedRunErrorKey(visibleRunErrorKey);
-                                  }
-                                  setRunErrorInfo(null);
-                                }}
-                              />
-                            </MessageScrollerItem>
-                          )}
-                          {(isReconnecting || reconnectFrozen) &&
-                            visibleReconnectContent.length > 0 && (
-                              <MessageScrollerItem>
-                                <ReconnectStreamMessage
-                                  content={visibleReconnectContent}
-                                />
-                              </MessageScrollerItem>
+                            <IconMessage className="h-5 w-5 text-muted-foreground/60" />
+                            <p className="sr-only">
+                              {emptyStateText ?? "Loading chat..."}
+                            </p>
+                          </div>
+                        ) : isRestoring ? (
+                          <div className="flex flex-col gap-3 p-4">
+                            <div className="flex justify-end">
+                              <div className="h-8 w-32 rounded-lg bg-muted animate-pulse" />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="h-4 w-48 rounded bg-muted animate-pulse" />
+                              <div className="h-4 w-64 rounded bg-muted animate-pulse" />
+                              <div className="h-4 w-40 rounded bg-muted animate-pulse" />
+                            </div>
+                          </div>
+                        ) : showEmptyState ? (
+                          <div
+                            className={cn(
+                              "agent-empty-state",
+                              emptyStateDisplay === "hidden"
+                                ? "sr-only"
+                                : "flex h-full flex-col items-center justify-center gap-3 px-4 py-16",
                             )}
-                          {(isReconnecting || reconnectFrozen) &&
-                            visibleReconnectContent.length === 0 &&
-                            reconnectContent.length === 0 &&
-                            reconnectActivityContent.length > 0 && (
-                              <MessageScrollerItem>
-                                <ReconnectStreamMessage
-                                  content={reconnectActivityContent}
-                                />
-                              </MessageScrollerItem>
-                            )}
-                          {showRunningInUI && (
-                            <MessageScrollerItem>
-                              <RunningActivityStatus
-                                label={runningStatusLabel}
-                              />
-                            </MessageScrollerItem>
-                          )}
-                          {queuedMessages
-                            .filter((msg) => !msg.hideUserMessage)
-                            .map((msg) => {
-                              const displayText = displayableUserMessageText(
-                                msg.text,
-                              );
-                              return (
-                                <MessageScrollerItem
-                                  key={msg.id}
-                                  messageId={msg.id}
-                                  scrollAnchor
-                                >
-                                  <div className="group flex items-start justify-end gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        applyLocalQueuedMessages((prev) =>
-                                          prev.filter((m) => m.id !== msg.id),
-                                        )
+                          >
+                            <IconMessage className="h-5 w-5 text-muted-foreground/60" />
+                            <p className="sr-only">
+                              {emptyStateText ?? "How can I help you?"}
+                            </p>
+                            {emptyStateAddon}
+                            {resolvedSuggestions &&
+                            resolvedSuggestions.length > 0 ? (
+                              <div className="flex w-full max-w-[280px] flex-col gap-1">
+                                {resolvedSuggestions.map((suggestion) => (
+                                  <button
+                                    key={suggestion}
+                                    onClick={() => {
+                                      if (missingApiKey) {
+                                        requestMissingKeySetup();
+                                        return;
                                       }
-                                      aria-label="Remove from queue"
-                                      className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
-                                    >
-                                      <IconX className="h-3 w-3" />
-                                    </button>
-                                    <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
-                                      {displayText}
-                                      {msg.images && msg.images.length > 0 && (
-                                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                                          {msg.images.map((img, j) => (
-                                            <img
-                                              key={j}
-                                              src={img}
-                                              alt=""
-                                              className="h-12 w-12 rounded object-cover border border-border/50"
-                                            />
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </MessageScrollerItem>
-                              );
-                            })}
-                          {resolvedThreadFooterSlot ? (
-                            <MessageScrollerItem>
-                              <div className="agent-thread-footer-slot">
+                                      void addToQueue(suggestion);
+                                    }}
+                                    className="w-full px-2 py-1 text-center text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                  >
+                                    {suggestion}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                            {showInlineEmptyThreadFooterSlot ? (
+                              <div className="agent-thread-footer-slot agent-thread-footer-slot--empty">
                                 {resolvedThreadFooterSlot}
                               </div>
-                            </MessageScrollerItem>
-                          ) : null}
-                        </MessageScrollerContent>
-                      )}
-                    </MessageScrollerViewport>
-                    {!authError && !isRestoring && !showEmptyState ? (
-                      <MessageScrollerButton />
-                    ) : null}
-                  </MessageScroller>
-                </MessageScrollerProvider>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <MessageScrollerContent className="agent-thread-content gap-4 px-4 py-4">
+                            <AssistantMessageListErrorBoundary
+                              resetKey={messageListResetKey}
+                            >
+                              <ThreadPrimitive.Messages
+                                components={{
+                                  UserMessage: AssistantChatUserMessageItem,
+                                  AssistantMessage:
+                                    AssistantChatAssistantMessageItem,
+                                }}
+                              />
+                            </AssistantMessageListErrorBoundary>
+                            {visibleLoopLimit && !showRunningInUI && (
+                              <MessageScrollerItem>
+                                <LoopLimitContinueCard
+                                  info={visibleLoopLimit}
+                                  onContinue={() => {
+                                    setShowContinue(false);
+                                    setLoopLimitInfo(null);
+                                    addToQueue(
+                                      "Continue from where you left off.",
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      "queued",
+                                      "continue",
+                                    );
+                                  }}
+                                />
+                              </MessageScrollerItem>
+                            )}
+                            {shouldShowRunError && visibleRunError && (
+                              <MessageScrollerItem>
+                                <RunErrorRecoveryCard
+                                  info={visibleRunError}
+                                  onContinue={() => {
+                                    setRunErrorInfo(null);
+                                    addToQueue(
+                                      RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      "queued",
+                                      "continue",
+                                    );
+                                  }}
+                                  onRetry={() => {
+                                    setRunErrorInfo(null);
+                                    addToQueue(
+                                      lastUserText
+                                        ? `Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.\n\nOriginal request:\n\n${lastUserText}`
+                                        : "Retry the previous request from a clean approach. Do not rerun the exact same failed tool input unless the failure was transient or the user explicitly asked for an exact rerun. If a provider query failed because of schema, syntax, or type mismatch, diagnose the error and adjust the query first.",
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      undefined,
+                                      "queued",
+                                      "retry",
+                                    );
+                                  }}
+                                  onFork={onForkChat}
+                                  onDismiss={() => {
+                                    if (visibleRunErrorKey) {
+                                      setDismissedRunErrorKey(
+                                        visibleRunErrorKey,
+                                      );
+                                    }
+                                    setRunErrorInfo(null);
+                                  }}
+                                />
+                              </MessageScrollerItem>
+                            )}
+                            {(isReconnecting ||
+                              reconnectFrozen ||
+                              adapterHandoffPending) &&
+                              visibleReconnectContent.length > 0 && (
+                                <MessageScrollerItem>
+                                  <ReconnectStreamMessage
+                                    content={visibleReconnectContent}
+                                  />
+                                </MessageScrollerItem>
+                              )}
+                            {(isReconnecting ||
+                              reconnectFrozen ||
+                              adapterHandoffPending) &&
+                              visibleReconnectContent.length === 0 &&
+                              reconnectContent.length === 0 &&
+                              reconnectActivityContent.length > 0 && (
+                                <MessageScrollerItem>
+                                  <ReconnectStreamMessage
+                                    content={reconnectActivityContent}
+                                  />
+                                </MessageScrollerItem>
+                              )}
+                            {showGlobalRunningStatus && (
+                              <MessageScrollerItem>
+                                <RunningActivityStatus
+                                  label={runningStatusLabel}
+                                />
+                              </MessageScrollerItem>
+                            )}
+                            {queuedMessages
+                              .filter((msg) => !msg.hideUserMessage)
+                              .map((msg) => {
+                                const displayText = displayableUserMessageText(
+                                  msg.text,
+                                );
+                                const imageSources =
+                                  queuedMessageImageSources(msg);
+                                return (
+                                  <MessageScrollerItem
+                                    key={msg.id}
+                                    messageId={msg.id}
+                                  >
+                                    <div className="group flex items-start justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          applyLocalQueuedMessages((prev) =>
+                                            prev.filter((m) => m.id !== msg.id),
+                                          )
+                                        }
+                                        aria-label="Remove from queue"
+                                        className="mt-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                                      >
+                                        <IconX className="h-3 w-3" />
+                                      </button>
+                                      <div className="max-w-[85%] rounded-lg bg-accent/50 px-3 py-2 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap break-words">
+                                        {displayText}
+                                        {imageSources.length > 0 && (
+                                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                            {imageSources.map((img, j) => (
+                                              <img
+                                                key={j}
+                                                src={img}
+                                                alt=""
+                                                className="h-12 w-12 rounded object-cover border border-border/50"
+                                              />
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </MessageScrollerItem>
+                                );
+                              })}
+                            {resolvedThreadFooterSlot ? (
+                              <MessageScrollerItem>
+                                <div className="agent-thread-footer-slot">
+                                  {resolvedThreadFooterSlot}
+                                </div>
+                              </MessageScrollerItem>
+                            ) : null}
+                          </MessageScrollerContent>
+                        )}
+                      </MessageScrollerViewport>
+                      {!authError &&
+                      !isRestoring &&
+                      !showEmptyState &&
+                      showScrollToBottom ? (
+                        <div className="shrink-0 flex justify-center -mb-1">
+                          <button
+                            type="button"
+                            onClick={scrollToBottom}
+                            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background shadow-sm hover:bg-accent"
+                            aria-label="Scroll to bottom"
+                          >
+                            <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                          </button>
+                        </div>
+                      ) : null}
+                    </MessageScroller>
+                  </MessageScrollerProvider>
 
-                {showComposerSlot ? composerSlot : null}
-                {showCenteredEmptyThreadFooterSlot ? (
-                  <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
-                    {resolvedThreadFooterSlot}
-                  </div>
-                ) : null}
-                {guidedQuestions && guidedQuestions.length > 0 && (
-                  <div className="shrink-0 px-3 pb-2">
-                    <GuidedQuestionFlow
-                      questions={guidedQuestions}
-                      onSubmit={handleGuidedQuestionsSubmit}
-                      onSkip={handleGuidedQuestionsSkip}
-                      {...(guidedQuestionsTitle
-                        ? { title: guidedQuestionsTitle }
-                        : {})}
-                      {...(guidedQuestionsDescription
-                        ? { description: guidedQuestionsDescription }
-                        : {})}
-                      {...(guidedQuestionsSkipLabel
-                        ? { skipLabel: guidedQuestionsSkipLabel }
-                        : {})}
-                      {...(guidedQuestionsSubmitLabel
-                        ? { submitLabel: guidedQuestionsSubmitLabel }
-                        : {})}
-                      className="h-auto items-stretch justify-stretch bg-transparent"
-                    />
-                  </div>
-                )}
-                {/* Inline attachment / body-size error */}
-                {composerError && (
-                  <div
-                    role="alert"
-                    className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-                  >
-                    <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                    <span className="flex-1 leading-snug">{composerError}</span>
-                    <button
-                      type="button"
-                      aria-label="Dismiss error"
-                      onClick={() => setComposerError(null)}
-                      className="shrink-0 opacity-70 hover:opacity-100"
-                    >
-                      <IconX className="h-3 w-3" />
-                    </button>
-                  </div>
-                )}
-                <div
-                  className="agent-composer-stack"
-                  data-agent-composer-adjacent-ui={
-                    hasComposerAccessoryAboveStack ? "true" : undefined
-                  }
-                >
-                  <SelectionAttachedPill />
-                  {missingApiKey &&
-                  !authError &&
-                  missingApiKeySetupAboveComposer ? (
-                    <div
-                      className="agent-composer-setup-card"
-                      data-agent-composer-setup-position="above"
-                    >
-                      <BuilderSetupCard
-                        onConnected={handleBuilderConnected}
-                        bouncePulse={missingKeyBouncePulse}
-                        layout={missingApiKeySetupLayout}
-                      />
+                  {showComposerSlot ? composerSlot : null}
+                  {isActiveComposer && (
+                    <McpConnectionSuggestion text={composerText} />
+                  )}
+                  {showCenteredEmptyThreadFooterSlot ? (
+                    <div className="agent-thread-footer-slot agent-thread-footer-slot--centered-empty">
+                      {resolvedThreadFooterSlot}
                     </div>
                   ) : null}
-                  {showPlanModeCallout && (
-                    <PlanModeCallout
-                      canImplementPlan={canImplementPlan}
-                      onImplementPlan={handleImplementPlan}
-                      onSwitchToAct={handleSwitchToAct}
-                    />
+                  {guidedQuestions && guidedQuestions.length > 0 && (
+                    <div className="shrink-0 px-3 pb-2">
+                      <GuidedQuestionFlow
+                        questions={guidedQuestions}
+                        onSubmit={handleGuidedQuestionsSubmit}
+                        onSkip={handleGuidedQuestionsSkip}
+                        {...(guidedQuestionsTitle
+                          ? { title: guidedQuestionsTitle }
+                          : {})}
+                        {...(guidedQuestionsDescription
+                          ? { description: guidedQuestionsDescription }
+                          : {})}
+                        {...(guidedQuestionsSkipLabel
+                          ? { skipLabel: guidedQuestionsSkipLabel }
+                          : {})}
+                        {...(guidedQuestionsSubmitLabel
+                          ? { submitLabel: guidedQuestionsSubmitLabel }
+                          : {})}
+                        className="h-auto items-stretch justify-stretch bg-transparent"
+                      />
+                    </div>
                   )}
-                  {/* Input area */}
-                  <AgentComposerFrame
-                    layoutVariant={composerLayoutVariant}
-                    className={cn(
-                      composerAreaClassName,
-                      missingApiKey && "cursor-pointer",
-                      isComposerDisabled && "opacity-70",
-                    )}
-                    onClick={
-                      missingApiKey
-                        ? () => setMissingKeyBouncePulse((p) => p + 1)
-                        : undefined
+                  {/* Inline attachment / body-size error */}
+                  {composerError && (
+                    <div
+                      role="alert"
+                      className="shrink-0 mx-3 mb-1.5 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                    >
+                      <IconAlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span className="flex-1 leading-snug">
+                        {composerError}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="Dismiss error"
+                        onClick={() => setComposerError(null)}
+                        className="shrink-0 opacity-70 hover:opacity-100"
+                      >
+                        <IconX className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                  <div
+                    className="agent-composer-stack"
+                    data-agent-composer-adjacent-ui={
+                      hasComposerAccessoryAboveStack ? "true" : undefined
                     }
                   >
-                    <ComposerAttachmentPreviewStrip />
-                    <TiptapComposer
-                      focusRef={tiptapRef}
-                      disabled={isComposerDisabled}
-                      placeholder={
-                        missingApiKey
-                          ? missingApiKeySetupAboveComposer
-                            ? "Connect AI above to start chatting..."
-                            : "Connect AI below to start chatting..."
-                          : composerDisabled
-                            ? (composerDisabledPlaceholder ??
-                              "Open Desktop to use this chat.")
-                            : isRunning
-                              ? queuedMessages.length > 0
-                                ? `${queuedMessages.length} queued — send a follow-up...`
-                                : "Send a follow-up..."
-                              : composerPlaceholder
-                      }
-                      onSubmit={
-                        isRunning || composerContextItems.length > 0
-                          ? (text, references, attachments, options) =>
-                              void addToQueue(
-                                text,
-                                undefined,
-                                references.length > 0 ? references : undefined,
-                                attachments,
-                                undefined,
-                                resolveAssistantChatSubmitIntent({
-                                  isRunning,
-                                  requestedIntent: options?.intent,
-                                }),
-                                undefined,
-                                true,
-                              )
-                          : undefined
-                      }
-                      onSlashCommand={onSlashCommand}
-                      onBeforeSubmit={ensureAgentEngineReadyForSubmit}
-                      execMode={execMode}
-                      onExecModeChange={onExecModeChange}
-                      planModeDisabled={planModeDisabled}
-                      planModeDisabledReason={planModeDisabledReason}
-                      selectedModel={selectedModel ?? defaultModel}
-                      selectedEffort={selectedEffort}
-                      availableModels={availableModels}
-                      onModelChange={onModelChange}
-                      onEffortChange={onEffortChange}
-                      imageModelMenu={imageModelMenu}
-                      onConnectProvider={onConnectProvider}
-                      toolbarSlot={composerToolbarSlot}
-                      contextItems={composerContextItems}
-                      onRemoveContextItem={removeComposerContextItem}
-                      plusMenuMode={plusMenuMode}
-                      layoutVariant={composerLayoutVariant}
-                      providerConnectStatusEnabled={providerStatusChecksEnabled}
-                      draftScope={threadId || tabId}
-                      interceptBuildRequestsForBuilder
-                      onAttachmentError={setComposerError}
-                      extraActionButton={
-                        contextXRayEnabled ||
-                        composerExtraActionButton ||
-                        showRunningInUI ? (
-                          <>
-                            {contextXRayEnabled && (
-                              <ContextMeter threadId={threadId} />
-                            )}
-                            {composerExtraActionButton}
-                            {showRunningInUI && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={stopActiveRun}
-                                    className="shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-muted text-foreground hover:bg-muted/80"
-                                  >
-                                    <IconPlayerStop className="h-3.5 w-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>Stop generating</TooltipContent>
-                              </Tooltip>
-                            )}
-                          </>
-                        ) : undefined
-                      }
-                    />
-                  </AgentComposerFrame>
-                  {missingApiKey &&
-                  !authError &&
-                  !missingApiKeySetupAboveComposer ? (
-                    <div
-                      className="agent-composer-setup-card"
-                      data-agent-composer-setup-position="below"
-                    >
-                      <BuilderSetupCard
-                        onConnected={handleBuilderConnected}
-                        bouncePulse={missingKeyBouncePulse}
-                        layout={missingApiKeySetupLayout}
+                    <SelectionAttachedPill />
+                    {showPlanModeCallout && (
+                      <PlanModeCallout
+                        canImplementPlan={canImplementPlan}
+                        onImplementPlan={handleImplementPlan}
+                        onSwitchToAct={handleSwitchToAct}
                       />
-                    </div>
-                  ) : null}
+                    )}
+                    {/* Input area */}
+                    <Popover
+                      open={showMissingKeySetup && missingKeySetupOpen}
+                      onOpenChange={setMissingKeySetupOpen}
+                    >
+                      <AgentComposerFrame
+                        layoutVariant={composerLayoutVariant}
+                        className={cn(
+                          composerAreaClassName,
+                          isComposerDisabled &&
+                            !showMissingKeySetup &&
+                            "opacity-70",
+                          isProviderStatusUnavailable && "cursor-pointer",
+                        )}
+                        rootClassName={cn(
+                          showMissingKeySetup &&
+                            "agent-composer-root--missing-key",
+                        )}
+                        onClick={
+                          isProviderStatusUnavailable
+                            ? retryAgentEngineStatus
+                            : undefined
+                        }
+                      >
+                        {showMissingKeySetup ? (
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className="agent-composer-missing-key-trigger"
+                              aria-label="Connect AI to start chatting"
+                            >
+                              <span className="agent-composer-missing-key-content">
+                                <span className="agent-composer-missing-key-copy">
+                                  <span className="agent-composer-missing-key-title">
+                                    {missingApiKeySetupLayout === "sidebar"
+                                      ? "Connect AI to chat"
+                                      : "Connect AI to start chatting"}
+                                  </span>
+                                  {missingApiKeySetupLayout !== "sidebar" ? (
+                                    <span className="agent-composer-missing-key-description">
+                                      Builder.io includes free credits, or use
+                                      your own API key.
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="agent-composer-missing-key-cta">
+                                  Connect AI
+                                </span>
+                              </span>
+                            </button>
+                          </PopoverTrigger>
+                        ) : (
+                          <>
+                            <ComposerAttachmentPreviewStrip />
+                            <TiptapComposer
+                              focusRef={tiptapRef}
+                              onTextChange={
+                                isActiveComposer
+                                  ? handleComposerTextChange
+                                  : undefined
+                              }
+                              disabled={isComposerDisabled}
+                              placeholder={
+                                missingApiKey
+                                  ? "Connect AI to start chatting..."
+                                  : isProviderStatusUnavailable
+                                    ? t("agentPanel.connectionUnavailable")
+                                    : isProviderStatusChecking
+                                      ? t("agentPanel.checkingAiConnection")
+                                      : composerDisabled
+                                        ? (composerDisabledPlaceholder ??
+                                          "Open Desktop to use this chat.")
+                                        : isRunning
+                                          ? queuedMessages.length > 0
+                                            ? `${queuedMessages.length} queued — send a follow-up...`
+                                            : "Send a follow-up..."
+                                          : composerPlaceholder
+                              }
+                              onSubmit={
+                                isRunning || composerContextItems.length > 0
+                                  ? (text, references, attachments, options) =>
+                                      void addToQueue(
+                                        text,
+                                        undefined,
+                                        references.length > 0
+                                          ? references
+                                          : undefined,
+                                        attachments,
+                                        undefined,
+                                        resolveAssistantChatSubmitIntent({
+                                          isRunning,
+                                          requestedIntent: options?.intent,
+                                        }),
+                                        undefined,
+                                        true,
+                                      )
+                                  : undefined
+                              }
+                              onSlashCommand={onSlashCommand}
+                              execMode={execMode}
+                              onExecModeChange={onExecModeChange}
+                              planModeDisabled={planModeDisabled}
+                              planModeDisabledReason={planModeDisabledReason}
+                              selectedModel={selectedModel ?? defaultModel}
+                              selectedEffort={selectedEffort}
+                              availableModels={availableModels}
+                              modelListLoading={modelListLoading}
+                              onModelChange={onModelChange}
+                              onEffortChange={onEffortChange}
+                              imageModelMenu={imageModelMenu}
+                              onConnectProvider={onConnectProvider}
+                              onConnectLocalRuntime={onConnectLocalRuntime}
+                              toolbarSlot={composerToolbarSlot}
+                              contextItems={composerContextItems}
+                              onRemoveContextItem={removeComposerContextItem}
+                              plusMenuMode={plusMenuMode}
+                              layoutVariant={composerLayoutVariant}
+                              providerConnectStatusEnabled={
+                                providerStatusChecksEnabled
+                              }
+                              voiceEnabled
+                              draftScope={threadId || tabId}
+                              interceptBuildRequestsForBuilder
+                              onAttachmentError={setComposerError}
+                              extraActionButton={
+                                contextXRayEnabled ||
+                                composerExtraActionButton ? (
+                                  <>
+                                    {contextXRayEnabled && (
+                                      <ContextMeter threadId={threadId} />
+                                    )}
+                                    {composerExtraActionButton}
+                                  </>
+                                ) : undefined
+                              }
+                              stopButton={
+                                showRunningInUI ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() => stopActiveRun()}
+                                        aria-label="Stop response"
+                                        data-agent-composer-slot="stop-button"
+                                        className="shrink-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                      >
+                                        <IconPlayerStopFilled className="h-3 w-3" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Stop response
+                                    </TooltipContent>
+                                  </Tooltip>
+                                ) : undefined
+                              }
+                            />
+                          </>
+                        )}
+                      </AgentComposerFrame>
+                      {showMissingKeySetup ? (
+                        <PopoverContent
+                          side={
+                            missingApiKeySetupLayout === "sidebar"
+                              ? "top"
+                              : "bottom"
+                          }
+                          align="center"
+                          sideOffset={8}
+                          collisionPadding={12}
+                          data-agent-native-composer-popover="true"
+                          className="z-[260] box-border w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,26rem),26rem)] rounded-lg border-border p-3 shadow-lg"
+                        >
+                          <BuilderSetupContent
+                            onConnected={handleBuilderConnected}
+                            layout={missingApiKeySetupLayout}
+                          />
+                        </PopoverContent>
+                      ) : null}
+                    </Popover>
+                  </div>
                 </div>
-              </div>
-            </TextStreamingContext.Provider>
-          </ChatRunningContext.Provider>
+              </TextStreamingContext.Provider>
+            </ChatRunningContext.Provider>
+          </ChatRunDurationContext.Provider>
         </ApprovalContext.Provider>
       </MessageActionsContext.Provider>
     </CheckpointContext.Provider>

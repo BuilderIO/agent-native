@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 
 export type QueuedDraftStatus = "queued" | "in_review" | "sent" | "dismissed";
 
@@ -51,7 +54,7 @@ export function useQueuedDrafts(params?: {
 }) {
   const query = useActionQuery("list-queued-drafts", params ?? {}, {
     staleTime: 5_000,
-    refetchInterval: 30_000,
+    refetchOnWindowFocus: false,
     retry: false,
   });
   const data = query.data as DraftListResponse | null | undefined;

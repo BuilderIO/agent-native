@@ -130,9 +130,8 @@ The argument isn't "agents replace UI." It's "**agents belong inside application
 
 This is the defining principle.
 
-> **From the UI** — click buttons, fill forms, navigate views. The UI writes to the database; the agent sees the results.
->
-> **From the agent** — natural language, other agents via A2A, Slack, Telegram. The agent writes to the database; the UI updates automatically.
+- **From the UI** — click buttons, fill forms, navigate views. The UI writes to the database; the agent sees the results.
+- **From the agent** — natural language, other agents via A2A, Slack, Telegram. The agent writes to the database; the UI updates automatically.
 
 A good mental model is a shared state machine. The user surface and the agent
 surface both submit typed actions; those actions behave like reducer events with
@@ -290,7 +289,7 @@ When the agent creates a draft email, it appears in the UI. When you click "Send
 
 The reason tools like Claude Code feel so powerful isn't the model — it's the **customization layer**: per-project instructions, skills, memory, sub-agents, connected services. You can shape the agent to your codebase, your preferences, your team.
 
-Agent-native gives every user that same customization layer — without ever leaving the app. Each app comes with a personal **workspace** where you (or anyone on your team) can:
+Agent-native gives every user that same customization layer — without ever leaving the app. Each app comes with personal **agent resources** that you (or anyone on your team) can use to:
 
 - Edit team-wide rules everyone's agent reads
 - Let the agent remember preferences automatically as you correct it
@@ -299,9 +298,9 @@ Agent-native gives every user that same customization layer — without ever lea
 - Schedule jobs to run on a cron (e.g. "every Monday morning, summarize last week")
 - Connect external services (Gmail, Stripe, Slack, internal APIs) via per-user MCP servers
 
-The twist: it's all stored in the database, not the filesystem. There's no dev environment to spin up, no container per user. Every user gets their own full workspace — personal memory, personal connections, personal skills — for essentially free, because it's all rows in a table. That's what makes Claude-Code-level flexibility viable inside a real multi-tenant SaaS product.
+The twist: it's all stored in the database, not the filesystem. There's no dev environment to spin up, no container per user. Every user gets their own full set of agent resources — personal memory, personal connections, personal skills — for essentially free, because it's all rows in a table. That's what makes Claude-Code-level flexibility viable inside a real multi-tenant SaaS product.
 
-See [Workspace](/docs/workspace) for the full concept.
+See [Agent Resources](/docs/agent-resources) for the full concept.
 
 ## What makes it different {#what-makes-it-different}
 
@@ -353,23 +352,23 @@ If you're building or extending an agent-native app, here's the central pattern:
   filename="actions/reply-to-email.ts"
   language="ts"
   code={
-    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
   }
   annotations={[
     {
-      lines: "5",
+      lines: "7",
       label: "Tool surface",
       note: "The `description` is what the agent reads to decide when to call this as a tool.",
     },
     {
-      lines: "6",
+      lines: "8",
       label: "Typed contract",
       note: "One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A.",
     },
     {
-      lines: "7-10",
+      lines: "9-12",
       label: "One implementation",
-      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this.",
+      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts` — see [Database](/docs/database).",
     },
   ]}
 />
@@ -385,8 +384,7 @@ const { mutate } = useActionMutation("reply-to-email");
 
 ```tsx
 // And the agent panel mounted anywhere in your app
-import { AgentSidebar } from "@agent-native/core/client";
-
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 <AgentSidebar />;
 ```
 
@@ -398,7 +396,7 @@ One action, many surfaces: the agent calls it as a tool, the UI calls it as a ty
 - [**Agent Surfaces**](/docs/agent-surfaces) — choose chat, native inline UI, full app pages, embedded sidecar, automation, or external agent access
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, context awareness, portability
 - [**Templates**](/docs/cloneable-saas) — templates as complete products you own
-- [**Workspace**](/docs/workspace) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
+- [**Agent Resources**](/docs/agent-resources) — the per-user customization layer (skills, memory, instructions, MCP) backed by SQL, not files
 - [**Dispatch**](/docs/dispatch) — the workspace control plane: secrets vault, Slack/email inbox, cross-app delegation
 - [**Extensions**](/docs/extensions) — sandboxed mini-apps the agent creates instantly without code changes
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentPanel>` into any React app

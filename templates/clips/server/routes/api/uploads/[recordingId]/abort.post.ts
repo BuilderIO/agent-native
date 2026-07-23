@@ -6,6 +6,7 @@
  */
 
 import {
+  deleteAppState,
   readAppState,
   writeAppState,
   deleteAppStateByPrefix,
@@ -22,11 +23,16 @@ import {
 } from "h3";
 
 import { getDb, schema } from "../../../../db/index.js";
+import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
-import { deleteResumableSession } from "../../../../lib/resumable-session.js";
+import {
+  deleteResumableSession,
+  getResumableSession,
+} from "../../../../lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 
 export default defineEventHandler(async (event: H3Event) => {
   const recordingId = getRouterParam(event, "recordingId");
@@ -71,14 +77,41 @@ export default defineEventHandler(async (event: H3Event) => {
       return { ok: true, recordingId, alreadyReady: true, chunksCleared: 0 };
     }
 
+    const existingUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const existingUploadState =
+      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
+        ? (existingUploadStateRaw as Record<string, unknown>)
+        : {};
+    if (
+      existing.status === "processing" &&
+      existingUploadState.pendingMediaVerification === true
+    ) {
+      return {
+        ok: true,
+        recordingId,
+        verificationPending: true,
+        chunksCleared: 0,
+      };
+    }
+
     const preserveRecoveryState =
       isStoredButUnservableFinalizeError(failureReason) ||
       isStoredButUnservableFinalizeError(existing.failureReason);
+    const resumableSession = preserveRecoveryState
+      ? null
+      : await getResumableSession(recordingId).catch(() => null);
 
     // Already a terminal failure (e.g. a duplicate/retried abort call, or
-    // finalize's own failChunkAssembly already flipped it) — no-op instead of
-    // re-clearing chunk state and overwriting the original failureReason.
-    if (existing.status === "failed" && !preserveRecoveryState) {
+    // finalize's own failChunkAssembly already flipped it) — no-op unless a
+    // prior provider cleanup failure intentionally retained a resumable
+    // session for this retry.
+    if (
+      existing.status === "failed" &&
+      !preserveRecoveryState &&
+      !resumableSession
+    ) {
       return { ok: true, recordingId, alreadyFailed: true, chunksCleared: 0 };
     }
 
@@ -92,13 +125,6 @@ export default defineEventHandler(async (event: H3Event) => {
       })
       .where(eq(schema.recordings.id, recordingId));
 
-    const existingUploadStateRaw = await readAppState(
-      `recording-upload-${recordingId}`,
-    ).catch(() => null);
-    const existingUploadState =
-      existingUploadStateRaw && typeof existingUploadStateRaw === "object"
-        ? (existingUploadStateRaw as Record<string, unknown>)
-        : {};
     await writeAppState(`recording-upload-${recordingId}`, {
       ...existingUploadState,
       recordingId,
@@ -106,12 +132,45 @@ export default defineEventHandler(async (event: H3Event) => {
       failureReason,
       updatedAt: now,
     });
+    await deleteAppState(mediaVerificationStateKey(recordingId)).catch(
+      () => {},
+    );
 
     const cleared = preserveRecoveryState
       ? 0
       : await deleteAppStateByPrefix(`recording-chunks-${recordingId}-`);
     if (!preserveRecoveryState) {
-      await deleteResumableSession(recordingId).catch(() => {});
+      if (resumableSession) {
+        const provider = await resolveResumableUploadProvider(
+          resumableSession.providerId,
+        ).catch(() => null);
+        let providerCleanupSucceeded = false;
+        try {
+          if (!provider?.resumable?.abortSession) {
+            throw new Error(
+              `Resumable upload provider ${resumableSession.providerId} cannot abort this session`,
+            );
+          }
+          await provider.resumable.abortSession({
+            sessionId: resumableSession.sessionId,
+            meta: resumableSession.meta,
+          });
+          providerCleanupSucceeded = true;
+        } catch (err) {
+          console.warn(
+            "[abort] resumable upload provider cleanup failed:",
+            err instanceof Error ? err.message : String(err),
+          );
+        }
+        // Keep the provider handle when cleanup fails so a later abort/cleanup
+        // retry can still address the multipart upload. Deleting it here would
+        // permanently orphan the provider-side session.
+        if (providerCleanupSucceeded) {
+          await deleteResumableSession(recordingId).catch(() => {});
+        }
+      } else {
+        await deleteResumableSession(recordingId).catch(() => {});
+      }
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
 

@@ -17,9 +17,6 @@ import { useOptionalLocale } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
-const DEFAULT_FEEDBACK_URL =
-  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
-
 function isSyntheticAgentNativeAnonymousEmail(
   value: string | null | undefined,
 ): boolean {
@@ -234,7 +231,8 @@ export interface FeedbackButtonProps {
    */
   variant?: "sidebar" | "icon" | "outlined";
   label?: string;
-  url?: string;
+  /** Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. Missing, blank, or null hides the control. */
+  url?: string | null;
   className?: string;
   /** Which side the popover opens on. Defaults match the variant. */
   side?: "top" | "bottom" | "left" | "right";
@@ -267,10 +265,38 @@ const honeypotStyle: CSSProperties = {
   overflow: "hidden",
 };
 
-export function FeedbackButton({
+function clientEnv(): Record<string, string | boolean | undefined> | undefined {
+  const importMetaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | boolean | undefined> };
+    }
+  ).process?.env;
+
+  if (importMetaEnv && processEnv) return { ...processEnv, ...importMetaEnv };
+  return importMetaEnv ?? processEnv;
+}
+
+export function resolveFeedbackUrl(url?: string | null): string | null {
+  const value =
+    url === undefined ? clientEnv()?.VITE_AGENT_NATIVE_FEEDBACK_URL : url;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function FeedbackButton(props: FeedbackButtonProps) {
+  const url = resolveFeedbackUrl(props.url);
+  if (!url) return null;
+  return <FeedbackPopoverButton {...props} url={url} />;
+}
+
+function FeedbackPopoverButton({
   variant = "sidebar",
   label,
-  url = DEFAULT_FEEDBACK_URL,
+  url,
   className,
   side,
   align = "end",
@@ -281,7 +307,7 @@ export function FeedbackButton({
   open: controlledOpen,
   onOpenChange,
   trigger: customTrigger,
-}: FeedbackButtonProps) {
+}: Omit<FeedbackButtonProps, "url"> & { url: string }) {
   const target = parseTarget(url);
   const { session } = useSession();
   const localeContext = useOptionalLocale();
@@ -433,7 +459,7 @@ export function FeedbackButton({
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content
               sideOffset={6}
-              className="z-[100040] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+              className="z-[100040] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95 origin-[var(--radix-tooltip-content-transform-origin)]"
             >
               {resolvedLabel}
             </TooltipPrimitive.Content>
@@ -486,7 +512,7 @@ export function FeedbackButton({
           align={align}
           sideOffset={8}
           collisionPadding={16}
-          className="z-[100040] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+          className="z-[100040] overflow-hidden rounded-lg border border-border bg-popover shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 origin-[var(--radix-popover-content-transform-origin)]"
           style={surfaceStyle}
         >
           {submitted ? (

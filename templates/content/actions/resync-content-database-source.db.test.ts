@@ -7,8 +7,11 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
 
-import { and, eq, ne } from "drizzle-orm";
+import { getDbExec } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq, ne, or } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -19,14 +22,25 @@ import {
   vi,
 } from "vitest";
 
+import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
+import { builderBlocksHash } from "../shared/builder-mdx";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
+  BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+  BUILDER_CMS_BODY_SIDECARS_KEY,
 } from "./_builder-cms-source-adapter";
+import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter";
 
 const builderReadMock = vi.hoisted(() => ({
   mode: "full" as "full" | "paged",
-  calls: [] as Array<{ model: string; maxPages?: number; offset?: number }>,
+  calls: [] as Array<{
+    model: string;
+    fieldPaths?: readonly string[];
+    maxPages?: number;
+    offset?: number;
+  }>,
   modelFieldsErrorFor: null as string | null,
   singleEntryCalls: [] as Array<{ model: string; entryId: string }>,
   singleEntryErrorFor: null as string | null,
@@ -47,6 +61,22 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       if (builderReadMock.modelFieldsErrorFor === model) {
         throw new Error("read ECONNRESET");
       }
+      if (model === "collection-mapped-fields") {
+        return [
+          { name: "topics", type: "list", required: false },
+          { name: "tags", type: "list", required: false },
+          { name: "customModelField", type: "string", required: false },
+          { name: "published", type: "boolean", required: false },
+          { name: "Status", type: "string", required: false },
+          { name: "status", type: "string", required: false },
+        ];
+      }
+      if (model === BUILDER_CMS_SAFE_WRITE_MODEL) {
+        return [
+          { name: "title", type: "string", required: true },
+          { name: "author", type: "reference", required: true },
+        ];
+      }
       return [];
     }),
     readBuilderCmsContentEntry: vi.fn(
@@ -58,22 +88,53 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         }
         if (
           model !== "collection-open-hydration-live" &&
-          model !== "collection-metadata-only"
+          model !== "collection-metadata-only" &&
+          model !== "collection-large-597" &&
+          model !== "collection-canonical-hash-repair" &&
+          model !== "collection-same-version-conflict"
         ) {
           return null;
         }
+        if (model === "collection-large-597") {
+          const index = Number(entryId.replace("entry-large-", ""));
+          return {
+            id: entryId,
+            model,
+            title: `Large entry ${index}`,
+            urlPath: `/large-entry-${index}`,
+            updatedAt: "2026-02-01T00:00:00.000Z",
+            sourceValues: {
+              "data.title": `Large entry ${index}`,
+              "data.url": `/large-entry-${index}`,
+              [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index}`,
+              [BUILDER_CMS_BODY_CONTENT_KEY]: `Persisted body ${index}`,
+            },
+          };
+        }
         const title =
-          model === "collection-metadata-only"
-            ? "Metadata-only hydration"
-            : "Open live hydration";
+          model === "collection-same-version-conflict"
+            ? "Same version conflict"
+            : model === "collection-canonical-hash-repair"
+              ? "Canonical hash repair"
+              : model === "collection-metadata-only"
+                ? "Metadata-only hydration"
+                : "Open live hydration";
         const urlPath =
-          model === "collection-metadata-only"
-            ? "/blog/metadata-only-hydration"
-            : "/blog/open-live-hydration";
+          model === "collection-same-version-conflict"
+            ? "/blog/same-version-conflict"
+            : model === "collection-canonical-hash-repair"
+              ? "/blog/canonical-hash-repair"
+              : model === "collection-metadata-only"
+                ? "/blog/metadata-only-hydration"
+                : "/blog/open-live-hydration";
         const body =
-          model === "collection-metadata-only"
-            ? "Metadata-only row hydrated from a single-entry Builder read."
-            : "Live opened row body from Builder.";
+          model === "collection-same-version-conflict"
+            ? "Stale public body variant."
+            : model === "collection-canonical-hash-repair"
+              ? "Fresh live remote baseline."
+              : model === "collection-metadata-only"
+                ? "Metadata-only row hydrated from a single-entry Builder read."
+                : "Live opened row body from Builder.";
         return {
           id: entryId,
           model,
@@ -97,7 +158,12 @@ vi.mock("./_builder-cms-read-client.js", async () => {
                 {
                   "@type": "@builder.io/sdk:Element",
                   "@version": 2,
-                  id: "text-open-live",
+                  id:
+                    model === "collection-same-version-conflict"
+                      ? "text-stale-public"
+                      : model === "collection-canonical-hash-repair"
+                        ? "text-canonical-live"
+                        : "text-open-live",
                   component: {
                     name: "Text",
                     options: {
@@ -114,14 +180,125 @@ vi.mock("./_builder-cms-read-client.js", async () => {
     readBuilderCmsContentEntries: vi.fn(
       async ({
         model,
+        fieldPaths,
         maxPages,
         offset,
       }: {
         model: string;
+        fieldPaths?: readonly string[];
         maxPages?: number;
         offset?: number;
       }) => {
-        builderReadMock.calls.push({ model, maxPages, offset });
+        builderReadMock.calls.push({ model, fieldPaths, maxPages, offset });
+        if (model === "collection-suspicious-empty") {
+          return {
+            state: "live",
+            entries: [],
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 0,
+              fetchedEntryCount: 0,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
+        if (model === "collection-suspicious-empty-continuation") {
+          const startOffset = offset ?? 1;
+          return {
+            state: "live",
+            entries: [],
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset,
+              nextOffset: startOffset,
+              fetchedEntryCount: startOffset,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
+        if (model === "collection-large-597") {
+          const allEntries = Array.from({ length: 597 }, (_, index) => ({
+            id: `entry-large-${index + 1}`,
+            model,
+            title: `Large entry ${index + 1}`,
+            urlPath: `/large-entry-${index + 1}`,
+            updatedAt: "2026-02-01T00:00:00.000Z",
+            sourceValues: {
+              "data.title": `Large entry ${index + 1}`,
+              "data.url": `/large-entry-${index + 1}`,
+              [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index + 1}`,
+            },
+          }));
+          const startOffset = offset ?? 0;
+          const pageEntries = maxPages
+            ? allEntries.slice(startOffset, startOffset + 100)
+            : allEntries.slice(startOffset);
+          const nextOffset = startOffset + pageEntries.length;
+          const hasMore = nextOffset < allEntries.length;
+          return {
+            state: "live",
+            entries: pageEntries,
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: maxPages ? 500 : 10_000,
+              pageSize: 100,
+              startOffset,
+              nextOffset,
+              fetchedEntryCount: nextOffset,
+              hasMore,
+              partial: hasMore,
+              readMode: "builder-api",
+            },
+          };
+        }
+        if (model === "collection-mapped-fields") {
+          const entries = [
+            {
+              id: "entry-mapped-fields",
+              model,
+              title: "Mapped fields",
+              urlPath: "/blog/mapped-fields",
+              updatedAt: "2026-02-01T00:00:00.000Z",
+              sourceValues: {
+                "data.title": "Mapped fields",
+                "data.topics": ["AI", "CMS"],
+                "data.tags": ["Agents", "Content"],
+                "data.customModelField": "Arbitrary value",
+                "data.published": true,
+                "data.Status": "Editorial",
+                "data.status": "published",
+              },
+            },
+          ];
+          return {
+            state: "live",
+            entries,
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: entries.length,
+              fetchedEntryCount: entries.length,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model === "collection-duplicates") {
           return {
             state: "live",
@@ -245,6 +422,50 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             },
           };
         }
+        if (model === BUILDER_CMS_SAFE_WRITE_MODEL) {
+          const entries = [
+            {
+              id: "entry-required-reference-refresh",
+              model,
+              title: "Required reference refresh",
+              urlPath: "/blog/required-reference-refresh",
+              updatedAt: "2026-02-01T00:00:00.000Z",
+              sourceValues: {
+                "data.title": "Required reference refresh",
+                "data.author": "Apoorva",
+              },
+              rawEntry: {
+                id: "entry-required-reference-refresh",
+                model,
+                name: "Required reference refresh",
+                data: {
+                  title: "Required reference refresh",
+                  author: {
+                    "@type": "@builder.io/core:Reference",
+                    id: "author-apoorva",
+                    model: "blog-author",
+                  },
+                },
+              },
+            },
+          ];
+          return {
+            state: "live",
+            entries,
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 10_000,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 1,
+              fetchedEntryCount: 1,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model !== "collection-a") {
           return {
             state: "unconfigured",
@@ -326,11 +547,17 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let resync: typeof import("./_database-source-utils.js").resyncBuilderCmsSourceSnapshot;
 let importBuilderEntries: typeof import("./_database-source-utils.js").importBuilderCmsEntriesAsDatabaseItems;
+let seedSourceRows: typeof import("./_database-source-utils.js").seedMockSourceRows;
 let materializeSourceFields: typeof import("./_database-source-utils.js").materializeSourceFieldPropertyValues;
 let getSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotById;
+let getWriteSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
 let hydrateQueuedBodies: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
+let withBuilderBodyValues: typeof import("./_database-source-utils.js").withBuilderBodySourceValues;
+let seedCollabFromText: typeof import("@agent-native/core/collab").seedFromText;
+let getCollabText: typeof import("@agent-native/core/collab").getText;
 
 const OWNER = "owner@example.com";
+const IMPORT_SPACE_ID = "builder_import_test_space";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -339,16 +566,54 @@ beforeAll(async () => {
   schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  const { systemIdsForContentSpace } = await import("./_content-spaces.js");
+  const filesIds = systemIdsForContentSpace(IMPORT_SPACE_ID, "files");
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: filesIds.documentId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    title: "Files",
+    content: "",
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: filesIds.databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesIds.documentId,
+    title: "Files",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+  )`);
   resync = (await import("./_database-source-utils.js"))
     .resyncBuilderCmsSourceSnapshot;
   importBuilderEntries = (await import("./_database-source-utils.js"))
     .importBuilderCmsEntriesAsDatabaseItems;
+  seedSourceRows = (await import("./_database-source-utils.js"))
+    .seedMockSourceRows;
   materializeSourceFields = (await import("./_database-source-utils.js"))
     .materializeSourceFieldPropertyValues;
   getSnapshot = (await import("./_database-source-utils.js"))
     .getContentDatabaseSourceSnapshotById;
+  getWriteSnapshot = (await import("./_database-source-utils.js"))
+    .getContentDatabaseSourceSnapshotForWrite;
   hydrateQueuedBodies = (await import("./_database-source-utils.js"))
     .processBuilderBodyHydrationQueue;
+  withBuilderBodyValues = (await import("./_database-source-utils.js"))
+    .withBuilderBodySourceValues;
+  const collab = await import("@agent-native/core/collab");
+  seedCollabFromText = collab.seedFromText;
+  getCollabText = collab.getText;
 }, 60000);
 
 afterEach(() => {
@@ -363,6 +628,657 @@ afterAll(() => {
   }
 });
 
+it("preserves an established source snapshot when Builder unexpectedly returns zero entries", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const refreshAt = "2026-02-01T00:05:00.000Z";
+  const sourceValues = {
+    "data.title": "Existing Builder row",
+    "data.tags": ["preserve-me"],
+    [BUILDER_CMS_BODY_CONTENT_KEY]: "A large hydrated body stays stored.",
+    [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+  };
+
+  await db.insert(schema.documents).values([
+    {
+      id: "doc-suspicious-db",
+      ownerEmail: OWNER,
+      title: "Suspicious empty DB",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-suspicious-row",
+      ownerEmail: OWNER,
+      parentId: "doc-suspicious-db",
+      title: "Existing Builder row",
+      content: "A large hydrated body stays stored.",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: "db-suspicious-empty",
+    ownerEmail: OWNER,
+    documentId: "doc-suspicious-db",
+    title: "Suspicious empty DB",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item-suspicious-row",
+    ownerEmail: OWNER,
+    databaseId: "db-suspicious-empty",
+    documentId: "doc-suspicious-row",
+    bodyHydrationStatus: "hydrated" as const,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-suspicious-empty",
+    ownerEmail: OWNER,
+    databaseId: "db-suspicious-empty",
+    sourceType: "builder-cms",
+    sourceName: "Suspicious Builder source",
+    sourceTable: "collection-suspicious-empty",
+    syncState: "idle",
+    freshness: "fresh",
+    lastSourceUpdatedAt: createdAt,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "source-row-suspicious-empty",
+    ownerEmail: OWNER,
+    sourceId: "source-suspicious-empty",
+    databaseItemId: "item-suspicious-row",
+    documentId: "doc-suspicious-row",
+    sourceRowId: "builder-entry-existing",
+    sourceQualifiedId:
+      "builder-cms://collection-suspicious-empty/builder-entry-existing",
+    sourceDisplayKey: "Existing Builder row",
+    sourceValuesJson: JSON.stringify(sourceValues),
+    provenance: "Builder CMS read adapter",
+    freshness: "fresh",
+    createdAt,
+    updatedAt: createdAt,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-suspicious-empty"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-suspicious-empty"));
+
+  await resync({ database, source, now: refreshAt });
+
+  const rows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      eq(schema.contentDatabaseSourceRows.sourceId, "source-suspicious-empty"),
+    );
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({
+    id: "source-row-suspicious-empty",
+    sourceValuesJson: JSON.stringify(sourceValues),
+    updatedAt: createdAt,
+  });
+  const [updatedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-suspicious-empty"));
+  expect(updatedSource).toMatchObject({
+    freshness: "stale",
+    syncState: "error",
+    lastSourceUpdatedAt: createdAt,
+  });
+  expect(updatedSource.lastError).toContain("previous snapshot was preserved");
+  expect(JSON.parse(updatedSource.metadataJson)).toMatchObject({
+    lastReadEntryCount: 0,
+    lastReadSuspiciousEmpty: true,
+    sourceFetchState: "error",
+    activeReadSourceRowIds: [],
+  });
+
+  const snapshot = await getSnapshot(database, source.id);
+  expect(snapshot?.rows[0]?.sourceValues).toMatchObject({
+    "data.title": "Existing Builder row",
+    "data.tags": ["preserve-me"],
+    [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+  });
+  expect(snapshot?.rows[0]?.sourceValues).not.toHaveProperty(
+    BUILDER_CMS_BODY_CONTENT_KEY,
+  );
+  const writeSnapshot = await getWriteSnapshot(database, source.id);
+  expect(writeSnapshot?.rows[0]?.sourceValues).toMatchObject({
+    [BUILDER_CMS_BODY_CONTENT_KEY]: "A large hydrated body stays stored.",
+    [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+  });
+});
+
+it("preserves unvisited rows when an empty continuation page would prune them", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const refreshAt = "2026-02-01T00:10:00.000Z";
+  await db.insert(schema.documents).values([
+    {
+      id: "doc-continuation-empty-db",
+      ownerEmail: OWNER,
+      title: "Continuation empty DB",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-continuation-seen",
+      ownerEmail: OWNER,
+      parentId: "doc-continuation-empty-db",
+      title: "Seen on the first page",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-continuation-unvisited",
+      ownerEmail: OWNER,
+      parentId: "doc-continuation-empty-db",
+      title: "Not yet revisited",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: "db-continuation-empty",
+    ownerEmail: OWNER,
+    documentId: "doc-continuation-empty-db",
+    title: "Continuation empty DB",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseItems).values([
+    {
+      id: "item-continuation-seen",
+      ownerEmail: OWNER,
+      databaseId: "db-continuation-empty",
+      documentId: "doc-continuation-seen",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "item-continuation-unvisited",
+      ownerEmail: OWNER,
+      databaseId: "db-continuation-empty",
+      documentId: "doc-continuation-unvisited",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-continuation-empty",
+    ownerEmail: OWNER,
+    databaseId: "db-continuation-empty",
+    sourceType: "builder-cms",
+    sourceName: "Continuation Builder source",
+    sourceTable: "collection-suspicious-empty-continuation",
+    syncState: "refreshing",
+    freshness: "stale",
+    lastSourceUpdatedAt: createdAt,
+    metadataJson: JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 1,
+      activeReadSourceRowIds: ["entry-seen"],
+    }),
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values([
+    {
+      id: "source-row-continuation-seen",
+      ownerEmail: OWNER,
+      sourceId: "source-continuation-empty",
+      databaseItemId: "item-continuation-seen",
+      documentId: "doc-continuation-seen",
+      sourceRowId: "entry-seen",
+      sourceQualifiedId:
+        "builder-cms://collection-suspicious-empty-continuation/entry-seen",
+      sourceDisplayKey: "Seen on the first page",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Seen on the first page",
+      }),
+      provenance: "Builder CMS read adapter",
+      freshness: "fresh",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "source-row-continuation-unvisited",
+      ownerEmail: OWNER,
+      sourceId: "source-continuation-empty",
+      databaseItemId: "item-continuation-unvisited",
+      documentId: "doc-continuation-unvisited",
+      sourceRowId: "entry-unvisited",
+      sourceQualifiedId:
+        "builder-cms://collection-suspicious-empty-continuation/entry-unvisited",
+      sourceDisplayKey: "Not yet revisited",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Not yet revisited",
+      }),
+      provenance: "Builder CMS read adapter",
+      freshness: "fresh",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-continuation-empty"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-continuation-empty"));
+  await resync({ database, source, now: refreshAt });
+
+  const rows = await db
+    .select({
+      id: schema.contentDatabaseSourceRows.id,
+      sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
+      updatedAt: schema.contentDatabaseSourceRows.updatedAt,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      eq(
+        schema.contentDatabaseSourceRows.sourceId,
+        "source-continuation-empty",
+      ),
+    );
+  expect(rows).toEqual(
+    expect.arrayContaining([
+      {
+        id: "source-row-continuation-seen",
+        sourceRowId: "entry-seen",
+        updatedAt: createdAt,
+      },
+      {
+        id: "source-row-continuation-unvisited",
+        sourceRowId: "entry-unvisited",
+        updatedAt: createdAt,
+      },
+    ]),
+  );
+  expect(rows).toHaveLength(2);
+  const [updatedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-continuation-empty"));
+  expect(updatedSource).toMatchObject({
+    freshness: "stale",
+    syncState: "error",
+    lastSourceUpdatedAt: createdAt,
+  });
+  expect(updatedSource.lastError).toContain("previous snapshot was preserved");
+  expect(JSON.parse(updatedSource.metadataJson)).toMatchObject({
+    lastReadSuspiciousEmpty: true,
+    sourceFetchState: "error",
+    activeReadSourceRowIds: [],
+  });
+  expect(
+    builderReadMock.calls.find(
+      (call) => call.model === "collection-suspicious-empty-continuation",
+    )?.offset,
+  ).toBe(1);
+});
+
+it("accepts a zero-entry read for a source that has never had rows", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = "2026-02-01T00:30:00.000Z";
+  await db.insert(schema.documents).values({
+    id: "doc-new-empty-db",
+    ownerEmail: OWNER,
+    title: "New empty DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: "db-new-empty",
+    ownerEmail: OWNER,
+    documentId: "doc-new-empty-db",
+    title: "New empty DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-new-empty",
+    ownerEmail: OWNER,
+    databaseId: "db-new-empty",
+    sourceType: "builder-cms",
+    sourceName: "New empty Builder source",
+    sourceTable: "collection-suspicious-empty",
+    syncState: "linked",
+    freshness: "unknown",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-new-empty"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-new-empty"));
+  await resync({ database, source, now });
+
+  const [updatedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  expect(updatedSource).toMatchObject({
+    freshness: "fresh",
+    syncState: "idle",
+    lastError: null,
+    lastSourceUpdatedAt: "2026-02-01T00:00:00.000Z",
+  });
+  expect(JSON.parse(updatedSource.metadataJson)).toMatchObject({
+    lastReadEntryCount: 0,
+    lastReadSuspiciousEmpty: false,
+    sourceFetchState: "idle",
+  });
+});
+
+it("materializes topics, tags, and arbitrary Builder model fields", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = "2026-02-01T01:00:00.000Z";
+  await db.insert(schema.documents).values({
+    id: "doc-mapped-fields-db",
+    ownerEmail: OWNER,
+    title: "Mapped fields DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: "db-mapped-fields",
+    ownerEmail: OWNER,
+    documentId: "doc-mapped-fields-db",
+    title: "Mapped fields DB",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.documentPropertyDefinitions).values([
+    {
+      id: "prop-topics",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Topics",
+      type: "multi_select",
+      optionsJson: JSON.stringify({
+        options: [
+          { id: "ai", name: "AI", color: "blue" },
+          { id: "cms", name: "CMS", color: "green" },
+        ],
+      }),
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-tags",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Tags",
+      type: "multi_select",
+      optionsJson: JSON.stringify({
+        options: [
+          { id: "agents", name: "Agents", color: "blue" },
+          { id: "content", name: "Content", color: "green" },
+        ],
+      }),
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-custom",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Custom model field",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-status-upper",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Status",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-status-lower",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Status",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-mapped-fields",
+    ownerEmail: OWNER,
+    databaseId: "db-mapped-fields",
+    sourceType: "builder-cms",
+    sourceName: "Mapped Builder source",
+    sourceTable: "collection-mapped-fields",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceFields).values([
+    {
+      id: "field-topics",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-topics",
+      localFieldKey: "prop-topics",
+      sourceFieldKey: "data.topics",
+      sourceFieldLabel: "Topics",
+      sourceFieldType: "list",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-tags",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-tags",
+      localFieldKey: "prop-tags",
+      sourceFieldKey: "data.tags",
+      sourceFieldLabel: "Tags",
+      sourceFieldType: "list",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-custom",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-custom",
+      localFieldKey: "prop-custom",
+      sourceFieldKey: "data.customModelField",
+      sourceFieldLabel: "Custom model field",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-status-upper",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-status-upper",
+      localFieldKey: "prop-status-upper",
+      sourceFieldKey: "data.Status",
+      sourceFieldLabel: "Status upper",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-status-lower",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-status-lower",
+      localFieldKey: "prop-status-lower",
+      sourceFieldKey: "data.status",
+      sourceFieldLabel: "Status lower",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-mapped-fields"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-mapped-fields"));
+  await resync({ database, source, now });
+
+  const [sourceRow] = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+  expect(JSON.parse(sourceRow.sourceValuesJson)).toMatchObject({
+    "data.topics": ["AI", "CMS"],
+    "data.tags": ["Agents", "Content"],
+    "data.customModelField": "Arbitrary value",
+    "data.published": true,
+    "data.Status": "Editorial",
+    "data.status": "published",
+  });
+  const values = await db
+    .select({
+      propertyId: schema.documentPropertyValues.propertyId,
+      valueJson: schema.documentPropertyValues.valueJson,
+    })
+    .from(schema.documentPropertyValues)
+    .where(eq(schema.documentPropertyValues.documentId, sourceRow.documentId));
+  expect(
+    Object.fromEntries(
+      values.map((value: { propertyId: string; valueJson: string }) => [
+        value.propertyId,
+        JSON.parse(value.valueJson),
+      ]),
+    ),
+  ).toMatchObject({
+    "prop-topics": ["ai", "cms"],
+    "prop-tags": ["agents", "content"],
+    "prop-custom": "Arbitrary value",
+    "prop-status-upper": "Editorial",
+    "prop-status-lower": "published",
+  });
+  const unchangedSnapshot = await getSnapshot(database, source.id);
+  expect(
+    unchangedSnapshot?.changeSets.filter(
+      (changeSet) => changeSet.direction === "outbound",
+    ),
+  ).toHaveLength(0);
+
+  await db
+    .update(schema.documentPropertyValues)
+    .set({ valueJson: JSON.stringify(["agents", "content", "local-edit"]) })
+    .where(
+      and(
+        eq(schema.documentPropertyValues.documentId, sourceRow.documentId),
+        eq(schema.documentPropertyValues.propertyId, "prop-tags"),
+      ),
+    );
+  const editedSnapshot = await getSnapshot(database, source.id);
+  expect(
+    editedSnapshot?.changeSets.filter(
+      (changeSet) => changeSet.direction === "outbound",
+    ),
+  ).toMatchObject([
+    {
+      fieldChanges: [
+        {
+          propertyId: "prop-tags",
+          currentValue: ["agents", "content"],
+          proposedValue: ["Agents", "Content", "local-edit"],
+        },
+      ],
+    },
+  ]);
+  const statusFieldMappings = await db
+    .select({
+      id: schema.contentDatabaseSourceFields.id,
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .where(
+      eq(schema.contentDatabaseSourceFields.sourceId, "source-mapped-fields"),
+    );
+  expect(
+    statusFieldMappings
+      .filter((field: { propertyId: string | null }) =>
+        ["prop-status-upper", "prop-status-lower"].includes(
+          field.propertyId ?? "",
+        ),
+      )
+      .sort((a, b) => String(a.propertyId).localeCompare(String(b.propertyId))),
+  ).toEqual([
+    {
+      id: "field-status-lower",
+      propertyId: "prop-status-lower",
+      sourceFieldKey: "data.status",
+    },
+    {
+      id: "field-status-upper",
+      propertyId: "prop-status-upper",
+      sourceFieldKey: "data.Status",
+    },
+  ]);
+  const readCall = builderReadMock.calls.find(
+    (call) => call.model === "collection-mapped-fields",
+  );
+  expect(readCall?.fieldPaths).toEqual(
+    expect.arrayContaining([
+      "data.topics",
+      "data.tags",
+      "data.customModelField",
+      "data.published",
+      "data.Status",
+      "data.status",
+    ]),
+  );
+});
+
 it("resync re-links only the source's own rows, never another collection's (self-heal)", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
@@ -372,6 +1288,7 @@ it("resync re-links only the source's own rows, never another collection's (self
   const databaseDocId = "doc_db_resync";
   await db.insert(schema.documents).values({
     id: databaseDocId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     title: "DB",
     createdAt: now,
@@ -379,6 +1296,7 @@ it("resync re-links only the source's own rows, never another collection's (self
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     documentId: databaseDocId,
     title: "DB",
@@ -505,6 +1423,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   const databaseDocId = "doc_db_resync_duplicate_keys";
   await db.insert(schema.documents).values({
     id: databaseDocId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     title: "DB duplicate keys",
     createdAt: now,
@@ -512,6 +1431,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     documentId: databaseDocId,
     title: "DB duplicate keys",
@@ -532,7 +1452,6 @@ it("records freshly imported Builder row identities even when title and URL keys
     now,
     sourceTable: "collection-duplicates",
     existingSourceRows: [],
-    skipTitleDedup: true,
   });
   const importedIds = Array.from(
     importResult.importedEntriesByDocumentId.values(),
@@ -574,7 +1493,6 @@ it("records freshly imported Builder row identities even when title and URL keys
     now,
     sourceTable: "collection-duplicates",
     existingSourceRows,
-    skipTitleDedup: true,
   });
   const retryDocuments = await db
     .select({ id: schema.documents.id })
@@ -588,6 +1506,149 @@ it("records freshly imported Builder row identities even when title and URL keys
   expect(retryResult.imported).toBe(0);
   expect(retryDocuments).toHaveLength(2);
   expect(retryItems).toHaveLength(2);
+
+  // Attach and its background continuation can overlap before source rows are
+  // visible to the second importer. Stable Builder-derived local IDs make the
+  // two writes converge instead of duplicating every remote entry.
+  await Promise.all([
+    importBuilderEntries({
+      database,
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+      skipTitleDedup: true,
+    }),
+    importBuilderEntries({
+      database,
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+      skipTitleDedup: true,
+    }),
+  ]);
+  const concurrentRetryDocuments = await db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  const concurrentRetryItems = await db
+    .select({
+      id: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(concurrentRetryDocuments).toHaveLength(2);
+  expect(concurrentRetryItems).toHaveLength(2);
+
+  const importedItems = concurrentRetryItems.map(
+    (item: { id: string; documentId: string }, index: number) => ({
+      id: item.id,
+      databaseId,
+      document: {
+        id: item.documentId,
+        title:
+          importResult.importedEntriesByDocumentId.get(item.documentId)
+            ?.title ?? `Entry ${index + 1}`,
+        content: "",
+      },
+      position: index,
+      properties: [],
+    }),
+  );
+  const seedArgs = {
+    sourceId: "src-duplicates",
+    ownerEmail: OWNER,
+    sourceType: "builder-cms" as const,
+    sourceTable: "collection-duplicates",
+    items: importedItems,
+    now,
+    builderEntriesByDocumentId: importResult.importedEntriesByDocumentId,
+  };
+  await Promise.all([seedSourceRows(seedArgs), seedSourceRows(seedArgs)]);
+  const concurrentSourceRows = await db
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-duplicates"));
+  expect(concurrentSourceRows).toHaveLength(2);
+});
+
+it("repairs a legacy organization database into its organization space", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const orgId = "legacy-builder-org";
+  const databaseId = "legacy_org_builder_database";
+  const databaseDocumentId = "legacy_org_builder_document";
+  await getDbExec().execute({
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    args: [orgId, "Legacy Builder Org", OWNER, Date.now()],
+  });
+  await getDbExec().execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: ["legacy-builder-org-owner", orgId, OWNER, "owner", Date.now()],
+  });
+  await db.insert(schema.documents).values({
+    id: databaseDocumentId,
+    spaceId: null,
+    ownerEmail: OWNER,
+    orgId,
+    title: "Legacy org Builder database",
+    visibility: "org",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: null,
+    ownerEmail: OWNER,
+    orgId,
+    documentId: databaseDocumentId,
+    title: "Legacy org Builder database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const read = await (
+    await import("./_builder-cms-read-client.js")
+  ).readBuilderCmsContentEntries({ model: "collection-duplicates" });
+  const entries = read.state === "live" ? read.entries.slice(0, 1) : [];
+
+  await runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+    importBuilderEntries({
+      database,
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+    }),
+  );
+
+  const { organizationContentSpaceId } = await import("./_content-spaces.js");
+  const expectedSpaceId = organizationContentSpaceId(orgId);
+  const [repairedDatabase] = await db
+    .select({ spaceId: schema.contentDatabases.spaceId })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const repairedDocuments = await db
+    .select({ id: schema.documents.id, spaceId: schema.documents.spaceId })
+    .from(schema.documents)
+    .where(
+      or(
+        eq(schema.documents.id, databaseDocumentId),
+        eq(schema.documents.parentId, databaseDocumentId),
+      ),
+    );
+  expect(repairedDatabase?.spaceId).toBe(expectedSpaceId);
+  expect(repairedDocuments).toHaveLength(2);
+  expect(
+    repairedDocuments.every((row) => row.spaceId === expectedSpaceId),
+  ).toBe(true);
 });
 
 it("resync advances Builder partial reads with a cursor and converges on the final page", async () => {
@@ -937,9 +1998,254 @@ it("full Builder refresh reads every page in one resync call", async () => {
   expect(
     rows.map((row: { sourceRowId: string }) => row.sourceRowId).sort(),
   ).toEqual(["entry-a1", "entry-a2"]);
-  expect(builderReadMock.calls).toEqual([
-    { model: "collection-a", maxPages: undefined, offset: 0 },
+  expect(
+    builderReadMock.calls.map(({ model, maxPages, offset }) => ({
+      model,
+      maxPages,
+      offset,
+    })),
+  ).toEqual([{ model: "collection-a", maxPages: undefined, offset: 0 }]);
+});
+
+it("keeps a materialized required Builder reference dispatchable after full refresh", async () => {
+  const db = getDb();
+  const now = "2026-07-14T05:00:00.000Z";
+  const databaseId = "db-required-reference-refresh";
+  const databaseDocumentId = "doc-db-required-reference-refresh";
+  const rowDocumentId = "doc-required-reference-refresh";
+  const itemId = "item-required-reference-refresh";
+  const sourceId = "source-required-reference-refresh";
+  const propertyId = "property-required-reference-author";
+  const entryId = "entry-required-reference-refresh";
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocumentId,
+      ownerEmail: OWNER,
+      title: "Required reference database",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: rowDocumentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocumentId,
+      title: "Required reference refresh",
+      content: "A local body change.",
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocumentId,
+    title: "Required reference database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: rowDocumentId,
+    position: 0,
+    bodyHydrationStatus: "complete",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id: propertyId,
+    ownerEmail: OWNER,
+    databaseId,
+    name: "Author",
+    type: "select",
+    visibility: "always_show",
+    optionsJson: JSON.stringify({
+      options: [{ id: "author-apoorva", name: "Apoorva", color: "blue" }],
+    }),
+    position: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.documentPropertyValues).values({
+    id: "value-required-reference-author",
+    ownerEmail: OWNER,
+    documentId: rowDocumentId,
+    propertyId,
+    valueJson: JSON.stringify("author-apoorva"),
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: BUILDER_CMS_SAFE_WRITE_MODEL,
+    sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    capabilitiesJson: JSON.stringify({
+      canRefresh: true,
+      canCreateChangeSets: true,
+      canWriteFields: true,
+      canWriteBody: true,
+      canPush: true,
+      canPull: true,
+      canPublish: true,
+      canDelete: false,
+      canStageLocalRevision: true,
+      liveWritesEnabled: true,
+      readOnlyRefresh: true,
+    }),
+    metadataJson: JSON.stringify({
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["publish"],
+      allowPublicationTransitions: true,
+      liveReadConfigured: true,
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        {
+          name: "author",
+          type: "reference",
+          required: true,
+          model: "blog-author",
+        },
+      ],
+    }),
+    createdAt: now,
+    updatedAt: now,
+  });
+  // This is the persisted state after required-field materialization: the
+  // property is bound and stores the canonical Builder author entry id, while
+  // the older projected mapping still says `select`.
+  await db.insert(schema.contentDatabaseSourceFields).values({
+    id: "field-required-reference-author",
+    ownerEmail: OWNER,
+    sourceId,
+    propertyId,
+    localFieldKey: propertyId,
+    sourceFieldKey: "data.author",
+    sourceFieldLabel: "Author",
+    sourceFieldType: "select",
+    mappingType: "property",
+    writeOwner: "source",
+    readOnly: 0,
+    provenance: "Builder model field",
+    freshness: "fresh",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row-required-reference-refresh",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId: rowDocumentId,
+    sourceRowId: entryId,
+    sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/${entryId}`,
+    sourceDisplayKey: "Required reference refresh",
+    sourceValuesJson: JSON.stringify({
+      "data.title": "Required reference refresh",
+      "data.author": "Apoorva",
+      "__agent_native_builder_reference_id:data.author": "author-apoorva",
+    }),
+    provenance: "Builder CMS read adapter",
+    syncState: "linked",
+    freshness: "fresh",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  await resync({
+    database,
+    source,
+    now: "2026-07-14T05:01:00.000Z",
+    runFullRefresh: true,
+  });
+
+  const [refreshedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  expect(
+    JSON.parse(refreshedSource.metadataJson).builderModelFields.find(
+      (field: { name: string }) => field.name === "author",
+    ),
+  ).toMatchObject({ type: "reference", model: "blog-author" });
+  const [refreshedField] = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceFields.sourceId, sourceId),
+        eq(schema.contentDatabaseSourceFields.sourceFieldKey, "data.author"),
+      ),
+    );
+  expect(refreshedField).toMatchObject({
+    propertyId,
+    localFieldKey: propertyId,
+    sourceFieldType: "reference",
+  });
+
+  const snapshot = await getWriteSnapshot(database);
+  const refreshedRow = snapshot?.rows.find(
+    (row) => row.sourceRowId === entryId,
+  );
+  expect(
+    refreshedRow?.sourceValues[
+      "__agent_native_builder_reference_id:data.author"
+    ],
+  ).toBe("author-apoorva");
+  const plan = buildBuilderCmsExecutionPlan({
+    source: snapshot!,
+    changeSet: {
+      id: "change-required-reference-refresh",
+      databaseItemId: itemId,
+      documentId: rowDocumentId,
+      kind: "body_update",
+      direction: "outbound",
+      state: "approved",
+      pushMode: "publish",
+      localOnly: true,
+      summary: "Publish body after full refresh.",
+      fieldChanges: [],
+      bodyChange: {
+        summary: "Body changed",
+        currentExcerpt: null,
+        proposedExcerpt: "Fresh body",
+        proposedBlocksJson: "[]",
+      },
+      riskLevel: "low",
+      riskReasons: [],
+      conflictState: "none",
+      reviewEvents: [],
+      executions: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+    pushModeConfirmation: "publish",
+    publicationTransition: "publish",
+  });
+  expect(plan.state).toBe("ready");
+  expect(plan.payload.request.body).toMatchObject({
+    data: {
+      author: {
+        "@type": "@builder.io/core:Reference",
+        id: "author-apoorva",
+        model: "blog-author",
+      },
+    },
+  });
+  expect(plan.payload.safety.blockers).toEqual([]);
 });
 
 it("finishes a Builder continuation when optional model field metadata fails", async () => {
@@ -1027,9 +2333,13 @@ it("finishes a Builder continuation when optional model field metadata fails", a
   expect(metadata.lastReadPartial).toBe(false);
   expect(metadata.sourceFetchState).toBe("idle");
   expect(metadata.activeReadSourceRowIds).toBeUndefined();
-  expect(builderReadMock.calls).toEqual([
-    { model: "collection-a", maxPages: 1, offset: 1 },
-  ]);
+  expect(
+    builderReadMock.calls.map(({ model, maxPages, offset }) => ({
+      model,
+      maxPages,
+      offset,
+    })),
+  ).toEqual([{ model: "collection-a", maxPages: 1, offset: 1 }]);
   const preservedFields = await db
     .select({
       id: schema.contentDatabaseSourceFields.id,
@@ -1043,6 +2353,155 @@ it("finishes a Builder continuation when optional model field metadata fails", a
   });
 
   builderReadMock.modelFieldsErrorFor = null;
+});
+
+it("continues a 597-row snapshot past offset 500 without pruning or restarting", async () => {
+  builderReadMock.calls = [];
+  builderReadMock.singleEntryCalls = [];
+  const db = getDb();
+  const now = "2026-07-10T12:00:00.000Z";
+  const databaseId = "db-large-597";
+  const databaseDocumentId = "doc-db-large-597";
+  const sourceId = "source-large-597";
+  await db.insert(schema.documents).values({
+    id: databaseDocumentId,
+    ownerEmail: OWNER,
+    title: "Large database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocumentId,
+    title: "Large database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "Large Builder source",
+    sourceTable: "collection-large-597",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const persistedDocuments = Array.from({ length: 597 }, (_, index) => ({
+    id: `doc-large-${index + 1}`,
+    ownerEmail: OWNER,
+    parentId: databaseDocumentId,
+    title: `Large entry ${index + 1}`,
+    content: `Persisted body ${index + 1}`,
+    position: index,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const persistedItems = persistedDocuments.map((document, index) => ({
+    id: `item-large-${index + 1}`,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId: document.id,
+    position: index,
+    bodyHydrationStatus: "hydrated" as const,
+    bodyHydrationVersion: `large-hash-${index + 1}:readable-native-images-v5`,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  const persistedRows = persistedDocuments.map((document, index) => ({
+    id: `row-large-${index + 1}`,
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: persistedItems[index]!.id,
+    documentId: document.id,
+    sourceRowId: `entry-large-${index + 1}`,
+    sourceQualifiedId: `builder-cms://collection-large-597/entry-large-${index + 1}`,
+    sourceDisplayKey: document.title,
+    sourceValuesJson: JSON.stringify({
+      "data.title": document.title,
+      "data.url": `/large-entry-${index + 1}`,
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `large-hash-${index + 1}`,
+    }),
+    provenance: "Builder CMS read adapter",
+    lastSourceUpdatedAt: "2026-02-01T00:00:00.000Z",
+    createdAt: now,
+    updatedAt: now,
+  }));
+  for (let start = 0; start < persistedDocuments.length; start += 100) {
+    await db
+      .insert(schema.documents)
+      .values(persistedDocuments.slice(start, start + 100));
+    await db
+      .insert(schema.contentDatabaseItems)
+      .values(persistedItems.slice(start, start + 100));
+    await db
+      .insert(schema.contentDatabaseSourceRows)
+      .values(persistedRows.slice(start, start + 100));
+  }
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const partialRowCounts: number[] = [];
+  for (let page = 0; page < 6; page += 1) {
+    const [source] = await db
+      .select()
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, sourceId));
+    await resync({
+      database,
+      source,
+      now: `2026-07-10T12:0${page}:00.000Z`,
+    });
+    for (let drain = 0; drain < 4; drain += 1) {
+      const queuedBodies = await db
+        .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+        .from(schema.contentDatabaseBodyHydrationQueue)
+        .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+      if (queuedBodies.length === 0) break;
+      await hydrateQueuedBodies({ sourceId, limit: 50 });
+    }
+    const rows = await db
+      .select({ sourceRowId: schema.contentDatabaseSourceRows.sourceRowId })
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+    partialRowCounts.push(rows.length);
+    expect(rows.some((row) => row.sourceRowId === "entry-large-1")).toBe(true);
+    const queuedBodies = await db
+      .select({ id: schema.contentDatabaseBodyHydrationQueue.id })
+      .from(schema.contentDatabaseBodyHydrationQueue)
+      .where(eq(schema.contentDatabaseBodyHydrationQueue.sourceId, sourceId));
+    expect(queuedBodies).toHaveLength(0);
+  }
+
+  expect(partialRowCounts).toEqual([597, 597, 597, 597, 597, 597]);
+  expect(
+    builderReadMock.calls
+      .filter((call) => call.model === "collection-large-597")
+      .map((call) => call.offset),
+  ).toEqual([0, 100, 200, 300, 400, 500]);
+  const [finishedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  const metadata = JSON.parse(finishedSource.metadataJson ?? "{}");
+  expect(finishedSource.syncState).toBe("idle");
+  expect(finishedSource.lastError).toBeNull();
+  expect(metadata).toMatchObject({
+    lastReadFetchedEntryCount: 597,
+    lastReadNextOffset: 597,
+    lastReadHasMore: false,
+    lastReadPartial: false,
+    lastReadSuspiciousEmpty: false,
+    sourceFetchState: "idle",
+  });
+  expect(metadata.activeReadSourceRowIds).toBeUndefined();
+  const persistedChangeSets = await db
+    .select({ id: schema.contentDatabaseSourceChangeSets.id })
+    .from(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, sourceId));
+  expect(persistedChangeSets).toHaveLength(0);
 });
 
 it("materializes duplicate source rows with last value winning for new property values", async () => {
@@ -1527,6 +2986,8 @@ it("fetches a live Builder body when an opened row only has stored body metadata
     updatedAt: now,
   });
 
+  await seedCollabFromText(documentId, "Existing collab state");
+
   const result = await hydrateQueuedBodies({ sourceId, documentId, limit: 1 });
 
   const [after] = await db
@@ -1577,6 +3038,7 @@ it("fetches a live Builder body when an opened row only has stored body metadata
       entryId: sourceRowId,
     },
   ]);
+  expect(await getCollabText(documentId)).toBe("Existing collab state");
 });
 
 it("queues body hydration for metadata-only Builder row reads", async () => {
@@ -1990,6 +3452,380 @@ it("rebuilds an empty queued Builder body from the current source row before giv
   expect(after.attempts).toBeNull();
 });
 
+it("repairs a stale remote body hash without overwriting a locally diverged document", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_hydration_canonical_hash_repair";
+  const databaseDocId = "doc_db_hydration_canonical_hash_repair";
+  const documentId = "doc_hydration_canonical_hash_repair";
+  const itemId = "item_hydration_canonical_hash_repair";
+  const sourceId = "src_hydration_canonical_hash_repair";
+  const sourceRowId = "entry_hydration_canonical_hash_repair";
+  const localAuthoredBody = "Remote baseline with a deliberate local edit.";
+  const authoredBlock = {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: "authored-text-1",
+    component: {
+      name: "Text",
+      options: { text: "<p>Remote baseline.</p>" },
+    },
+  };
+  const trackingPixel = {
+    "@type": "@builder.io/sdk:Element",
+    id: "builder-pixel-old-response",
+    tagName: "img",
+    properties: {
+      src: "https://cdn.builder.io/api/v1/pixel?apiKey=public-key",
+      "aria-hidden": "true",
+      alt: "",
+      role: "presentation",
+      width: "0",
+      height: "0",
+    },
+  };
+  const liveAuthoredBlock = {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: "text-canonical-live",
+    component: {
+      name: "Text",
+      options: { text: "<p>Fresh live remote baseline.</p>" },
+    },
+  };
+  const canonicalHash = builderBlocksHash([liveAuthoredBlock]);
+  const storedRemote = await withBuilderBodyValues({
+    id: sourceRowId,
+    model: "collection-canonical-hash-repair",
+    title: "Canonical hash repair",
+    urlPath: "/canonical-hash-repair",
+    updatedAt: "2026-07-14T00:00:00.000Z",
+    sourceValues: {
+      "data.title": "Canonical hash repair",
+      "data.url": "/canonical-hash-repair",
+      lastUpdated: "2026-07-14T00:00:00.000Z",
+    },
+    rawEntry: {
+      id: sourceRowId,
+      model: "collection-canonical-hash-repair",
+      data: { blocks: [authoredBlock, trackingPixel] },
+    },
+  });
+  const staleSourceValues = {
+    ...storedRemote.sourceValues,
+    [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "legacy-pixel-sensitive-hash",
+  };
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB canonical hash repair",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Canonical hash repair",
+      content: localAuthoredBody,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB canonical hash repair",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-canonical-hash-repair",
+    sourceTable: "collection-canonical-hash-repair",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationVersion:
+      "2abdywxepbd:readable-native-images-fresh-raw-baseline-v8",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_hydration_canonical_hash_repair",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-canonical-hash-repair/${sourceRowId}`,
+    sourceDisplayKey: "Canonical hash repair",
+    sourceValuesJson: JSON.stringify(staleSourceValues),
+    provenance: "Builder CMS read adapter",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_hydration_canonical_hash_repair",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-canonical-hash-repair",
+    sourceEntryJson: JSON.stringify({
+      ...storedRemote,
+      rawEntry: undefined,
+      sourceValues: staleSourceValues,
+    }),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const result = await hydrateQueuedBodies({ sourceId, limit: 1 });
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      version: schema.contentDatabaseItems.bodyHydrationVersion,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+  const repairedValues = JSON.parse(after.sourceValuesJson) as Record<
+    string,
+    unknown
+  >;
+
+  expect(result).toMatchObject({ processed: 1, succeeded: 1, failed: 0 });
+  expect(after.content).toBe(localAuthoredBody);
+  expect(repairedValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe(canonicalHash);
+  expect(repairedValues[BUILDER_CMS_BODY_CONTENT_KEY]).toContain(
+    "Fresh live remote baseline.",
+  );
+  expect(repairedValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]).toBeTruthy();
+  expect(repairedValues[BUILDER_CMS_BODY_SIDECARS_KEY]).toBeTruthy();
+  expect(after.status).toBe("hydrated");
+  expect(after.version).toBe(
+    `${canonicalHash}:readable-native-images-authoritative-raw-baseline-v9`,
+  );
+  expect(after.queued).toBeNull();
+  expect(builderReadMock.singleEntryCalls).toContainEqual({
+    model: "collection-canonical-hash-repair",
+    entryId: sourceRowId,
+  });
+});
+
+it("preserves local content and the source baseline when Builder returns a conflicting same-version body", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const databaseId = "db_same_version_conflict";
+  const databaseDocId = "doc_db_same_version_conflict";
+  const documentId = "doc_same_version_conflict";
+  const itemId = "item_same_version_conflict";
+  const sourceId = "src_same_version_conflict";
+  const sourceRowId = "entry_same_version_conflict";
+  const lastUpdated = "2026-01-01T00:00:00.000Z";
+  const publishedBlock = {
+    "@type": "@builder.io/sdk:Element",
+    id: "text-published-rich",
+    component: {
+      name: "Text",
+      options: { text: "<p>Published rich body.</p>" },
+    },
+  };
+  const publishedHash = builderBlocksHash([publishedBlock]);
+  const publishedBaseline = await withBuilderBodyValues({
+    id: sourceRowId,
+    model: "collection-same-version-conflict",
+    title: "Same version conflict",
+    urlPath: "/blog/same-version-conflict",
+    updatedAt: lastUpdated,
+    sourceValues: {
+      "data.title": "Same version conflict",
+      "data.url": "/blog/same-version-conflict",
+      lastUpdated,
+    },
+    rawEntry: {
+      id: sourceRowId,
+      model: "collection-same-version-conflict",
+      lastUpdated,
+      data: { blocks: [publishedBlock] },
+    },
+  });
+  const localContent = `${String(
+    publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
+  )}\n\nLocal edit that must survive a conflicting response.`;
+
+  await db.insert(schema.documents).values([
+    {
+      id: databaseDocId,
+      ownerEmail: OWNER,
+      title: "DB same version conflict",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: documentId,
+      ownerEmail: OWNER,
+      parentId: databaseDocId,
+      title: "Same version conflict",
+      content: localContent,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: databaseDocId,
+    title: "DB same version conflict",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: sourceId,
+    ownerEmail: OWNER,
+    databaseId,
+    sourceType: "builder-cms",
+    sourceName: "collection-same-version-conflict",
+    sourceTable: "collection-same-version-conflict",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+    position: 0,
+    bodyHydrationStatus: "pending",
+    bodyHydrationVersion: `${publishedHash}:readable-native-images-authoritative-raw-baseline-v9`,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "row_same_version_conflict",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceQualifiedId: `builder-cms://collection-same-version-conflict/${sourceRowId}`,
+    sourceDisplayKey: "Same version conflict",
+    sourceValuesJson: JSON.stringify({
+      ...publishedBaseline.sourceValues,
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: publishedHash,
+      [BUILDER_CMS_BODY_LAST_UPDATED_KEY]: lastUpdated,
+    }),
+    provenance: "Builder CMS read adapter",
+    lastSourceUpdatedAt: lastUpdated,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseBodyHydrationQueue).values({
+    id: "queue_same_version_conflict",
+    ownerEmail: OWNER,
+    sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId,
+    sourceTable: "collection-same-version-conflict",
+    sourceEntryJson: JSON.stringify({
+      id: sourceRowId,
+      model: "collection-same-version-conflict",
+      title: "Same version conflict",
+      urlPath: "/blog/same-version-conflict",
+      updatedAt: lastUpdated,
+      sourceValues: {
+        "data.title": "Same version conflict",
+        lastUpdated,
+      },
+    }),
+    priority: 0,
+    attempts: 0,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const result = await hydrateQueuedBodies({ sourceId, limit: 1 });
+  const [after] = await db
+    .select({
+      content: schema.documents.content,
+      sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+      status: schema.contentDatabaseItems.bodyHydrationStatus,
+      error: schema.contentDatabaseItems.bodyHydrationError,
+      queued: schema.contentDatabaseBodyHydrationQueue.id,
+      queueError: schema.contentDatabaseBodyHydrationQueue.lastError,
+    })
+    .from(schema.documents)
+    .innerJoin(
+      schema.contentDatabaseItems,
+      eq(schema.contentDatabaseItems.documentId, schema.documents.id),
+    )
+    .innerJoin(
+      schema.contentDatabaseSourceRows,
+      eq(
+        schema.contentDatabaseSourceRows.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .leftJoin(
+      schema.contentDatabaseBodyHydrationQueue,
+      eq(
+        schema.contentDatabaseBodyHydrationQueue.databaseItemId,
+        schema.contentDatabaseItems.id,
+      ),
+    )
+    .where(eq(schema.documents.id, documentId));
+  const afterValues = JSON.parse(after.sourceValuesJson) as Record<
+    string,
+    unknown
+  >;
+
+  expect(result).toMatchObject({ processed: 1, succeeded: 0, failed: 1 });
+  expect(after.content).toBe(localContent);
+  expect(afterValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe(publishedHash);
+  expect(after.status).toBe("error");
+  expect(after.error).toContain("inconsistent body variants");
+  expect(after.queued).toBe("queue_same_version_conflict");
+  expect(after.queueError).toContain("inconsistent body variants");
+});
+
 it("terminates an unbuildable empty Builder body job at the hydration cap", async () => {
   builderReadMock.mode = "full";
   builderReadMock.calls = [];
@@ -2119,8 +3955,8 @@ it("terminates an unbuildable empty Builder body job at the hydration cap", asyn
     .where(eq(schema.documents.id, documentId));
 
   expect(after.content).toBe("");
-  expect(after.status).toBe("error");
-  expect(after.error).toBe("body not yet available from Builder");
+  expect(after.status).toBe("unavailable");
+  expect(after.error).toBeNull();
   expect(after.queued).toBeNull();
   expect(after.attempts).toBeNull();
 });

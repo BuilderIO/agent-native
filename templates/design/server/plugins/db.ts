@@ -258,6 +258,7 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     capabilities TEXT NOT NULL DEFAULT '[]',
     status TEXT NOT NULL DEFAULT 'connected',
     last_seen_at TEXT,
+    preview_token TEXT,
     bridge_token TEXT,
     owner_email TEXT NOT NULL DEFAULT 'local@localhost',
     org_id TEXT,
@@ -265,6 +266,7 @@ CREATE INDEX IF NOT EXISTS design_system_shares_resource_principal_idx ON design
     updated_at TEXT DEFAULT (datetime('now'))
   );
 ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS bridge_token TEXT;
+ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT;
 CREATE TABLE IF NOT EXISTS design_localhost_write_grants (
     id TEXT PRIMARY KEY,
     design_id TEXT NOT NULL,
@@ -323,6 +325,65 @@ CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timel
     visibility TEXT NOT NULL DEFAULT 'private'
   )`,
     },
+    {
+      version: 20,
+      name: "design-data-operation-revisions",
+      sql: `ALTER TABLE designs ADD COLUMN IF NOT EXISTS data_operation_revisions TEXT NOT NULL DEFAULT '{}'`,
+    },
+    {
+      version: 21,
+      name: "design-file-content-operation-revisions",
+      sql: `ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_source TEXT;
+ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_revision INTEGER;
+ALTER TABLE design_files ADD COLUMN IF NOT EXISTS content_operation_result_hash TEXT`,
+    },
+    {
+      version: 22,
+      name: "design-localhost-preview-token",
+      sql: `ALTER TABLE design_localhost_connections ADD COLUMN IF NOT EXISTS preview_token TEXT`,
+    },
+    {
+      version: 23,
+      name: "design-templates",
+      sql: `CREATE TABLE IF NOT EXISTS design_templates (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT,
+    category TEXT NOT NULL DEFAULT 'other',
+    source_design_id TEXT,
+    design_system_id TEXT,
+    data TEXT NOT NULL DEFAULT '{}',
+    width INTEGER,
+    height INTEGER,
+    locked_layer_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+    org_id TEXT,
+    visibility TEXT NOT NULL DEFAULT 'private'
+  );
+CREATE TABLE IF NOT EXISTS design_template_shares (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL,
+    principal_type TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+CREATE TABLE IF NOT EXISTS design_template_files (
+    id TEXT PRIMARY KEY,
+    template_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    content TEXT NOT NULL,
+    file_type TEXT NOT NULL DEFAULT 'html',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+CREATE INDEX IF NOT EXISTS design_templates_owner_org_updated_idx ON design_templates (owner_email, org_id, updated_at);
+CREATE INDEX IF NOT EXISTS design_template_shares_resource_principal_idx ON design_template_shares (resource_id, principal_type, principal_id);
+CREATE INDEX IF NOT EXISTS design_template_files_template_idx ON design_template_files (template_id, updated_at)`,
+    },
   ],
   { table: "design_migrations" },
 );
@@ -337,8 +398,49 @@ CREATE INDEX IF NOT EXISTS motion_timeline_owner_org_updated_idx ON motion_timel
  * drops, renames, or retypes anything — and any failure here is logged and
  * swallowed so it can never fail boot.
  */
+/**
+ * Best-effort unique index guarding against the add-localhost-screens
+ * cross-request race: two concurrent calls placing the same localhost route
+ * each see "no existing design_files row" from their own snapshot and both
+ * insert a fresh row using the same deterministic filename for that route
+ * (see actions/add-localhost-screens.ts). A unique index on
+ * (design_id, filename) makes the losing insert fail instead of silently
+ * creating an overlapping duplicate screen.
+ *
+ * This intentionally does NOT live in `runDesignMigrations` above:
+ * `CREATE UNIQUE INDEX` fails outright against any database that already
+ * contains a duplicate (design_id, filename) pair — e.g. from this exact race
+ * having already fired before this fix shipped — and `runMigrations` has no
+ * way to tolerate that failure class (only lock-timeout / duplicate-column /
+ * permission errors are swallowed there). A failed migration entry blocks
+ * every later entry in the list forever: it crashes the process outright in
+ * local dev, and on serverless it silently stops applying anything past it on
+ * every cold start. So this runs as its own best-effort step instead: created
+ * when possible, safely skipped (with a warning) when legacy duplicates block
+ * it. `add-localhost-screens.ts`'s insert path tolerates either outcome — it
+ * catches a real unique-violation from this index and falls back to updating
+ * the row that won the race, and is a no-op/no-crash path when the index
+ * isn't present yet.
+ */
+async function ensureDesignFilesUniqueIndex(): Promise<void> {
+  try {
+    await getDbExec().execute(
+      `CREATE UNIQUE INDEX IF NOT EXISTS design_files_design_filename_unique_idx ON design_files (design_id, filename)`,
+    );
+  } catch (err) {
+    console.warn(
+      "[db] design_files_design_filename_unique_idx not created — likely " +
+        "pre-existing duplicate (design_id, filename) rows from the " +
+        "add-localhost-screens race predating this fix. New concurrent " +
+        "inserts remain best-effort until the duplicates are cleaned up:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
 export default async (nitroApp: any): Promise<void> => {
   await runDesignMigrations(nitroApp);
+  await ensureDesignFilesUniqueIndex();
   try {
     const summary = await ensureAdditiveColumns({
       db: getDbExec(),

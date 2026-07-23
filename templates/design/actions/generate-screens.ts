@@ -2,10 +2,15 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  resolveGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
 import {
   type AssignedCanvasRegion,
   DEFAULT_ASSIGNED_REGION_GAP,
@@ -186,6 +191,28 @@ export default defineAction({
           .min(1)
           .max(8)
           .superRefine((screens, ctx) => {
+            // Two screens sharing an explicit frameId would produce two
+            // DesignGenerationFrame entries with the same frameId (and thus
+            // the same derived agentId `agent-${frameId}`) once frames get
+            // built below, colliding agent presence/status tracking for both
+            // screens on the overview canvas.
+            const frameIdsSeen = new Map<string, number>();
+            screens.forEach((screen, index) => {
+              if (!screen.frameId) return;
+              const firstIndex = frameIdsSeen.get(screen.frameId);
+              if (firstIndex !== undefined) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index, "frameId"],
+                  message:
+                    `duplicate frameId "${screen.frameId}" (already used at index ${firstIndex}); ` +
+                    "each screen needs a distinct frameId",
+                });
+                return;
+              }
+              frameIdsSeen.set(screen.frameId, index);
+            });
+
             const requestAnchors = new Map<
               string,
               { index: number; role: DesignGenerationFrame["role"] }
@@ -234,6 +261,12 @@ export default defineAction({
       .optional()
       .default([])
       .describe("Selected frame/image/reference ids attached as context"),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this generation session only without changing the saved preference.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -245,11 +278,28 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({ designId, prompt, screens, designSystemId, contextRefs }) => {
+  run: async ({
+    designId,
+    prompt,
+    screens,
+    designSystemId,
+    contextRefs,
+    contextModeOverride,
+  }) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
+    const creativeContext = await resolveGenerationCreativeContext({
+      query: prompt,
+      role: "design",
+      contextModeOverride,
+    });
+    const creativeContextProvenance = {
+      contextMode: creativeContext.contextMode,
+      contextPackId: creativeContext.contextPackId,
+      reuseLabels: creativeContext.reuseLabels,
+    };
 
     const regionSizes = screens.map(regionSizeForScreen);
     const regions = assignRegionsForSizes(regionSizes, {
@@ -259,21 +309,43 @@ export default defineAction({
           : DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
     });
 
-    const seenFilenames = new Map<string, number>();
-    // Dedupe any filename (explicit or auto-generated) so two screens can never
-    // resolve to the same target file — otherwise generate-design silently
-    // overwrites the first screen's output with the second's.
+    // Seed the used-filename set with the design's EXISTING files, not just
+    // names requested in this call. Without this, a requested/auto-slugged
+    // target (e.g. a screen titled "Onboarding" slugging to "onboarding.html")
+    // can silently collide with an already-saved screen: generate-design's
+    // existing-file lookup is keyed by filename, so the later generate-design
+    // call for that "new" target would UPDATE (overwrite) the pre-existing
+    // file instead of creating the new screen the agent intended.
+    const db = getDb();
+    const existingFiles = await db
+      .select({ filename: schema.designFiles.filename })
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.designId, designId));
+    const usedFilenames = new Set(
+      existingFiles
+        .map((file) => file.filename)
+        .filter((filename): filename is string => Boolean(filename)),
+    );
+    // Dedupe any filename (explicit or auto-generated) so two screens can
+    // never resolve to the same target file, and so no target collides with
+    // an existing screen — otherwise generate-design silently overwrites the
+    // other screen's content.
     const dedupeFilename = (base: string): string => {
-      if (!seenFilenames.has(base)) {
-        seenFilenames.set(base, 1);
+      if (!usedFilenames.has(base)) {
+        usedFilenames.add(base);
         return base;
       }
-      const count = seenFilenames.get(base)! + 1;
-      seenFilenames.set(base, count);
       const dot = base.lastIndexOf(".");
-      return dot > 0
-        ? `${base.slice(0, dot)}-${count}${base.slice(dot)}`
-        : `${base}-${count}`;
+      const stem = dot > 0 ? base.slice(0, dot) : base;
+      const ext = dot > 0 ? base.slice(dot) : "";
+      let count = 2;
+      let candidate = `${stem}-${count}${ext}`;
+      while (usedFilenames.has(candidate)) {
+        count += 1;
+        candidate = `${stem}-${count}${ext}`;
+      }
+      usedFilenames.add(candidate);
+      return candidate;
     };
     const requestedTargets = screens.map((screen, index) => {
       if (screen.filename) return dedupeFilename(screen.filename);
@@ -312,6 +384,7 @@ export default defineAction({
       designSystemId,
       prompt,
       contextRefs,
+      creativeContext: creativeContextProvenance,
       frames,
       startedAt: new Date().toISOString(),
     };
@@ -326,6 +399,17 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
     });
+    await recordGenerationCreativeContext(
+      {
+        appId: "design",
+        artifactType: "generation-session",
+        artifactId: session.id,
+        ...creativeContextProvenance,
+      },
+      {
+        artifactAccess: { resourceType: "design", resourceId: designId },
+      },
+    );
 
     const targets = frames.map((frame, index) => {
       const requested = screens[index]!;
@@ -353,6 +437,8 @@ export default defineAction({
       status: session.status,
       frames,
       targets,
+      ...creativeContextProvenance,
+      contextResults: creativeContext.results,
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
       embed: true,
       nextRequiredAction:

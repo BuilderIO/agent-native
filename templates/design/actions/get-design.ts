@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export default defineAction({
@@ -37,7 +38,7 @@ export default defineAction({
       description: row.description,
       projectType: row.projectType,
       designSystemId: row.designSystemId,
-      data: row.data ?? null,
+      data: designDataForAccessRole(row.data ?? null, access.role),
       visibility: row.visibility,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

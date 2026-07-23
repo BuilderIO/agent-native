@@ -54,7 +54,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID (e.g. 'gpt-5.5', 'claude-sonnet-5', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
+          "Model ID (e.g. 'gpt-5.6-sol', 'claude-sonnet-5', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
       },
       baseUrl: {
         type: "string",
@@ -113,12 +113,7 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!isAgentEnginePackageInstalled(entry)) {
     return `Error: Engine "${engine}" requires optional packages that are not installed in this app. Run: pnpm add ${entry.installPackage}`;
   }
-  if (
-    entry.name === "builder" &&
-    normalizeModelForEngine(entry, model) !== model
-  ) {
-    return `Error: Model "${model}" is not supported by Builder. Choose one of: ${entry.supportedModels.join(", ")}`;
-  }
+  const normalizedModel = normalizeModelForEngine(entry, model);
 
   const ctx = currentContext();
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
@@ -133,14 +128,18 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
 
   const settings = await writeAgentAppModelDefaultSettings(ctx, appId, {
     engine,
-    model,
+    model: normalizedModel,
     updatedBy: ctx.userEmail,
   });
+  const normalizedNote =
+    normalizedModel === model
+      ? ""
+      : ` Requested model "${model}" is no longer supported, so "${normalizedModel}" was saved instead.`;
   return JSON.stringify(
     {
       ok: true,
       ...settings,
-      message: `Default model for ${appId} set to ${model} via ${entry.label}.`,
+      message: `Default model for ${appId} set to ${normalizedModel} via ${entry.label}.${normalizedNote}`,
     },
     null,
     2,

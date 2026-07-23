@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",
@@ -18,10 +21,9 @@ const messages = {
     collapseSidebar: "收起側邊欄",
   },
   settings: {
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     title: "設定",
     description: "資產生成、儲存和品牌套件存取。",
     connections: "連線",
@@ -423,6 +425,47 @@ const messages = {
     lowerLeft: "左下",
     skeletonEnabled: "已啟用",
     skeletonOff: "關閉",
+    // TODO(l10n): translate after QA.
+    addReference: "Add reference",
+    referenceBoard: "Reference board",
+    referenceBoardEmptyDescription:
+      'Add named visual slots like "Steve" so every run can use the right people, products, or style references.',
+    referenceDefaultLabel: "Reference",
+    referenceImageCount: "{{count}}/{{max}} images",
+    referenceSubjectImageCount: "{{count}}/{{max}} subject images",
+    moreImagesCount: "+{{count}}",
+    referenceLabel: "Label",
+    referenceRoleLabel: "Role",
+    referenceRole_subject: "Subject",
+    referenceRole_style: "Style",
+    referenceRole_product: "Product",
+    referenceRole_background: "Background",
+    referenceRole_composition: "Composition",
+    referenceDescription: "Description",
+    referenceDescriptionPlaceholder:
+      "e.g. This is Steve, our usual host. Render him faithfully.",
+    referenceMode: "Reference mode",
+    fixedReference: "Fixed",
+    swappableReference: "Swappable",
+    requiredPerRun: "Required",
+    required: "Required",
+    filledPerGeneration: "Filled per generation",
+    noReferenceImages: "No reference images",
+    chooseReferenceImage: "Choose from library",
+    searchLibraryImages: "Search library images",
+    editReference: "Edit reference",
+    uploadReferenceImage: "Upload image",
+    uploadingReferenceImage: "Uploading...",
+    referenceImageUploaded: "Reference image uploaded.",
+    couldNotUploadReferenceImage: "Could not upload reference image.",
+    removeReference: "Remove reference",
+    removeReferenceImage: "Remove reference image",
+    referenceBoardTotalLimitError:
+      "The reference board may attach at most 8 images total.",
+    referenceBoardSubjectLimitError:
+      "Subject reference entries may attach at most 4 images total.",
+    subjectReferenceModelTip:
+      "Tip: gemini-3-pro-image holds up to 5 people consistent — best for photo references.",
     openChat: "開啟聊天",
     defaultTextPolicy: "盡量不要嵌入文字。如需文字，請保持簡短且易讀。",
     generationPresetCreated: "生成預設已建立。",
@@ -657,6 +700,27 @@ const messages = {
       "清除即時候選面板並刪除所有未儲存的候選行。",
     couldNotClearLiveCandidates: "無法清除即時候選項。",
     liveCandidatesActions: "即時候選項操作",
+    settingsTitle: "品牌套件設定",
+    unsavedChangesTitle: "未儲存的變更",
+    unsavedChangesDescription:
+      "此品牌套件有未儲存的變更。要放棄變更還是繼續編輯？",
+    discardChanges: "放棄變更",
+    keepEditing: "繼續編輯",
+    setupGuide: "設定指南",
+    setupGuideDescription:
+      "為了從此套件獲得最一致、最符合品牌調性的生成結果的建議。",
+    setupGuideReferences: "上傳參考素材",
+    setupGuideReferencesHint:
+      "將 3-5 個強而有力的範例標記為參考，讓分析品牌能從真實作品中學習調色板和視覺特徵，而非猜測。",
+    setupGuideStyleDescription: "撰寫具體的風格描述",
+    setupGuideStyleDescriptionHint:
+      "使用具體特徵（光線、構圖、質感）而非模糊的形容詞，讓每次生成都符合品牌調性。",
+    setupGuideInstructions: "使用自訂指令來設定硬性限制",
+    setupGuideInstructionsHint:
+      "將必須始終成立的事項（標誌位置、禁用顏色、法律文字）放在此處，讓代理永遠不會忘記。",
+    setupGuidePresets: "為每種常用格式建立一個預設",
+    setupGuidePresetsHint:
+      "將長寬比、模型和骨架/參考設定儲存為預設，讓每次都重複使用相同的輸出形式。",
   },
   brandKits: {
     title: "品牌套件",
@@ -733,6 +797,7 @@ const messages = {
     candidates: "候選項",
     candidateActions: "候選項操作",
     candidateWithNumber: "候選項 {{number}}",
+    variantWithNumber: "變體 {{number}}",
     checkingImageLibraries: "正在檢查圖片資料庫...",
     checking: "正在檢查",
     checkingUpload: "正在檢查上傳",

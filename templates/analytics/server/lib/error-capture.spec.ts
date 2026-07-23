@@ -32,11 +32,16 @@ import {
   deriveConsoleExceptionIdentity,
   extractExceptionInput,
   fingerprint,
+  getErrorIssue,
   ingestException,
+  isBenignBrowserAbortException,
+  listErrorIssues,
   matchErrorIssuesBySignatures,
   normalizeFrameFile,
   parseStack,
+  sourceContextFromText,
   titleFromException,
+  trustedSourceRelativePath,
   type DerivedExceptionFields,
   type RawExceptionInput,
 } from "./error-capture";
@@ -91,6 +96,54 @@ describe("parseStack", () => {
   });
 });
 
+describe("sourceContextFromText", () => {
+  it("returns bounded source lines with the crashing line highlighted", () => {
+    const context = sourceContextFromText(
+      [
+        "const a = 1;",
+        "const b = 2;",
+        "throw new Error('boom');",
+        "done();",
+      ].join("\n"),
+      3,
+      { before: 1, after: 1 },
+    );
+
+    expect(context).toEqual([
+      { line: 2, text: "const b = 2;", highlight: false },
+      { line: 3, text: "throw new Error('boom');", highlight: true },
+      { line: 4, text: "done();", highlight: false },
+    ]);
+  });
+
+  it("returns null when the requested line is outside the file", () => {
+    expect(sourceContextFromText("one\ntwo", 3)).toBeNull();
+    expect(sourceContextFromText("one\ntwo", 0)).toBeNull();
+  });
+});
+
+describe("trustedSourceRelativePath", () => {
+  it("allows Analytics app source paths from relative or URL path frames", () => {
+    expect(trustedSourceRelativePath("app/pages/Dashboard.tsx")).toBe(
+      "app/pages/Dashboard.tsx",
+    );
+    expect(trustedSourceRelativePath("/app/pages/Dashboard.tsx")).toBe(
+      "app/pages/Dashboard.tsx",
+    );
+  });
+
+  it("rejects client-controlled absolute, traversal, and non-app paths", () => {
+    expect(
+      trustedSourceRelativePath(
+        "/Users/steve/Projects/builder/agent-native/framework/AGENTS.md",
+      ),
+    ).toBeNull();
+    expect(trustedSourceRelativePath("../server/db/schema.ts")).toBeNull();
+    expect(trustedSourceRelativePath("server/db/schema.ts")).toBeNull();
+    expect(trustedSourceRelativePath("app/../server/db/schema.ts")).toBeNull();
+  });
+});
+
 describe("normalizeFrameFile", () => {
   it("drops query/hash and reduces URLs to pathname", () => {
     expect(
@@ -104,6 +157,12 @@ describe("normalizeFrameFile", () => {
     );
     expect(normalizeFrameFile("/assets/chunk-9a8b7c6d5e.js")).toBe(
       "/assets/chunk.js",
+    );
+    expect(normalizeFrameFile("/assets/entry-ClHrLGJQ.js")).toBe(
+      "/assets/entry.js",
+    );
+    expect(normalizeFrameFile("/assets/entry-CVi_y2nS.js")).toBe(
+      "/assets/entry.js",
     );
   });
 
@@ -131,6 +190,9 @@ describe("fingerprint", () => {
     );
     expect(fingerprint("TypeError", frames, "boom")).not.toBe(
       fingerprint("RangeError", frames, "boom"),
+    );
+    expect(fingerprint("Error", frames, "boom")).toBe(
+      fingerprint("UnhandledRejection", frames, "boom"),
     );
   });
 
@@ -277,6 +339,21 @@ describe("extractExceptionInput", () => {
     expect(input.type).toBe("Error");
     expect(input.level).toBe("error");
   });
+
+  it("recognizes expected browser request cancellations", () => {
+    expect(
+      isBenignBrowserAbortException({
+        type: "AbortError",
+        message: "signal is aborted without reason",
+      }),
+    ).toBe(true);
+    expect(
+      isBenignBrowserAbortException({
+        type: "AbortError",
+        message: "The request was aborted by the server",
+      }),
+    ).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -386,6 +463,26 @@ async function createTables(client: Client): Promise<void> {
       created_at text NOT NULL DEFAULT (datetime('now')),
       owner_email text NOT NULL DEFAULT 'local@localhost',
       org_id text
+    )
+  `);
+  await client.execute(`
+    CREATE TABLE session_recordings (
+      id text PRIMARY KEY,
+      client_recording_id text NOT NULL,
+      owner_email text NOT NULL,
+      org_id text,
+      visibility text NOT NULL DEFAULT 'private'
+    )
+  `);
+  await client.execute(`
+    CREATE TABLE session_recording_shares (
+      id text PRIMARY KEY,
+      resource_id text NOT NULL,
+      principal_type text NOT NULL,
+      principal_id text NOT NULL,
+      role text NOT NULL DEFAULT 'viewer',
+      created_by text NOT NULL,
+      created_at text NOT NULL DEFAULT (datetime('now'))
     )
   `);
 }
@@ -521,6 +618,160 @@ describe("ingestException", () => {
     expect(new Set(issues.map((i: any) => i.ownerEmail))).toEqual(
       new Set(["alice@example.com", "bob@example.com"]),
     );
+  });
+
+  it("filters issues by matching occurrence user and session recording", async () => {
+    const tim = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userId: "tim-user-id", userKey: "tim@example.com" }),
+    );
+    const other = await ingestException(
+      SCOPE,
+      baseRaw({
+        type: "RangeError",
+        message: "another failure",
+        rawStack:
+          "RangeError: another failure\n    at otherThing (https://app.example.com/other.js:1:1)",
+      }),
+      derivedFor({ userId: "other-user-id", userKey: "other@example.com" }),
+    );
+    const db = drizzle(client, { schema }) as any;
+    await client.execute({
+      sql: `
+        INSERT INTO session_recordings
+          (id, client_recording_id, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: ["sr_tim", "client-tim", SCOPE.ownerEmail, null, "private"],
+    });
+    await db
+      .update(schema.errorEvents)
+      .set({ clientRecordingId: "client-tim" })
+      .where(eq(schema.errorEvents.id, tim.eventId));
+    await db
+      .update(schema.errorEvents)
+      .set({ sessionRecordingId: "sr_other" })
+      .where(eq(schema.errorEvents.id, other.eventId));
+
+    const byRecording = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { sessionRecordingId: "sr_tim" },
+    );
+    expect(byRecording.map((issue) => issue.id)).toEqual([tim.issueId]);
+
+    const byUserId = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "tim-user-id" },
+    );
+    expect(byUserId.map((issue) => issue.id)).toEqual([tim.issueId]);
+
+    const byUserKey = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "tim@example.com" },
+    );
+    expect(byUserKey.map((issue) => issue.id)).toEqual([tim.issueId]);
+  });
+
+  it("does not match an occurrence outside its issue owner scope", async () => {
+    const tim = await ingestException(SCOPE, baseRaw(), derivedFor());
+    const db = drizzle(client, { schema }) as any;
+    await db
+      .update(schema.errorEvents)
+      .set({
+        ownerEmail: "other@example.com",
+        userId: "other@example.com",
+        userKey: "other@example.com",
+        sessionRecordingId: "sr_other",
+      })
+      .where(eq(schema.errorEvents.id, tim.eventId));
+
+    const issues = await listErrorIssues(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      { userId: "other@example.com", sessionRecordingId: "sr_other" },
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("keeps real identities in list and detail reads", async () => {
+    const result = await ingestException(
+      SCOPE,
+      baseRaw({
+        message: "Checkout failed for customer@example.com",
+        rawStack:
+          "TypeError: customer@example.com\n    at doThing (https://app.example.com/main.js:12:34)",
+        tags: { reporter: "support@example.com" },
+        extra: { accountEmail: "customer@example.com" },
+        breadcrumbs: [{ message: "Signed in as customer@example.com" }],
+      }),
+      derivedFor({
+        userId: "customer@example.com",
+        userKey: "customer@example.com",
+        url: "https://app.example.com/checkout?email=customer@example.com",
+      }),
+    );
+    const normalDetail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    expect(JSON.stringify(normalDetail)).toContain("customer@example.com");
+
+    const issues = await listErrorIssues({
+      userEmail: SCOPE.ownerEmail,
+      orgId: null,
+    });
+    const detail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    const rendered = JSON.stringify({ issues, detail });
+
+    expect(rendered).toContain("customer@example.com");
+    expect(rendered).toContain("support@example.com");
+    expect(detail.events[0]).toMatchObject({
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
+      url: "https://app.example.com/checkout?email=customer@example.com",
+      tags: { reporter: "support@example.com" },
+      extra: { accountEmail: "customer@example.com" },
+    });
+  });
+
+  it("does not expose private replay links through an org-shared issue", async () => {
+    await client.execute({
+      sql: `
+        INSERT INTO session_recordings
+          (id, client_recording_id, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      args: [
+        "sr_private",
+        "client-private",
+        "alice@example.com",
+        "org_1",
+        "private",
+      ],
+    });
+
+    const result = await ingestException(
+      { ownerEmail: "alice@example.com", orgId: "org_1" },
+      baseRaw({ clientRecordingId: "client-private" }),
+      derivedFor(),
+    );
+
+    const readerScope = { userEmail: "bob@example.com", orgId: "org_1" };
+    const [summary] = await listErrorIssues(readerScope);
+    expect(summary).toMatchObject({
+      id: result.issueId,
+      lastSessionRecordingId: null,
+      lastSessionRecordingPath: null,
+    });
+
+    const detail = await getErrorIssue(readerScope, result.issueId);
+    expect(detail.issue.lastSessionRecordingPath).toBeNull();
+    expect(detail.events[0].sessionRecordingId).toBeNull();
+    expect(detail.events[0].sessionRecordingPath).toBeNull();
+    expect(detail.sessions).toEqual([]);
   });
 });
 

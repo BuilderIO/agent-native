@@ -3,7 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  isMigrationManifestActive,
+  readMigrationManifest,
+} from "../package-lifecycle/migration-manifest.js";
 import { _postProcessStandalone } from "./create.js";
+import { runMigrationCodemods } from "./migration-codemod.js";
 
 export const STARTER_APP_NAME = "builder-agent-native-starter";
 export const CHAT_TEMPLATE = "chat";
@@ -25,6 +30,25 @@ export const STARTER_TOOLCHAIN_SYNC_PATHS = [
   "netlify.toml",
 ] as const;
 
+export const STARTER_SOURCE_MIGRATION_PATHS = [
+  ":(glob)**/*.ts",
+  ":(glob)**/*.tsx",
+] as const;
+
+const STANDALONE_SNAPSHOT_EXCLUDED_TOP_LEVEL = new Set([
+  ".deploy-tmp",
+  ".env",
+  ".env.local",
+  ".generated",
+  ".netlify",
+  ".output",
+  ".react-router",
+  "build",
+  "data",
+  "dist",
+  "node_modules",
+]);
+
 export type StarterToolchainSyncPath =
   (typeof STARTER_TOOLCHAIN_SYNC_PATHS)[number];
 
@@ -44,7 +68,77 @@ export function listStarterSyncPaths(): string[] {
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     ...STARTER_TOOLCHAIN_SYNC_PATHS,
+    ...STARTER_SOURCE_MIGRATION_PATHS,
   ];
+}
+
+export function migrateStarterSources(options: {
+  starterDir: string;
+  repoRoot: string;
+  coreVersion: string | null;
+  write?: boolean;
+}): { changedPaths: string[]; warnings: string[] } {
+  const manifestPath = path.join(
+    options.repoRoot,
+    "packages/core/migration-manifest.json",
+  );
+  const manifest = readMigrationManifest(manifestPath);
+  if (!manifest) {
+    throw new Error(`Could not read migration manifest at ${manifestPath}.`);
+  }
+  if (!isMigrationManifestActive(manifest, options.coreVersion)) {
+    return { changedPaths: [], warnings: [] };
+  }
+
+  const result = runMigrationCodemods({
+    root: options.starterDir,
+    manifests: [manifest],
+    apply: options.write,
+    // Checked-in migration targets are validated by the manifest guard before
+    // this source sync runs; starter dependencies are installed afterward.
+    targetExists: () => true,
+  });
+
+  return {
+    changedPaths: [
+      ...new Set(
+        result.changes.map((change) =>
+          path.relative(options.starterDir, change.file),
+        ),
+      ),
+    ].sort(),
+    warnings: result.warnings,
+  };
+}
+
+export function resolveStarterCoreVersion(
+  starterPackageJson: PackageJson,
+  repoRoot: string,
+): string | null {
+  const dependencies = starterPackageJson.dependencies;
+  if (dependencies && typeof dependencies === "object") {
+    const declared = (dependencies as Record<string, unknown>)[
+      "@agent-native/core"
+    ];
+    if (typeof declared === "string") {
+      const version = declared.match(/\d+\.\d+\.\d+/)?.[0];
+      if (version) return version;
+    }
+  }
+
+  try {
+    const corePackageJson = JSON.parse(
+      fs.readFileSync(
+        path.join(repoRoot, "packages/core/package.json"),
+        "utf-8",
+      ),
+    ) as { version?: unknown };
+    return typeof corePackageJson.version === "string"
+      ? corePackageJson.version
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function findAgentNativeRoot(startDir = process.cwd()): string {
@@ -89,7 +183,11 @@ export function createStandaloneChatSnapshot(
     path.join(os.tmpdir(), "an-builder-starter-sync-"),
   );
 
-  fs.cpSync(chatTemplateDir, tempDir, { recursive: true });
+  fs.cpSync(chatTemplateDir, tempDir, {
+    recursive: true,
+    filter: (source) =>
+      shouldCopyStandaloneSnapshotPath(source, chatTemplateDir),
+  });
   _postProcessStandalone(STARTER_APP_NAME, tempDir, CHAT_TEMPLATE);
 
   const packageJson = JSON.parse(
@@ -110,6 +208,16 @@ export function createStandaloneChatSnapshot(
     pnpmWorkspaceYaml,
     toolchainFiles: collectStarterToolchainFiles(tempDir),
   };
+}
+
+function shouldCopyStandaloneSnapshotPath(
+  source: string,
+  root: string,
+): boolean {
+  const relative = path.relative(root, source);
+  if (!relative) return true;
+  const topLevel = relative.split(path.sep)[0];
+  return !STANDALONE_SNAPSHOT_EXCLUDED_TOP_LEVEL.has(topLevel);
 }
 
 export function generateStandaloneChatManifest(repoRoot?: string): {
@@ -170,7 +278,7 @@ export function mergeStarterManifest(
   merged.dependencies = mergePackageJsonRecords(
     canonicalPackageJson.dependencies as Record<string, string> | undefined,
     starterPackageJson.dependencies as Record<string, string> | undefined,
-    ["@agent-native/core"],
+    ["@agent-native/core", "@agent-native/toolkit"],
   );
   merged.devDependencies = mergePackageJsonRecords(
     canonicalPackageJson.devDependencies as Record<string, string> | undefined,
@@ -268,6 +376,8 @@ export type SyncStarterManifestResult = {
   pnpmWorkspaceYaml: string | null;
   toolchainChanges: StarterToolchainSyncChange[];
   changedToolchainPaths: StarterToolchainSyncPath[];
+  changedSourceMigrationPaths: string[];
+  sourceMigrationWarnings: string[];
 };
 
 export function resolveStarterPaths(options: {
@@ -317,6 +427,19 @@ export function syncStarterManifestFiles(options: {
   const snapshot = createStandaloneChatSnapshot(options.repoRoot);
 
   try {
+    const repoRoot = options.repoRoot ?? findAgentNativeRoot();
+    const initialStarterPackageJson = JSON.parse(
+      fs.readFileSync(starterPackageJsonPath, "utf-8"),
+    ) as PackageJson;
+    const sourceMigration = migrateStarterSources({
+      starterDir,
+      repoRoot,
+      coreVersion: resolveStarterCoreVersion(
+        initialStarterPackageJson,
+        repoRoot,
+      ),
+      write: options.write,
+    });
     const starterPackageJson = JSON.parse(
       fs.readFileSync(starterPackageJsonPath, "utf-8"),
     ) as PackageJson;
@@ -343,7 +466,10 @@ export function syncStarterManifestFiles(options: {
       .filter((change) => change.changed)
       .map((change) => change.relativePath);
     const changed =
-      packageChanged || workspaceChanged || changedToolchainPaths.length > 0;
+      packageChanged ||
+      workspaceChanged ||
+      changedToolchainPaths.length > 0 ||
+      sourceMigration.changedPaths.length > 0;
 
     if (options.write && changed) {
       if (packageChanged) {
@@ -368,6 +494,8 @@ export function syncStarterManifestFiles(options: {
       pnpmWorkspaceYaml: snapshot.pnpmWorkspaceYaml,
       toolchainChanges,
       changedToolchainPaths,
+      changedSourceMigrationPaths: sourceMigration.changedPaths,
+      sourceMigrationWarnings: sourceMigration.warnings,
     };
   } finally {
     snapshot.cleanup();
@@ -466,11 +594,18 @@ export function runSyncStarterManifestCli(argv: string[]): number {
     write: args.write,
   });
 
+  for (const warning of result.sourceMigrationWarnings) {
+    console.warn(`[starter migration] ${warning}`);
+  }
+
   if (result.changed) {
     const updatedPaths = [
-      ...(result.packageChanged ? ["package.json"] : []),
-      ...(result.workspaceChanged ? ["pnpm-workspace.yaml"] : []),
-      ...result.changedToolchainPaths,
+      ...new Set([
+        ...(result.packageChanged ? ["package.json"] : []),
+        ...(result.workspaceChanged ? ["pnpm-workspace.yaml"] : []),
+        ...result.changedToolchainPaths,
+        ...result.changedSourceMigrationPaths,
+      ]),
     ];
     const summary = updatedPaths.length ? ` (${updatedPaths.join(", ")})` : "";
     console.log(

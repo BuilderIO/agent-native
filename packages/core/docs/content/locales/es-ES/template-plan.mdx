@@ -114,7 +114,7 @@ El comando instala tres comandos: `/visual-plan`, `/visual-recap` y `/visualize-
 
 Si está utilizando un host basado en chat que acepta conectores MCP URL directamente
 (en lugar de un cliente configurado con CLI), conecte el conector de planes alojado en
-`https://plan.agent-native.com/_agent-native/mcp`: consulte [MCP Clients](/docs/mcp-clients) para conocer la configuración específica del cliente.
+`https://plan.agent-native.com/mcp`: consulte [MCP Clients](/docs/mcp-clients) para conocer la configuración específica del cliente.
 
 La autenticación es un inicio de sesión único en el navegador durante la configuración; esto es lo que se pretende y
 es lo que permite al agente persistir y compartir los planes que genera. ¿Qué diablos?
@@ -212,6 +212,20 @@ Si el primer pase todavía tiene decisiones responsables, el agente puede coloca
 Formulario **Preguntas abiertas** en la parte inferior del mismo plan. Responderlo y enviar
 El agente inicia un turno de revisión contra el plan existente.
 
+## Costo y elección de modelo
+
+Generar un plan o un resumen ejecuta una sesión completa de agente frente al LLM
+de su agente de codificación, no un simple relleno de plantilla ligero, por lo que
+el costo escala con el tamaño del diff o del plan y con el modelo que elija.
+
+- El modelo de chat predeterminado de la propia aplicación es Sonnet 5; cámbielo
+  en cualquier momento en **Configuración**. Haiku es la opción más económica de
+  Claude, y Luna es la opción más económica dentro de la familia GPT-5.6.
+- Los resúmenes de PR automatizados de la GitHub Action se ejecutan por separado
+  de la aplicación interactiva y tienen sus propios controles de modelo y costo;
+  consulte [PR Visual Recap](/docs/pr-visual-recap) para `VISUAL_RECAP_MODEL`,
+  `VISUAL_RECAP_AGENT` y `VISUAL_RECAP_REASONING`.
+
 ## Qué puedes hacer con él
 
 - **Revisión antes de la implementación.** React a diagramas, estructuras alámbricas, pestañas de opciones,
@@ -253,7 +267,7 @@ Compartir y comentar son los flujos de trabajo que necesitan una cuenta:
   revisión en varios dispositivos o en equipo) requiere iniciar sesión. El inicio de sesión de Google aparece cuando
   las variables de entorno estándar de Google OAuth están configuradas.
 
-El conector de planes alojado se encuentra en `https://plan.agent-native.com/_agent-native/mcp`.
+El conector de planes alojado se encuentra en `https://plan.agent-native.com/mcp`.
 Nunca coloques secretos compartidos en archivos de habilidades.
 
 ## Modo de privacidad de archivos locales {#local-files}
@@ -290,7 +304,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 Parece el puente URL
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 La página es el visor de planes normal, pero el navegador recupera `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json` y recursos de imagen locales de
 el puente del host local. El contenido del plan no se escribe en la base de datos alojada y se
@@ -452,7 +466,7 @@ pnpm dev
 La habilidad respaldada por la aplicación alojada utiliza:
 
 - Aplicación: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 La plantilla local es útil cuando estás desarrollando planes, probando la persistencia local o ejecutando una superficie de revisión totalmente autohospedada.
 

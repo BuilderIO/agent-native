@@ -29,11 +29,12 @@
     "fmt:check": "oxfmt --check .",
     "fix:imports": "oxfmt --write .",
     "test": "tsx scripts/workspace-run.ts test",
-    "test:fast": "tsx scripts/workspace-run.ts test -- --exclude \"**/*.db.test.ts\" --exclude \"**/*.integration.spec.ts\" --exclude \"**/*.integration.test.ts\" --exclude \"**/*.e2e.spec.ts\" --exclude \"**/*.e2e.test.ts\"",
-    "test:content-db": "pnpm --filter content exec vitest --run actions/bind-content-database-source-field.db.test.ts actions/blocks-seeding.db.test.ts actions/builder-source-review-gates.db.test.ts actions/content-database-lifecycle.db.test.ts actions/database-row-batch-actions.db.test.ts actions/list-content-databases.db.test.ts actions/resync-content-database-source.db.test.ts --config vitest.config.ts",
-    "test:core-integration": "pnpm --filter @agent-native/core exec vitest --run src/agent/engine/translate-ai-sdk.integration.spec.ts src/agent/run-loop-with-resume.integration.spec.ts src/client/extensions/AgentNativeExtensionFrame.e2e.spec.ts src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts src/scripts/db/scope-isolation.e2e.spec.ts src/server/embedded.integration.spec.ts --maxWorkers=25% --passWithNoTests",
+    "test:fast": "tsx scripts/workspace-run.ts test -- --exclude \"**/*.db.test.ts\" --exclude \"**/*.integration.spec.ts\" --exclude \"**/*.integration.test.ts\" --exclude \"**/*.e2e.spec.ts\" --exclude \"**/*.e2e.test.ts\" --exclude \"**/e2e/**\" --exclude \"**/*.live.spec.ts\" --exclude \"**/*.live.test.ts\" --exclude \"**/*.perf.spec.ts\" --exclude \"**/*.perf.test.ts\"",
+    "test:content-db": "pnpm --filter content exec vitest --run actions/bind-content-database-source-field.db.test.ts actions/blocks-seeding.db.test.ts actions/builder-source-review-gates.db.test.ts actions/content-database-lifecycle.db.test.ts actions/database-row-batch-actions.db.test.ts actions/list-content-databases.db.test.ts actions/move-document.db.test.ts actions/resync-content-database-source.db.test.ts actions/stage-builder-source-bulk-update.db.test.ts actions/submit-content-database-form.db.test.ts actions/update-document.db.test.ts --config vitest.config.ts",
+    "test:core-integration": "pnpm --filter @agent-native/core exec vitest --run src/agent/engine/translate-ai-sdk.integration.spec.ts src/agent/run-loop-with-resume.integration.spec.ts src/client/extensions/AgentNativeExtensionFrame.e2e.spec.ts src/client/session-replay-iframe.e2e.spec.ts src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts src/scripts/db/scope-isolation.e2e.spec.ts src/server/csrf-plugin-ordering.integration.spec.ts src/server/embedded.integration.spec.ts --maxWorkers=25% --passWithNoTests",
     "test:plan-e2e": "pnpm --filter plan exec vitest --run actions/create-visual-recap.e2e.spec.ts --passWithNoTests",
     "test:brain-evals": "pnpm --filter brain eval:ci",
+    "test:brain-privacy-evals": "pnpm --filter brain privacy:eval",
     "test:content-parity": "pnpm --filter content test:parity-capabilities",
     "qa:cli": "tsx scripts/qa-cli-smoke.ts",
     "qa:headless-onramp": "tsx scripts/qa-headless-onramp-smoke.ts",
@@ -58,7 +59,16 @@
     "guard:template-list": "node scripts/guard-template-list.mjs",
     "guard:netlify-private-env": "tsx scripts/guard-netlify-private-env.ts",
     "guard:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts --check",
+    "sync:template-standard": "tsx scripts/template-standard/index.ts",
+    "guard:template-standard": "tsx scripts/template-standard/index.ts --check",
     "guard:public-packages": "tsx scripts/guard-public-packages.ts",
+    "guard:shared-ui-singletons": "tsx scripts/guard-shared-ui-singletons.ts",
+    "guard:no-core-client-barrel-imports": "tsx scripts/guard-no-core-client-barrel-imports.ts",
+    "guard:toolkit-must-not-import-core": "tsx scripts/guard-toolkit-must-not-import-core.ts",
+    "guard:template-ui-imports": "tsx scripts/guard-template-ui-imports.ts",
+    "guard:controller-boundaries": "tsx scripts/guard-controller-boundaries.ts",
+    "guard:migration-manifest": "tsx scripts/guard-migration-manifest.ts",
+    "guard:eject-manifests": "tsx scripts/guard-eject-manifests.ts",
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",
     "guard:extension-no-public": "node scripts/guard-extension-no-public.mjs",
     "guard:no-one-off-mcp-app-html": "node scripts/guard-no-one-off-mcp-app-html.mjs",
@@ -67,6 +77,10 @@
     "guard:plan-skills": "tsx scripts/sync-plan-skills.ts --check",
     "guard:no-error-string-returns": "node scripts/guard-no-error-string-returns.mjs",
     "guard:no-action-twin-routes": "node scripts/guard-no-action-twin-routes.mjs",
+    "guard:provider-action-factories": "tsx scripts/guard-provider-action-factories.ts",
+    "guard:agent-chat-context": "tsx scripts/guard-agent-chat-context.ts",
+    "guard:request-storms": "tsx scripts/guard-request-storms.ts",
+    "guard:ssr-cache-shell": "node scripts/guard-ssr-cache-shell.mjs",
     "guards": "tsx scripts/run-guards.ts",
     "sync:netlify-env": "tsx scripts/sync-template-netlify-env.ts",
     "sync:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts",
@@ -103,7 +117,6 @@
     "oxlint-tsgolint": "0.24.0",
     "prettier": "^3.6.2",
     "tsx": "^4.20.3",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "wrangler": "^4.80.0"
   },
@@ -115,6 +128,7 @@
     "overrides": {
       "react": "19.2.7",
       "react-dom": "19.2.7",
+      "@tanstack/react-query": "5.101.2",
       "@types/react": "^19.2.14",
       "@types/react-dom": "^19.2.3",
       "rollup": ">=4.59.0",
@@ -130,7 +144,7 @@
       "glob": ">=10.5.0",
       "@anthropic-ai/sdk": ">=0.90.0",
       "hono": ">=4.12.4",
-      "kysely": "^0.28.9"
+      "@expo/dom-webview": "57.0.1"
     }
   }
 }

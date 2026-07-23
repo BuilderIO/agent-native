@@ -4,6 +4,7 @@ const messages = {
     searchForms: "양식 검색",
     appearance: "모양",
     toggleTheme: "테마 전환",
+    openAgent: "에이전트 열기",
   },
   header: {
     settings: "설정",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "양식에 문의하기",
     allForms: "모든 양식",
     team: "팀",
+    agent: "에이전트",
   },
   settings: {
     title: "설정",
@@ -32,10 +34,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
   },
   agent: {
     emptyState: "양식에 대해 무엇이든 물어보세요",
@@ -186,6 +188,12 @@ const messages = {
       successMessage: "성공 메시지",
       defaultSuccessMessage: "감사합니다! 응답이 기록되었습니다.",
       redirectUrl: "리디렉션 URL(선택 사항)",
+      anonymousResponses: "익명 응답",
+      anonymousResponsesDescription:
+        "IP 주소, 응답자 신원 또는 출처 메타데이터를 저장하지 않습니다.",
+      emailNewResponses: "새 응답을 이메일로 받기",
+      emailNewResponsesDescription:
+        "응답이 제출될 때마다 양식 소유자 계정의 이메일 주소로 알림을 보냅니다.",
       saveSettings: "설정 저장",
     },
     integrations: {
@@ -247,6 +255,8 @@ const messages = {
     duplicated: "양식이 중복되었습니다.",
     duplicateFailed: "양식을 복제하지 못했습니다.",
     movedToArchive: "양식이 아카이브로 이동됨",
+    movingToArchive: "양식을 아카이브로 이동하는 중…",
+    archiveFailed: "양식을 아카이브로 이동하지 못했습니다.",
     restored: "양식이 복원되었습니다.",
     permanentlyDeleted: "양식이 영구적으로 삭제되었습니다.",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

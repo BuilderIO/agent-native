@@ -17,7 +17,6 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { getActiveFileUploadProvider } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -37,7 +36,11 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
-import { sumRecordingChunkBytes } from "../../../../lib/recording-upload-state.js";
+import {
+  deleteRecordingChunks,
+  pruneStaleRecordingChunks,
+  sumRecordingChunkBytes,
+} from "../../../../lib/recording-upload-state.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -47,8 +50,10 @@ import {
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
+  allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../../../../lib/video-storage.js";
@@ -94,6 +99,37 @@ function stateNumber(
 ): number | undefined {
   const raw = value?.[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : undefined;
+}
+
+function pendingMediaVerificationState(
+  value: unknown,
+): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Record<string, unknown>;
+  return state.status === "processing" &&
+    state.pendingMediaVerification === true
+    ? state
+    : null;
+}
+
+function acceptedProcessingResponse(
+  event: H3Event,
+  recordingId: string,
+  state: Record<string, unknown>,
+) {
+  setResponseStatus(event, 202);
+  return {
+    ok: true,
+    finalized: false,
+    verificationPending: true,
+    status: "processing" as const,
+    retryAfterMs: 3_000,
+    id: recordingId,
+    videoUrl: typeof state.videoUrl === "string" ? state.videoUrl : undefined,
+    videoSizeBytes: stateNumber(state, "videoSizeBytes"),
+    sourceSizeBytes: stateNumber(state, "sourceSizeBytes"),
+    durationMs: stateNumber(state, "durationMs"),
+  };
 }
 
 function expectedDataChunksForFinalPost(
@@ -175,6 +211,13 @@ export default defineEventHandler(async (event: H3Event) => {
   debugLog("[chunk] resolved owner:", ownerEmail);
 
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+    await pruneStaleRecordingChunks(ownerEmail).catch((err) => {
+      console.warn("[chunk] stale recording chunk prune failed:", {
+        ownerEmail,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+
     const db = getDb();
 
     // Verify the recording belongs to the current user.
@@ -184,6 +227,9 @@ export default defineEventHandler(async (event: H3Event) => {
         status: schema.recordings.status,
         failureReason: schema.recordings.failureReason,
         ownerEmail: schema.recordings.ownerEmail,
+        videoUrl: schema.recordings.videoUrl,
+        videoSizeBytes: schema.recordings.videoSizeBytes,
+        durationMs: schema.recordings.durationMs,
       })
       .from(schema.recordings)
       .where(
@@ -199,6 +245,15 @@ export default defineEventHandler(async (event: H3Event) => {
         ownerEmail,
       });
       throw createError({ statusCode: 404, message: "Recording not found" });
+    }
+
+    if (isFinal && existing.status === "processing") {
+      const pendingState = pendingMediaVerificationState(
+        await readAppState(`recording-upload-${recordingId}`).catch(() => null),
+      );
+      if (pendingState) {
+        return acceptedProcessingResponse(event, recordingId, pendingState);
+      }
     }
 
     // Resumable streaming path — forward chunks directly to the provider.
@@ -243,7 +298,18 @@ export default defineEventHandler(async (event: H3Event) => {
     // Already finalized — retried final chunk after session was deleted. Skip
     // buffered path writes so recording-upload-* state stays correct.
     if (existing.status === "ready") {
-      return { ok: true, finalized: true };
+      const readyState = await readAppState(
+        `recording-upload-${recordingId}`,
+      ).catch(() => null);
+      return {
+        ok: true,
+        finalized: true,
+        status: "ready" as const,
+        videoUrl: existing.videoUrl,
+        videoSizeBytes: existing.videoSizeBytes,
+        durationMs: existing.durationMs,
+        sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
+      };
     }
 
     // Store chunks in application_state, assemble on finalize.
@@ -269,6 +335,15 @@ export default defineEventHandler(async (event: H3Event) => {
         ok: false,
         error: STORAGE_SETUP_REQUIRED_REASON,
         storageSetupRequired: true,
+      };
+    }
+    if (!allowsSqlRecordingChunkScratch()) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error:
+          "Recording upload storage is configured, but this upload did not start a resumable storage session. Refresh and start the recording again.",
+        storageSetupRequired: false,
       };
     }
 
@@ -320,6 +395,12 @@ export default defineEventHandler(async (event: H3Event) => {
           ? latestState.failureReason
           : "Recording upload has already failed.";
       if (latestState?.status === "failed") {
+        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+          console.warn("[chunk] failed upload chunk cleanup failed:", {
+            recordingId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         return failedUploadResponse(latestReason);
       }
 
@@ -333,6 +414,12 @@ export default defineEventHandler(async (event: H3Event) => {
       if (current?.status === "failed") {
         const reason =
           current.failureReason ?? "Recording upload has already failed.";
+        await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+          console.warn("[chunk] failed recording chunk cleanup failed:", {
+            recordingId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
         await writeAppState(`recording-upload-${recordingId}`, {
           recordingId,
           status: "failed",
@@ -363,6 +450,12 @@ export default defineEventHandler(async (event: H3Event) => {
         bytesReceived: nextBytes,
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         updatedAt: now,
+      });
+      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+        console.warn("[chunk] oversized upload chunk cleanup failed:", {
+          recordingId,
+          err: err instanceof Error ? err.message : String(err),
+        });
       });
       setResponseStatus(event, 413);
       return {
@@ -514,13 +607,17 @@ export default defineEventHandler(async (event: H3Event) => {
         const waitingForStorage =
           (result as any)?.status === "waiting_storage" ||
           (result as any)?.storageSetupRequired === true;
-        if (waitingForStorage) {
+        const verificationPending =
+          (result as any)?.status === "processing" &&
+          (result as any)?.verificationPending === true;
+        if (waitingForStorage || verificationPending) {
           setResponseStatus(event, 202);
         }
         return {
           ok: true,
-          finalized: !waitingForStorage,
+          finalized: !waitingForStorage && !verificationPending,
           waitingForStorage,
+          ...(verificationPending ? { retryAfterMs: 3_000 } : {}),
           ...result,
         };
       } catch (err) {
@@ -530,6 +627,7 @@ export default defineEventHandler(async (event: H3Event) => {
             id: schema.recordings.id,
             status: schema.recordings.status,
             videoUrl: schema.recordings.videoUrl,
+            videoSizeBytes: schema.recordings.videoSizeBytes,
             durationMs: schema.recordings.durationMs,
             width: schema.recordings.width,
             height: schema.recordings.height,
@@ -551,12 +649,26 @@ export default defineEventHandler(async (event: H3Event) => {
               error: err instanceof Error ? err.message : String(err),
             },
           );
+          const priorReadyStateRaw = await readAppState(
+            `recording-upload-${recordingId}`,
+          ).catch(() => null);
+          const priorReadyState =
+            priorReadyStateRaw && typeof priorReadyStateRaw === "object"
+              ? (priorReadyStateRaw as Record<string, unknown>)
+              : {};
+          const sourceSizeBytes =
+            stateNumber(priorReadyState, "sourceSizeBytes") ??
+            stateNumber(priorReadyState, "bytesReceived");
           try {
             await writeAppState(`recording-upload-${recordingId}`, {
+              ...priorReadyState,
               recordingId,
               status: "ready",
               progress: 100,
               videoUrl: committed.videoUrl,
+              videoSizeBytes: committed.videoSizeBytes,
+              sourceSizeBytes,
+              durationMs: committed.durationMs,
               finishedAt: new Date().toISOString(),
             });
           } catch (stateErr) {
@@ -573,12 +685,24 @@ export default defineEventHandler(async (event: H3Event) => {
             id: committed.id,
             status: "ready",
             videoUrl: committed.videoUrl,
+            videoSizeBytes: committed.videoSizeBytes,
+            sourceSizeBytes,
             durationMs: committed.durationMs,
             width: committed.width,
             height: committed.height,
             hasAudio: committed.hasAudio,
             hasCamera: committed.hasCamera,
           };
+        }
+        if (committed?.status === "processing" && committed.videoUrl) {
+          const pendingState = pendingMediaVerificationState(
+            await readAppState(`recording-upload-${recordingId}`).catch(
+              () => null,
+            ),
+          );
+          if (pendingState) {
+            return acceptedProcessingResponse(event, recordingId, pendingState);
+          }
         }
         trackUploadBlockingFailure(ownerEmail, {
           stage: "finalize_recording",
@@ -587,7 +711,7 @@ export default defineEventHandler(async (event: H3Event) => {
           uploadMode: "buffered",
           errorMessage: err instanceof Error ? err.message : String(err),
         });
-        await db
+        const failed = await db
           .update(schema.recordings)
           .set({
             status: "failed",
@@ -595,7 +719,17 @@ export default defineEventHandler(async (event: H3Event) => {
               err instanceof Error ? err.message : "Finalize failed",
             updatedAt: new Date().toISOString(),
           })
-          .where(eq(schema.recordings.id, recordingId));
+          .where(
+            and(
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "processing"),
+            ),
+          )
+          .returning({ id: schema.recordings.id });
+        if (failed.length !== 1) {
+          throw err;
+        }
         const failedUploadStateRaw = await readAppState(
           `recording-upload-${recordingId}`,
         ).catch(() => null);
@@ -657,7 +791,9 @@ async function handleResumableChunk(
   query: Record<string, unknown>,
   ownerEmail: string,
 ) {
-  const uploadProvider = getActiveFileUploadProvider();
+  const uploadProvider = await resolveResumableUploadProvider(
+    session.providerId,
+  );
   if (!uploadProvider?.resumable) {
     setResponseStatus(event, 502);
     return { ok: false, error: "Upload storage is not configured" };
@@ -668,6 +804,7 @@ async function handleResumableChunk(
 
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
+  let finalizedSourceSizeBytes = session.bytesUploaded;
 
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });
@@ -698,6 +835,12 @@ async function handleResumableChunk(
         ok: false,
         error: `Resumable session close failed (${closeRes.status})`,
       };
+    }
+    if (closeRes.updatedMeta) {
+      await setResumableSession(recordingId, {
+        ...session,
+        meta: { ...session.meta, ...closeRes.updatedMeta },
+      });
     }
   } else {
     // Idempotent replay guard: a client retry (after a lost response) can
@@ -759,6 +902,7 @@ async function handleResumableChunk(
         bytesUploaded: start + bytes.byteLength,
         lastCommittedIndex: index,
       });
+      finalizedSourceSizeBytes = start + bytes.byteLength;
 
       if (!isFinal) {
         return { ok: true, finalized: false, index, bytes: bytes.byteLength };
@@ -782,9 +926,94 @@ async function handleResumableChunk(
         error: "Recording was cancelled before it finished saving.",
       };
     }
-    return { ok: true, finalized: true, ...result };
+    const verificationPending =
+      (result as any)?.status === "processing" &&
+      (result as any)?.verificationPending === true;
+    if (verificationPending) setResponseStatus(event, 202);
+    return {
+      ok: true,
+      finalized: !verificationPending,
+      ...(verificationPending ? { retryAfterMs: 3_000 } : {}),
+      ...result,
+    };
   } catch (err) {
     console.error(`[resumable-chunk-${recordingId}] finalize failed:`, err);
+    const db = getDb();
+    const [committed] = await db
+      .select({
+        id: schema.recordings.id,
+        status: schema.recordings.status,
+        videoUrl: schema.recordings.videoUrl,
+        videoSizeBytes: schema.recordings.videoSizeBytes,
+        durationMs: schema.recordings.durationMs,
+        width: schema.recordings.width,
+        height: schema.recordings.height,
+        hasAudio: schema.recordings.hasAudio,
+        hasCamera: schema.recordings.hasCamera,
+      })
+      .from(schema.recordings)
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+        ),
+      );
+    if (committed?.status === "ready" && committed.videoUrl) {
+      console.warn(
+        `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
+        { error: err instanceof Error ? err.message : String(err) },
+      );
+      const priorReadyStateRaw = await readAppState(
+        `recording-upload-${recordingId}`,
+      ).catch(() => null);
+      const priorReadyState =
+        priorReadyStateRaw && typeof priorReadyStateRaw === "object"
+          ? (priorReadyStateRaw as Record<string, unknown>)
+          : {};
+      const sourceSizeBytes =
+        stateNumber(priorReadyState, "sourceSizeBytes") ??
+        finalizedSourceSizeBytes;
+      await writeAppState(`recording-upload-${recordingId}`, {
+        ...priorReadyState,
+        recordingId,
+        status: "ready",
+        progress: 100,
+        videoUrl: committed.videoUrl,
+        videoSizeBytes: committed.videoSizeBytes,
+        sourceSizeBytes,
+        durationMs: committed.durationMs,
+        finishedAt: new Date().toISOString(),
+      }).catch((stateErr) =>
+        console.warn(
+          `[resumable-chunk-${recordingId}] committed-ready state repair failed:`,
+          stateErr,
+        ),
+      );
+      return {
+        ok: true,
+        finalized: true,
+        recoveredAfterFinalizeError: true,
+        id: committed.id,
+        status: "ready",
+        videoUrl: committed.videoUrl,
+        videoSizeBytes: committed.videoSizeBytes,
+        sourceSizeBytes,
+        durationMs: committed.durationMs,
+        width: committed.width,
+        height: committed.height,
+        hasAudio: committed.hasAudio,
+        hasCamera: committed.hasCamera,
+      };
+    }
+    if (committed?.status === "processing" && committed.videoUrl) {
+      const pendingState = pendingMediaVerificationState(
+        await readAppState(`recording-upload-${recordingId}`).catch(() => null),
+      );
+      if (pendingState) {
+        return acceptedProcessingResponse(event, recordingId, pendingState);
+      }
+    }
+
     trackUploadBlockingFailure(ownerEmail, {
       stage: "finalize_recording",
       failureKind: "finalize_error",
@@ -792,10 +1021,43 @@ async function handleResumableChunk(
       uploadMode: "resumable",
       errorMessage: err instanceof Error ? err.message : String(err),
     });
+    const failureReason =
+      err instanceof Error ? err.message : "Finalize failed";
+    const failedAt = new Date().toISOString();
+    const failed = await db
+      .update(schema.recordings)
+      .set({
+        status: "failed",
+        failureReason,
+        updatedAt: failedAt,
+      })
+      .where(
+        and(
+          eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+          eq(schema.recordings.status, "processing"),
+        ),
+      )
+      .returning({ id: schema.recordings.id });
+    if (failed.length !== 1) throw err;
+    const failedUploadStateRaw = await readAppState(
+      `recording-upload-${recordingId}`,
+    ).catch(() => null);
+    const failedUploadState =
+      failedUploadStateRaw && typeof failedUploadStateRaw === "object"
+        ? (failedUploadStateRaw as Record<string, unknown>)
+        : {};
+    await writeAppState(`recording-upload-${recordingId}`, {
+      ...failedUploadState,
+      recordingId,
+      status: "failed",
+      failureReason,
+      updatedAt: failedAt,
+    });
     setResponseStatus(event, 500);
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "Finalize failed",
+      error: failureReason,
     };
   }
 }

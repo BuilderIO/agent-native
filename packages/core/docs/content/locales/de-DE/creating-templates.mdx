@@ -44,7 +44,6 @@ Jede Vorlage folgt dem gleichen allgemeinen Layout:
 <FileTree
   id="doc-block-153a4yn"
   title="Projektstruktur des Templates"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche un
 
 Definieren Sie Domänentabellen mit den Framework-Drizzle-Helfern, damit Schemata über SQLite, Postgres, D1, Turso, Supabase, Neon und andere unterstützte Backends hinweg portierbar bleiben:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ Schemaänderungen müssen additiv sein. Fügen Sie Tabellen und Spalten über `r
 
 Für App-Lese- und Schreibvorgänge verwenden Sie den Abfrage-Builder von Drizzle und die portablen Operatoren von `drizzle-orm`. Schreiben Sie keinen Produktcode mit rohem SQL, wenn Drizzle die Abfrage ausdrücken kann, und importieren Sie nicht aus `drizzle-orm/sqlite-core` oder `drizzle-orm/pg-core` in Vorlagen.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -273,8 +270,10 @@ Verwenden Sie `http: { method: "GET" }` oder `readOnly: true` für schreibgesch�
 Routen leben in `app/routes/` und verwenden das Dateirouting von React Router v8. Fragen Sie Daten über actions- oder API-Handler ab und machen Sie Mutationen standardmäßig optimistisch.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +289,7 @@ export default function ProjectsPage() {
 Verdrahten Sie die Live-Synchronisierung einmal in der Nähe der App-Shell, damit React Abfrage-Caches aktualisiert werden, wenn der Agent, eine andere Registerkarte oder eine Aktion Daten ändert:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +302,7 @@ export function AppSync() {
 **Das agentennative Versprechen: Agentenschreibvorgänge werden im UI ohne manuelle Aktualisierung angezeigt.** `useActionQuery` ist der einfache Weg – jeder Hook wird erneut abgerufen, wenn eine mutierende Aktion `source: "action"` ausgibt. Wenn Sie mit einem benutzerdefinierten Schlüssel nach dem rohen `useQuery` greifen (z. B. einem Low-Level-Client-Helper, der den Integrationsstatus liest), falten Sie den Zähler pro Quelle in den queryKey für gezielte Aktualisierungen:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -326,7 +325,7 @@ Durch den Anwendungsstatus weiß der Agent, was der Benutzer sieht. Fügen Sie m
 Verwenden Sie `useAgentRouteState` für den UI-Hook, damit Anwendungsstatus-Schreibvorgänge, tabulatorbezogene Befehlslesevorgänge, Löschung nach dem Lesen und Schutz vor doppelten Befehlen konsistent bleiben:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -349,8 +348,7 @@ Bevorzugen Sie für die App-Navigation einen `navigate`-Befehl, der einen gleich
 `path`, wenn URL bekannt ist. Schreiben Sie nicht auch `__set_url__` für denselben Zug;
 Dieser Schlüssel ist für die Framework-URL-Tools und nur URL-Filteränderungen reserviert.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

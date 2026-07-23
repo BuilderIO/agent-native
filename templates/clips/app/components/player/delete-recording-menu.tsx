@@ -1,4 +1,5 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -48,6 +49,7 @@ export function RecordingOptionsMenu({
 }: RecordingOptionsMenuProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
   const trashRecording = useActionMutation<any, { id: string }>(
@@ -68,6 +70,11 @@ export function RecordingOptionsMenu({
     trashRecording.mutate({ id: recordingId });
   }, [recordingId, trashRecording]);
 
+  const handleDownload = useCallback(() => {
+    setMenuOpen(false);
+    onDownload?.();
+  }, [onDownload]);
+
   if (!showDownload && !showDelete) return null;
 
   return (
@@ -77,7 +84,7 @@ export function RecordingOptionsMenu({
         if (!trashRecording.isPending) setOpen(nextOpen);
       }}
     >
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -91,13 +98,13 @@ export function RecordingOptionsMenu({
         <DropdownMenuContent align="end" className="w-44">
           {showDownload ? (
             <DropdownMenuItem
-              onSelect={() => onDownload?.()}
+              onSelect={handleDownload}
               disabled={downloadPending}
             >
               <IconDownload className="me-2 h-4 w-4" />
               {downloadPending
                 ? (downloadingLabel ?? t("sharePage.downloading"))
-                : (downloadLabel ?? t("sharePage.downloadMp4"))}
+                : (downloadLabel ?? t("recordRoute.downloadRecording"))}
             </DropdownMenuItem>
           ) : null}
           {showDownload && showDelete ? <DropdownMenuSeparator /> : null}

@@ -1,8 +1,10 @@
-import { appBasePath, appPath, useT } from "@agent-native/core/client";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBrandChrome,
   IconBrandApple,
   IconBrandWindows,
+  IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -11,8 +13,9 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import enMessages from "@/i18n/en-US";
 import {
-  clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
+  markDesktopAppDownloaded,
+  useClipsChromeExtensionEnabled,
 } from "@/lib/capture-install-options";
 
 export function meta() {
@@ -25,7 +28,7 @@ export function meta() {
   ];
 }
 
-type PlatformId = "mac" | "windows";
+type PlatformId = "mac" | "windows" | "linux";
 
 interface PlatformVariant {
   id: PlatformId;
@@ -36,6 +39,9 @@ interface PlatformVariant {
     | "mac-arm64"
     | "mac-x64"
     | "windows-msi"
+    | "linux-appimage"
+    | "linux-deb"
+    | "linux-rpm"
   )[];
   icon: typeof IconBrandApple;
 }
@@ -60,6 +66,13 @@ const VARIANTS: PlatformVariant[] = [
     assetKinds: ["windows-msi"],
     icon: IconBrandWindows,
   },
+  {
+    id: "linux",
+    label: "Linux",
+    sublabel: "AppImage, Debian, and RPM packages",
+    assetKinds: ["linux-appimage", "linux-deb", "linux-rpm"],
+    icon: IconDeviceDesktop,
+  },
 ];
 
 interface Manifest {
@@ -80,6 +93,7 @@ function detectPlatform(): PlatformId | null {
   const ua = navigator.userAgent;
   if (/Windows/i.test(ua)) return "windows";
   if (/Mac/i.test(ua)) return "mac";
+  if (/Linux|X11/i.test(ua) && !/Android/i.test(ua)) return "linux";
   return null;
 }
 
@@ -106,7 +120,7 @@ function primaryDownloadButton(
   if (asset) {
     return (
       <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
-        <a href={asset.url} download>
+        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
           <Icon className="h-5 w-5" />
           {downloadLabel}
         </a>
@@ -144,7 +158,7 @@ function secondaryDownloadButton(
   if (asset) {
     return (
       <Button asChild variant="ghost" className={className}>
-        <a href={asset.url} download>
+        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
           <Icon className="h-4 w-4" />
           {downloadLabel}
         </a>
@@ -165,6 +179,7 @@ function secondaryDownloadButton(
 }
 
 export default function DownloadPage() {
+  const chromeExtensionEnabled = useClipsChromeExtensionEnabled();
   const t = useT();
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
@@ -190,7 +205,7 @@ export default function DownloadPage() {
   }, []);
 
   const primary = VARIANTS.find((v) => v.id === detected) ?? VARIANTS[0];
-  const secondary = VARIANTS.find((v) => v.id !== primary.id)!;
+  const secondary = VARIANTS.filter((v) => v.id !== primary.id);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -239,12 +254,16 @@ export default function DownloadPage() {
               manifestError,
               t("downloadRoute.downloadFor", { platform: primary.label }),
             )}
-            {secondaryDownloadButton(
-              secondary,
-              manifest,
-              manifestError,
-              t("downloadRoute.alsoFor", { platform: secondary.label }),
-            )}
+            {secondary.map((variant) => (
+              <div key={variant.id}>
+                {secondaryDownloadButton(
+                  variant,
+                  manifest,
+                  manifestError,
+                  t("downloadRoute.alsoFor", { platform: variant.label }),
+                )}
+              </div>
+            ))}
             <div className="text-xs text-muted-foreground">
               {manifest ? (
                 <>
@@ -265,7 +284,7 @@ export default function DownloadPage() {
             </div>
           </div>
 
-          {clipsChromeExtensionEnabled && (
+          {chromeExtensionEnabled && (
             <section className="mt-10 w-full max-w-xl rounded-2xl border border-border bg-card p-4 text-start shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">

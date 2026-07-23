@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
@@ -46,11 +46,12 @@ export async function fetchReplayStorageStatus(): Promise<ReplayStorageStatus> {
   };
 }
 
-export function useReplayStorageStatus() {
+export function useReplayStorageStatus(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: REPLAY_STORAGE_STATUS_KEY,
     queryFn: fetchReplayStorageStatus,
     staleTime: 60_000,
+    enabled: options?.enabled,
   });
 }
 

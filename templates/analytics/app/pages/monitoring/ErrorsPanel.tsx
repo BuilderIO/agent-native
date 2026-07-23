@@ -1,19 +1,9 @@
-/**
- * Error capture panel — OWNED BY THE ERROR CAPTURE FEATURE.
- *
- * Sentry-style exception triage below the Monitoring tab bar. The issue list
- * and per-issue detail are switched via the `?issue=<id>` query param (shareable
- * + agent-deep-linkable) and the selection is mirrored into `application_state`
- * so the agent knows which error the user is looking at. Data flows through the
- * error-capture actions; `useChangeVersions(["error-issues"])` keeps the UI
- * fresh as new captures and agent edits land.
- */
 import {
   setClientAppState,
   useActionMutation,
   useActionQuery,
   useChangeVersions,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -43,9 +33,8 @@ export function ErrorsPanel() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get("issue");
-
-  const [status, setStatus] = useState<StatusFilter>("unresolved");
-  const [search, setSearch] = useState("");
+  const status = errorStatusFromSearchParams(searchParams);
+  const search = searchParams.get("q") ?? "";
   const debouncedSearch = useDebouncedValue(search, 250);
 
   const sync = useChangeVersions(["error-issues", "action"]);
@@ -59,17 +48,14 @@ export function ErrorsPanel() {
     [status, debouncedSearch],
   );
 
-  const { data, isLoading, isFetching, error, refetch } = useActionQuery<
-    ErrorIssueSummary[]
-  >("list-error-issues", queryArgs, { staleTime: 10_000 });
-
-  const resolveIssue = useActionMutation<
-    { id: string; status: IssueStatus; assignee: string | null },
-    { id: string; status: IssueStatus }
-  >("resolve-error-issue");
-  const sendTest = useActionMutation<{ issueId: string }, { message?: string }>(
-    "capture-test-error",
+  const { data, isLoading, isFetching, error, refetch } = useActionQuery(
+    "list-error-issues",
+    queryArgs,
+    { staleTime: 10_000 },
   );
+
+  const resolveIssue = useActionMutation("resolve-error-issue");
+  const sendTest = useActionMutation("capture-test-error");
 
   const issues = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
@@ -99,9 +85,32 @@ export function ErrorsPanel() {
         }
       : selectedId
         ? { view: "errors", issueId: selectedId }
-        : { view: "errors" };
+        : {
+            view: "errors",
+            status,
+            ...(search.trim() ? { query: search.trim() } : {}),
+          };
     void setClientAppState("monitoring", value).catch(() => {});
-  }, [selectedIssue, selectedId]);
+  }, [search, selectedIssue, selectedId, status]);
+
+  const updateFilters = (next: { status?: StatusFilter; search?: string }) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next.status) {
+          if (next.status === "unresolved") params.delete("status");
+          else params.set("status", next.status);
+        }
+        if (next.search !== undefined) {
+          const query = next.search.trim();
+          if (query) params.set("q", next.search);
+          else params.delete("q");
+        }
+        return params;
+      },
+      { replace: true },
+    );
+  };
 
   const selectIssue = (id: string | null) => {
     setSearchParams(
@@ -191,9 +200,9 @@ export function ErrorsPanel() {
       issues={issues}
       isLoading={isLoading}
       status={status}
-      onStatusChange={setStatus}
+      onStatusChange={(nextStatus) => updateFilters({ status: nextStatus })}
       search={search}
-      onSearchChange={setSearch}
+      onSearchChange={(nextSearch) => updateFilters({ search: nextSearch })}
       onRefresh={() => void refetch()}
       isFetching={isFetching}
       onSelect={selectIssue}
@@ -202,4 +211,13 @@ export function ErrorsPanel() {
       error={error ? error.message : null}
     />
   );
+}
+
+export function errorStatusFromSearchParams(
+  searchParams: URLSearchParams,
+): StatusFilter {
+  const status = searchParams.get("status");
+  return status === "resolved" || status === "ignored" || status === "all"
+    ? status
+    : "unresolved";
 }

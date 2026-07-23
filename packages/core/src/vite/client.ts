@@ -5,7 +5,17 @@ import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import type { ConfigEnv, Plugin, UserConfig } from "vite";
+import {
+  renderDesignSystemThemeCss,
+  type DesignSystemTheme,
+} from "@agent-native/toolkit/design-system/theme";
+import type {
+  ConfigEnv,
+  HotUpdateOptions,
+  NormalizedHotChannel,
+  Plugin,
+  UserConfig,
+} from "vite";
 
 import {
   mergePendingChangelog,
@@ -224,7 +234,124 @@ function nitroVitePlugin(
   ...args: Parameters<typeof import("nitro/vite").nitro>
 ) {
   installNitroFsWatchGuard();
-  return require("nitro/vite").nitro(...args);
+  const plugins = require("nitro/vite").nitro(...args) as Plugin[];
+  return plugins.map(debounceNitroFullReloadHotUpdate);
+}
+
+/**
+ * Debounce window for coalescing Nitro's dev-mode full-reload broadcasts.
+ *
+ * Nitro's own Vite plugin (the `hotUpdate` hook inside `nitro/vite`)
+ * invalidates each changed server module in the module graph synchronously,
+ * then sends `{ type: "full-reload" }` over that environment's hot channel —
+ * once per file-change event, with no debounce of its own. Every full-reload
+ * makes the Nitro dev worker re-import the entire SSR/server entry point,
+ * which is expensive. AI coding agents routinely write dozens of files in a
+ * single burst, so one edit session can trigger dozens of sequential
+ * re-imports back to back and pin a CPU core for minutes. This is a distinct
+ * concern from `fullReloadOnOptimizeDep504` elsewhere in this file (which
+ * rate-limits an unrelated client-reload nudge); keep the two independent.
+ */
+const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
+
+/**
+ * Wraps a single Nitro-provided Vite plugin so that, if it defines a
+ * `hotUpdate` hook, any `environment.hot.send({ type: "full-reload" })` call
+ * made from inside that hook is coalesced with a trailing debounce (leading
+ * edge suppressed) instead of firing immediately for every changed file.
+ * Everything else — module-graph invalidation, non-reload hot messages, the
+ * hook's return value — passes through unchanged and immediate. A burst of
+ * N changes within the debounce window collapses into exactly one
+ * full-reload once things go quiet; a single isolated change still reloads,
+ * just delayed by up to `NITRO_FULL_RELOAD_DEBOUNCE_MS`.
+ *
+ * `hotUpdate` only ever runs on Vite's dev server (never during a build), so
+ * this has no effect outside `vite dev`.
+ */
+function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
+  const originalHook = plugin.hotUpdate;
+  if (!originalHook) return plugin;
+
+  // Vite hook properties are either a plain function or `{ handler, ... }`
+  // ("object form", used to attach hook metadata like `order`). Support both.
+  const isHandlerForm = typeof originalHook === "object";
+  const originalHandler = (
+    isHandlerForm
+      ? (originalHook as { handler: unknown }).handler
+      : originalHook
+  ) as (
+    this: { environment: { name: string; hot: NormalizedHotChannel } },
+    options: HotUpdateOptions,
+  ) => unknown;
+
+  // One pending-reload timer per Vite environment name ("ssr" by default, or
+  // a named Nitro service environment), so unrelated environments can never
+  // block or coalesce into each other.
+  const pendingReloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function wrappedHotUpdate(
+    this: { environment: { name: string; hot: NormalizedHotChannel } },
+    options: HotUpdateOptions,
+  ) {
+    const realEnvironment = this.environment;
+    // Proxy `this.environment.hot.send` so nitro's hook body (which reads
+    // `this.environment` and calls `env.hot.send(...)`) is otherwise
+    // untouched — only full-reload payloads get intercepted below.
+    const proxiedThis = new Proxy(this, {
+      get(target, prop, receiver) {
+        if (prop !== "environment") {
+          return Reflect.get(target, prop, receiver);
+        }
+        return new Proxy(realEnvironment, {
+          get(envTarget, envProp, envReceiver) {
+            if (envProp !== "hot") {
+              return Reflect.get(envTarget, envProp, envReceiver);
+            }
+            const realHot = envTarget.hot;
+            return new Proxy(realHot, {
+              get(hotTarget, hotProp, hotReceiver) {
+                if (hotProp !== "send") {
+                  return Reflect.get(hotTarget, hotProp, hotReceiver);
+                }
+                return (payload: unknown) => {
+                  if (
+                    !payload ||
+                    typeof payload !== "object" ||
+                    (payload as { type?: string }).type !== "full-reload"
+                  ) {
+                    // Not a full-reload — pass through immediately.
+                    return (hotTarget.send as (p: unknown) => void)(payload);
+                  }
+                  const key = realEnvironment.name || "default";
+                  const pending = pendingReloadTimers.get(key);
+                  if (pending) clearTimeout(pending);
+                  const timer = setTimeout(() => {
+                    pendingReloadTimers.delete(key);
+                    (hotTarget.send as (p: unknown) => void)(payload);
+                  }, NITRO_FULL_RELOAD_DEBOUNCE_MS);
+                  // Never hold the process open just for a pending reload.
+                  timer.unref?.();
+                  pendingReloadTimers.set(key, timer);
+                };
+              },
+            });
+          },
+        });
+      },
+    });
+    return originalHandler.call(proxiedThis, options);
+  }
+
+  if (isHandlerForm) {
+    return {
+      ...plugin,
+      hotUpdate: {
+        ...(originalHook as object),
+        handler: wrappedHotUpdate,
+      },
+    } as Plugin;
+  }
+  return { ...plugin, hotUpdate: wrappedHotUpdate } as Plugin;
 }
 
 /**
@@ -605,7 +732,6 @@ function findCorePackageRoot(cwd: string): string | null {
   const candidates = [
     path.resolve(cwd, "../../packages/core"), // templates/<name>/
     path.resolve(cwd, "../core"), // packages/<name>/
-    path.resolve(cwd, "node_modules/@agent-native/core"),
   ];
   for (const candidate of candidates) {
     try {
@@ -658,13 +784,42 @@ function getReactRouterAliases(
 const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core",
   "@agent-native/core/client",
+  "@agent-native/core/client/agent-chat",
+  "@agent-native/core/client/analytics",
+  "@agent-native/core/client/automation",
   "@agent-native/core/client/chat",
+  "@agent-native/core/client/changelog",
   "@agent-native/core/client/collab",
   "@agent-native/core/client/composer",
   "@agent-native/core/client/conversation",
+  "@agent-native/core/client/dev-overlay",
   "@agent-native/core/client/editor",
+  "@agent-native/core/client/rich-markdown-editor",
+  "@agent-native/core/client/components/ui/dialog",
+  "@agent-native/core/client/components/ui/dropdown-menu",
+  "@agent-native/core/client/components/ui/hover-card",
+  "@agent-native/core/client/components/ui/popover",
+  "@agent-native/core/client/components/ui/sheet",
+  "@agent-native/core/client/components/ui/tooltip",
+  "@agent-native/core/client/components/AgentPresenceChip",
+  "@agent-native/core/client/components/LiveCursorOverlay",
+  "@agent-native/core/client/components/PresenceBar",
+  "@agent-native/core/client/components/RecentEditHighlights",
+  "@agent-native/core/client/components/RemoteSelectionRings",
+  "@agent-native/core/client/visual-style-controls",
+  "@agent-native/core/client/feature-flags",
+  "@agent-native/core/feature-flags/registry",
+  "@agent-native/core/client/hooks",
+  "@agent-native/core/client/host",
   "@agent-native/core/client/i18n",
+  "@agent-native/core/client/integrations",
+  "@agent-native/core/client/navigation",
   "@agent-native/core/client/resources",
+  "@agent-native/core/client/route-chunk-recovery",
+  "@agent-native/core/client/settings",
+  "@agent-native/core/client/ui",
+  "@agent-native/core/client/uploads",
+  "@agent-native/core/client/widgets",
   // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
   // entry.client.tsx imports from here so it never pulls the full client barrel
   // (and its transitive ~650-700 KB gzip chat stack) onto the critical path.
@@ -684,18 +839,6 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/voice",
 ];
 
-const TOOLKIT_CLIENT_SUBPATHS = [
-  "@agent-native/toolkit",
-  "@agent-native/toolkit/app-shell",
-  "@agent-native/toolkit/collab-ui",
-  "@agent-native/toolkit/hooks",
-  "@agent-native/toolkit/onboarding",
-  "@agent-native/toolkit/provider",
-  "@agent-native/toolkit/sharing",
-  "@agent-native/toolkit/ui",
-  "@agent-native/toolkit/utils",
-];
-
 const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -708,66 +851,22 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       ? []
       : ([
           { specifier: "@agent-native/core" },
-          {
-            specifier: "@agent-native/core/client",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/chat",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/collab",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/composer",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/conversation",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/editor",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/i18n",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/resources",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/org",
-            packageName: "@agent-native/core",
-          },
-          {
-            specifier: "@agent-native/core/client/extensions",
-            packageName: "@agent-native/core",
-          },
-          {
-            // Legacy alias — prior name for @agent-native/core/client/extensions.
-            // Keep so deployed templates that haven't been updated still resolve.
-            specifier: "@agent-native/core/client/tools",
-            packageName: "@agent-native/core",
-          },
-          ...TOOLKIT_CLIENT_SUBPATHS.map((specifier) => ({
-            specifier,
-            packageName: "@agent-native/toolkit",
-          })),
+          // Client and Toolkit subpaths are deliberately discovered from app
+          // imports. Eagerly including every leaf would rebuild the old
+          // all-app prebundle under a different set of entry names.
         ] as Array<{ specifier: string; packageName?: string }>)),
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    { specifier: "@codemirror/lang-sql" },
+    { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },
     { specifier: "@excalidraw/mermaid-to-excalidraw" },
     {
       specifier: "@modelcontextprotocol/ext-apps/app-bridge",
       packageName: "@modelcontextprotocol/ext-apps",
     },
+    { specifier: "@paper-design/shaders-react" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
     { specifier: "@radix-ui/react-aspect-ratio" },
@@ -775,9 +874,6 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-checkbox" },
     { specifier: "@radix-ui/react-collapsible" },
     { specifier: "@radix-ui/react-context-menu" },
-    { specifier: "@radix-ui/react-dialog" },
-    { specifier: "@radix-ui/react-dropdown-menu" },
-    { specifier: "@radix-ui/react-hover-card" },
     { specifier: "@radix-ui/react-label" },
     { specifier: "@radix-ui/react-menubar" },
     { specifier: "@radix-ui/react-navigation-menu" },
@@ -795,24 +891,14 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-toggle" },
     { specifier: "@radix-ui/react-toggle-group" },
     { specifier: "@radix-ui/react-tooltip" },
+    { specifier: "@sentry/browser" },
+    {
+      specifier: "@shadcn/react/message-scroller",
+      packageName: "@shadcn/react",
+    },
     { specifier: "@tanstack/react-query" },
     { specifier: "@tabler/icons-react" },
-    { specifier: "@tiptap/core" },
-    { specifier: "@tiptap/extension-code-block-lowlight" },
-    { specifier: "@tiptap/extension-collaboration" },
-    { specifier: "@tiptap/extension-collaboration-caret" },
-    { specifier: "@tiptap/extension-image" },
-    { specifier: "@tiptap/extension-link" },
-    { specifier: "@tiptap/extension-placeholder" },
-    { specifier: "@tiptap/extension-table" },
-    { specifier: "@tiptap/extension-table-cell" },
-    { specifier: "@tiptap/extension-table-header" },
-    { specifier: "@tiptap/extension-table-row" },
-    { specifier: "@tiptap/extension-task-item" },
-    { specifier: "@tiptap/extension-task-list" },
-    { specifier: "@tiptap/pm/state", packageName: "@tiptap/pm" },
-    { specifier: "@tiptap/react" },
-    { specifier: "@tiptap/starter-kit" },
+    { specifier: "@uiw/react-codemirror" },
     { specifier: "@xterm/addon-fit" },
     { specifier: "@xterm/addon-web-links" },
     { specifier: "@xterm/xterm" },
@@ -865,6 +951,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
+    { specifier: "highlight.js/lib/core", packageName: "highlight.js" },
+    { specifier: "html2canvas" },
+    { specifier: "i18next" },
     { specifier: "input-otp" },
     { specifier: "lowlight" },
     { specifier: "mermaid" },
@@ -872,7 +961,9 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },
+    { specifier: "react-i18next" },
     { specifier: "react-markdown" },
+    { specifier: "react-dom/server", packageName: "react-dom" },
     { specifier: "react-resizable-panels" },
     { specifier: "recharts" },
     ...(hasDep("react-router", cwd)
@@ -905,7 +996,25 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     },
     { specifier: "sonner" },
     { specifier: "tailwind-merge" },
-    { specifier: "tiptap-markdown" },
+    ...(hasDep("@agent-native/toolkit", cwd)
+      ? [
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+            packageName: "@agent-native/toolkit",
+          },
+          {
+            specifier:
+              "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+            packageName: "@agent-native/toolkit",
+          },
+        ]
+      : []),
     { specifier: "vaul" },
     { specifier: "y-protocols/awareness", packageName: "y-protocols" },
     { specifier: "yjs" },
@@ -916,7 +1025,24 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     .filter(({ specifier, packageName }) =>
       hasOptimizeDep(packageName ?? specifier, cwd),
     )
-    .map(({ specifier }) => specifier);
+    .map(({ specifier, packageName }) => {
+      const dependencyName = packageName ?? specifier;
+      // In the monorepo, core is source-aliased and its dependencies live
+      // under packages/core/node_modules. A bare optimizeDeps.include entry
+      // is resolved from the template root, so core-only dependencies fail
+      // the initial prebundle and are rediscovered after the page loads. Vite
+      // then rebundles and reloads the editor. Its documented nested-dependency
+      // syntax resolves the right-hand package from core's package directory,
+      // while app-owned dependencies should remain direct entries.
+      if (
+        inMonorepo &&
+        !hasDep(dependencyName, cwd) &&
+        hasCoreDep(dependencyName, cwd)
+      ) {
+        return `@agent-native/core > ${specifier}`;
+      }
+      return specifier;
+    });
 }
 
 /**
@@ -940,9 +1066,25 @@ function getCoreSourceAliases(
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
     "@agent-native/core/server/edge": path.join(coreSrc, "server/edge.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
+    "@agent-native/core/client/agent-chat": path.join(
+      coreSrc,
+      "client/agent-chat/index.ts",
+    ),
+    "@agent-native/core/client/analytics": path.join(
+      coreSrc,
+      "client/analytics/index.ts",
+    ),
+    "@agent-native/core/client/automation": path.join(
+      coreSrc,
+      "client/automation/index.ts",
+    ),
     "@agent-native/core/client/chat": path.join(
       coreSrc,
       "client/chat/index.ts",
+    ),
+    "@agent-native/core/client/changelog": path.join(
+      coreSrc,
+      "client/changelog/index.ts",
     ),
     "@agent-native/core/client/collab": path.join(
       coreSrc,
@@ -956,14 +1098,111 @@ function getCoreSourceAliases(
       coreSrc,
       "client/conversation/index.ts",
     ),
+    "@agent-native/core/client/dev-overlay": path.join(
+      coreSrc,
+      "client/dev-overlay/index.ts",
+    ),
     "@agent-native/core/client/editor": path.join(
       coreSrc,
-      "client/editor/index.ts",
+      "client/tombstone/editor.ts",
+    ),
+    "@agent-native/core/client/rich-markdown-editor": path.join(
+      coreSrc,
+      "client/tombstone/rich-markdown-editor.ts",
+    ),
+    "@agent-native/core/client/components/ui/dialog": path.join(
+      coreSrc,
+      "client/tombstone/ui-dialog.ts",
+    ),
+    "@agent-native/core/client/components/ui/dropdown-menu": path.join(
+      coreSrc,
+      "client/tombstone/ui-dropdown-menu.ts",
+    ),
+    "@agent-native/core/client/components/ui/hover-card": path.join(
+      coreSrc,
+      "client/tombstone/ui-hover-card.ts",
+    ),
+    "@agent-native/core/client/components/ui/popover": path.join(
+      coreSrc,
+      "client/tombstone/ui-popover.ts",
+    ),
+    "@agent-native/core/client/components/ui/sheet": path.join(
+      coreSrc,
+      "client/tombstone/ui-sheet.ts",
+    ),
+    "@agent-native/core/client/components/ui/tooltip": path.join(
+      coreSrc,
+      "client/tombstone/ui-tooltip.ts",
+    ),
+    "@agent-native/core/client/components/AgentPresenceChip": path.join(
+      coreSrc,
+      "client/tombstone/agent-presence-chip.ts",
+    ),
+    "@agent-native/core/client/components/LiveCursorOverlay": path.join(
+      coreSrc,
+      "client/tombstone/live-cursor-overlay.ts",
+    ),
+    "@agent-native/core/client/components/PresenceBar": path.join(
+      coreSrc,
+      "client/tombstone/presence-bar.ts",
+    ),
+    "@agent-native/core/client/components/RecentEditHighlights": path.join(
+      coreSrc,
+      "client/tombstone/recent-edit-highlights.ts",
+    ),
+    "@agent-native/core/client/components/RemoteSelectionRings": path.join(
+      coreSrc,
+      "client/tombstone/remote-selection-rings.ts",
+    ),
+    "@agent-native/core/client/visual-style-controls": path.join(
+      coreSrc,
+      "client/tombstone/visual-style-controls.ts",
+    ),
+    "@agent-native/core/client/feature-flags": path.join(
+      coreSrc,
+      "client/feature-flags/index.ts",
+    ),
+    "@agent-native/core/feature-flags/registry": path.join(
+      coreSrc,
+      "feature-flags/registry.ts",
+    ),
+    "@agent-native/core/client/hooks": path.join(
+      coreSrc,
+      "client/hooks/index.ts",
+    ),
+    "@agent-native/core/client/host": path.join(
+      coreSrc,
+      "client/host/index.ts",
     ),
     "@agent-native/core/client/i18n": path.join(coreSrc, "client/i18n.tsx"),
+    "@agent-native/core/client/integrations": path.join(
+      coreSrc,
+      "client/integrations/index.ts",
+    ),
+    "@agent-native/core/client/navigation": path.join(
+      coreSrc,
+      "client/navigation/index.ts",
+    ),
     "@agent-native/core/client/resources": path.join(
       coreSrc,
       "client/resources/index.ts",
+    ),
+    "@agent-native/core/client/route-chunk-recovery": path.join(
+      coreSrc,
+      "client/route-chunk-recovery/index.ts",
+    ),
+    "@agent-native/core/client/settings": path.join(
+      coreSrc,
+      "client/settings/index.ts",
+    ),
+    "@agent-native/core/client/ui": path.join(coreSrc, "client/ui/index.ts"),
+    "@agent-native/core/client/uploads": path.join(
+      coreSrc,
+      "client/uploads/index.ts",
+    ),
+    "@agent-native/core/client/widgets": path.join(
+      coreSrc,
+      "client/widgets/index.ts",
     ),
     // Dedicated thin subpath — only the URL helpers, no chat stack in the closure.
     "@agent-native/core/client/api-path": path.join(
@@ -1106,6 +1345,8 @@ export interface ClientConfigOptions {
   logLevel?: UserConfig["logLevel"];
   /** Additional Vite plugins */
   plugins?: any[];
+  /** Static design tokens emitted into the client build. */
+  designSystemTheme?: DesignSystemTheme;
   /** Nitro plugin options (preset, srcDir, etc) */
   nitro?: NitroOptions;
   /** Override resolve aliases */
@@ -1120,6 +1361,12 @@ export interface ClientConfigOptions {
   optimizeDeps?: NonNullable<UserConfig["optimizeDeps"]>;
   /** Additional Vite define constants. */
   define?: UserConfig["define"];
+  /**
+   * Browser/server compatibility epoch for app changes that cannot safely run
+   * across a cached client and a newer action backend. Bump only for an
+   * incompatible protocol or data-model transition, not for every deploy.
+   */
+  clientCompatibilityVersion?: string;
   /**
    * Framework route warmup behavior mounted by AgentSidebar.
    *
@@ -1817,6 +2064,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "FitAddon",
     "Fragment",
     "Image",
+    "InputRule",
     "Link",
     "Map",
     "Markdown",
@@ -1869,6 +2117,8 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "useCurrentEditor",
     "useEditor",
     "useLocalRuntime",
+    "useMessagePartReasoning",
+    "useMessagePartRuntime",
     "useMessagePartText",
     "useMessageRuntime",
     "useThread",
@@ -1987,7 +2237,15 @@ function readAppChangelogMarkdown(
     .map((file) => {
       const filePath = path.join(pendingDir, file);
       watchFile(filePath);
-      return parsePendingEntry(fs.readFileSync(filePath, "utf-8"));
+      // `agent-native changelog add` prefixes every pending filename with its
+      // date. Preserve that date when a hand-written entry omits `date:` so a
+      // deployed What's new surface never groups an already-merged update
+      // under an inaccurate "Unreleased" heading.
+      const filenameDate = file.match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1];
+      return parsePendingEntry(
+        fs.readFileSync(filePath, "utf-8"),
+        filenameDate,
+      );
     });
   return mergePendingChangelog(existing, pending);
 }
@@ -2051,6 +2309,165 @@ function portExposer(): Plugin {
         if (addr && typeof addr === "object" && addr.port) {
           process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
+      });
+    },
+  };
+}
+
+function isNitroEnvironmentUnavailable(error: unknown): boolean {
+  const candidate = error as {
+    name?: unknown;
+    status?: unknown;
+    statusCode?: unknown;
+    message?: unknown;
+  };
+  return (
+    candidate?.name === "NitroViteError" &&
+    (candidate.status === 503 || candidate.statusCode === 503) &&
+    typeof candidate.message === "string" &&
+    /Vite environment .+ is unavailable/.test(candidate.message)
+  );
+}
+
+type NitroModuleNode = {
+  id: string | null;
+  ssrError?: Error | null;
+  transformResult: unknown | null;
+};
+
+type NitroModuleGraph = {
+  idToModuleMap: Map<string, NitroModuleNode>;
+};
+
+const NITRO_STARTUP_SETTLE_MS = 1_000;
+const NITRO_STARTUP_TIMEOUT_MS = 30_000;
+
+function nitroModuleGraphSignature(environment: unknown): string | null {
+  const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
+    ?.moduleGraph;
+  if (!graph) return null;
+
+  const modules = [...graph.idToModuleMap.values()];
+  const entry = modules.find((module) =>
+    module.id
+      ?.replaceAll("\\", "/")
+      .endsWith("/nitro/dist/runtime/internal/vite/dev-entry.mjs"),
+  );
+  if (!entry?.transformResult && !entry?.ssrError) return null;
+
+  let transformed = 0;
+  let errors = 0;
+  for (const module of modules) {
+    if (module.transformResult) transformed += 1;
+    if (module.ssrError) errors += 1;
+  }
+  return `${modules.length}:${transformed}:${errors}`;
+}
+
+function isHtmlDocumentRequest(req: IncomingMessage): boolean {
+  return (
+    (req.method === "GET" || req.method === "HEAD") &&
+    (req.headers.accept ?? "").includes("text/html")
+  );
+}
+
+function sendNitroStartingResponse(
+  req: IncomingMessage,
+  res: ServerResponse,
+): void {
+  res.statusCode = 503;
+  res.setHeader("cache-control", "no-store");
+  res.setHeader("content-type", "text/html; charset=utf-8");
+  res.setHeader("retry-after", "1");
+  if (req.method === "HEAD") {
+    res.end();
+    return;
+  }
+  res.end(
+    '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0.25"><title>Starting…</title></head><body></body></html>',
+  );
+}
+
+function nitroStartupGate(
+  options: {
+    now?: () => number;
+    settleMs?: number;
+    timeoutMs?: number;
+  } = {},
+): Plugin {
+  return {
+    name: "agent-native-nitro-startup-gate",
+    apply: "serve",
+    enforce: "pre",
+    configureServer(server) {
+      const now = options.now ?? Date.now;
+      const settleMs = options.settleMs ?? NITRO_STARTUP_SETTLE_MS;
+      const timeoutMs = options.timeoutMs ?? NITRO_STARTUP_TIMEOUT_MS;
+      const startedAt = now();
+      let graphSignature: string | null = null;
+      let graphStableAt: number | undefined;
+      let startupComplete = false;
+
+      server.middlewares.use((req, res, next) => {
+        if (startupComplete || !isHtmlDocumentRequest(req)) {
+          next();
+          return;
+        }
+
+        const timestamp = now();
+        if (timestamp - startedAt >= timeoutMs) {
+          startupComplete = true;
+          next();
+          return;
+        }
+
+        const nextGraphSignature = nitroModuleGraphSignature(
+          server.environments?.nitro,
+        );
+        if (nextGraphSignature) {
+          if (nextGraphSignature !== graphSignature) {
+            graphSignature = nextGraphSignature;
+            graphStableAt = timestamp;
+          } else if (
+            graphStableAt !== undefined &&
+            timestamp - graphStableAt >= settleMs
+          ) {
+            startupComplete = true;
+            next();
+            return;
+          }
+        } else {
+          graphSignature = null;
+          graphStableAt = undefined;
+        }
+
+        sendNitroStartingResponse(req, res);
+      });
+    },
+  };
+}
+
+function nitroStartupRecovery(): Plugin {
+  return {
+    name: "agent-native-nitro-startup-recovery",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use(function nitroStartupErrorRecovery(
+        error: unknown,
+        req: IncomingMessage,
+        res: ServerResponse,
+        next: (error?: unknown) => void,
+      ) {
+        if (
+          !isNitroEnvironmentUnavailable(error) ||
+          !isHtmlDocumentRequest(req) ||
+          res.headersSent
+        ) {
+          next(error);
+          return;
+        }
+
+        sendNitroStartingResponse(req, res);
       });
     },
   };
@@ -2204,6 +2621,38 @@ function createTailwindPlugin(options: Pick<ClientConfigOptions, "tailwind">) {
     // Plugin not installed — silently skip. Old templates may still be on v3.
     return null;
   }
+}
+
+const DESIGN_SYSTEM_THEME_MODULE_ID = "virtual:agent-native-theme.css";
+const RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID = `\0${DESIGN_SYSTEM_THEME_MODULE_ID}`;
+
+function createDesignSystemThemePlugin(
+  theme: DesignSystemTheme | undefined,
+): Plugin | null {
+  if (!theme) return null;
+  const css = renderDesignSystemThemeCss(theme);
+
+  return {
+    name: "agent-native-design-system-theme",
+    resolveId(id) {
+      if (id === DESIGN_SYSTEM_THEME_MODULE_ID) {
+        return RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID;
+      }
+    },
+    load(id) {
+      if (id === RESOLVED_DESIGN_SYSTEM_THEME_MODULE_ID) return css;
+    },
+    transformIndexHtml() {
+      return [
+        {
+          tag: "style",
+          attrs: { "data-agent-native-theme": "" },
+          children: css,
+          injectTo: "head",
+        },
+      ];
+    },
+  };
 }
 
 function getConfiguredAppBasePath(): { appBasePath: string; base: string } {
@@ -2402,6 +2851,7 @@ function createAgentNativePlugins(
     embedDevFrameHeaders(),
     baseRedirectGuard(),
     portExposer(),
+    nitroStartupGate(),
     silenceConnectionResets(),
     rolldownInputFix(),
     // Nitro Vite plugin for dev-mode API route serving and HMR.
@@ -2411,9 +2861,34 @@ function createAgentNativePlugins(
       : includeNitro
         ? [nitroPlugin]
         : []),
+    // Nitro can reject the first document request while its Vite environment
+    // is still importing. This error handler must follow Nitro's middleware.
+    nitroStartupRecovery(),
     includeReactTransform ? createReactTransformPlugin() : null,
+    createDesignSystemThemePlugin(options.designSystemTheme),
     createTailwindPlugin(options),
   ].filter(Boolean);
+}
+
+function resolveAgentNativeTemplate(cwd: string): string {
+  const configured = [
+    process.env.AGENT_NATIVE_TEMPLATE,
+    process.env.VITE_AGENT_NATIVE_TEMPLATE,
+    process.env.VITE_APP_TEMPLATE,
+  ].find((value) => value?.trim());
+  if (configured) return configured.trim().toLowerCase();
+
+  const normalizedCwd = cwd.replaceAll("\\", "/");
+  const marker = "/templates/";
+  const markerIndex = normalizedCwd.lastIndexOf(marker);
+  if (markerIndex === -1) return "";
+  return (
+    normalizedCwd
+      .slice(markerIndex + marker.length)
+      .split("/")[0]
+      ?.trim()
+      .toLowerCase() ?? ""
+  );
 }
 
 function createAgentNativeConfig(
@@ -2422,6 +2897,13 @@ function createAgentNativeConfig(
   userConfig: UserConfig = {},
 ): UserConfig {
   const cwd = process.cwd();
+  const buildId =
+    process.env.DEPLOY_ID?.trim() ||
+    process.env.COMMIT_REF?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    process.env.CF_PAGES_COMMIT_SHA?.trim() ||
+    process.env.AGENT_NATIVE_BUILD_SHA?.trim() ||
+    "development";
 
   // Workspace env fallback. If this app is inside a workspace, tell Vite to
   // also look for .env files at the workspace root. Per-app .env still wins
@@ -2447,9 +2929,11 @@ function createAgentNativeConfig(
 
   const { base } = getConfiguredAppBasePath();
   const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
-  const monorepoCoreAllow = [
+  const monorepoPackageAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
+    path.resolve(cwd, "../../packages/toolkit"),
+    path.resolve(cwd, "../toolkit"),
   ].filter((candidate) => fs.existsSync(path.join(candidate, "package.json")));
   const monorepoNodeModulesAllow = [
     path.resolve(cwd, "../../node_modules"),
@@ -2504,6 +2988,10 @@ function createAgentNativeConfig(
     define: {
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
+      __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
+        options.clientCompatibilityVersion?.trim() || "",
+      ),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
@@ -2519,6 +3007,9 @@ function createAgentNativeConfig(
       ),
       __AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__: JSON.stringify(
         normalizeMcpIntegrationsConfig(options.mcpIntegrations),
+      ),
+      __AGENT_NATIVE_TEMPLATE__: JSON.stringify(
+        resolveAgentNativeTemplate(cwd),
       ),
     },
     server: {
@@ -2551,7 +3042,7 @@ function createAgentNativeConfig(
         ...(userConfig.server?.fs ?? {}),
         allow: [
           ".",
-          ...monorepoCoreAllow,
+          ...monorepoPackageAllow,
           ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
           ...localWorkspacePackageAllow,
@@ -2590,6 +3081,14 @@ function createAgentNativeConfig(
           ...(userConfig.ssr ?? {}),
           noExternal: /^(?!node:)/,
           external: [
+            // Yjs is used by both server-side collaboration actions and the
+            // client SSR graph. If Vite inlines it here, Nitro also emits its
+            // own server copy and a single request imports Yjs twice, breaking
+            // Yjs constructor identity. This externalizes only Vite's
+            // intermediate React Router SSR graph; Nitro's final Node/edge
+            // bundle still owns and bundles the dependency, so both paths
+            // share one portable module instance.
+            "yjs",
             ...NODE_SSR_NATIVE_EXTERNALS,
             ...arrayFrom((userConfig.ssr as { external?: any })?.external),
           ],
@@ -2759,4 +3258,8 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  nitroStartupGate as _nitroStartupGate,
+  nitroStartupRecovery as _nitroStartupRecovery,
+  nitroModuleGraphSignature as _nitroModuleGraphSignature,
+  debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };

@@ -1,0 +1,53 @@
+---
+title: Ciclo de vida de pacotes
+description: Inspecione, adicione e ejete pacotes Agent Native orientados por manifesto.
+---
+
+# Ciclo de vida de pacotes
+
+Pacotes reutilizáveis podem publicar um `agent-native.package.json` estático e
+versionado. A CLI lê somente esse JSON e não executa código do pacote durante a
+inspeção.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Adicionar e ejetar são simulações por padrão. `--apply` permite gravações e
+executa o gerenciador de pacotes. A CLI recusa colisões e layouts desconhecidos
+e restaura arquivos e lockfiles se a instalação falhar.
+
+## Ejetar um recurso
+
+Siga a escada de personalização nesta ordem: configure a API pública, componha
+primitivos públicos, ejete a menor unidade e proponha uma interface compartilhada
+quando várias apps precisarem da mesma alteração.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+Os comandos são simulações por padrão. A aplicação registra a proveniência
+versionada em `agent-native.ejections.json`, incluindo versão do pacote, digest
+do manifesto, hashes dos arquivos e reescritas de imports. Restore só funciona
+quando arquivos e imports continuam intactos; caso contrário, mostra o diff e
+recusa apagar alterações locais.
+
+Os manifestos first-party cobrem todos os pontos de entrada públicos do Toolkit
+e todos os catálogos de integração first-party. Uma receita ausente é uma falha
+de cobertura do framework; um pacote externo desconhecido recebe um blueprint
+no estilo add. Contratos protegidos do Core não são copiados: a CLI indica a
+interface pública de configuração, adaptador ou extensão.
+
+## Migrações
+
+Pacotes publicados incluem `migration-manifest.json` para caminhos e símbolos movidos. `npx @agent-native/core@latest upgrade --codemods` mostra o diff; após revisar, use `--yes`. Em CI execute `agent-native doctor --only migration-manifest`; não há opt-out.
+
+Entradas `planned` podem ser publicadas antes do destino; aparecem como avisos não bloqueantes e o codemod não as reescreve. Um movimento ativo só é reescrito quando o export de destino está instalado.

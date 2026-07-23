@@ -6,8 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const agentChatSurfaceMock = vi.hoisted(() => vi.fn());
 const cancelPrewarmMock = vi.hoisted(() => vi.fn());
+const sendToAgentChatMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   AgentChatSurface: (props: Record<string, unknown>) => {
     agentChatSurfaceMock(props);
     return (
@@ -17,6 +18,10 @@ vi.mock("@agent-native/core/client", () => ({
     );
   },
   markAgentChatHomeHandoff: vi.fn(),
+  sendToAgentChat: sendToAgentChatMock,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => {
     const strings: Record<string, string> = {
       "home.composerPlaceholder": "What do you want to do?",
@@ -70,5 +75,30 @@ describe("Forms ask page", () => {
       false,
     );
     expect(container.textContent).toContain("What should this form do?");
+  });
+
+  it("prefills the shared composer when a suggestion chip is clicked", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    act(() => {
+      root.render(<AskPage />);
+    });
+
+    const analyticsChip = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Analytics"),
+    );
+    expect(analyticsChip).toBeDefined();
+
+    act(() => {
+      analyticsChip?.click();
+    });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "analytics",
+      submit: false,
+      chatTarget: "local",
+    });
   });
 });

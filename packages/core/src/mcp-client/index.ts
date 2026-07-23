@@ -24,6 +24,7 @@ export {
 export {
   listRemoteServers,
   addRemoteServer,
+  addOAuthRemoteServer,
   addFirstPartyRemoteServer,
   isFirstPartyRemoteEndpointTrusted,
   removeRemoteServer,
@@ -38,6 +39,19 @@ export {
   type RemoteMcpScope,
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
+
+export {
+  finishMcpOAuthAuthorization,
+  getMcpOAuthAccessToken,
+  readMcpOAuthCredentials,
+  saveMcpOAuthCredentials,
+  startMcpOAuthAuthorization,
+  type McpOAuthCallbackResult,
+  type McpOAuthCredentialBundle,
+  type McpOAuthDiscoveryState,
+  type McpOAuthProviderOptions,
+  type McpOAuthStartResult,
+} from "./oauth-client.js";
 
 export {
   areBuiltinMcpCapabilitiesSupported,
@@ -80,15 +94,40 @@ export {
 export { fetchHubServers } from "./hub-client.js";
 
 export { isMcpToolAllowedForRequest } from "./visibility.js";
+export {
+  callMcpTool,
+  listVisibleMcpTools,
+  McpAppApiError,
+  type AppMcpTool,
+  type ListVisibleMcpToolsOptions,
+} from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
 export {
+  classifyMcpToolCall,
+  evaluateMcpToolCallPolicy,
+  type McpToolCallClassification,
+  type McpToolEffect,
+  type McpToolFamily,
+  type McpToolInvocationPolicy,
+  type McpToolPolicyDecision,
+} from "./tool-policy.js";
+export {
   configureScreenMemory,
+  queryScreenMemoryForAgent,
   queryScreenMemoryContext,
   readScreenMemoryStatus,
   type ScreenMemoryConfig,
+  type ScreenMemoryAgentQueryResult,
   type ScreenMemoryContextItem,
+  type ScreenMemoryCoverageGap,
+  type ScreenMemoryEvidenceItem,
+  type ScreenMemoryEvidenceSourceType,
   type ScreenMemoryQueryResult,
+  type ScreenMemoryRetrievalCoverage,
+  type ScreenMemorySegmentReference,
   type ScreenMemoryStatus,
+  type ScreenMemoryTimeRange,
+  type ScreenMemoryTruncation,
 } from "./screen-memory-local.js";
 export {
   MCP_ACTION_RESULT_MARKER,
@@ -120,13 +159,28 @@ import {
   type McpActionResult,
 } from "./app-result.js";
 import type { McpClientManager, McpTool } from "./manager.js";
+import {
+  evaluateMcpToolCallPolicy,
+  type McpToolInvocationPolicy,
+} from "./tool-policy.js";
+
+export interface McpActionEntryOptions {
+  invocationPolicy?: McpToolInvocationPolicy;
+  /** Restrict the generated entries to an explicit background capability set. */
+  toolNames?: readonly string[];
+}
 
 export function mcpToolsToActionEntries(
   manager: McpClientManager,
+  options: McpActionEntryOptions = {},
 ): Record<string, ActionEntry> {
   const entries: Record<string, ActionEntry> = {};
+  const selectedToolNames = options.toolNames
+    ? new Set(options.toolNames)
+    : undefined;
   for (const tool of manager.getTools().filter(isVisibleToModel)) {
-    entries[tool.name] = mcpToolToActionEntry(manager, tool);
+    if (selectedToolNames && !selectedToolNames.has(tool.name)) continue;
+    entries[tool.name] = mcpToolToActionEntry(manager, tool, options);
   }
   return entries;
 }
@@ -159,6 +213,7 @@ export function syncMcpActionEntries(
 function mcpToolToActionEntry(
   manager: McpClientManager,
   tool: McpTool,
+  options: McpActionEntryOptions = {},
 ): ActionEntry {
   return {
     tool: {
@@ -167,7 +222,7 @@ function mcpToolToActionEntry(
     },
     http: false,
     ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
-    run: async (args: Record<string, string>) => {
+    run: async (args: Record<string, unknown>) => {
       // Defense-in-depth: even if a cross-scope MCP tool somehow makes it
       // into the LLM's visible tool list, reject invocation here so we never
       // execute a user's credentials on behalf of another user.
@@ -177,6 +232,20 @@ function mcpToolToActionEntry(
           args,
           `Error: MCP tool ${tool.name} is not available in the current request scope.`,
         );
+      }
+      if (options.invocationPolicy) {
+        const decision = evaluateMcpToolCallPolicy(
+          options.invocationPolicy,
+          tool,
+          args,
+        );
+        if (!decision.allowed) {
+          return buildMcpErrorActionResult(
+            tool,
+            args,
+            `Error: MCP tool ${tool.name} is unavailable in read-only mode: ${decision.reason}.`,
+          );
+        }
       }
       try {
         const result = await manager.callTool(tool.name, args);

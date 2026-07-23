@@ -1,4 +1,5 @@
-import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import {
   useHeaderTitle,
@@ -11,6 +12,7 @@ import { useDecks } from "@/context/DeckContext";
 const pageTitleKeys: Record<string, string> = {
   "/": "header.decks",
   "/design-systems": "header.designSystems",
+  "/agent": "settings.agentTitle",
   "/settings": "header.settings",
   "/extensions": "header.extensions",
 };
@@ -66,7 +68,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <RunsTray />
+        <RunsTray pollMs={0} />
         <AgentToggleButton />
       </div>
     </header>

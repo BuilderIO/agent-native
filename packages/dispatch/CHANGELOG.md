@@ -1,5 +1,239 @@
 # @agent-native/dispatch
 
+## 0.15.13
+
+### Patch Changes
+
+- c15d20f: Pin Slack delivery to the app that received the event and reject legacy bot tokens from a different Slack app.
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+  - @agent-native/toolkit@0.10.1
+
+## 0.15.12
+
+### Patch Changes
+
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+  - @agent-native/toolkit@0.10.0
+
+## 0.15.11
+
+### Patch Changes
+
+- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
+- 03a043e: Make template feedback controls opt in through `VITE_AGENT_NATIVE_FEEDBACK_URL` so cloned apps do not send feedback to Agent Native by default.
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+  - @agent-native/toolkit@0.9.1
+
+## 0.15.10
+
+### Patch Changes
+
+- Updated dependencies [0341a7d]
+  - @agent-native/toolkit@0.9.0
+
+## 0.15.9
+
+### Patch Changes
+
+- Updated dependencies [5c78d2d]
+  - @agent-native/toolkit@0.8.3
+
+## 0.15.8
+
+### Patch Changes
+
+- 8df32f6: Publish the latest Builder link tracking updates.
+
+## 0.15.7
+
+### Patch Changes
+
+- Updated dependencies [dcd0810]
+  - @agent-native/toolkit@0.8.2
+
+## 0.15.6
+
+### Patch Changes
+
+- Updated dependencies [6d96437]
+  - @agent-native/toolkit@0.8.1
+
+## 0.15.5
+
+### Patch Changes
+
+- f3dcee3: Suppress provisional artifact warnings while delegated work is still running, and preserve verified Slack provenance for cross-app intake through an audience-scoped, fail-closed resolver.
+
+## 0.15.4
+
+### Patch Changes
+
+- Updated dependencies [8453025]
+  - @agent-native/toolkit@0.8.0
+
+## 0.15.3
+
+### Patch Changes
+
+- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
+- e53a34e: Add reusable provider API and staged dataset action factories, including opt-in custom provider registration and sanitized provider request audit summaries that narrow recorded audit metadata to safe request context.
+- Updated dependencies [e53a34e]
+  - @agent-native/toolkit@0.7.0
+
+## 0.15.2
+
+### Patch Changes
+
+- 079e19a: Adopt focused Core client entrypoints and ship package migration metadata where applicable.
+
+## 0.15.1
+
+### Patch Changes
+
+- b6d7f87: Move portable rich-editor, context presentation, and visual design controls into Toolkit while preserving Core compatibility re-exports, and add accurate side-effect metadata to capability packages.
+
+## 0.15.0
+
+### Minor Changes
+
+- 6cd2c79: Add curated workspace app discovery and template remix workflows.
+
+## 0.14.14
+
+### Patch Changes
+
+- 8e0afec: Keep empty Dispatch chat navigation from automatically opening the AgentSidebar.
+
+## 0.14.13
+
+### Patch Changes
+
+- 10fb9f4: Preserve durable `ask_app` task handles and return retryable status-read details when transient polling transport failures outlast bounded retries.
+
+## 0.14.12
+
+### Patch Changes
+
+- 7f5068c: Make dreams page responsive across all screen sizes: stat tile labels now truncate instead of clipping, stats render as a full-width grid (2-col on mobile, 4-col on md+), action buttons wrap on their own row, and the three-panel content grid stacks on mobile, goes 2-col on lg, and 3-col on xl.
+
+## 0.14.11
+
+### Patch Changes
+
+- cdfa357: Fix infinite render loop in DreamsRoute caused by the `useEffect` fallback clearing `selectedDreamId` to `null` while `dreams` was still loading. Added a `dreamsQuery.isLoading` guard to prevent the fallback from running before data resolves.
+
+## 0.14.10
+
+### Patch Changes
+
+- 7cfb087: Re-sync all vault secrets into the shared credential store at startup so upgraded encryption formats propagate without manually re-saving each key.
+- 7cfb087: Resolve provider credentials from encrypted Dispatch vault secrets, keep hosted A2A agent discovery distinct from mounted workspace app inventory, and run long Analytics A2A tasks on the durable background worker.
+
+## 0.14.9
+
+### Patch Changes
+
+- 8e6f022: Allow Dispatch hosts to link the AgentSidebar to a full-page Agent surface.
+- 8e6f022: Improve collapsed Dispatch navigation spacing and sizing.
+
+## 0.14.8
+
+### Patch Changes
+
+- 3c3a59d: Default the unified MCP gateway to expose all discovered workspace apps until an explicit access policy is configured.
+- 3c3a59d: Return durable task handles for long-running MCP agent requests and expose
+  grant-checked status polling instead of holding one MCP tool call open for the
+  full agent run.
+
+## 0.14.7
+
+### Patch Changes
+
+- 10dc602: Widen centered full-page Ask and Chat composers by 20% while keeping their responsive viewport cap.
+
+## 0.14.6
+
+### Patch Changes
+
+- 1137302: Keep session replay identities isolated per browser tab so recordings from
+  concurrent or duplicated tabs cannot be merged into a corrupt replay. Preserve
+  signed DOM stylesheet, font, image, and other load-bearing resource URLs while
+  continuing to redact navigation and diagnostic URL secrets. Recover long-lived
+  tabs from replay upload identity conflicts by restarting once with a fresh
+  snapshot, and report the content-free recovery outcome to Analytics.
+  Stabilize Dispatch's deferred-navigation behavior under test-runner load.
+
+## 0.14.5
+
+### Patch Changes
+
+- ee7b5b3: Prevent sync-driven request storms by preserving in-flight reads, filtering same-tab action echoes, targeting action-query invalidation, refreshing shared run state from change events, and backing idle Dispatch monitoring away from fixed polling.
+- ee7b5b3: Remove the obsolete template cards from the Dispatch Apps page.
+- ee7b5b3: Reduce the width and height of centered full-page chat composers for a more compact starting state.
+
+## 0.14.4
+
+### Patch Changes
+
+- 38ca6fa: Polish the Dispatch overview and chat flow with cleaner navigation, view-transition routing, and a stable bottom-pinned chat composer.
+- 38ca6fa: Restrict organization-wide Dispatch MCP app grants to owners and admins, default new gateways to Dispatch-only access, allow Dispatch itself in selected-app mode, and keep large app catalogs machine-readable for MCP hosts.
+- 38ca6fa: Make sheets and toasts respond faster while respecting reduced-motion preferences.
+- 38ca6fa: Show retryable error states when Dispatch data queries fail instead of rendering misleading empty content.
+- 38ca6fa: Tenant-scope approval request status updates so requests can only be approved or rejected within their own workspace context.
+
+## 0.14.3
+
+### Patch Changes
+
+- f43d34c: Fence approval/rejection status transitions so concurrent approvals cannot double-apply side effects.
+
+## 0.14.2
+
+### Patch Changes
+
+- 6baca78: Move Slack's legacy single-workspace token under advanced setup while keeping managed OAuth credentials primary.
+
+## 0.14.1
+
+### Patch Changes
+
+- dfbbf30: Keep the optional server tokenizer out of browser production bundles, publish Dispatch's Operations route, simplify Dispatch's sidebar identity and chat history, and route design-task creation into structured intake.
+
+## 0.14.0
+
+### Minor Changes
+
+- d967304: Add managed multi-workspace Slack OAuth with Agent view and direct messages, team-aware threads, bounded native context, streaming task controls, channel identities, explicit memory, channel routines, and usage governance.
+- d967304: Add verified Microsoft Teams and Discord interaction channel adapters, preserve Telegram topic and WhatsApp contextual-reply identity, and expose exact runtime capabilities in Dispatch setup.
+
+### Patch Changes
+
+- d967304: Apply app final-response guards to delegated A2A turns and resolve Slack sender profiles with request-scoped configured credentials.
+- d967304: Preserve canonical Slack and Telegram request context across A2A delegation, resolve structured intake and domain workflows through workspace instructions and app capabilities, and return verified destination links for saved Content records, Analytics monitors, and published Forms.
+- d967304: Redact provider request audit targets and harden managed integration persistence against concurrent callbacks and SQLite migration failures.
+- d967304: Harden integration tenant isolation, service-principal identity, shared job routing, audit visibility, and usage-budget settlement.
+- d967304: Add a shared integration catalog with accurate built-in messaging metadata and reusable client helpers for integration setup routes.
+
+## 0.13.13
+
+### Patch Changes
+
+- 1d13434: Make framework polling cheaper with durable sync events, remove Dispatch's short app-list polling intervals, preview large DB admin cells by default to avoid accidental blob transfers, and require configured file storage for binary resource uploads instead of storing base64 blobs in SQL.
+
+## 0.13.12
+
+### Patch Changes
+
+- 680b1eb: Keep Dispatch metrics available as an empty state when usage storage bootstrap or reads are unavailable.
+
 ## 0.13.11
 
 ### Patch Changes

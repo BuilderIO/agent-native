@@ -2,6 +2,8 @@ import { defineAction } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
+  buildDeepLink,
+  getAppProductionUrl,
 } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -65,7 +67,7 @@ const statusMatcherSchema = z
 
 export default defineAction({
   description:
-    "Create or update an uptime monitor that pings a URL on a schedule and alerts when it is down, returns the wrong status, is too slow, or its body is missing/contains specific text.",
+    "Create or update an uptime monitor that pings a URL on a schedule and alerts when it is down, returns the wrong status, is too slow, or its body is missing/contains specific text. Returns the saved monitor and a focused Analytics link.",
   schema: z.object({
     id: z.string().optional().describe("Existing monitor id to update."),
     name: z
@@ -101,7 +103,7 @@ export default defineAction({
       .min(1000)
       .max(120000)
       .optional()
-      .describe("Request timeout in milliseconds (default 15000)."),
+      .describe("Request timeout in milliseconds (default 10000)."),
     expectedStatus: statusMatcherSchema.optional(),
     assertions: z
       .array(assertionSchema)
@@ -123,6 +125,20 @@ export default defineAction({
       .array(z.string().email())
       .optional()
       .describe("Email recipients used by the email channel."),
+    slackWebhookUrl: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Optional Slack incoming webhook URL for this monitor. Overrides NOTIFICATIONS_SLACK_WEBHOOK_URL when set.",
+      ),
+    webhookUrl: z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        "Optional generic webhook URL for this monitor. Overrides NOTIFICATIONS_WEBHOOK_URL when set.",
+      ),
     cooldownMinutes: z
       .number()
       .int()
@@ -140,6 +156,27 @@ export default defineAction({
     if (!email) throw new Error("no authenticated user");
     const orgId = getRequestOrgId() || null;
     const name = args.name?.trim() || deriveNameFromUrl(args.url);
-    return saveMonitor({ ...args, name }, { email, orgId });
+    const monitor = await saveMonitor({ ...args, name }, { email, orgId });
+    return {
+      ...monitor,
+      monitorAppUrl: `${getAppProductionUrl()}/monitoring?view=uptime&monitor=${encodeURIComponent(monitor.id)}`,
+    };
+  },
+  link: ({ result }) => {
+    const saved = result as { id?: string; monitorAppUrl?: string } | null;
+    const id = saved?.id;
+    if (!id) return null;
+    return {
+      url:
+        saved?.monitorAppUrl ??
+        buildDeepLink({
+          app: "analytics",
+          view: "monitoring",
+          to: `/monitoring?view=uptime&monitor=${encodeURIComponent(id)}`,
+          params: { monitoringView: "uptime", monitorId: id },
+        }),
+      label: "Open monitor in Analytics",
+      view: "monitoring",
+    };
   },
 });

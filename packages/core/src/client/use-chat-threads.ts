@@ -6,6 +6,8 @@ export interface ChatThreadScope {
   type: string;
   id: string;
   label?: string;
+  /** Composer context key used by ambient resource context adapters. */
+  contextKey?: string;
 }
 
 export interface ChatThreadSummary {
@@ -342,6 +344,24 @@ export function useChatThreads(
   const activeThreadIdRef = useRef(activeThreadId);
   activeThreadIdRef.current = activeThreadId;
 
+  const persistActiveThreadId = useCallback(
+    (id: string) => {
+      try {
+        const threadScope = readKnownThreadScope(id);
+        const targetKey =
+          threadScope === undefined
+            ? activeThreadKey
+            : activeThreadStorageKey(storageKey, threadScope);
+        localStorage.setItem(targetKey, id);
+        localStorage.setItem(
+          activeThreadSeenStorageKey(targetKey),
+          String(Date.now()),
+        );
+      } catch {}
+    },
+    [activeThreadKey, readKnownThreadScope, storageKey],
+  );
+
   // Persist active thread ID — and rehydrate on scope flips. When the user
   // navigates from deck A to deck B, `activeThreadKey` changes; we re-read B's
   // scoped thread only if the currently visible chat is itself scoped to a
@@ -386,6 +406,9 @@ export function useChatThreads(
       setActiveThreadId(nextActiveThreadId);
       return;
     }
+    if (!activeThreadId && !restoreActiveThread && !routeControlsActiveThread) {
+      return;
+    }
     try {
       if (routeControlsActiveThread && !routeThreadId) {
         localStorage.removeItem(activeThreadKey);
@@ -393,14 +416,7 @@ export function useChatThreads(
         return;
       }
       if (activeThreadId) {
-        const threadScope = readKnownThreadScope(activeThreadId);
-        if (threadScope === undefined) return;
-        const targetKey = activeThreadStorageKey(storageKey, threadScope);
-        localStorage.setItem(targetKey, activeThreadId);
-        localStorage.setItem(
-          activeThreadSeenStorageKey(targetKey),
-          String(Date.now()),
-        );
+        persistActiveThreadId(activeThreadId);
       } else {
         localStorage.removeItem(activeThreadKey);
         localStorage.removeItem(activeThreadSeenKey);
@@ -412,7 +428,9 @@ export function useChatThreads(
     activeThreadSeenKey,
     addOptimisticThread,
     autoCreate,
+    persistActiveThreadId,
     readKnownThreadScope,
+    restoreActiveThread,
     routeControlsActiveThread,
     routeThreadId,
     storageKey,
@@ -449,8 +467,17 @@ export function useChatThreads(
           // haven't shown up in the server list yet — the server only learns
           // about a thread when the user actually sends a message and the
           // agent run's `persistSubmittedUserMessage` writes the row.
+          //
+          // Archived threads are excluded here too: the server list omits
+          // archived threads by default, so a thread we archived this same
+          // session would otherwise look identical to a not-yet-synced
+          // optimistic thread (created this session, missing from `loaded`)
+          // and get preserved forever instead of disappearing once archived.
           const optimisticOnly = prev.filter(
-            (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
+            (t) =>
+              newlyCreatedRef.current.has(t.id) &&
+              !loadedIds.has(t.id) &&
+              !t.archivedAt,
           );
           // Reconcile each server thread against our local copy. If the local
           // copy has a newer updatedAt or higher messageCount, keep those
@@ -629,10 +656,11 @@ export function useChatThreads(
       const id = preferredId || createLocalThreadId();
       newlyCreatedRef.current.add(id);
       addOptimisticThread(id, scopeRef.current ?? null);
+      persistActiveThreadId(id);
       setActiveThreadId(id);
       return Promise.resolve(id);
     },
-    [addOptimisticThread],
+    [addOptimisticThread, persistActiveThreadId],
   );
 
   useEffect(() => {
@@ -879,9 +907,13 @@ export function useChatThreads(
     [],
   );
 
-  const switchThread = useCallback((id: string) => {
-    setActiveThreadId(id);
-  }, []);
+  const switchThread = useCallback(
+    (id: string) => {
+      persistActiveThreadId(id);
+      setActiveThreadId(id);
+    },
+    [persistActiveThreadId],
+  );
 
   const removeThread = useCallback(
     async (id: string) => {
@@ -939,15 +971,39 @@ export function useChatThreads(
           titleSource,
           { preserveUserTitle },
         );
-        await fetch(`${apiUrl}/threads/${encodeURIComponent(id)}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...threadDataPayload,
-            title,
-            scope: localScope,
-          }),
-        });
+        const payload = {
+          ...threadDataPayload,
+          title,
+          scope: localScope,
+        };
+        let response = await fetch(
+          `${apiUrl}/threads/${encodeURIComponent(id)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
+        // A passive realtime-voice transcript can be the first content in a
+        // client-created thread, so no agent run has created its SQL row yet.
+        // Materialize that row idempotently and retry the same full save.
+        if (response.status === 404) {
+          const created = await fetch(`${apiUrl}/threads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, title, scope: localScope }),
+          });
+          if (!created.ok) return;
+          response = await fetch(
+            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            },
+          );
+        }
+        if (!response.ok) return;
         emitThreadsUpdated();
         // Update local thread list metadata. If the thread isn't in our
         // local list yet (an optimistic-only thread that the server just

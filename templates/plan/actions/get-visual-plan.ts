@@ -20,7 +20,7 @@ const queryBooleanSchema = z.preprocess((value) => {
 
 export default defineAction({
   description:
-    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan.",
+    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan. For full content replacement, replace-blocks, or replace-file, pass the returned plan.updatedAt exactly as expectedUpdatedAt and reread after the write.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
     includeMdx: queryBooleanSchema

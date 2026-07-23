@@ -1,13 +1,20 @@
 import { defineAction } from "@agent-native/core";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
 import { DESIGN_CAPABILITY_NAMES } from "../shared/design-source-capabilities.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import {
+  designConnectionIdFromData,
+  designSourceTypeFromData,
+} from "../shared/source-mode.js";
 
 export default defineAction({
   description:
@@ -36,25 +43,8 @@ export default defineAction({
     // Resolve source type from the design's data blob.  The `sourceType`
     // field lives inside `designs.data` as a JSON key (set by connect-localhost
     // and the fusion upgrade flow), falling back to "inline" when absent.
-    let rawSourceType: unknown = "inline";
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          !Array.isArray(parsed) &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Stale/invalid JSON — default to "inline".
-      }
-    }
-
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
+    const sourceType = designSourceTypeFromData(rawData);
     const capabilities = resolveSourceCapabilities(sourceType);
 
     // Collect active localhost capabilities from the design's stored connection,
@@ -65,20 +55,25 @@ export default defineAction({
       try {
         const rawDesignData =
           typeof rawData === "string" ? JSON.parse(rawData) : {};
-        const connectionId =
-          typeof rawDesignData === "object" &&
-          rawDesignData !== null &&
-          "connectionId" in rawDesignData
-            ? String(rawDesignData.connectionId)
-            : undefined;
+        const connectionId = designConnectionIdFromData(rawDesignData);
 
-        if (connectionId) {
+        const ownerEmail = getRequestUserEmail();
+        const orgId = getRequestOrgId() ?? null;
+        if (connectionId && ownerEmail) {
           const [conn] = await db
             .select({
               capabilities: schema.designLocalhostConnections.capabilities,
             })
             .from(schema.designLocalhostConnections)
-            .where(eq(schema.designLocalhostConnections.id, connectionId))
+            .where(
+              and(
+                eq(schema.designLocalhostConnections.id, connectionId),
+                eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+                orgId
+                  ? eq(schema.designLocalhostConnections.orgId, orgId)
+                  : isNull(schema.designLocalhostConnections.orgId),
+              ),
+            )
             .limit(1);
 
           if (conn?.capabilities) {

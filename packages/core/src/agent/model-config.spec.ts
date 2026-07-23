@@ -120,6 +120,9 @@ describe("agent model config catalog", () => {
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
     );
+    expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
+      "gemini-3-1-flash-lite",
+    );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain("z-ai-glm-4-5");
     expect(ANTHROPIC_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-opus-4-7",
@@ -127,6 +130,28 @@ describe("agent model config catalog", () => {
     expect(AI_SDK_MODEL_CONFIG.anthropic.supportedModels).not.toContain(
       "claude-opus-4-7",
     );
+  });
+
+  it("exposes only GPT-5.6 Sol, Terra, and Luna in OpenAI-backed catalogs", () => {
+    expect(
+      (BUILDER_MODEL_CONFIG.supportedModels as readonly string[]).filter(
+        (model) => model.startsWith("gpt-"),
+      ),
+    ).toEqual(["gpt-5-6-sol", "gpt-5-6-terra", "gpt-5-6-luna"]);
+    expect(AI_SDK_MODEL_CONFIG.openai.supportedModels).toEqual([
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+    ]);
+    expect(
+      (
+        AI_SDK_MODEL_CONFIG.openrouter.supportedModels as readonly string[]
+      ).filter((model) => model.startsWith("openai/gpt-")),
+    ).toEqual([
+      "openai/gpt-5.6-sol",
+      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-luna",
+    ]);
   });
 
   it("does not contain decommissioned Groq models", () => {
@@ -180,14 +205,16 @@ describe("getContextWindowForModel", () => {
     expect(getContextWindowForModel("claude-opus-4-8")).toBe(1_000_000);
   });
 
-  it("returns 1.05M for GPT-5.x models", () => {
-    expect(getContextWindowForModel("gpt-5.5")).toBe(1_050_000);
-    expect(getContextWindowForModel("gpt-5.4")).toBe(1_050_000);
-    expect(getContextWindowForModel("gpt-5.4-mini")).toBe(400_000);
+  it("returns the documented context windows for GPT-5.6 models", () => {
+    expect(getContextWindowForModel("gpt-5.6-sol")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.6-terra")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5.6-luna")).toBe(400_000);
     // Builder gateway dashed form
-    expect(getContextWindowForModel("gpt-5-5")).toBe(1_050_000);
-    expect(getContextWindowForModel("gpt-5-4")).toBe(1_050_000);
-    expect(getContextWindowForModel("gpt-5-4-mini")).toBe(400_000);
+    expect(getContextWindowForModel("gpt-5-6-sol")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5-6-terra")).toBe(1_050_000);
+    expect(getContextWindowForModel("gpt-5-6-luna")).toBe(400_000);
+    // OpenRouter advertises Luna with the same 1.05M context as Sol and Terra.
+    expect(getContextWindowForModel("openai/gpt-5.6-luna")).toBe(1_050_000);
   });
 
   it("returns 1M for Gemini 2.x / 3.x models", () => {
@@ -240,16 +267,17 @@ describe("getMaxOutputTokensForModel", () => {
     expect(getMaxOutputTokensForModel("claude-something-new")).toBe(64_000);
   });
 
-  it("returns 128K for GPT-5.x models in all id forms", () => {
-    expect(getMaxOutputTokensForModel("gpt-5.5")).toBe(128_000);
-    expect(getMaxOutputTokensForModel("gpt-5.4")).toBe(128_000);
-    expect(getMaxOutputTokensForModel("gpt-5.4-mini")).toBe(128_000);
+  it("returns 40K for GPT-5.6 models in all id forms", () => {
+    expect(getMaxOutputTokensForModel("gpt-5.6-sol")).toBe(40_000);
+    expect(getMaxOutputTokensForModel("gpt-5.6-terra")).toBe(40_000);
+    expect(getMaxOutputTokensForModel("gpt-5.6-luna")).toBe(40_000);
     // Builder gateway dashed form
-    expect(getMaxOutputTokensForModel("gpt-5-5")).toBe(128_000);
-    expect(getMaxOutputTokensForModel("gpt-5-4")).toBe(128_000);
-    expect(getMaxOutputTokensForModel("gpt-5-4-mini")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("gpt-5-6-sol")).toBe(40_000);
+    expect(getMaxOutputTokensForModel("gpt-5-6-terra")).toBe(40_000);
+    expect(getMaxOutputTokensForModel("gpt-5-6-luna")).toBe(40_000);
     // OpenRouter form
-    expect(getMaxOutputTokensForModel("openai/gpt-5.5")).toBe(128_000);
+    expect(getMaxOutputTokensForModel("openai/gpt-5.6-sol")).toBe(40_000);
+    expect(getMaxOutputTokensForModel("openai/gpt-5.6-luna")).toBe(128_000);
   });
 
   it("uses heuristic fallback for unlisted flagship variants", () => {

@@ -7,7 +7,7 @@ import { requireLibrary, serializeGenerationPreset } from "./_helpers.js";
 
 export default defineAction({
   description:
-    "List reusable generation presets for a library, such as social images, blog heroes, and diagrams.",
+    "List reusable generation presets for a library, such as social images, blog heroes, and diagrams. This is the required first step for ad-hoc generation requests: if a preset matches, generate with its presetId instead of presetless settings. Results include settings.presetReferences, the reference board used to match named people, products, and backdrops in the request.",
   schema: z.object({
     libraryId: z.string(),
     collectionId: z.string().optional(),

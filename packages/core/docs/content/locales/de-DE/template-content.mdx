@@ -91,9 +91,8 @@ Wenn Sie die App öffnen, sehen Sie neben dem Editor einen Seitenbaum. Der Agent
 - **Seiten in einer Baumstruktur organisieren** – unbegrenzt verschachteln, zum Neuanordnen ziehen, Lieblingsseiten, die Sie häufig verwenden.
 - **Alles durchsuchen** mit Volltextsuche über Titel und Inhalte hinweg.
 - **Bearbeiten Sie lokale Markdown/MDX-Dateien wie Obsidian.** Verwenden Sie die `/local-files`-Ansicht
-  Um Ihren Arbeitsbereich in Dateien zu exportieren, diese in Ihren eigenen Tools zu bearbeiten und eine Vorschau anzuzeigen
-  Änderungen und importieren Sie sie zurück. Im lokalen Dateimodus schreibt der Inhalt direkt nach
-  die ausgewählte `.md`- oder `.mdx`-Datei.
+  um einen Ordner mit Files zu verbinden, ihn mit eigenen Werkzeugen zu bearbeiten,
+  Änderungen zu synchronisieren und Konflikte in der SQL-App zu prüfen.
 - **Generieren Sie umfangreiche interaktive benutzerdefinierte Blöcke.** Registrieren Sie lokale React-Komponenten,
   Fügen Sie sie als MDX ein und lassen Sie den Agent Komponentendateien erstellen oder aktualisieren
   Ihre Dokumente.
@@ -136,32 +135,19 @@ als Überprüfungsoberfläche. Die gehostete App bleibt die Quelle der Wahrheit 
 Kommentare, Berechtigungen und Live-Zusammenarbeit; Der lokale Ordner ist ein expliziter
 Oberfläche synchronisieren.
 
-Inhalte können auch im **Lokalen Dateimodus** ausgeführt werden, wobei Dateien die Quelle sind
-Wahrheit statt SQL Dokumente. `agent-native.json` zu einem Repo hinzufügen, set
-`mode: "local-files"` und konfigurieren Sie Roots wie `docs/`, `blog/`
-`content/` und `resources/`. Der Standard-Inhaltseditor füllt dann dessen
-linkte Seitenleiste aus diesen lokalen `.md`/`.mdx`-Dateien und schreibt Änderungen zurück in die
-ausgewählte Datei durch das normale Dokument actions. Verwenden Sie dies für Repo-First-Dokumente
-Blogs, Ressourcenbibliotheken oder persönliche Inhalte im Obsidian-Stil mit MDX-Unterstützung
-Komponenten; Wechseln Sie zurück in den Datenbankmodus, wenn Sie eine gehostete Zusammenarbeit wünschen und
-SQL-gestütztes Teilen. Siehe [Local File Mode](/docs/local-file-mode) für
-eigenständiges Repo-Layout, Konfiguration, benutzerdefinierte MDX-Komponenten, lokal
-`extensions/`-Widgets und Leitfaden zur Produktionssicherheit.
+Lokale Ordner verwenden jetzt dasselbe SQL-Modell wie alle Seiten. Jede Seite
+gehört zu einem Bereich und seiner Files-Datenbank; der Ordner ist ein
+Quelladapter. Siehe [Lokale Ordnerquellen](/docs/local-file-mode) für Richtlinien,
+Konflikte, MDX-Komponenten und die Migration vom alten Modus.
 
-So installieren Sie den Content Local-Files-Skill in einem vorhandenen Repository:
+So öffnen Sie Content für ein vorhandenes Repository:
 
 ```bash
-npx @agent-native/core@latest skills add content --mode local-files --scope project
+npx @agent-native/core@latest content .
 ```
 
-Das Installationsprogramm kopiert den `content`-Skill für Ihren Coding-Agent und schreibt oder
-aktualisiert `agent-native.json` mit Inhaltswurzeln für `docs/`, `blog/`, `content/`
-und `resources/`. Wenn eine lokale Content-App, Agent Native Desktop oder vertrauenswürdig
-Lokale Bridge läuft, Agenten sollten Content actions wie
-`list-documents`, `get-document`, `edit-document`, `update-document` und
-`share-local-file-document` anstelle von unformatierten Dateisystem-Schreibvorgängen. Ohne dieses lokale
-bridge, der installierte Skill gibt dem Agent weiterhin den Repo-Bearbeitungsvertrag für
-sichere Markdown/MDX-Änderungen.
+Die CLI startet Content mit der normalen Datenbank, registriert die Ordnerquelle
+und öffnet die Verbindung, ohne eine Modus-Umgebungsvariable zu setzen.
 
 ## Für Entwickler
 

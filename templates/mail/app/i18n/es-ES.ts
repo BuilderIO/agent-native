@@ -442,10 +442,10 @@ const messages = {
     suggestionWidget: "Crea un widget personalizado para mi bandeja",
   },
   settings: {
-    openAgentSettings: "Abrir ajustes del agente",
+    openAgentSettings: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    agentTitle: "Ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    agentTitle: "Gestionar agente",
     aliasName: "Nombre del alias",
     aliasNamePlaceholder: "p. ej., equipo de diseño",
     recipientsOnePerLine: "Destinatarios (un correo por línea)",
@@ -522,10 +522,10 @@ const messages = {
     slackUpdateFailed: "No se pudo actualizar la entrada de Slack",
     slackConfigured: "Las credenciales de Slack están configuradas.",
     slackNeedsCredentials:
-      "Añade SLACK_BOT_TOKEN y SLACK_SIGNING_SECRET para habilitar la entrada de Slack.",
-    slackIntake: "Entrada de Slack",
+      "La entrada personalizada antigua requiere SLACK_BOT_TOKEN y SLACK_SIGNING_SECRET. Para nuevas automatizaciones de mensajería de Slack, conecta un espacio de trabajo en Configuración > Mensajería.",
+    slackIntake: "Entrada de Slack (antigua)",
     slackDescription:
-      "Permite que miembros de la organización pongan borradores de correo en cola desde Slack.",
+      "Integración personalizada antigua que permite poner borradores de correo en cola desde Slack.",
     enabled: "Activado",
     disable: "Desactivar",
     enable: "Activar",

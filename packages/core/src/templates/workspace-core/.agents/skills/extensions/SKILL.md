@@ -51,6 +51,31 @@ and Alpine.js runtime.
 - Action files in `actions/`
 - Routes
 
+## When the Request Needs Code Instead
+
+Route by the user's exact outcome, not by whether they called it an
+"extension." Extensions render only on their own page or inside an existing
+named `ExtensionSlot`; they cannot inject UI into arbitrary native components,
+replace built-in views, or appear at a location where the host app has no slot.
+
+If the requested placement or behavior requires changing native components,
+host layout/styles/routes/business logic, or adding a new slot:
+
+1. Briefly explain the extension boundary.
+2. Do **not** stop at "an extension cannot do that," and do not silently move the
+   UI to a less useful slot.
+3. Continue through the normal source-code customization flow:
+   - In hosted/app-rendered chat, call `connect-builder`. When its
+     `builderEnabled` result is true, offer the Builder.io Cloud Agent handoff;
+     when false, say the change can be made with local code editing, Agent
+     Native Desktop, or Builder.io cloud editing.
+   - In a local development or outer code-editing surface, follow the
+     `self-modifying-code` skill and edit the app source directly.
+
+Full source-code customization is a core Agent Native capability. Extensions
+are the fast, sandboxed, no-deploy layer—not the limit of what the app can
+become.
+
 **When a user asks to "make an extension", "create an extension", or "build
 a ... extension" (or the older phrasings "make a tool" / "create a tool"):**
 
@@ -62,6 +87,15 @@ Extensions have full access to app data via helpers injected into the iframe
 (full signatures in `references/api.md`):
 
 - `appAction(name, params)` — call any app action
+- `agentNative.mcp.listTools(serverId?)` and
+  `agentNative.mcp.callTool(serverId, toolName, arguments)` — inspect and call
+  connected remote MCP tools through the host app's authenticated, scoped
+  action surface. The iframe never receives MCP credentials.
+- `agentNative.providerApi.catalog(params)` and `agentNative.providerApi.docs(params)`
+  — discover provider APIs and their contracts using existing OAuth workspace
+  connections. Arbitrary `providerApi.request` is intentionally not exposed to
+  extensions because it could turn a shared extension into an authenticated
+  write proxy; use `agentNative.mcp.callTool` or an explicit app action instead.
 - `appFetch(path, options)` — call allowed framework endpoints under
   `/_agent-native/*`
 - `dbQuery(sql, args)` — read from SQL
@@ -119,6 +153,25 @@ persistence** — it handles everything automatically. Only use
 `dbQuery`/`dbExec` when querying the app's existing tables. See
 `references/api.md` for the full `get`/`remove`/scope reference.
 
+### Agent-side extension data access
+
+The agent can read and write `extensionData` directly using two dedicated
+actions — no need to go through the iframe bridge or raw SQL:
+
+| Action                | Purpose                                           |
+| --------------------- | ------------------------------------------------- |
+| `extension-data-set`  | Upsert an item in an extension's data store       |
+| `extension-data-get`  | Read items from an extension's data store         |
+
+Use `extension-data-set` when the agent needs to seed, refresh, or update
+data that an extension reads at render time via `extensionData.get()`. This
+is the correct path for agent-driven dashboard refreshes — the agent
+fetches fresh data from providers, then writes the merged result with
+`extension-data-set`, and the extension picks it up on next load.
+
+Use `extension-data-get` to inspect what data an extension currently stores,
+or to verify a write succeeded.
+
 ## What extensions are
 
 Extensions are mini Alpine.js apps that run inside sandboxed iframes. They
@@ -174,17 +227,29 @@ extension content:
 { "name": "My Dashboard", "contentFromAttachment": "latest" }
 ```
 
-`update-extension` accepts the same `contentFromAttachment` for full-body
-replacement. Inline `content` still works for everything you author yourself —
-use `contentFromAttachment` only to avoid regurgitating something the user
-already pasted.
+`update-extension` accepts the same `contentFromAttachment` inside its compact
+`payloadJson` string for a full-body replacement. Use `operation: "replace"`;
+that explicit operation is the safety acknowledgement for a broad rewrite.
+Inline `content` still works inside `payloadJson` for everything you author
+yourself — use `contentFromAttachment` only to avoid regurgitating something
+the user already pasted.
 
 ## Editing an extension
 
-Use the `update-extension` action. Prefer granular `edits` for surgical
-changes instead of regenerating the full HTML. For medium/large extensions,
-add stable section comments around major blocks so future agents can target
-them without touching unrelated indentation:
+Use the `update-extension` action with exactly `id`, `operation`, and
+`payloadJson`. The payload is encoded as a JSON string so model gateways cannot
+fill every optional field with empty placeholders. Prefer `operation: "edit"`
+with granular `edits` inside `payloadJson` for surgical changes instead of
+regenerating the full HTML. For medium/large extensions, add stable section
+comments around major blocks so future agents can target them without touching
+unrelated indentation:
+
+For data-only repairs, preserve the existing layout, CSS, copy, and
+interactions. Do not reconstruct and submit the entire body. The action and
+store reject implicit full-body replacement; choose `operation: "replace"`
+only for a user-requested visual rewrite or complete replacement body. If a
+focused edit fails, inspect the current body and adjust its target; do not retry
+unchanged arguments.
 
 ```html
 <!-- agent-native:section npm-daily-chart -->
@@ -197,8 +262,8 @@ Then update just that section:
 ```json
 {
   "id": "EXTENSION_ID",
-  "edits": "[{\"op\":\"replace-section\",\"section\":\"npm-daily-chart\",\"content\":\"<section>...</section>\"}]",
-  "format": true
+  "operation": "edit",
+  "payloadJson": "{\"edits\":[{\"op\":\"replace-section\",\"section\":\"npm-daily-chart\",\"content\":\"<section>...</section>\"}],\"format\":true}"
 }
 ```
 
@@ -217,8 +282,8 @@ Supported `edits` operations:
 
 Use `expectedMatches` when ambiguity would be dangerous. Missing required
 targets fail instead of silently doing nothing. Pass `format: true` to run
-Prettier on the final HTML after the patch. Full `content` replacement is
-still available for broad rewrites.
+Prettier on the final HTML after the patch. Full `content` replacement remains
+available for broad rewrites through `operation: "replace"`.
 
 Legacy `patches` still work for simple literal replacements:
 
@@ -239,7 +304,17 @@ To replace the full content instead:
 
 ```
 PUT /_agent-native/extensions/:id
-{ "content": "full new HTML" }
+{ "content": "full new HTML", "allowFullReplacement": true }
+```
+
+For the agent action, use the compact form instead:
+
+```json
+{
+  "id": "EXTENSION_ID",
+  "operation": "replace",
+  "payloadJson": "{\"content\":\"full new HTML\"}"
+}
 ```
 
 ## History and rollback
@@ -390,6 +465,12 @@ Builder/internal data, customer data, or credential-looking literal into
 extension HTML, inline scripts, docs, examples, or extension seed content.
 Extensions are stored in SQL and rendered in the browser; anything written into
 the extension body should be treated as visible.
+
+Extension HTML belongs in SQL, but large media does not. Do not embed pasted
+files, base64 assets, screenshots, or binary blobs in `content` or
+`extensionData`; upload media to file/blob storage and reference hosted URLs or
+opaque handles. For large pasted text bodies, use the documented
+`contentFromAttachment` flow instead of a megabyte inline string.
 
 For external API calls, use `extensionFetch()` with `${keys.NAME}` placeholders
 inside single-quoted strings, for example

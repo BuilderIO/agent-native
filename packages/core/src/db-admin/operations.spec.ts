@@ -51,6 +51,12 @@ async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
        FOREIGN KEY (author_id) REFERENCES authors(id)
      )`,
   );
+  await db.execute(
+    `CREATE TABLE logs (
+       id INTEGER PRIMARY KEY,
+       payload TEXT NOT NULL
+     )`,
+  );
   await db.execute(`CREATE UNIQUE INDEX idx_authors_email ON authors(email)`);
   await db.execute(`CREATE VIEW author_book_counts AS
        SELECT a.id AS author_id, COUNT(b.id) AS books
@@ -71,6 +77,10 @@ async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
       args: [i, `Book ${i}`, (i % 2) + 1, i * 10],
     });
   }
+  await db.execute({
+    sql: `INSERT INTO logs (id, payload) VALUES (?, ?)`,
+    args: [1, "x".repeat(20_000)],
+  });
 
   return { ops, dbUrl };
 }
@@ -195,6 +205,83 @@ describe("getRows", () => {
 
     expect(eq.columns.some((c) => c.name === "title")).toBe(true);
   });
+
+  it("previews large text cells unless explicitly requested", async () => {
+    const { ops } = await loadOps();
+
+    const preview = await ops.getRows("logs", {
+      page: 1,
+      pageSize: 10,
+    });
+    expect(preview.rows[0].payload).toEqual(
+      expect.stringContaining("db-admin truncated large cell"),
+    );
+    expect(String(preview.rows[0].payload).length).toBeLessThan(17_000);
+    expect(preview.truncatedCells).toBe(1);
+    expect(preview.columns.find((c) => c.name === "payload")).toMatchObject({
+      largeValuePreview: true,
+    });
+
+    const full = await ops.getRows("logs", {
+      page: 1,
+      pageSize: 10,
+      includeLargeCells: true,
+    });
+    expect(full.rows[0].payload).toBe("x".repeat(20_000));
+    expect(full.truncatedCells).toBe(0);
+  });
+
+  it("marks jsonb columns as large-value previewable", async () => {
+    const { ops } = await loadOps();
+    const runtime = {
+      dialect: "postgres" as const,
+      db: {
+        execute: vi.fn(async (query: any) => {
+          const sql = typeof query === "string" ? query : query.sql;
+          if (sql.includes("information_schema.tables")) {
+            return { rows: [{ type: "BASE TABLE" }] };
+          }
+          if (sql.includes("information_schema.columns")) {
+            return {
+              rows: [
+                {
+                  name: "id",
+                  type: "text",
+                  nullable: 0,
+                  dflt: null,
+                },
+                {
+                  name: "payload",
+                  type: "jsonb",
+                  nullable: 1,
+                  dflt: null,
+                },
+              ],
+            };
+          }
+          if (sql.includes("table_constraints")) return { rows: [] };
+          if (sql.includes("pg_indexes")) return { rows: [] };
+          if (sql.includes("COUNT(*)")) return { rows: [{ c: 1 }] };
+          if (sql.includes("SELECT"))
+            return { rows: [{ id: "1", payload: "{}" }] };
+          return { rows: [] };
+        }),
+      },
+    };
+
+    const result = await ops.getRows(
+      "audit_log",
+      { page: 1, pageSize: 10 },
+      runtime,
+    );
+
+    expect(
+      result.columns.find((column) => column.name === "payload"),
+    ).toMatchObject({ largeValuePreview: true });
+    expect((runtime.db.execute as any).mock.calls.at(-1)?.[0].sql).toContain(
+      'CAST("payload" AS TEXT)',
+    );
+  });
 });
 
 describe("applyMutations", () => {
@@ -258,6 +345,21 @@ describe("applyMutations", () => {
       }),
     ).rejects.toThrow(/where/i);
   });
+
+  it("rejects previewed large-cell values in mutations", async () => {
+    const { ops } = await loadOps();
+    const preview = await ops.getRows("logs", {
+      page: 1,
+      pageSize: 10,
+    });
+    const payload = String(preview.rows[0].payload);
+
+    await expect(
+      ops.applyMutations("logs", {
+        updates: [{ where: { id: 1 }, set: { payload } }],
+      }),
+    ).rejects.toThrow(/previewed large-cell value/i);
+  });
 });
 
 describe("runSql", () => {
@@ -284,6 +386,17 @@ describe("runSql", () => {
     );
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0].author_id).toBe(2);
+  });
+
+  it("truncates large cells in arbitrary SQL results", async () => {
+    const { ops } = await loadOps();
+    const result = await ops.runSql("SELECT payload FROM logs", undefined, {});
+
+    expect(result.truncatedCells).toBe(1);
+    expect(result.rows[0].payload).toEqual(
+      expect.stringContaining("db-admin truncated large cell"),
+    );
+    expect(String(result.rows[0].payload).length).toBeLessThan(17_000);
   });
 
   it("throws needsConfirm for destructive statements without confirmation", async () => {

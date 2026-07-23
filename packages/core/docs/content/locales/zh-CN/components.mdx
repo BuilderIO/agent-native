@@ -13,7 +13,7 @@ Agent-Native 附带了完整的侧边栏，但侧边栏不是合同。
 从聚焦的客户端子路径导入浏览器UI：
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -173,8 +173,9 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## 聊天字段和作曲家 {#composer}
 
-当您需要进行相同的聊天时，请使用`@agent-native/core/client/composer`
-自定义UI内的侧边栏使用的字段。
+当您需要在自定义 UI 中使用与侧边栏相同的聊天字段时，请使用 `@agent-native/core/client/composer`。
+`@agent-native/toolkit/composer` 提供可移植的纯 Tiptap 和 UI 实现；要使用框架服务，
+请用 `ComposerRuntimeAdaptersProvider` 包裹它并提供这些服务。Core 是已连接附件、提及、技能、语音和模型选择的包装器。
 
 | API                               | 何时使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -470,10 +471,12 @@ function WorkspaceResources() {
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -488,3 +491,11 @@ export default defineAction({
 使用 `sendToAgentChat({ background: true, openSidebar: false })` 代替
 工作需要工具、状态、可审计性、用户指导或多步骤
 推理。
+
+## 下一步 {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — 通过教程优先的引导挂载 `<AgentSidebar>` 和 `<AgentPanel>`
+- [**Native Chat UI**](/docs/native-chat-ui) — 数据小组件和自定义渲染器背后的操作结果契约
+- [**Actions**](/docs/actions) — `defineAction()`、模式以及这些组件调用的操作表面
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — 深入了解协作钩子和在线状态组件
+- [**Sharing**](/docs/sharing) — 为可拥有资源连接 `<ShareButton>` 和 `<ShareDialog>`

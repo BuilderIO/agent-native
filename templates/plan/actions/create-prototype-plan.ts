@@ -34,7 +34,10 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import { planContentSchema } from "../shared/plan-content.js";
+import {
+  agentPlanContentSchema,
+  planContentSchema,
+} from "../shared/plan-content.js";
 
 const prototypeSurfaceSchema = z.enum([
   "desktop",
@@ -43,6 +46,9 @@ const prototypeSurfaceSchema = z.enum([
   "panel",
   "browser",
 ]);
+const prototypeRenderModeSchema = z.enum(["wireframe", "design"]);
+const boundedPrototypeHtml = (value: string) =>
+  !/<\/?(?:html|head|body|script|style)\b/i.test(value);
 
 const prototypeScreenSchema = z.object({
   id: z.string().optional().describe("Stable screen id"),
@@ -52,11 +58,32 @@ const prototypeScreenSchema = z.object({
     .optional()
     .describe("What the reviewer should inspect on this screen"),
   surface: prototypeSurfaceSchema.optional().default("browser"),
-  html: z
-    .string()
+  renderMode: prototypeRenderModeSchema
     .optional()
     .describe(
-      'Bounded semantic HTML fragment for a real interactive prototype. Use safe Alpine-like directives (x-data, x-model, x-for, x-text, x-show, :class, @click, @keydown.enter) for local behavior; use data-goto="screen-id" only for true screen/route changes. Never include html/body/script/style tags.',
+      'Set to "design" for polished, high-fidelity, production-like, or branded screens. Design mode persists on the artifact and disables the rough.js treatment for every viewer.',
+    ),
+  html: z
+    .string()
+    .max(40_000)
+    .refine(boundedPrototypeHtml, {
+      message:
+        "Prototype HTML must be a bounded fragment without html/head/body/script/style tags. Put scoped styles in the css field.",
+    })
+    .optional()
+    .describe(
+      'Bounded semantic HTML fragment for a real interactive prototype. Use safe Alpine-like directives (x-data, x-model, x-for, x-text, x-show, :class, @click, @keydown.enter) for local behavior; use data-goto="screen-id" only for true screen/route changes. Never include html/body/script/style tags; put visual styling in css.',
+    ),
+  css: z
+    .string()
+    .max(20_000)
+    .refine(boundedPrototypeHtml, {
+      message:
+        "Prototype CSS must not include document, script, or style tags.",
+    })
+    .optional()
+    .describe(
+      "Scoped CSS for this screen. Required when the request is high fidelity: use real codebase or brand tokens, deliberate typography, spacing, color, and state styling instead of embedding a style tag in html.",
     ),
   state: z
     .array(
@@ -80,67 +107,77 @@ const prototypeTransitionSchema = z.object({
   trigger: z.string().optional(),
 });
 
+const CONTENT_DESCRIPTION =
+  "Full structured content when the caller has already authored a prototype. Prefer screens/transitions unless replacing the whole document.";
+
+// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
+// a compact `content` field instead of duplicating every other key. The
+// `.refine()` (brief/goal requirement) only applies to the real runtime
+// `schema` further down.
+const createPrototypePlanSchema = z.object({
+  title: z.string().optional().describe("Short visual plan title"),
+  brief: z
+    .string()
+    .optional()
+    .describe(
+      "The question the prototype answers, in one short line. Shown as the lede under the title — keep it tight, not a paragraph.",
+    ),
+  goal: z.string().optional().describe("Alias for brief."),
+  source: planSourceSchema.optional().default("manual"),
+  repoPath: z.string().optional().describe("Repository path for the run"),
+  currentFocus: z
+    .string()
+    .optional()
+    .describe("Current prototype review focus"),
+  status: planStatusSchema.optional().default("review"),
+  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  screens: z
+    .array(prototypeScreenSchema)
+    .optional()
+    .default([])
+    .describe(
+      'Prototype screens. Default to one functional screen when local UI behavior is enough; use 2-4 screens only for true routes/steps. Screen HTML should include working local controls, inputs, toggles, lists, filters, or lightweight flows where relevant. For higher-fidelity requests, prefer create-plan-design; when the interaction itself requires a polished prototype, set each screen renderMode to "design" and pass its styling in css.',
+    ),
+  transitions: z
+    .array(prototypeTransitionSchema)
+    .optional()
+    .default([])
+    .describe(
+      "Expected screen/route transitions. The viewer also honors data-goto attributes in screen HTML, but ordinary UI state should stay inside the functional prototype.",
+    ),
+  implementationNotes: z
+    .string()
+    .optional()
+    .describe("Concise notes for the implementation map section"),
+  markdown: z
+    .string()
+    .optional()
+    .describe("Markdown/text fallback or source visual plan"),
+  sections: z
+    .array(sectionInputSchema)
+    .optional()
+    .default([])
+    .describe("Optional legacy plan sections"),
+  comments: z
+    .array(commentInputSchema)
+    .optional()
+    .default([])
+    .describe("Initial annotations or review prompts"),
+});
+
 export default defineAction({
   description:
-    "Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. Publish via this tool; never deliver the plan as inline chat text.",
-  schema: z
-    .object({
-      title: z.string().optional().describe("Short visual plan title"),
-      brief: z
-        .string()
-        .optional()
-        .describe(
-          "The question the prototype answers, in one short line. Shown as the lede under the title — keep it tight, not a paragraph.",
-        ),
-      goal: z.string().optional().describe("Alias for brief."),
-      source: planSourceSchema.optional().default("manual"),
-      repoPath: z.string().optional().describe("Repository path for the run"),
-      currentFocus: z
-        .string()
-        .optional()
-        .describe("Current prototype review focus"),
-      status: planStatusSchema.optional().default("review"),
-      content: planContentSchema
-        .optional()
-        .describe(
-          "Full structured content when the caller has already authored a prototype. Prefer screens/transitions unless replacing the whole document.",
-        ),
-      screens: z
-        .array(prototypeScreenSchema)
-        .optional()
-        .default([])
-        .describe(
-          "Prototype screens. Default to one functional screen when local UI behavior is enough; use 2-4 screens only for true routes/steps. Screen HTML should include working local controls, inputs, toggles, lists, filters, or lightweight flows where relevant.",
-        ),
-      transitions: z
-        .array(prototypeTransitionSchema)
-        .optional()
-        .default([])
-        .describe(
-          "Expected screen/route transitions. The viewer also honors data-goto attributes in screen HTML, but ordinary UI state should stay inside the functional prototype.",
-        ),
-      implementationNotes: z
-        .string()
-        .optional()
-        .describe("Concise notes for the implementation map section"),
-      markdown: z
-        .string()
-        .optional()
-        .describe("Markdown/text fallback or source visual plan"),
-      sections: z
-        .array(sectionInputSchema)
-        .optional()
-        .default([])
-        .describe("Optional legacy plan sections"),
-      comments: z
-        .array(commentInputSchema)
-        .optional()
-        .default([])
-        .describe("Initial annotations or review prompts"),
-    })
-    .refine((args) => Boolean(args.brief || args.goal), {
-      message: "Either brief or goal is required.",
-    }),
+    'Create a plan whose primary review surface is a running interactive prototype. For a document-first plan use create-visual-plan; for a UI-first wireframe canvas use create-ui-plan; for a recap of an existing diff use create-visual-recap; for full-fidelity branded design use create-plan-design. Prototype screen HTML uses safe Alpine-like directives for local state and data-goto for screen navigation only. If a functional prototype must also be high fidelity, set renderMode to "design" and put scoped styles in css; never embed style tags in html because they are rejected. Publish via this tool; never deliver the plan as inline chat text.',
+  schema: createPrototypePlanSchema.refine(
+    (args) => Boolean(args.brief || args.goal),
+    { message: "Either brief or goal is required." },
+  ),
+  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
+  // per-block-type union for a compact `type`-enum stand-in. Runtime
+  // validation always runs the full schema above — see the `actions` skill.
+  agentInputSchema: createPrototypePlanSchema.extend({
+    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  }),
   publicAgent: {
     expose: true,
     readOnly: false,

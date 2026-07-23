@@ -9,8 +9,10 @@ const repoRoot = path.resolve(
 
 const npmPublishAllowlist = new Set([
   "@agent-native/core",
+  "@agent-native/creative-context",
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
+  "@agent-native/recap-cli",
   "@agent-native/scheduling",
   "@agent-native/skills",
   "@agent-native/toolkit",
@@ -21,6 +23,7 @@ const npmPublishAllowlist = new Set([
 // consumed through `workspace:` and must stay ignored by changesets until npm
 // trusted publishing is configured for them.
 const workspaceOnlyPackageAllowlist = new Set([
+  "@agent-native/agent-chrome-extension",
   "@agent-native/desktop-app",
   "@agent-native/docs",
   "@agent-native/frame",
@@ -105,7 +108,9 @@ function dependencyProtocolFailures(
   if (!dependencies) return [];
   return Object.entries(dependencies)
     .filter(([dep, version]) => {
-      if (/^catalog:/.test(version)) return true;
+      // pnpm rewrites catalog references to their publishable semver ranges
+      // during pack and publish, just like workspace protocol references.
+      if (/^catalog:/.test(version)) return false;
       if (/^workspace:/.test(version)) {
         return !npmPublishAllowlist.has(dep);
       }
@@ -124,13 +129,20 @@ function localWorkspaceDependencyFailures(
 ): string[] {
   if (!dependencies) return [];
   return Object.entries(dependencies)
-    .filter(
-      ([dep, version]) =>
-        workspacePackageNames.has(dep) && version !== "workspace:*",
-    )
+    .filter(([dep, version]) => {
+      if (!workspacePackageNames.has(dep)) return false;
+      if (version === "workspace:*") return false;
+      // Published deps may use workspace:^ so pnpm pack rewrites it to a
+      // caret range (e.g. ^0.4.3), letting consumers dedupe against a
+      // compatible version instead of an exact pin.
+      if (version === "workspace:^" && npmPublishAllowlist.has(dep)) {
+        return false;
+      }
+      return true;
+    })
     .map(
       ([dep, version]) =>
-        `${pkgName} ${field}.${dep} must stay workspace:* in source, not ${version}; pnpm pack rewrites it for npm publishing`,
+        `${pkgName} ${field}.${dep} must stay workspace:* (or workspace:^ for published deps) in source, not ${version}; pnpm pack rewrites it for npm publishing`,
     );
 }
 

@@ -4,6 +4,7 @@ const messages = {
     searchForms: "بحث في النماذج",
     appearance: "المظهر",
     toggleTheme: "تبديل السمة",
+    openAgent: "فتح الوكيل",
   },
   header: {
     settings: "الإعدادات",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "اسأل Forms",
     allForms: "كل النماذج",
     team: "الفريق",
+    agent: "الوكيل",
   },
   settings: {
     title: "الإعدادات",
@@ -31,10 +33,10 @@ const messages = {
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    agentTitle: "إعدادات الوكيل",
+    agentTitle: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    openAgentSettings: "فتح إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "إدارة الوكيل",
   },
   agent: {
     emptyState: "اسألني أي شيء عن نماذجك",
@@ -192,6 +194,12 @@ const messages = {
       successMessage: "رسالة النجاح",
       defaultSuccessMessage: "شكرا لك! تم تسجيل ردك.",
       redirectUrl: "رابط إعادة التوجيه (اختياري)",
+      anonymousResponses: "ردود مجهولة الهوية",
+      anonymousResponsesDescription:
+        "عدم الاحتفاظ بعناوين IP أو هوية المجيب أو بيانات المصدر الوصفية.",
+      emailNewResponses: "أرسل لي بريدًا إلكترونيًا عند وصول ردود جديدة",
+      emailNewResponsesDescription:
+        "إرسال إشعار إلى البريد الإلكتروني لحساب مالك النموذج عند إرسال أي رد.",
       saveSettings: "حفظ الإعدادات",
     },
     integrations: {
@@ -257,6 +265,8 @@ const messages = {
     duplicated: "النموذج مكرر",
     duplicateFailed: "فشل في تكرار النموذج",
     movedToArchive: "تم نقل النموذج إلى الأرشيف",
+    movingToArchive: "جارٍ نقل النموذج إلى الأرشيف…",
+    archiveFailed: "تعذر نقل النموذج إلى الأرشيف",
     restored: "تمت استعادة النموذج",
     permanentlyDeleted: "تم حذف النموذج نهائيًا",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

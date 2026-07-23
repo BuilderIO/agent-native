@@ -175,6 +175,15 @@ Agent-Native is an open source framework for building apps where AI agents and U
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
     },
     {
+      path: "/brand",
+      title: "Agent-Native Brand Assets",
+      description:
+        "Download official Agent-Native logos and symbols for articles, presentations, and community projects.",
+      markdown:
+        "# Agent-Native Brand Assets\n\nDownload official Agent-Native horizontal logos and symbols as SVG files for light and dark backgrounds.\n",
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/brand.tsx")),
+    },
+    {
       path: "/privacy",
       title: "Agent-Native Privacy Policy",
       description:

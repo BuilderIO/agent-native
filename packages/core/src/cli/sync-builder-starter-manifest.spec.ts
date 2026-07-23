@@ -13,6 +13,9 @@ import {
   generateStandaloneChatManifest,
   listStarterSyncPaths,
   mergeStarterManifest,
+  migrateStarterSources,
+  resolveStarterCoreVersion,
+  STARTER_SOURCE_MIGRATION_PATHS,
   STARTER_TOOLCHAIN_SYNC_PATHS,
   syncStarterManifestFiles,
   workspaceFileSyncChanged,
@@ -71,6 +74,12 @@ describe("sync-builder-starter-manifest", () => {
             "utf-8",
           ),
         ).toContain('appId: "builder-agent-native-starter"');
+        expect(fs.existsSync(path.join(snapshot.dir, ".react-router"))).toBe(
+          false,
+        );
+        expect(fs.existsSync(path.join(snapshot.dir, "node_modules"))).toBe(
+          false,
+        );
         expect(files.get("netlify.toml")).toContain('publish = "dist"');
         expect(files.get("netlify.toml")).not.toContain("templates/chat");
         expect(files.get("netlify.toml")).toContain(
@@ -95,6 +104,12 @@ describe("sync-builder-starter-manifest", () => {
 
   it("includes pnpm-lock.yaml in starter CI staging paths", () => {
     expect(listStarterSyncPaths()).toContain("pnpm-lock.yaml");
+  });
+
+  it("includes source pathspecs for manifest-driven migrations", () => {
+    expect(listStarterSyncPaths()).toEqual(
+      expect.arrayContaining([...STARTER_SOURCE_MIGRATION_PATHS]),
+    );
   });
 
   it(
@@ -126,6 +141,39 @@ describe("sync-builder-starter-manifest", () => {
       expect((merged.dependencies as Record<string, string>).postgres).toBe(
         "^3.4.9",
       );
+    },
+    STARTER_MANIFEST_TIMEOUT_MS,
+  );
+
+  it(
+    "preserves starter-pinned toolkit instead of canonical latest",
+    () => {
+      const { packageJson: canonical } =
+        generateStandaloneChatManifest(repoRoot);
+      expect(
+        (canonical.dependencies as Record<string, string>)[
+          "@agent-native/toolkit"
+        ],
+      ).toBe("latest");
+
+      const merged = mergeStarterManifest(
+        {
+          dependencies: {
+            "@agent-native/core": "0.92.5",
+            "@agent-native/toolkit": "0.4.4",
+          },
+        },
+        canonical,
+      );
+
+      expect(
+        (merged.dependencies as Record<string, string>)["@agent-native/core"],
+      ).toBe("0.92.5");
+      expect(
+        (merged.dependencies as Record<string, string>)[
+          "@agent-native/toolkit"
+        ],
+      ).toBe("0.4.4");
     },
     STARTER_MANIFEST_TIMEOUT_MS,
   );
@@ -181,6 +229,109 @@ describe("sync-builder-starter-manifest", () => {
         fs.rmSync(tempDir, { recursive: true, force: true });
       }
     });
+
+    it(
+      "applies active import migrations to starter-owned source",
+      () => {
+        tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "an-starter-sync-spec-"),
+        );
+        const { packageJson, pnpmWorkspaceYaml } =
+          generateStandaloneChatManifest(repoRoot);
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          `${JSON.stringify(packageJson, null, 2)}\n`,
+        );
+        if (pnpmWorkspaceYaml) {
+          fs.writeFileSync(
+            path.join(tempDir, "pnpm-workspace.yaml"),
+            pnpmWorkspaceYaml,
+          );
+        }
+        const routePath = path.join(tempDir, "app/routes/_index.tsx");
+        fs.mkdirSync(path.dirname(routePath), { recursive: true });
+        fs.writeFileSync(
+          routePath,
+          [
+            'import { PromptComposer, openAgentSidebar, sendToAgentChat } from "@agent-native/core/client";',
+            "void PromptComposer;",
+            "void openAgentSidebar;",
+            "void sendToAgentChat;",
+            "",
+          ].join("\n"),
+        );
+
+        const result = syncStarterManifestFiles({
+          starterDir: tempDir,
+          repoRoot,
+          write: true,
+        });
+        const migrated = fs.readFileSync(routePath, "utf-8");
+
+        expect(result.changedSourceMigrationPaths).toContain(
+          "app/routes/_index.tsx",
+        );
+        expect(result.sourceMigrationWarnings).toEqual([]);
+        expect(migrated).toContain(
+          'from "@agent-native/core/client/agent-chat"',
+        );
+        expect(migrated).toContain('from "@agent-native/core/client/composer"');
+        expect(migrated).toContain(
+          'from "@agent-native/core/client/navigation"',
+        );
+        expect(migrated).not.toContain('from "@agent-native/core/client"');
+
+        expect(
+          migrateStarterSources({
+            starterDir: tempDir,
+            repoRoot,
+            coreVersion: resolveStarterCoreVersion(packageJson, repoRoot),
+            write: true,
+          }).changedPaths,
+        ).toEqual([]);
+      },
+      STARTER_MANIFEST_TIMEOUT_MS,
+    );
+
+    it(
+      "leaves source untouched when the starter predates the migration manifest",
+      () => {
+        tempDir = fs.mkdtempSync(
+          path.join(os.tmpdir(), "an-starter-sync-spec-"),
+        );
+        const { packageJson, pnpmWorkspaceYaml } =
+          generateStandaloneChatManifest(repoRoot);
+        const oldPackageJson = structuredClone(packageJson) as {
+          dependencies: Record<string, string>;
+        };
+        oldPackageJson.dependencies["@agent-native/core"] = "0.109.9";
+        fs.writeFileSync(
+          path.join(tempDir, "package.json"),
+          `${JSON.stringify(oldPackageJson, null, 2)}\n`,
+        );
+        if (pnpmWorkspaceYaml) {
+          fs.writeFileSync(
+            path.join(tempDir, "pnpm-workspace.yaml"),
+            pnpmWorkspaceYaml,
+          );
+        }
+        const routePath = path.join(tempDir, "app/routes/_index.tsx");
+        fs.mkdirSync(path.dirname(routePath), { recursive: true });
+        const original =
+          'import { PromptComposer } from "@agent-native/core/client";\n';
+        fs.writeFileSync(routePath, original);
+
+        const result = syncStarterManifestFiles({
+          starterDir: tempDir,
+          repoRoot,
+          write: true,
+        });
+
+        expect(result.changedSourceMigrationPaths).toEqual([]);
+        expect(fs.readFileSync(routePath, "utf-8")).toBe(original);
+      },
+      STARTER_MANIFEST_TIMEOUT_MS,
+    );
 
     it(
       "reports no changes when starter already matches the canonical manifest",

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import {
   A2ATaskTimeoutError,
@@ -6,6 +6,14 @@ import {
   shouldPreferGlobalA2ASecret,
   signA2AToken,
 } from "../a2a/client.js";
+import { invokeAgentAction } from "../a2a/invoke.js";
+import type {
+  A2AApprovedAction,
+  A2ACorrelationMetadata,
+  A2ASourceContext,
+  A2ASourceContextReference,
+  Task,
+} from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -25,6 +33,38 @@ import {
 const DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS = 18_000;
 const NETLIFY_INTEGRATION_A2A_TIMEOUT_MS = 2_000;
 const INTEGRATION_A2A_TOKEN_TTL = "30m";
+
+function buildDelegationCorrelation(
+  context: ActionRunContext | undefined,
+  selfAppId: string | undefined,
+  invocationId?: string,
+): A2ACorrelationMetadata {
+  return {
+    ...(selfAppId?.trim() ? { callerApp: selfAppId.trim() } : {}),
+    ...(context?.threadId ? { callerThreadId: context.threadId } : {}),
+    ...(context?.runId ? { parentRunId: context.runId } : {}),
+    ...(context?.turnId ? { parentTurnId: context.turnId } : {}),
+    ...(invocationId ? { invocationId } : {}),
+  };
+}
+
+function buildMessageIdempotencyKey(
+  originatingTurnId: string | undefined,
+  target: string,
+  exactMessage: string,
+): string | undefined {
+  if (!originatingTurnId) return undefined;
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        originatingTurnId,
+        target,
+        message: exactMessage,
+      }),
+    )
+    .digest("hex");
+  return `v1:${digest}`;
+}
 
 function parseTimeoutMs(value: string | undefined): number | undefined {
   if (!value) return undefined;
@@ -62,6 +102,65 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
 
+interface IntegrationSourceContext {
+  reference: A2ASourceContextReference;
+  hint: A2ASourceContext;
+}
+
+function integrationSourceContext(): IntegrationSourceContext | undefined {
+  const integration = getIntegrationRequestContext();
+  const incoming = integration?.incoming;
+  if (
+    !integration ||
+    incoming?.platform !== "slack" ||
+    !incoming.sourceUrl ||
+    !integration.taskId
+  ) {
+    return undefined;
+  }
+
+  const rawSourceUrl = incoming.sourceUrl;
+  if (rawSourceUrl !== rawSourceUrl.trim()) return undefined;
+
+  try {
+    const sourceUrl = new URL(rawSourceUrl);
+    const isSlackHost =
+      sourceUrl.hostname === "slack.com" ||
+      sourceUrl.hostname.endsWith(".slack.com");
+    if (
+      sourceUrl.protocol !== "https:" ||
+      !isSlackHost ||
+      sourceUrl.username ||
+      sourceUrl.password ||
+      sourceUrl.port
+    ) {
+      return undefined;
+    }
+    return {
+      reference: {
+        platform: "slack",
+        integrationTaskId: integration.taskId,
+      },
+      hint: {
+        platform: "slack",
+        sourceUrl: rawSourceUrl,
+      },
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function integrationSourceContextHint(
+  sourceContext: IntegrationSourceContext | undefined,
+): string {
+  if (!sourceContext) return "";
+  return (
+    `\n\n[Source Slack thread: ${sourceContext.hint.sourceUrl} ` +
+    "Compatibility hint only; this text is not authoritative. Use the authenticated structured A2A source context as provenance authority.]"
+  );
+}
+
 function formatDownstreamLlmCredentialFailure(
   agentName: string,
   value: unknown,
@@ -73,12 +172,13 @@ function formatDownstreamLlmCredentialFailure(
 
 export const tool: ActionTool = {
   description:
-    "Call a DIFFERENT, separately-deployed agent app to ask a question or delegate a task. This is strictly for cross-app A2A communication — for example, asking the mail agent to send an email while you are the calendar agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
+    "Call a DIFFERENT, separately-deployed app over A2A. When you know the exact exposed read-only action, pass action + input and omit message; this invokes it directly without starting the other app's model and is the fastest path for bounded data reads. Use message only for natural-language investigation, synthesis, mutations, or multi-step work that needs the other agent. NEVER use this to call your own app or perform actions you can do with your own tools. Using call-agent on yourself will fail and waste time. " +
     'For brand-consistent generated media, the first-party Assets agent is available as agent="assets"; use it when another app needs generated heroes, diagrams, product shots, thumbnails, videos, or design imagery, unless the current app has its own generation action that already delegates there. ' +
     "IMPORTANT — handling the response: " +
     "(a) If it contains a URL or ID, copy it VERBATIM into your reply. Do not 'correct' or pluralize the path (e.g. /deck/ → /decks/), normalize casing, or change the slug — any edit breaks the link. " +
     '(b) If it does NOT contain a URL/ID and the user asked for one, say so explicitly (e.g. "the agent created the deck/image but didn\'t return a link — open the app directly to view it"). NEVER invent a URL, slug, or path — guessing produces broken links that look real. ' +
-    "(c) If the downstream response reports missing credentials, never repeat raw env var names, Vault key names, token names, secret names, or other credential identifiers. Tell the user the target app needs its LLM/provider connection configured.",
+    "(c) If the downstream response reports missing credentials, never repeat raw env var names, Vault key names, token names, secret names, or other credential identifiers. Tell the user the target app needs its LLM/provider connection configured. " +
+    "(d) A bounded wait can expire while the remote task is still healthy. The result will include its taskId and exact retry instructions. Continue polling that SAME task with taskId; NEVER send a new check-in/follow-up message, because that starts duplicate downstream work.",
   parameters: {
     type: "object",
     properties: {
@@ -89,22 +189,67 @@ export const tool: ActionTool = {
       },
       message: {
         type: "string",
-        description: "The message/question to send to the other agent",
+        description:
+          "The message/question to send when starting a new task. Omit when taskId is provided.",
+      },
+      taskId: {
+        type: "string",
+        description:
+          "Existing A2A task ID returned by a timed-out call. Polls that exact task without sending a new message. Never create a fresh check-in message for work that already has a taskId.",
+      },
+      action: {
+        type: "string",
+        description:
+          "Exact read-only action exposed by the target app. Use with input and omit message/taskId to skip the downstream agent loop.",
+      },
+      input: {
+        type: "object",
+        description:
+          "Complete input object for action. The target app validates it and refuses actions that are not explicitly exposed read-only operations.",
+        additionalProperties: true,
+      },
+      approvedActions: {
+        type: "array",
+        description:
+          "Exact downstream tool calls the current user explicitly authorized in this chat. Never infer authorization or include a broader/different action.",
+        items: {
+          type: "object",
+          properties: {
+            tool: { type: "string" },
+            input: { type: "object", additionalProperties: true },
+          },
+          required: ["tool", "input"],
+        },
       },
     },
-    required: ["agent", "message"],
+    required: ["agent"],
   },
 };
 
 export async function run(
-  args: Record<string, string>,
+  args: Record<string, unknown>,
   context?: ActionRunContext,
   selfAppId?: string,
 ): Promise<string> {
-  const { agent: agentIdOrName, message } = args;
+  const agentIdOrName = String(args.agent ?? "");
+  const message = String(args.message ?? "");
+  const taskId = String(args.taskId ?? "").trim();
+  const action = String(args.action ?? "").trim();
+  const input = args.input ?? {};
+  const approvedActions = Array.isArray(args.approvedActions)
+    ? (args.approvedActions as A2AApprovedAction[])
+    : undefined;
 
   if (!agentIdOrName) return "Error: --agent is required";
-  if (!message) return "Error: --message is required";
+  if (!message && !taskId && !action) {
+    return "Error: --message, --taskId, or --action is required";
+  }
+  if (action && (message || taskId)) {
+    return "Error: --action direct-invoke mode cannot be combined with --message or --taskId";
+  }
+  if (action && (!input || typeof input !== "object" || Array.isArray(input))) {
+    return "Error: --input must be an object when --action is provided";
+  }
 
   // Prevent self-calls — the agent must use its own registered tools instead
   if (selfAppId && agentIdOrName.toLowerCase() === selfAppId.toLowerCase()) {
@@ -119,16 +264,44 @@ export async function run(
     return `Error: Agent "${agentIdOrName}" not found. Available agents: ${available || "(none)"}`;
   }
 
+  const correlation = buildDelegationCorrelation(context, selfAppId);
+  const idempotencyKey =
+    message && !taskId
+      ? buildMessageIdempotencyKey(context?.turnId, agent.url, message)
+      : undefined;
+
+  if (action) {
+    if (context?.send) {
+      context.send({ type: "agent_call", agent: agent.name, status: "start" });
+    }
+    try {
+      const output = await invokeReadOnlyAppAction(
+        agent,
+        action,
+        input as Record<string, unknown>,
+        buildDelegationCorrelation(context, selfAppId, randomUUID()),
+      );
+      return output;
+    } finally {
+      if (context?.send) {
+        context.send({ type: "agent_call", agent: agent.name, status: "done" });
+      }
+    }
+  }
+
   // Append a small cross-app hint to the outgoing message so the receiving
   // agent (which may be on an older deploy without the receiver-side hint
   // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
   // suspenders with the receiver hint — but it works against any current
   // deployment, no redeploy required.
-  const messageWithHint =
-    `${message}\n\n` +
-    `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
-    `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
-    `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts.]`;
+  const sourceContext = integrationSourceContext();
+  const messageWithHint = taskId
+    ? ""
+    : `${message}${integrationSourceContextHint(sourceContext)}\n\n` +
+      `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
+      `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
+      `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts. ` +
+      `Return a concise caller-ready synthesis rather than raw tool output or full transcripts; preserve source counts, IDs, short supporting quotes, and URLs needed to substantiate the answer.]`;
 
   try {
     // If we have a send context, use streaming so the UI shows progressive text
@@ -190,8 +363,9 @@ export async function run(
 
       let responseText = "";
       let lastSentLength = 0;
-      const existingContinuationText =
-        await formatExistingIntegrationContinuationIfRetry(agent, message);
+      const existingContinuationText = taskId
+        ? null
+        : await formatExistingIntegrationContinuationIfRetry(agent, message);
       if (existingContinuationText) return existingContinuationText;
 
       context.send({
@@ -224,6 +398,74 @@ export async function run(
       // trade-off is we lose progressive in-UI text streaming for cross-app
       // A2A calls, but the receiving agent's full response still surfaces via
       // the tool_result event below.
+      //
+      // That trade-off has a second-order cost: callAgent()'s poll (see
+      // A2AClient.sendAndWait in a2a/client.ts) can legitimately run for
+      // minutes with nothing emitted to the parent between the "start" event
+      // above and "done" below. On the parent run, that silence freezes
+      // `last_progress_at` — shouldBumpProgressForEvent in
+      // agent/run-manager.ts treats a stream of literally nothing as no
+      // progress — which trips the client's stuck-detector
+      // (DEFAULT_STUCK_THRESHOLD_MS = 90_000 in
+      // client/use-run-stuck-detection.ts) and the server's stale-run sweep
+      // (BACKGROUND_RUN_STALE_MS = 90_000 in agent/run-store.ts). In
+      // production this handed users a "still working, no progress" Retry
+      // button that aborted a perfectly healthy call and re-ran the sub-agent
+      // from scratch.
+      //
+      // Fix: surface the REAL remote liveness the poll already gathers. The
+      // A2A poll round-trips to the remote agent every ~2s and gets back a
+      // task with `status.state` (see A2AClient.sendAndWait / `onUpdate`). We
+      // emit an `agent_call_progress` event ONLY from that callback, and ONLY
+      // when a poll actually succeeds AND reports an actively-working state.
+      // Crucially this is NOT a timer: if the remote hangs or dies, the poll
+      // fetch throws, `onUpdate` stops firing, we emit nothing, and the
+      // stuck-detector correctly surfaces its banner. A wall-clock heartbeat
+      // would instead keep a dead sub-agent looking alive forever — trading a
+      // false stuck-positive for a worse false stuck-negative.
+      //
+      // Throttle: the poll runs every ~2s but both thresholds above are 90s,
+      // so emitting per-poll would be ~45 events per stuck-window. We coalesce
+      // to at most one emission per 30s — a 3x margin under 90s, so at least
+      // two land inside either window even with jitter, without flooding.
+      //
+      // Shape: a dedicated `agent_call_progress` event type (see
+      // agent/types.ts), not an extra `agent_call` status. `agent_call`
+      // consumers (production-agent.ts's step summarizer, slack.ts's task
+      // cards) render any status that isn't "start"/"done" as a failure, so a
+      // "progress" status would surface an in-flight tick as an error. A
+      // distinct type is instead ignored gracefully everywhere: the run-event
+      // switches fall to their `default`, the client if-chains fall through,
+      // and sse-event-processor returns `{action:"continue"}`. It still counts
+      // as real progress in shouldBumpProgressForEvent (any non-special event
+      // type does), which is the whole point.
+      const PROGRESS_MIN_INTERVAL_MS = 30_000;
+      // Terminal states resolve the poll; "input-required" means the remote is
+      // blocked waiting on us, not making progress. Only actively-working
+      // states count as liveness worth surfacing.
+      const ACTIVELY_WORKING_STATES = new Set([
+        "working",
+        "submitted",
+        "processing",
+      ]);
+      const callStartedAt = Date.now();
+      let lastProgressEmitAt = callStartedAt;
+      const onRemotePollUpdate = (task: Task) => {
+        const state = task?.status?.state;
+        if (!state || !ACTIVELY_WORKING_STATES.has(state)) return;
+        const now = Date.now();
+        if (now - lastProgressEmitAt < PROGRESS_MIN_INTERVAL_MS) return;
+        lastProgressEmitAt = now;
+        const detail = extractRemoteProgressDetail(task);
+        context.send!({
+          type: "agent_call_progress",
+          agent: agent.name,
+          state,
+          elapsedSeconds: Math.round((now - callStartedAt) / 1000),
+          ...(detail ? { detail } : {}),
+        });
+      };
+
       try {
         // Apply a polling cap ONLY for integration-platform callers on
         // serverless hosts. Normal chat, local Node, self-hosted Node, and
@@ -235,7 +477,19 @@ export async function run(
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
-          ...(callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}),
+          approvedActions,
+          ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
+          contextId: context.threadId,
+          correlation,
+          idempotencyKey,
+          ...(taskId ? { taskId } : {}),
+          onUpdate: onRemotePollUpdate,
+          returnRecoverableArtifactsOnTimeout: false,
+          ...(callTimeoutMs
+            ? {
+                timeoutMs: callTimeoutMs,
+              }
+            : {}),
         });
         responseText =
           formatDownstreamLlmCredentialFailure(agent.name, responseText) ??
@@ -262,8 +516,26 @@ export async function run(
               `The ${agent.name} agent accepted this delegated subtask and will post its own final result to the originating integration thread automatically. ` +
               `Do not call ${agent.name} again for this same subtask. Continue any other requested work, then answer with the completed results you have; if needed, mention that ${agent.name} is posting its result separately.`;
           } else {
-            const reason = pollErr?.message ?? "unknown error";
-            responseText = `The ${agent.name} agent is taking longer than expected and didn't reply in time. (${reason})`;
+            // The normal integration path must preserve the timeout task id so
+            // it can enqueue a durable continuation. If that enqueue fails,
+            // do not hide receiver-verified artifacts that were already
+            // returned with the last poll; this mirrors callAgent's default
+            // timeout behavior without treating arbitrary remote status text
+            // as a completed response.
+            const recoverableArtifactText =
+              extractRecoverableTimeoutArtifactText(pollErr);
+            if (recoverableArtifactText) {
+              responseText = expandRelativeUrls(
+                recoverableArtifactText,
+                agent.url,
+              );
+            } else {
+              responseText = formatExistingTaskWaitInstruction(
+                agent.name,
+                timeoutTaskId,
+                agentIdOrName,
+              );
+            }
           }
         } else {
           const reason = pollErr?.message ?? "unknown error";
@@ -300,6 +572,13 @@ export async function run(
       userEmail: email,
       orgDomain: domain,
       orgSecret,
+      approvedActions,
+      ...(sourceContext ? { sourceContext: sourceContext.reference } : {}),
+      contextId: context?.threadId,
+      correlation,
+      idempotencyKey,
+      ...(taskId ? { taskId } : {}),
+      returnRecoverableArtifactsOnTimeout: false,
     });
     const sanitized =
       formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;
@@ -311,6 +590,14 @@ export async function run(
       err,
     );
     if (credentialMessage) return credentialMessage;
+    const timeoutTaskId = getA2ATaskTimeoutTaskId(err);
+    if (timeoutTaskId) {
+      return formatExistingTaskWaitInstruction(
+        agent.name,
+        timeoutTaskId,
+        agentIdOrName,
+      );
+    }
     // Friendlier message for the common timeout case so the calling agent can
     // decide whether to give up or retry.
     if (/timeout|did not complete|Inactivity|504/i.test(msg)) {
@@ -318,6 +605,65 @@ export async function run(
     }
     return `Error calling ${agent.name}: ${msg}`;
   }
+}
+
+async function invokeReadOnlyAppAction(
+  agent: { name: string; url: string },
+  action: string,
+  input: Record<string, unknown>,
+  correlation: A2ACorrelationMetadata,
+): Promise<string> {
+  const callerEmail = getRequestUserEmail();
+  if (!callerEmail) {
+    return `Error calling ${agent.name} action ${action}: a signed-in user identity is required`;
+  }
+
+  let callerOrgDomain: string | undefined;
+  let callerOrgSecret: string | undefined;
+  const orgId = getRequestOrgId();
+  if (orgId) {
+    try {
+      callerOrgDomain = (await getOrgDomain(orgId)) ?? undefined;
+    } catch {}
+    try {
+      callerOrgSecret = (await getOrgA2ASecret(orgId)) ?? undefined;
+    } catch {}
+  }
+
+  if (!callerOrgSecret && !process.env.A2A_SECRET) {
+    return `Error calling ${agent.name} action ${action}: direct cross-app reads require A2A identity verification`;
+  }
+
+  try {
+    const invocation = await invokeAgentAction({
+      target: agent.url,
+      action,
+      input,
+      userEmail: callerEmail,
+      orgDomain: callerOrgDomain,
+      orgSecret: callerOrgSecret,
+      correlation,
+    });
+    return invocation.result.status === "completed"
+      ? invocation.result.output
+      : `Error calling ${agent.name} action ${action}: ${invocation.result.output}`;
+  } catch (error) {
+    return `Error calling ${agent.name} action ${action}: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+  }
+}
+
+function formatExistingTaskWaitInstruction(
+  agentName: string,
+  taskId: string,
+  agentIdOrName: string,
+): string {
+  return (
+    `The ${agentName} task is still running under taskId "${taskId}". ` +
+    `Do not send ${agentName} a new check-in or follow-up message; that would start duplicate work. ` +
+    `Call call-agent again with agent="${agentIdOrName}" and taskId="${taskId}" (omit message) to continue waiting for this same task.`
+  );
 }
 
 async function enqueueIntegrationContinuationIfPossible(
@@ -341,6 +687,7 @@ async function enqueueIntegrationContinuationIfPossible(
       externalThreadId: integration.incoming.externalThreadId,
       incoming: integration.incoming,
       placeholderRef: integration.placeholderRef,
+      progressRef: integration.progressRef,
       ownerEmail,
       orgId: getRequestOrgId() ?? null,
       agentName: agent.name,
@@ -364,6 +711,26 @@ async function enqueueIntegrationContinuationIfPossible(
   }
 }
 
+// Pull a short human-readable detail from a polled A2A task's status message,
+// when the remote includes one, so the progress event can surface a real
+// signal (e.g. "Generating hero image…") instead of a bare elapsed counter.
+// Bounded so a chatty remote can't push a large payload through the event.
+const MAX_PROGRESS_DETAIL_CHARS = 200;
+function extractRemoteProgressDetail(task: Task): string | undefined {
+  const parts = task.status?.message?.parts;
+  if (!parts) return undefined;
+  const text = parts
+    .filter((p): p is { type: "text"; text: string } => p.type === "text")
+    .map((p) => p.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return undefined;
+  return text.length > MAX_PROGRESS_DETAIL_CHARS
+    ? `${text.slice(0, MAX_PROGRESS_DETAIL_CHARS - 1)}…`
+    : text;
+}
+
 function getA2ATaskTimeoutTaskId(err: unknown): string | null {
   if (err instanceof A2ATaskTimeoutError) return err.taskId;
 
@@ -381,6 +748,34 @@ function getA2ATaskTimeoutTaskId(err: unknown): string | null {
 
   const match = message.match(/^A2A task ([^\s]+) did not complete\b/);
   return match?.[1] ?? null;
+}
+
+/**
+ * Mirrors the A2A client's default timeout recovery for the exceptional case
+ * where an integration cannot enqueue a durable continuation. Only an
+ * explicitly receiver-marked task message is safe to surface as a completed
+ * partial result; ordinary working-state text remains a timeout failure.
+ */
+function extractRecoverableTimeoutArtifactText(err: unknown): string {
+  const candidate = err as
+    | { lastTask?: Task | unknown; name?: unknown }
+    | null
+    | undefined;
+  const lastTask =
+    err instanceof A2ATaskTimeoutError
+      ? err.lastTask
+      : candidate?.name === "A2ATaskTimeoutError"
+        ? (candidate.lastTask as Task | undefined)
+        : undefined;
+  const message = lastTask?.status?.message;
+  if (!message?.metadata?.agentNativeRecoverableArtifacts) return "";
+
+  return message.parts
+    .filter(
+      (part): part is { type: "text"; text: string } => part.type === "text",
+    )
+    .map((part) => part.text)
+    .join("\n");
 }
 
 async function formatExistingIntegrationContinuationIfRetry(

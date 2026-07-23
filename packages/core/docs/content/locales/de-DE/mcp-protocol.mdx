@@ -22,7 +22,7 @@ MCP ist das Standardprotokoll für die Verbindung von KI-Tools mit externen Funk
 
 Schlüsselkonzepte:
 
-- **Automatisch gemountet** – jede App erhält `/_agent-native/mcp` kostenlos, keine Einrichtung erforderlich
+- **Automatisch gemountet** – jede App erhält `/mcp` kostenlos, keine Einrichtung erforderlich
 - **Streamable HTTP** – nutzt den modernen MCP-Transport über den Standard-HTTP (POST + SSE)
 - **Dasselbe actions** – genau dieselbe Aktionsregistrierung, die den Agenten-Chat und A2A unterstützt
 - **`ask-agent`-Tool** – ein Meta-Tool, das komplexe Aufgaben an die vollständige Agentenschleife delegiert
@@ -41,7 +41,7 @@ Schlüsselkonzepte:
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel">
-    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    <span class="diagram-pill accent">POST /mcp</span
     ><small class="diagram-muted">Streamable HTTP</small
     ><small class="diagram-muted"
       >initialize &rarr; tools/list &rarr; tools/call</small
@@ -94,7 +94,7 @@ Beide Protokolle werden automatisch gemountet. Verwenden Sie, was zu Ihrem Anwen
 | **Am besten für**   | Externe Tools rufen Ihre App auf                                         | Agent-zu-Agent-Kommunikation                    |
 | **Protokoll**       | MCP Streambar HTTP                                                       | JSON-RPC 2.0                                    |
 | **Toolerkennung**   | `tools/list`                                                             | Agentenkarte bei `/.well-known/agent-card.json` |
-| **Endpunkt**        | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                            |
+| **Endpunkt**        | `/mcp`                                                                   | `/_agent-native/a2a`                            |
 | **Unterstützt von** | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork und andere MCP-Hosts | Andere agentennative Apps                       |
 | **Ausführung**      | Direkte Werkzeugaufrufe (kein zusätzliches LLM)                          | Vollständige Agentenschleife (LLM-Begründung)   |
 
@@ -105,7 +105,7 @@ Sie können auch das Tool `ask-agent` MCP verwenden, um das Beste aus beiden Wel
 Für das empfohlene Ein-Befehl-Setup verwenden Sie [External Agents](/docs/external-agents). Wenn Sie die MCP-Konfiguration für einen OAuth-fähigen Client handschriftlich schreiben, fügen Sie Ihre App als Remote-MCP-Server ohne statische Header hinzu:
 
 ```bash
-claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+claude mcp add --transport http mail https://mail.example.com/mcp
 ```
 
 Oder schreiben Sie den Eintrag handschriftlich in `.mcp.json` (Projektumfang) oder `~/.claude.json` (Benutzerumfang):
@@ -116,7 +116,7 @@ Oder schreiben Sie den Eintrag handschriftlich in `.mcp.json` (Projektumfang) od
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.example.com/_agent-native/mcp",
+      "url": "https://mail.example.com/mcp",
     },
   },
 }
@@ -135,12 +135,12 @@ Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", bod
 Jeder MCP-Client, der den Streamable HTTP-Transport unterstützt, kann eine Verbindung herstellen. Der Endpunkt ist:
 
 ```
-POST https://your-app.example.com/_agent-native/mcp
+POST https://your-app.example.com/mcp
 ```
 
 Der Server unterstützt den Standard-MCP-Handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
-<Endpoint id="doc-block-arbi17" title="MCP Endpunkt" summary={"Der automatisch gemountete Streamable HTTP-Endpunkt, den jede agentennative App verfügbar macht."} method="POST" path="/_agent-native/mcp" summary="MCP Streambarer HTTP Endpunkt" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-arbi17" title="MCP Endpunkt" summary={"Der automatisch gemountete Streamable HTTP-Endpunkt, den jede agentennative App verfügbar macht."} method="POST" path="/mcp" summary="MCP Streambarer HTTP Endpunkt" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -204,18 +204,41 @@ Wenn `mcpApp` vorhanden ist, enthält der Toolseintrag auch `_meta.ui.resourceUr
 
 Zusätzlich zu den einzelnen Aktionstools enthält jeder MCP-Server ein `ask-agent`-Metatool. Dadurch wird eine Nachricht in natürlicher Sprache an den KI-Agenten der App gesendet und die Antwort zurückgegeben.
 
+Gehostete MCP-Anfragen verwenden eine begrenzte Inline-Wartezeit, damit eine lange Agentenschleife nicht einen einzelnen `tools/call` bis zu einem Client- oder Gateway-Timeout offen hält. Das optionale Argument `async` startet die dauerhafte Aufgabe und kehrt sofort zurück; ohne dieses Argument wartet der Server kurz auf einen schnellen Abschluss und gibt dann ein Aufgaben-Handle zurück, wenn noch weitere Arbeit aussteht. Die gehostete Wartezeit ist auf 25 Sekunden begrenzt.
+
 Verwenden Sie `ask-agent` für komplexe Aufgaben, die von der Argumentation und dem Kontext des Agenten profitieren:
 
 ```json
 {
   "name": "ask-agent",
   "arguments": {
-    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed",
+    "async": true
   }
 }
 ```
 
-Der Agent führt die gleiche Schleife aus wie der interaktive Chat – er kann mehrere Tools aufrufen, über den Kontext nachdenken und eine durchdachte Antwort produzieren.
+Der Agent führt die gleiche Schleife aus wie der interaktive Chat – er kann mehrere Tools aufrufen, über den Kontext nachdenken und eine durchdachte Antwort produzieren. Eine nicht abgeschlossene Aufgabe gibt JSON mit `taskId`, `status`, `pollAfterMs` und Folgendem zurück:
+
+```json
+{
+  "poll": {
+    "tool": "ask_app_status",
+    "arguments": { "app": "mail", "taskId": "task_123" }
+  }
+}
+```
+
+Rufen Sie `ask_app_status` mit diesen Argumenten auf, bis die Aufgabe einen Endzustand erreicht. Das app-eigene `ask_app` von Dispatch verwendet denselben Vertrag für dauerhafte Aufgaben und Status, wobei die Berechtigung für die ausgewählte App sowohl bei der Übermittlung als auch beim Polling geprüft wird.
+
+Ist ein begrenzter, vorübergehender Statusabruf nicht verfügbar, kann
+`ask_app_status` `status: "unknown"`, `statusRead: "unavailable"` und
+`retryable: true` sowie das ursprüngliche `app`, `taskId` und `pollAfterMs` /
+`poll` zurückgeben. Das bedeutet, dass der Statusabruf nicht verfügbar ist –
+nicht, dass die dauerhafte Aufgabe fehlgeschlagen ist. Wiederholen Sie
+`ask_app_status` mit genau demselben `app` und `taskId`; reichen Sie zur
+Wiederherstellung niemals erneut `ask_app` ein, da dies Arbeit duplizieren kann.
+Dauerhafte Authentifizierungs-, Nicht-gefunden- und Protokollfehler bleiben Fehler.
 
 ## Authentifizierung {#authentication}
 
@@ -233,14 +256,14 @@ Der MCP-Endpunkt unterstützt den Standard-Remote-MCP OAuth sowie den vorhandene
 Konfigurieren Sie für OAuth-fähige MCP-Hosts den Remote-Server URL ohne statische Header:
 
 ```bash
-claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/mcp
 ```
 
 Die erste nicht authentifizierte MCP-Anfrage erhält:
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps offline_access"
 ```
 
 Erkennungsendpunkte:
@@ -249,9 +272,9 @@ Erkennungsendpunkte:
 | ----------------------------------------- | ------------------------------------------------------ |
 | `/.well-known/oauth-protected-resource`   | RFC 9728 Metadaten geschützter Ressourcen              |
 | `/.well-known/oauth-authorization-server` | OAuth Autorisierungsserver-Metadaten                   |
-| `/_agent-native/mcp/oauth/register`       | Dynamische öffentliche Kundenregistrierung             |
-| `/_agent-native/mcp/oauth/authorize`      | Browserautorisierung + Einwilligung                    |
-| `/_agent-native/mcp/oauth/token`          | Autorisierungscode- und Aktualisierungstoken-Gewährung |
+| `/mcp/oauth/register`                     | Dynamische öffentliche Kundenregistrierung             |
+| `/mcp/oauth/authorize`                    | Browserautorisierung + Einwilligung                    |
+| `/mcp/oauth/token`                        | Autorisierungscode- und Aktualisierungstoken-Gewährung |
 
 <Diagram id="doc-block-hsvr0w" title="OAuth Erkennungsablauf" summary={"Ein 401 leitet die Erkennung, Registrierung und einen PKCE-Autorisierung → Token-Austausch ein. Der Bearer-Token ist an die Zielgruppe gebunden und hat einen Gültigkeitsbereich."}>
 
@@ -351,7 +374,7 @@ export default defineNitroPlugin(async (nitro) => {
 Sie haben eine bereitgestellte Analyse-App unter `analytics.example.com`. Von Claude Code:
 
 ```bash
-claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+claude mcp add --transport http analytics https://analytics.example.com/mcp
 ```
 
 Oder fügen Sie es manuell in `.mcp.json` hinzu:
@@ -362,7 +385,7 @@ Oder fügen Sie es manuell in `.mcp.json` hinzu:
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.example.com/_agent-native/mcp",
+      "url": "https://analytics.example.com/mcp",
     },
   },
 }

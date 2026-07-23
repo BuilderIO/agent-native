@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 JWT 전달자 토큰으로 서명되었습니다. 다음과 같은 레거시 외부 피어에만 `apiKeyEnv`를 사용하세요.
 정적 전달자 토큰이 필요합니다. 자신을 호출하는 대신 로컬 actions를 사용하세요.
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke`는 `agentNative.invoke()`와 동일한 확인 후 호출(resolve-and-call) 기본 로직을 감싼 얇은 CLI 래퍼입니다. 셸 스크립트, CI 작업, cron 항목, 또는 셸 아웃이 가능한 다른 외부 시스템에서 앱의 에이전트를 트리거할 때 사용하세요 — `/_agent-native/a2a`에 직접 POST하는 것과 동일한 CLI 방식입니다.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# 작업공간 레지스트리에서 "analytics"를 확인하고 응답을 기다립니다
+agent-native invoke analytics "Summarize signups by source this month"
+
+# 배포된 앱을 URL로 직접 호출하고, 환경 변수에서 전달자 토큰을 읽습니다
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# 기본값인 async+poll 대신 블로킹 message/send 하나만 강제로 사용합니다
+agent-native invoke analytics "Quick lookup" --sync
+
+# 스크립팅을 위한 기계 판독 가능한 출력
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| 옵션                      | 설명                                                                  |
+| ------------------------- | --------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 대상 에이전트 (위치 인수 `<app-or-url>`의 별칭)                       |
+| `--message <text>`        | 프롬프트 (위치 인수 `"prompt"`의 별칭)                                |
+| `--api-key-env <name>`    | 환경 변수에서 전달자 토큰을 읽습니다                                  |
+| `--api-key <token>`       | 전달자 토큰 값을 인라인으로 전달합니다                                |
+| `--context-id <id>`       | 기존 작업의 대화를 이어가기 위한 A2A `contextId`                      |
+| `--self-app-id <id>`      | 자체 호출 방지에 사용되는 현재 앱 id                                  |
+| `--self-url <url>`        | 자체 호출 방지에 사용되는 현재 앱 URL                                 |
+| `--timeout-ms <n>`        | 비동기 폴링 타임아웃                                                  |
+| `--poll-interval-ms <n>`  | 비동기 폴링 간격                                                      |
+| `--sync`                  | 기본값인 async+poll 대신 블로킹 `message/send` 요청 하나를 사용합니다 |
+| `--no-hint`               | 크로스 앱 호출 힌트 없이 프롬프트를 그대로 전송합니다                 |
+| `--json`                  | 대상 메타데이터와 응답 텍스트를 JSON으로 출력합니다                   |
+
+`callAgent()`와 마찬가지로 CLI는 기본적으로 async + poll을 사용하며(내부적으로 `invokeAgent` → `callAgent`), 이는 호스팅/서버리스 대상에 대한 안전한 선택입니다 — 위의 [서버리스 웹훅 및 게이트웨이 타임아웃](#json-rpc-methods)을 참조하세요. 대상이 짧은 실행 제한이 있는 게이트웨이 뒤에 있지 않다는 것을 알 때만 `--sync`를 전달하세요.
+
+대상은 `agentNative.invoke()`와 동일한 방식으로 확인됩니다. 작업공간 앱 id, 앱 이름, 또는 전체 URL로 확인되므로 동일한 명령이 멀티 앱 작업공간의 형제 앱이나 다른 곳의 임의의 A2A 피어 모두에 대해 작동합니다.
+
 ## 작업 수명 주기 {#task-lifecycle}
 
 각 메시지는 다음 상태를 거쳐 이동하는 작업을 생성합니다.
@@ -435,6 +477,18 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 에이전트 루프가 원격 호출자의 자유 형식 입력을 허용하기 때문에 이 경계가 중요합니다. 루프 내부에 전달자 검사를 넣거나 이를 시행하는 도구를 사용하면 프롬프트 주입이나 버그가 있는 처리기가 인증을 우회할 수 있습니다. HTTP 경계에 유지한다는 것은 LLM 호출 전에 토큰 오류가 단락됨을 의미합니다.
 
 JWT 확인(`server.ts`의 `verifyA2AToken`)은 전역 `A2A_SECRET` 또는 토큰의 `org_domain` 클레임을 통해 SQL에서 조회된 조직 범위 비밀로 서명된 토큰을 허용하고 토큰의 자체 `aud`/`iss` 클레임이 있는 경우 이를 시행합니다.
+
+### 조직 시크릿 동기화 {#organization-secret-sync}
+
+**조직 → 앱 간 인증** 설정은 같은 조직에서 별도로 배포된 앱 간 위임을 인증하는 조직 범위 시크릿을 관리합니다. 이는 사용자 로그인이나 Cross-App SSO 설정이 아닙니다. 이 시크릿은 배포의 `A2A_SECRET`를 보완합니다. `org_domain` 클레임이 있는 A2A JWT는 일치하는 조직의 시크릿으로 검증할 수 있습니다.
+
+조직 소유자는 참여하는 모든 앱에 동일한 허용 이메일 도메인과 동일한 조직 범위 시크릿을 제공해야 합니다.
+
+1. 첫 번째 앱에서 **조직 → 앱 간 인증**으로 이동해 시크릿을 생성하거나 표시합니다.
+2. 추가 앱마다 **다른 앱에서 시크릿 붙여넣기**를 선택하고 해당 값을 붙여넣습니다. 아직 시크릿이 없는 앱은 원격 동기화 요청을 검증할 수 없으므로, 첫 연결에는 이 수동 단계가 필요합니다.
+3. 앱이 시크릿을 공유한 후에는 **앱에 동기화**를 사용해 연결되고 검색된 앱으로 향후 업데이트를 보냅니다. 결과에는 업데이트할 수 없었던 앱이 표시됩니다.
+
+시크릿을 **재생성**하면 설정 UI가 즉시 동기화하고, 이미 연결된 앱이 변경을 검증할 수 있도록 이전 시크릿으로 업데이트에 서명합니다. 어떤 앱이 이 동기화를 놓쳤다면 새 시크릿을 수동으로 붙여넣고 다시 동기화하세요. 이 시크릿은 다른 자격 증명과 마찬가지로 취급하세요. 클라이언트 코드, 로그 또는 타사 클라이언트 구성에 넣지 마세요.
 
 ## 계속 {#continuations}
 

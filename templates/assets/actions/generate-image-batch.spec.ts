@@ -14,6 +14,16 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: vi.fn(async () => undefined),
+  resolveGenerationCreativeContext: vi.fn(async () => ({
+    contextMode: "off",
+    contextPackId: null,
+    reuseLabels: [],
+    results: [],
+  })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
 }));
@@ -174,6 +184,35 @@ describe("generate-image-batch", () => {
         slotId: "slot-1",
         embeddedText: "Bean & Brew",
         textPlacement: "centered headline",
+      }),
+      undefined,
+    );
+  });
+
+  it("forwards preset reference fills to every slot", async () => {
+    await action.run({
+      libraryId: "lib-1",
+      presetId: "preset-1",
+      presetReferenceFills: [{ referenceId: "guest", assetIds: ["guest-1"] }],
+      slots: [
+        { slotId: "slot-1", prompt: "First" },
+        { slotId: "slot-2", prompt: "Second" },
+      ],
+    });
+
+    expect(generateImageRunMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        slotId: "slot-1",
+        presetReferenceFills: [{ referenceId: "guest", assetIds: ["guest-1"] }],
+      }),
+      undefined,
+    );
+    expect(generateImageRunMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        slotId: "slot-2",
+        presetReferenceFills: [{ referenceId: "guest", assetIds: ["guest-1"] }],
       }),
       undefined,
     );

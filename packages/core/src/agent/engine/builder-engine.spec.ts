@@ -19,7 +19,7 @@ const credentialState = vi.hoisted(() => ({
 }));
 
 const AGENT_NATIVE_UPGRADE_URL =
-  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
 // Mock the credential provider so tests do not hit the DB (app_secrets table).
 vi.mock("../../server/credential-provider.js", async (importOriginal) => {
@@ -122,8 +122,10 @@ describe("createBuilderEngine", () => {
     expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
     expect(engine.supportedModels).toContain("claude-opus-4-8");
-    expect(engine.supportedModels).toContain("gpt-5-5");
-    expect(engine.supportedModels).toContain("gpt-5-4");
+    expect(engine.supportedModels).toContain("gpt-5-6-sol");
+    expect(engine.supportedModels).toContain("gpt-5-6-terra");
+    expect(engine.supportedModels).toContain("gpt-5-6-luna");
+    expect(engine.supportedModels).not.toContain("gpt-5-5");
     expect(engine.supportedModels).not.toContain("claude-opus-4-7");
     expect(engine.supportedModels).not.toContain("z-ai-glm-4-5");
   });
@@ -136,7 +138,7 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
-    expect(stop?.error).toContain("Agent settings > LLM");
+    expect(stop?.error).toContain("Manage agent > LLM");
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
   });
 
@@ -692,6 +694,29 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("socket hang up");
   });
 
+  it("tags Anthropic bare Connection error. stop events as gateway network errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error: "Connection error.",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toBe("Connection error.");
+    expect(stop?.errorCode).toBe("builder_gateway_network_error");
+  });
+
   it("keeps the hard timeout active while reading the gateway stream", async () => {
     vi.stubEnv("AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS", "1");
     const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
@@ -762,7 +787,91 @@ describe("createBuilderEngine", () => {
     expect(stop?.error).toContain("Builder gateway timed out");
   });
 
-  it("uses the long local timeout cap when AGENT_NATIVE_BUILDER_GATEWAY_TIMEOUT_MS is unset", async () => {
+  it("aborts at the 120s first-event deadline when nothing ever streams, even under the long local timeout cap", async () => {
+    // With no events at all, the two-stage deadline is
+    // min(totalTimeoutMs, FIRST_STREAM_EVENT_TIMEOUT_MS) — here
+    // min(840_000, 120_000) — so a fully wedged request is cut off in 2
+    // minutes instead of riding the full 14-minute local cap.
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            reject(init.signal?.reason ?? new Error("aborted"));
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    const events = await eventsPromise;
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
+  });
+
+  it("still enforces the full local total deadline once the stream produces a real event", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn((_url: string, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              `${JSON.stringify({ type: "text-delta", text: "hi" })}\n`,
+            ),
+          );
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(init.signal?.reason ?? new Error("aborted"));
+          });
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+
+    // The 120s first-event window passes uneventfully — a real event already
+    // streamed, so it must not abort here.
+    let settledEarly = false;
+    void eventsPromise.then(() => {
+      settledEarly = true;
+    });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(settledEarly).toBe(false);
+
+    // The original 840s total deadline (measured from request start) still
+    // governs the rest of the request.
+    await vi.advanceTimersByTimeAsync(720_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "text-delta")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("840s");
+  });
+
+  it("keeps the pre-first-event deadline at the hosted foreground cap (45s) instead of extending it to 120s", async () => {
+    vi.stubEnv("NETLIFY", "true");
     vi.useFakeTimers();
     const fetchSpy = vi.fn(
       (_url: string, init?: RequestInit) =>
@@ -777,21 +886,51 @@ describe("createBuilderEngine", () => {
     const engine = createBuilderEngine();
     const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
     await vi.advanceTimersByTimeAsync(45_000);
-
-    let settledEarly = false;
-    void eventsPromise.then(() => {
-      settledEarly = true;
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(settledEarly).toBe(false);
-
-    await vi.advanceTimersByTimeAsync(795_000);
     const events = await eventsPromise;
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_gateway_timeout");
-    expect(stop?.error).toContain("840s");
+    expect(stop?.error).toContain("45s");
+  });
+
+  it("does not let heartbeat frames extend the first-event deadline past 120s", async () => {
+    vi.useFakeTimers();
+    const fetchSpy = vi.fn(() => {
+      let interval: ReturnType<typeof setInterval> | undefined;
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          interval = setInterval(() => {
+            controller.enqueue(
+              new TextEncoder().encode(
+                `${JSON.stringify({ type: "heartbeat" })}\n`,
+              ),
+            );
+          }, 5_000);
+        },
+        cancel() {
+          if (interval) clearInterval(interval);
+        },
+      });
+      return Promise.resolve(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/jsonl" },
+        }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    const eventsPromise = collectEvents(engine.stream(BASE_OPTS));
+    await vi.advanceTimersByTimeAsync(120_000);
+    const events = await eventsPromise;
+
+    expect(events.some((e) => e.type === "gateway-heartbeat")).toBe(true);
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_timeout");
+    expect(stop?.error).toContain("120s");
   });
 
   it("caps configured gateway timeouts with room before the 60s serverless function limit", async () => {
@@ -1030,6 +1169,39 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  it("normalizes gateway reasoning deltas into thinking events and final content", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          { type: "reasoning-delta", text: "Check the schema. " },
+          { type: "reasoning-delta", text: "Then answer.", signature: "sig-1" },
+          { type: "text-delta", text: "Done." },
+          { type: "stop", reason: "end_turn" },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    expect(events.filter((e) => e.type === "thinking-delta")).toEqual([
+      { type: "thinking-delta", text: "Check the schema. " },
+      { type: "thinking-delta", text: "Then answer.", signature: "sig-1" },
+    ]);
+    expect(events).toContainEqual({
+      type: "assistant-content",
+      parts: [
+        {
+          type: "thinking",
+          text: "Check the schema. Then answer.",
+          signature: "sig-1",
+        },
+        { type: "text", text: "Done." },
+      ],
+    });
+  });
+
   it("surfaces invalid JSONL lines as a stop-error", async () => {
     const body = "not a json\n";
     const stream = new ReadableStream<Uint8Array>({
@@ -1101,5 +1273,79 @@ describe("createBuilderEngine", () => {
 
     const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
     expect(body.reasoning_effort).toBe("xhigh");
+  });
+
+  it("sends reasoning_effort medium by default for a reasoning-capable Claude model", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "claude-fable-5" }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("medium");
+  });
+
+  it("sends reasoning_effort medium by default for Luna", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "gpt-5-6-luna" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBe("medium");
+  });
+
+  it("omits reasoning_effort by default for a non-reasoning model", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({ ...BASE_OPTS, model: "llama-3.3-70b-versatile" }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBeUndefined();
+  });
+
+  it("omits reasoning_effort when explicit effort is none", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(
+      engine.stream({ ...BASE_OPTS, reasoningEffort: "none" }),
+    );
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.reasoning_effort).toBeUndefined();
   });
 });

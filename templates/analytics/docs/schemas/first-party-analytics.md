@@ -106,31 +106,74 @@ Events are stored in `analytics_events`. Common query columns include:
 
 ## LLM observability events
 
-Core emits LLM usage as first-party events with:
+Core emits LLM usage, explicit user feedback, and optional inferred message
+sentiment as first-party events with:
 
 ```txt
 event_name = '$ai_generation'
+event_name = '$ai_feedback'
+event_name = '$ai_sentiment'
 ```
 
 Useful query fields live in `properties`:
 
-| Property                                         | Description                               |
-| ------------------------------------------------ | ----------------------------------------- |
-| `$ai_trace_id`, `run_id`                         | Agent run id                              |
-| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available            |
-| `$ai_model`, `model`                             | Model used                                |
-| `$ai_provider`, `provider`                       | Engine/provider name                      |
-| `$ai_input_tokens`, `input_tokens`               | Input tokens                              |
-| `$ai_output_tokens`, `output_tokens`             | Output tokens                             |
-| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                 |
-| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                 |
-| `cost_cents_x100`                                | Estimated run cost in centicents          |
-| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds    |
-| `tool_calls`, `successful_tools`, `failed_tools` | Tool-call counts                          |
-| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable |
+| Property                                         | Description                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `$ai_trace_id`, `run_id`                         | Agent run id                                                                                      |
+| `$ai_session_id`, `thread_id`                    | Chat/thread id, when available                                                                    |
+| `$ai_model`, `model`                             | Model used                                                                                        |
+| `$ai_provider`, `provider`                       | Engine/provider name                                                                              |
+| `$ai_input_tokens`, `input_tokens`               | Input tokens                                                                                      |
+| `$ai_output_tokens`, `output_tokens`             | Output tokens                                                                                     |
+| `cache_read_tokens`, `cache_write_tokens`        | Prompt-cache token counts                                                                         |
+| `$ai_total_cost_usd`, `cost_usd`                 | Estimated run cost in USD                                                                         |
+| `cost_cents_x100`                                | Estimated run cost in centicents                                                                  |
+| `$ai_latency`, `duration_ms`                     | Run duration in seconds / milliseconds                                                            |
+| `tool_calls`, `successful_tools`, `failed_tools` | Complete tool-call counts                                                                         |
+| `tools`, `tools_truncated`                       | First 50 tool names, offsets, durations, statuses, and error classes, including interrupted calls |
+| `delegated`, `delegation_protocol`, `caller_app` | Delegated-run attribution                                                                         |
+| `a2a_task_id`, `parent_run_id`, `parent_turn_id` | Cross-app trace linkage, when available                                                           |
+| `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable                                                         |
 
-Install the `agent-observability-llm` dashboard template for canned panels over
-these events.
+The `tools` array never includes tool arguments, results, or error messages.
+Use `tools_truncated` with the complete `tool_calls` count when a run exceeds
+the 50-entry detail cap.
+Failed runs still emit a generation row with zero or known usage so delegated
+timeouts and setup failures remain visible.
+
+Explicit thumbs feedback is content-free and uses these `$ai_feedback`
+properties:
+
+| Property              | Description                                    |
+| --------------------- | ---------------------------------------------- |
+| `sentiment`           | Explicit `positive` or `negative` user rating  |
+| `feedback_type`       | Feedback control/type that produced the rating |
+| `$ai_model`, `model`  | Model that generated the rated agent response  |
+| `run_id`, `thread_id` | Related agent run and thread identifiers       |
+
+These values describe user-provided thumbs feedback.
+
+When optional inferred sentiment is enabled, content-free `$ai_sentiment`
+events use these properties:
+
+| Property              | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `sentiment`           | Inferred `positive`, `neutral`, or `negative` classification |
+| `method`              | Classification method; `llm` for model-inferred sentiment    |
+| `$ai_model`, `model`  | Main model attributed to the preceding agent response        |
+| `classifier_model`    | Small model used only to classify sentiment                  |
+| `run_id`, `thread_id` | Related agent run and thread identifiers                     |
+
+The inferred-sentiment event does not contain message text. Keep it separate
+from `$ai_feedback`: inferred sentiment is a model classification, while
+feedback sentiment is an explicit user rating. For by-model reporting, group
+on `$ai_model` or `model`; use `classifier_model` only to audit classifier usage.
+
+Agent Native observability panels belong in the canonical Agent Native dashboard
+(`agent-native-templates-first-party`), including generation metrics, explicit
+feedback sentiment, optional inferred message sentiment, and separate
+by-main-model breakdowns. Do not publish or install a separate observability
+dashboard template.
 
 Example dashboard panel:
 

@@ -19,7 +19,6 @@ packages/docs/*.png
 
 # Copied at publish time via prepack
 packages/core/README.md
-packages/dispatch/README.md
 
 # Generated at core build/prepack time for npm package agent lookup
 packages/core/corpus/
@@ -73,6 +72,7 @@ test-results/
 e2e/.auth/
 **/.auth/
 **/.auth-debug/
+**/.auth-*/
 
 # Wrangler local state
 .wrangler
@@ -85,6 +85,7 @@ wrangler.toml
 
 # Agent session scratch / plan draft notes
 .claude/plan-drafts/
+advisor-plans/
 
 # Builder writing agent scratch (edit-plan.md, edit-state.json)
 **/.builder-writing/
@@ -112,3 +113,7 @@ test-reports/
 
 # tsup transient bundled config artifacts
 tsup.config.bundled_*.mjs
+packages/core/corpus.tmp-*/
+
+# Temporary trusted document exports can contain internal workspace content.
+/.tmp-docs-trusted-*/

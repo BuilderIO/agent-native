@@ -1,4 +1,5 @@
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMessage, IconSend, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -142,6 +143,17 @@ export function CanvasCommentPins({
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
+  const removalTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(
+    new Set(),
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of removalTimersRef.current) clearTimeout(timer);
+      removalTimersRef.current.clear();
+    },
+    [],
+  );
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
@@ -271,8 +283,13 @@ export function CanvasCommentPins({
       console.error("[CanvasCommentPins] failed to send to agent:", err);
     }
     updatePin(pin.id, { submitted: true });
-    // Auto-clear after a short delay so the user sees the pin "fly away"
-    setTimeout(() => removePin(pin.id), 1500);
+    // Keep the acknowledgement visible just long enough to register, without
+    // making a routine submit feel delayed.
+    const timer = setTimeout(() => {
+      removalTimersRef.current.delete(timer);
+      removePin(pin.id);
+    }, 220);
+    removalTimersRef.current.add(timer);
   };
 
   if (!active && pins.length === 0) return null;
@@ -313,7 +330,7 @@ export function CanvasCommentPins({
             className={cn(
               "fixed z-[55]",
               pin.submitted &&
-                "transition-all duration-1000 opacity-0 -translate-y-4",
+                "-translate-y-2 opacity-0 transition-[transform,opacity] duration-200 ease-out motion-reduce:translate-y-0 motion-reduce:duration-150",
             )}
             style={{ left, top }}
           >

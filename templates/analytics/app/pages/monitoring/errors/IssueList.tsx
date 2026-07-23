@@ -32,7 +32,7 @@ const ERROR_CAPTURE_DOCS_URL =
   "https://www.agent-native.com/docs/tracking#error-capture";
 
 const ERROR_CAPTURE_SNIPPET = `// Agent Native templates already call configureTracking().
-import { configureTracking, captureException } from "@agent-native/core/client";
+import { configureTracking, captureException } from "@agent-native/core/client/observability";
 
 configureTracking({
   key: "anpk_...",
@@ -144,15 +144,6 @@ export function IssueList({
             <IconRefresh
               className={cn("size-3.5", isFetching && "animate-spin")}
             />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onSendTestError}
-            disabled={sendingTest}
-          >
-            <IconBug className="size-3.5" />
-            {sendingTest ? t.sending : t.sendTestError}
           </Button>
         </div>
       </div>

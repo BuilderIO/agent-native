@@ -1,4 +1,6 @@
 import "./overlay.css";
+import { SCREEN_CAPTURE_FRAME_RATE } from "@shared/recording-capture";
+
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("overlay");
@@ -31,8 +33,12 @@ function isDeviceUnavailableError(error: unknown): boolean {
 
 function cameraConstraint(deviceId: string): MediaTrackConstraints {
   const video: MediaTrackConstraints = {
-    width: { ideal: 640 },
-    height: { ideal: 640 },
+    width: { ideal: 480 },
+    height: { ideal: 480 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
   };
   if (deviceId) video.deviceId = { exact: deviceId };
   else video.facingMode = "user";
@@ -71,6 +77,17 @@ function postToolbarSize(height: number): void {
   try {
     window.parent.postMessage(
       { source: "clips-overlay", kind: "resize", part: "toolbar", height },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
+
+function postToolbarDragStart(): void {
+  try {
+    window.parent.postMessage(
+      { source: "clips-overlay", kind: "toolbar-drag-start", part: "toolbar" },
       "*",
     );
   } catch {
@@ -130,14 +147,22 @@ const ICONS = {
   ),
 };
 
-function send(type: string, extra: Record<string, unknown> = {}): void {
+function send(
+  type: string,
+  extra: Record<string, unknown> = {},
+  onComplete?: (ok: boolean) => void,
+): void {
   try {
     chrome.runtime.sendMessage(
       { type, ...extra },
-      () => void chrome.runtime.lastError,
+      (response?: { ok?: boolean }) => {
+        const error = chrome.runtime.lastError;
+        onComplete?.(!error && response?.ok !== false);
+      },
     );
   } catch {
     /* the background may be momentarily asleep; state will re-sync */
+    onComplete?.(false);
   }
 }
 
@@ -392,12 +417,29 @@ function initCountdown(): void {
 function initToolbar(): void {
   const pill = document.createElement("div");
   pill.className = "toolbar-v";
+  pill.style.cursor = "grab";
+
+  // The content script owns iframe geometry, so ask it to capture the pointer
+  // page-wide when the user drags the toolbar outside its current bounds.
+  pill.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    pill.style.cursor = "grabbing";
+    postToolbarDragStart();
+    const restore = (): void => {
+      pill.style.cursor = "grab";
+      window.removeEventListener("pointerup", restore);
+    };
+    window.addEventListener("pointerup", restore);
+  });
 
   const makeBtn = (
     cls: string,
     title: string,
     svg: string,
     onClick: () => void,
+    activateOnPointerDown = false,
   ): HTMLButtonElement => {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -405,7 +447,22 @@ function initToolbar(): void {
     btn.title = title;
     btn.setAttribute("aria-label", title);
     btn.innerHTML = svg;
-    btn.addEventListener("click", onClick);
+    if (activateOnPointerDown) {
+      btn.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        // The iframe grows when the pointer enters the toolbar. Act before that
+        // resize/focus work can cancel the browser's later click event.
+        event.preventDefault();
+        onClick();
+      });
+      btn.addEventListener("click", (event) => {
+        // Pointer activation already ran above. Preserve native keyboard
+        // activation, whose synthetic click has detail=0.
+        if (event.detail === 0) onClick();
+      });
+    } else {
+      btn.addEventListener("click", onClick);
+    }
     return btn;
   };
 
@@ -422,10 +479,28 @@ function initToolbar(): void {
   clock.textContent = "0:00";
   time.append(clock);
 
-  const pauseBtn = makeBtn("toolbar-v-pause", "Pause", ICONS.pause, () => {
-    if (state.phase === "paused") send("CLIPS_OVERLAY_RESUME");
-    else send("CLIPS_OVERLAY_PAUSE");
-  });
+  let pauseCommandPending = false;
+  const pauseBtn = makeBtn(
+    "toolbar-v-pause",
+    "Pause",
+    ICONS.pause,
+    () => {
+      if (pauseCommandPending) return;
+      const resume = state.phase === "paused";
+      const command = resume ? "CLIPS_OVERLAY_RESUME" : "CLIPS_OVERLAY_PAUSE";
+      pauseCommandPending = true;
+      // Make the control react to the first press even if waking the MV3
+      // service worker takes a moment. The worker remains authoritative and
+      // immediately broadcasts the confirmed state.
+      state.phase = resume ? "recording" : "paused";
+      toolbarRender?.();
+      send(command, {}, (ok) => {
+        pauseCommandPending = false;
+        if (!ok) send("CLIPS_OVERLAY_HELLO", { part });
+      });
+    },
+    true,
+  );
 
   const hoverGroup = document.createElement("div");
   hoverGroup.className = "toolbar-v-hover-actions";

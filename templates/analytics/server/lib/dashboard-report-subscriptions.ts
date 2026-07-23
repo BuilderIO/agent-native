@@ -4,8 +4,10 @@ import { recordChange } from "@agent-native/core/server";
 import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { repairCanonicalFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import { getDashboard } from "./dashboards-store";
+import { FIRST_PARTY_DASHBOARD_ID } from "./first-party-metric-catalog";
 
 export interface ReportSubscriptionInput {
   id?: string;
@@ -43,6 +45,8 @@ export interface AccessCtx {
   orgId: string | null;
 }
 
+export const MAX_DASHBOARD_REPORT_RECIPIENTS = 5;
+
 export interface ReportDashboard {
   id: string;
   title: string;
@@ -55,10 +59,14 @@ export async function getReportDashboard(
 ): Promise<ReportDashboard | null> {
   const dashboard = await getDashboard(dashboardId, ctx);
   if (dashboard?.kind === "sql") {
+    const config =
+      dashboardId === FIRST_PARTY_DASHBOARD_ID
+        ? repairCanonicalFirstPartyDashboardQueries(dashboard.config).config
+        : dashboard.config;
     return {
       id: dashboard.id,
       title: dashboard.title,
-      config: dashboard.config,
+      config,
     };
   }
 
@@ -78,6 +86,19 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+const DASHBOARD_REPORT_ERROR_MAX_LENGTH = 2_000;
+const DASHBOARD_REPORT_ERROR_OMISSION = "\n… [truncated] …\n";
+
+export function truncateDashboardReportError(error: string): string {
+  if (error.length <= DASHBOARD_REPORT_ERROR_MAX_LENGTH) return error;
+
+  const retainedLength =
+    DASHBOARD_REPORT_ERROR_MAX_LENGTH - DASHBOARD_REPORT_ERROR_OMISSION.length;
+  const prefixLength = Math.ceil(retainedLength / 2);
+  const suffixLength = Math.floor(retainedLength / 2);
+  return `${error.slice(0, prefixLength)}${DASHBOARD_REPORT_ERROR_OMISSION}${error.slice(-suffixLength)}`;
+}
+
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string") return fallback;
   try {
@@ -88,7 +109,9 @@ function safeJsonParse<T>(raw: unknown, fallback: T): T {
   }
 }
 
-function normalizeRecipients(recipients: string[]): string[] {
+export function normalizeDashboardReportRecipients(
+  recipients: string[],
+): string[] {
   const seen = new Set<string>();
   const normalized: string[] = [];
   for (const raw of recipients) {
@@ -96,6 +119,14 @@ function normalizeRecipients(recipients: string[]): string[] {
     if (!email || seen.has(email)) continue;
     seen.add(email);
     normalized.push(email);
+  }
+  if (normalized.length === 0) {
+    throw new Error("At least one recipient is required");
+  }
+  if (normalized.length > MAX_DASHBOARD_REPORT_RECIPIENTS) {
+    throw new Error(
+      `Dashboard reports support at most ${MAX_DASHBOARD_REPORT_RECIPIENTS} recipients; use a mailing-list address for larger audiences`,
+    );
   }
   return normalized;
 }
@@ -158,6 +189,19 @@ function calendarDayAfter(parts: { year: number; month: number; day: number }) {
   };
 }
 
+function calendarDayBefore(parts: {
+  year: number;
+  month: number;
+  day: number;
+}) {
+  const prev = new Date(Date.UTC(parts.year, parts.month - 1, parts.day - 1));
+  return {
+    year: prev.getUTCFullYear(),
+    month: prev.getUTCMonth() + 1,
+    day: prev.getUTCDate(),
+  };
+}
+
 function zonedTimeToUtc(
   parts: { year: number; month: number; day: number },
   hour: number,
@@ -203,6 +247,49 @@ export function nextDailyRunAt(
     candidate = zonedTimeToUtc(calendarDayAfter(today), hour, minute, timezone);
   }
   return candidate.toISOString();
+}
+
+export function lastDailyRunAt(
+  timeOfDay: string,
+  timeZone: string,
+  from: Date = new Date(),
+): string {
+  const [hour, minute] = assertTimeOfDay(timeOfDay).split(":").map(Number);
+  const timezone = assertTimezone(timeZone);
+  const today = getZonedParts(from, timezone);
+  let candidate = zonedTimeToUtc(today, hour, minute, timezone);
+  if (candidate.getTime() > from.getTime()) {
+    candidate = zonedTimeToUtc(
+      calendarDayBefore(today),
+      hour,
+      minute,
+      timezone,
+    );
+  }
+  return candidate.toISOString();
+}
+
+const DASHBOARD_REPORT_RETRY_WINDOW_MS = 60 * 60 * 1000;
+// This is the earliest nextRunAt. The generated */15 cron means the actual
+// retry occurs on the first sweep after this floor, not exactly ten minutes later.
+const DASHBOARD_REPORT_RETRY_DELAY_MS = 10 * 60 * 1000;
+
+export function dashboardReportRetryAt(
+  sub: DashboardReportSubscription,
+  now: Date = new Date(),
+): string | null {
+  if (!sub.enabled) return null;
+  try {
+    const anchor = Date.parse(lastDailyRunAt(sub.timeOfDay, sub.timezone, now));
+    if (now.getTime() - anchor < DASHBOARD_REPORT_RETRY_WINDOW_MS) {
+      return new Date(
+        now.getTime() + DASHBOARD_REPORT_RETRY_DELAY_MS,
+      ).toISOString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function rowToSubscription(row: any): DashboardReportSubscription {
@@ -294,10 +381,7 @@ export async function saveDashboardReportSubscription(
     throw Object.assign(new Error("Dashboard not found"), { statusCode: 404 });
   }
 
-  const recipients = normalizeRecipients(input.recipients);
-  if (recipients.length === 0) {
-    throw new Error("At least one recipient is required");
-  }
+  const recipients = normalizeDashboardReportRecipients(input.recipients);
 
   const timeOfDay = assertTimeOfDay(input.timeOfDay);
   const timezone = assertTimezone(input.timezone);
@@ -477,6 +561,7 @@ export async function markDashboardReportResult(
   sub: DashboardReportSubscription,
   status: "success" | "error",
   error?: string,
+  options?: { nextRunAt?: string },
 ): Promise<void> {
   const now = nowIso();
   const db = getDb() as any;
@@ -484,9 +569,10 @@ export async function markDashboardReportResult(
     .update(schema.dashboardReportSubscriptions)
     .set({
       lastStatus: status,
-      lastError: error ? error.slice(0, 500) : null,
+      lastError: error ? truncateDashboardReportError(error) : null,
       nextRunAt: sub.enabled
-        ? nextDailyRunAt(sub.timeOfDay, sub.timezone, new Date())
+        ? (options?.nextRunAt ??
+          nextDailyRunAt(sub.timeOfDay, sub.timezone, new Date()))
         : null,
       updatedAt: now,
     })

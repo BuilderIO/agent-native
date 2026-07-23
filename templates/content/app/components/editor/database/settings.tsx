@@ -1,8 +1,8 @@
+import { useCodeMode } from "@agent-native/core/client/agent-chat";
 import {
   useBuilderConnectFlow,
   useBuilderStatus,
-  useCodeMode,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
 import {
   BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
@@ -105,7 +105,7 @@ export type DatabaseSettingsPanel =
 // the leaf can attach without re-fetching.
 // A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
-  sourceType: "mock-local" | "builder-cms" | "local-table";
+  sourceType: "mock-local" | "builder-cms" | "local-table" | "notion-database";
   sourceName: string;
   sourceTable: string;
   displayName: string;
@@ -449,6 +449,9 @@ export function builderReviewableChangeSets(
   return source.changeSets.filter(
     (changeSet) =>
       changeSet.direction === "outbound" &&
+      !changeSet.executions.some(
+        (execution) => execution.state === "succeeded",
+      ) &&
       (changeSet.state === "pending_push" ||
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
@@ -530,6 +533,7 @@ export function buildClientBuilderReviewPayload(
       (field) => field.localFieldKey === "title",
     );
     const proposedTitle = titleChange?.proposedValue;
+    const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
 
     return {
       changeSetId: changeSet.id,
@@ -539,12 +543,14 @@ export function buildClientBuilderReviewPayload(
         typeof proposedTitle === "string" && proposedTitle.trim()
           ? proposedTitle
           : sourceRow?.sourceDisplayKey || "Untitled",
+      targetEntryId:
+        effect === "create_draft" ? null : (sourceRow?.sourceRowId ?? null),
       fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
-      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
+      effect,
       execution: latestExecution,
     };
   });
@@ -667,16 +673,13 @@ function DatabaseSettingsSourcePanel({
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
+  const reviewableBuilderChangeSets = builderReviewableChangeSets(source);
   const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
+    source?.sourceType === "builder-cms"
+      ? reviewableBuilderChangeSets
+      : (source?.changeSets.filter(
+          (changeSet) => changeSet.direction === "outbound",
+        ) ?? []);
   const conflictChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.conflictState === "source_changed",
@@ -704,28 +707,6 @@ function DatabaseSettingsSourcePanel({
   const builderSyncFailed =
     isBuilderSource &&
     (source?.syncState === "error" || Boolean(source?.lastError));
-
-  // Auto-sync: the manual Refresh button is gone, so pull the read-only
-  // snapshot when the panel opens and whenever the window regains focus.
-  // Throttled so rapid focus changes don't hammer Builder; the refresh
-  // mutation is silent (no toast), so this stays quiet in the background.
-  const refreshSourceRef = useRef(onRefreshSource);
-  refreshSourceRef.current = onRefreshSource;
-  const lastAutoSyncRef = useRef(0);
-  const autoSyncEnabled = Boolean(source) && isBuilderSource && canEdit;
-  useEffect(() => {
-    if (!autoSyncEnabled) return;
-    const maybeSync = () => {
-      const now = Date.now();
-      if (now - lastAutoSyncRef.current < 15_000) return;
-      lastAutoSyncRef.current = now;
-      refreshSourceRef.current();
-    };
-    maybeSync();
-    const onFocus = () => maybeSync();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [autoSyncEnabled]);
 
   const top = nav[nav.length - 1];
 
@@ -787,20 +768,19 @@ function DatabaseSettingsSourcePanel({
         source={secondary}
         canEdit={canEdit}
         pending={sourceActionPending}
-        onAddDetails={() =>
-          secondary
-            ? onNavPush({
-                kind: "keyConfirm",
-                candidate: {
-                  sourceType: secondary.sourceType,
-                  sourceName: secondary.sourceName,
-                  sourceTable: secondary.sourceTable,
-                  displayName: secondary.sourceName,
-                  existingSourceId: secondary.id,
-                },
-              })
-            : undefined
-        }
+        onAddDetails={() => {
+          if (!secondary || secondary.sourceType === "local-folder") return;
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: secondary.sourceType,
+              sourceName: secondary.sourceName,
+              sourceTable: secondary.sourceTable,
+              displayName: secondary.sourceName,
+              existingSourceId: secondary.id,
+            },
+          });
+        }}
         onAddItems={async () => {
           if (!secondary) return;
           await onChangeSourceRole(secondary.id, "items");
@@ -1021,23 +1001,38 @@ function DatabaseSettingsSourcePanel({
             <span className="truncate font-medium" title={source.sourceName}>
               {source.sourceName}
             </span>
-            {isBuilderSource ? (
-              source.capabilities.liveWritesEnabled ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                  <IconPencil className="size-3" />
-                  {dbText("liveWritesOn")}
-                </span>
+            <div className="flex shrink-0 items-center gap-1">
+              {isBuilderSource ? (
+                source.capabilities.liveWritesEnabled ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
+                    <IconPencil className="size-3" />
+                    {dbText("liveWritesOn")}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    <IconLock className="size-3" />
+                    {dbText("readOnly")}
+                  </span>
+                )
               ) : (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <IconLock className="size-3" />
-                  {dbText("readOnly")}
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {source.syncState}
                 </span>
-              )
-            ) : (
-              <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                {source.syncState}
-              </span>
-            )}
+              )}
+              {isBuilderSource && !builderSyncFailed ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={!canEdit || sourceActionPending}
+                  onClick={() => onRefreshSource(source.id)}
+                >
+                  <IconRefresh className="size-3" />
+                  {dbText("refreshSource")}
+                </Button>
+              ) : null}
+            </div>
           </div>
           <div className="min-w-0 break-words text-xs text-muted-foreground">
             {builderSyncFailed ? (
@@ -1146,12 +1141,16 @@ function DatabaseSettingsSourcePanel({
 
         <SourceRoleCard
           source={source}
-          canAddDetails={sources.some(
-            (item) => item.id !== source.id && !sourceAddsDetails(item),
-          )}
+          canAddDetails={
+            source.sourceType !== "local-folder" &&
+            sources.some(
+              (item) => item.id !== source.id && !sourceAddsDetails(item),
+            )
+          }
           canEdit={canEdit}
           pending={sourceActionPending}
-          onAddDetails={() =>
+          onAddDetails={() => {
+            if (source.sourceType === "local-folder") return;
             onNavPush({
               kind: "keyConfirm",
               candidate: {
@@ -1161,8 +1160,8 @@ function DatabaseSettingsSourcePanel({
                 displayName: source.sourceName,
                 existingSourceId: source.id,
               },
-            })
-          }
+            });
+          }}
           onAddItems={async () => {
             await onChangeSourceRole(source.id, "items");
             onNavReplace([]);

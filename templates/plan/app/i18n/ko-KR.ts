@@ -30,10 +30,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
     editorTitle: "VS Code 확장 프로그램",
     editorDescription:
       "별도의 브라우저 탭 대신 VS Code 사이드 패널에서 계획을 열고 검토하세요.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "지난주에 무엇이 출시되었나요?",
     suggestionUi: "이 UI는 어떻게 보이나요?",
     suggestionApi: "이 API의 구조는 무엇인가요?",
+  },
+  contextXray: {
+    panelTitle: "컨텍스트 X-레이",
+    snapshotsTitle: "스냅샷",
   },
   sidebar: {
     openNavigation: "탐색 열기",
@@ -432,6 +436,16 @@ const messages = {
       title: "지역 계획을 찾을 수 없습니다.",
       message: '로컬 계획 폴더 "{{slug}}"을(를) 읽을 수 없습니다.',
     },
+    localPlanConnection: {
+      promptTitle: "이 로컬 계획에 연결",
+      promptMessage:
+        "이 계획은 컴퓨터에 그대로 보관됩니다. 로컬 브리지에서 읽으려면 Plan에 브라우저 권한이 필요합니다.",
+      deniedTitle: "로컬 네트워크 접근이 차단되었습니다",
+      deniedMessage:
+        "브라우저에서 Plan의 사이트 설정을 열고 로컬 네트워크 접근을 허용한 다음 다시 확인하세요.",
+      connect: "로컬 계획에 연결",
+      checkAgain: "다시 확인",
+    },
     overview: {
       title: "计划",
       documentCount_other: "{{count}} 个文档",
@@ -543,6 +557,10 @@ const messages = {
           label: "UI 流程",
           description: "UI 流程 - 线框和状态",
         },
+        design: {
+          label: "고충실도 디자인",
+          description: "고충실도 디자인 - 세련된 브랜드 화면",
+        },
         questions: {
           label: "可视化问题",
           description: "可视化问题 - 明确收集需求",
@@ -566,6 +584,8 @@ const messages = {
           "# 구현 계획\n\n기존 Codex 또는 Claude Code 계획을 여기에 붙여넣고 시각적 리뷰 문서로 변환하세요.",
       },
       assessment: {
+        design:
+          "고충실도 요청을 자동으로 감지했습니다. 에이전트가 세련된 브랜드 화면을 만듭니다.",
         ui: "自动检测到 UI 状态或流程；代理将创建线框优先的计划。",
         visual: "自动会让代理创建包含图表和实现细节的丰富技术计划。",
       },

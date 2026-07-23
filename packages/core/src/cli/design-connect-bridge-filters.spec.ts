@@ -484,6 +484,43 @@ describe("design connect bridge version conflict handling", () => {
       );
       expect(result.status).toBe(200);
       expect(typeof result.body["versionHash"]).toBe("string");
+      expect(result.body["versionHash"]).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("uses content hashes when size and mtime are unchanged", async () => {
+    const root = tmpDir();
+    const file = path.join(root, "same-size.tsx");
+    const fixedTime = new Date("2025-01-01T00:00:00.000Z");
+    fs.writeFileSync(file, "AAAA");
+    fs.utimesSync(file, fixedTime, fixedTime);
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const auth = { "x-bridge-token": bridge.bridgeToken };
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const before = await postJson(
+        `${base}/read-file`,
+        { relPath: "same-size.tsx" },
+        auth,
+      );
+      fs.writeFileSync(file, "BBBB");
+      fs.utimesSync(file, fixedTime, fixedTime);
+      const after = await postJson(
+        `${base}/read-file`,
+        { relPath: "same-size.tsx" },
+        auth,
+      );
+      expect(before.body["versionHash"]).not.toBe(after.body["versionHash"]);
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -510,6 +547,88 @@ describe("design connect bridge version conflict handling", () => {
       );
       expect(result.status).toBe(200);
       expect(typeof result.body["versionHash"]).toBe("string");
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("supports an exact-hash contract without changing legacy optional writes", async () => {
+    const root = tmpDir();
+    fs.writeFileSync(path.join(root, "component.tsx"), "export const v = 0;\n");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const auth = { "x-bridge-token": bridge.bridgeToken };
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const guarded = await postJson(
+        `${base}/write-file`,
+        {
+          relPath: "component.tsx",
+          content: "export const v = 1;\n",
+          requireExpectedVersionHash: true,
+        },
+        auth,
+      );
+      expect(guarded.status).toBe(428);
+      expect(guarded.body["error"]).toBe("expectedVersionHash is required");
+
+      const legacy = await postJson(
+        `${base}/write-file`,
+        { relPath: "component.tsx", content: "export const v = 2;\n" },
+        auth,
+      );
+      expect(legacy.status).toBe(200);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("treats deletion as a conflict under the exact-hash contract", async () => {
+    const root = tmpDir();
+    const file = path.join(root, "component.tsx");
+    fs.writeFileSync(file, "export const v = 0;\n");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const auth = { "x-bridge-token": bridge.bridgeToken };
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const read = await postJson(
+        `${base}/read-file`,
+        { relPath: "component.tsx" },
+        auth,
+      );
+      fs.rmSync(file);
+      const result = await postJson(
+        `${base}/write-file`,
+        {
+          relPath: "component.tsx",
+          content: "export const v = 1;\n",
+          expectedVersionHash: read.body["versionHash"],
+          requireExpectedVersionHash: true,
+        },
+        auth,
+      );
+      expect(result.status).toBe(409);
+      expect(result.body).toMatchObject({
+        ok: false,
+        error: "version conflict",
+      });
+      expect(result.body).not.toHaveProperty("content");
+      expect(fs.existsSync(file)).toBe(false);
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),
@@ -598,6 +717,138 @@ describe("design connect bridge version conflict handling", () => {
       expect(fs.readFileSync(path.join(root, "index.html"), "utf8")).toBe(
         "<h1>updated</h1>",
       );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("serializes concurrent compare-and-swap writes to one canonical path", async () => {
+    const root = tmpDir();
+    fs.mkdirSync(path.join(root, "real"));
+    fs.writeFileSync(
+      path.join(root, "real/component.tsx"),
+      "export const v = 0;\n",
+    );
+    fs.symlinkSync(path.join(root, "real"), path.join(root, "alias"), "dir");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const auth = { "x-bridge-token": bridge.bridgeToken };
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const read = await postJson(
+        `${base}/read-file`,
+        { relPath: "real/component.tsx" },
+        auth,
+      );
+      const expectedVersionHash = read.body["versionHash"] as string;
+      const writes = await Promise.all(
+        [
+          { value: 1, relPath: "real/component.tsx" },
+          { value: 2, relPath: "alias/component.tsx" },
+        ].map(({ value, relPath }) =>
+          postJson(
+            `${base}/write-file`,
+            {
+              relPath,
+              content: `export const v = ${value};\n`,
+              expectedVersionHash,
+            },
+            auth,
+          ),
+        ),
+      );
+      expect(writes.map((result) => result.status).sort()).toEqual([200, 409]);
+      const winner = writes.find((result) => result.status === 200)!;
+      const finalRead = await postJson(
+        `${base}/read-file`,
+        { relPath: "real/component.tsx" },
+        auth,
+      );
+      expect(finalRead.body["versionHash"]).toBe(winner.body["versionHash"]);
+      expect(
+        fs
+          .readdirSync(path.join(root, "real"))
+          .filter((name) => name.includes(".agent-native-")),
+      ).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("rejects a leaf symlink swapped in after read without touching its target", async () => {
+    const root = tmpDir();
+    const outside = tmpDir();
+    const relPath = "component.tsx";
+    const localPath = path.join(root, relPath);
+    const outsidePath = path.join(outside, "outside.tsx");
+    fs.writeFileSync(localPath, "export const local = true;\n");
+    fs.writeFileSync(outsidePath, "export const secret = true;\n");
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    const auth = { "x-bridge-token": bridge.bridgeToken };
+    try {
+      const base = `http://127.0.0.1:${port}`;
+      const read = await postJson(`${base}/read-file`, { relPath }, auth);
+      fs.rmSync(localPath);
+      fs.symlinkSync(outsidePath, localPath);
+      const result = await postJson(
+        `${base}/write-file`,
+        {
+          relPath,
+          content: "export const overwritten = true;\n",
+          expectedVersionHash: read.body["versionHash"],
+        },
+        auth,
+      );
+      expect(result.status).not.toBe(200);
+      expect(fs.readFileSync(outsidePath, "utf8")).toBe(
+        "export const secret = true;\n",
+      );
+    } finally {
+      await new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+    }
+  });
+
+  it("atomically creates nested files and removes temp siblings", async () => {
+    const root = tmpDir();
+    const port = await freePort();
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: "http://localhost:5173",
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    try {
+      const result = await postJson(
+        `http://127.0.0.1:${port}/write-file`,
+        { relPath: "src/new.tsx", content: "export default <main />;\n" },
+        { "x-bridge-token": bridge.bridgeToken },
+      );
+      expect(result.status).toBe(200);
+      expect(fs.readFileSync(path.join(root, "src/new.tsx"), "utf8")).toBe(
+        "export default <main />;\n",
+      );
+      expect(
+        fs
+          .readdirSync(path.join(root, "src"))
+          .filter((name) => name.includes(".agent-native-")),
+      ).toEqual([]);
     } finally {
       await new Promise<void>((resolve) =>
         bridge.server.close(() => resolve()),

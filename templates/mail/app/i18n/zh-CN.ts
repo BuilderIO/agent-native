@@ -432,10 +432,9 @@ const messages = {
     suggestionWidget: "为我的收件箱创建自定义小组件",
   },
   settings: {
-    openAgentSettings: "打开代理设置",
-    agentDescription:
-      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-    agentTitle: "代理设置",
+    openAgentSettings: "管理代理",
+    agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+    agentTitle: "管理代理",
     aliasName: "别名名称",
     aliasNamePlaceholder: "例如：设计团队",
     recipientsOnePerLine: "收件人（每行一个邮箱）",
@@ -505,9 +504,9 @@ const messages = {
     slackUpdateFailed: "更新 Slack 收件入口失败",
     slackConfigured: "Slack 凭据已配置。",
     slackNeedsCredentials:
-      "添加 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET 以启用 Slack 收件入口。",
-    slackIntake: "Slack 收件入口",
-    slackDescription: "允许组织成员从 Slack 排队邮件草稿。",
+      "旧版自定义收件入口需要 SLACK_BOT_TOKEN 和 SLACK_SIGNING_SECRET。新的 Slack 消息自动化请在设置 > 消息中连接工作区。",
+    slackIntake: "Slack 收件入口（旧版）",
+    slackDescription: "允许组织成员从 Slack 排队邮件草稿的旧版自定义集成。",
     enabled: "已启用",
     disable: "停用",
     enable: "启用",

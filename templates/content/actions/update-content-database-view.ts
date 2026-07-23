@@ -56,11 +56,27 @@ const columnCalculationSchema = z.enum([
   "date_range",
 ]);
 
+const formQuestionSchema = z.object({
+  key: z.string().min(1),
+  enabled: z.boolean().default(true),
+  required: z.boolean().default(false),
+});
+
 const viewSchema = z.object({
   id: z.string(),
   name: z.string(),
   type: z
-    .enum(["table", "board", "list", "gallery", "calendar", "timeline"])
+    .enum([
+      "table",
+      "board",
+      "list",
+      "gallery",
+      "calendar",
+      "timeline",
+      "form",
+      "sidebar",
+    ])
+    .transform((type) => (type === "sidebar" ? "table" : type))
     .default("table"),
   sorts: z.array(sortSchema).default([]),
   filters: z.array(filterSchema).default([]),
@@ -77,6 +93,7 @@ const viewSchema = z.object({
   wrapCells: z.boolean().default(false),
   rowDensity: z.enum(["compact", "default", "comfortable"]).default("default"),
   openPagesIn: z.enum(["preview", "full_page"]).default("preview"),
+  formQuestions: z.array(formQuestionSchema).default([]),
 });
 
 export default defineAction({

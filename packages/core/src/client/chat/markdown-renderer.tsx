@@ -28,10 +28,7 @@ import {
   smoothStreamingRevealCount,
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
-import {
-  NEW_CHAT_ACTION_HREF,
-  BUILDER_SPACE_SETTINGS_URL,
-} from "../error-format.js";
+import { NEW_CHAT_ACTION_HREF } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
@@ -47,20 +44,30 @@ type ReactMarkdownModule = {
   defaultUrlTransform: typeof DefaultUrlTransformType;
 };
 
+type RenderToStaticMarkupFn = (node: React.ReactElement) => string;
+
 export let markdownModule: ReactMarkdownModule | null = null;
 export let remarkGfmFn: typeof remarkGfmType | null = null;
+let renderToStaticMarkupFn: RenderToStaticMarkupFn | null = null;
 const markdownListeners = new Set<() => void>();
 
 export function loadMarkdown(): void {
   if (markdownModule !== null) return; // already loaded
-  Promise.all([import("react-markdown"), import("remark-gfm")]).then(
-    ([md, gfm]) => {
-      markdownModule = md as ReactMarkdownModule;
-      remarkGfmFn = gfm.default;
-      markdownListeners.forEach((fn) => fn());
-      markdownListeners.clear();
-    },
-  );
+  Promise.all([
+    import("react-markdown"),
+    import("remark-gfm"),
+    // react-dom/server powers the synchronous markdown→HTML string used for
+    // rich clipboard copy; loaded alongside so readiness stays a single gate.
+    import("react-dom/server"),
+  ]).then(([md, gfm, server]) => {
+    markdownModule = md as ReactMarkdownModule;
+    remarkGfmFn = gfm.default;
+    renderToStaticMarkupFn = (
+      server as { renderToStaticMarkup: RenderToStaticMarkupFn }
+    ).renderToStaticMarkup;
+    markdownListeners.forEach((fn) => fn());
+    markdownListeners.clear();
+  });
 }
 
 export function onMarkdownReady(fn: () => void): () => void {
@@ -177,7 +184,8 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
       return false;
     }
     return (
-      url.href === BUILDER_SPACE_SETTINGS_URL ||
+      (url.origin === "https://builder.io" &&
+        url.pathname === "/account/space") ||
       url.pathname === "/account/billing" ||
       url.pathname === "/account/subscription" ||
       /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
@@ -285,6 +293,42 @@ export const markdownComponents = {
     return <pre {...rest}>{children}</pre>;
   },
 };
+
+// ─── Clipboard HTML rendering ─────────────────────────────────────────────────
+// A stripped component set for the `text/html` clipboard flavor: plain <a> and
+// <pre>/<code> with no in-app buttons, iframes, or syntax-highlight markup, so
+// pasted output is portable structure (bold, lists, links, code) rather than
+// app-specific chrome that receiving apps (Slack, Notion) discard anyway.
+
+const clipboardMarkdownComponents = {
+  a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const { href, children } = props;
+    if (href === NEW_CHAT_ACTION_HREF || !href) return <span>{children}</span>;
+    return <a href={href}>{children}</a>;
+  },
+  pre(props: React.HTMLAttributes<HTMLPreElement>) {
+    return <pre>{props.children}</pre>;
+  },
+};
+
+// Renders joined message markdown to an HTML string for rich clipboard copy.
+// Returns null when the lazy markdown/react-dom-server modules haven't landed
+// yet; callers fall back to plain-text copy in that case.
+export function renderMarkdownToClipboardHtml(markdown: string): string | null {
+  const ReactMarkdown = markdownModule?.default;
+  const gfm = remarkGfmFn;
+  const renderToStaticMarkup = renderToStaticMarkupFn;
+  if (!ReactMarkdown || !gfm || !renderToStaticMarkup) return null;
+  return renderToStaticMarkup(
+    <ReactMarkdown
+      remarkPlugins={[gfm]}
+      components={clipboardMarkdownComponents}
+      urlTransform={markdownUrlTransform}
+    >
+      {markdown}
+    </ReactMarkdown>,
+  );
+}
 
 // ─── Smooth streaming ─────────────────────────────────────────────────────────
 

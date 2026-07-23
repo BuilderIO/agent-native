@@ -21,18 +21,22 @@ function normalizeTooltipText(text: string): string {
 
 const TooltipContent = React.forwardRef<
   React.ElementRef<typeof TooltipPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(({ className, sideOffset = 6, children, ...props }, ref) => {
+  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content> & {
+    container?: React.ComponentPropsWithoutRef<
+      typeof TooltipPrimitive.Portal
+    >["container"];
+  }
+>(({ className, sideOffset = 6, children, container, ...props }, ref) => {
   const normalizedChildren =
     typeof children === "string" ? normalizeTooltipText(children) : children;
   return (
-    <TooltipPrimitive.Portal>
+    <TooltipPrimitive.Portal container={container}>
       <TooltipPrimitive.Content
         ref={ref}
         sideOffset={sideOffset}
         data-agent-native-tooltip="true"
         className={cn(
-          "z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md animate-in fade-in-0 zoom-in-95",
+          "z-[300] overflow-hidden rounded-md border border-border bg-popover px-2 py-1 text-[11px] text-foreground shadow-md origin-[var(--radix-tooltip-content-transform-origin)] data-[state=delayed-open]:animate-in data-[state=closed]:animate-out data-[state=delayed-open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=delayed-open]:zoom-in-95 data-[state=closed]:zoom-out-95 data-[state=delayed-open]:duration-150 data-[state=closed]:duration-100 motion-reduce:data-[state=delayed-open]:zoom-in-100 motion-reduce:data-[state=closed]:zoom-out-100",
           className,
         )}
         {...props}

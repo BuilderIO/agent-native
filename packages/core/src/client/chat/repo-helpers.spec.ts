@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   dedupeRepoMessagesById,
   dropEmptyAssistantMessages,
+  shouldImportServerThreadData,
   type NormalizedRepo,
 } from "./repo-helpers.js";
 
@@ -142,5 +143,207 @@ describe("dropEmptyAssistantMessages", () => {
     };
 
     expect(dropEmptyAssistantMessages(repo)).toBe(repo);
+  });
+});
+
+describe("shouldImportServerThreadData", () => {
+  it("rejects a stale server snapshot that would remove a completed response", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: { type: "complete", reason: "stop" },
+            content: [{ type: "text", text: "finished answer" }],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      headId: "user-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
+  it("rejects a same-length snapshot that would remove a running tool call", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              { type: "text", text: "Checking..." },
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                argsText: "{}",
+                args: {},
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Checking..." }],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
+  it("rejects a same-length snapshot that would regress a completed tool call to pending", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                argsText: "{}",
+                args: {},
+                result: "ok",
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const staleServerRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                argsText: "{}",
+                args: {},
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, staleServerRepo)).toBe(
+      false,
+    );
+  });
+
+  it("accepts a same-length snapshot that completes a pending tool call", () => {
+    const currentRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                argsText: "{}",
+                args: {},
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const completedServerRepo: NormalizedRepo = {
+      headId: "assistant-1",
+      messages: [
+        {
+          parentId: null,
+          message: { id: "user-1", role: "user", content: "question" },
+        },
+        {
+          parentId: "user-1",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "call-1",
+                toolName: "search",
+                argsText: "{}",
+                args: {},
+                result: "ok",
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(shouldImportServerThreadData(currentRepo, completedServerRepo)).toBe(
+      true,
+    );
   });
 });

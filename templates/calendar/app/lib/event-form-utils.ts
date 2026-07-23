@@ -1,4 +1,4 @@
-import type { CalendarEvent } from "@shared/api";
+import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 
 export type ReminderMethod = "popup" | "email";
 export type ReminderMode = "default" | "none" | "custom";
@@ -7,6 +7,7 @@ export type RecurrencePreset =
   | "daily"
   | "weekdays"
   | "weekly"
+  | "biweekly"
   | "monthly"
   | "yearly"
   | "custom";
@@ -195,6 +196,23 @@ export function getEventEndValidationMessage({
   return "End date and time must be after start date and time.";
 }
 
+export function normalizeAllDayEditEndDate(
+  singleDay: boolean,
+  startDate: string,
+  endDate: string,
+): string {
+  return singleDay ? startDate : endDate;
+}
+
+export function resolveTimeEditScope(
+  isRecurring: boolean,
+  isSingleDayWorkingLocation: boolean,
+  requestedScope: UpdateEventScope,
+): UpdateEventScope {
+  if (!isRecurring || isSingleDayWorkingLocation) return "single";
+  return requestedScope;
+}
+
 export function getLocalTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
@@ -317,6 +335,7 @@ export function getRecurrencePreset(recurrence?: string[]): RecurrencePreset {
   const interval = recurrenceField(rule, "INTERVAL") || "1";
   const byDay = recurrenceField(rule, "BYDAY");
 
+  if (freq === "WEEKLY" && interval === "2") return "biweekly";
   if (interval !== "1") return "custom";
   if (freq === "DAILY" && !byDay) return "daily";
   if ((freq === "DAILY" || freq === "WEEKLY") && byDay === "MO,TU,WE,TH,FR") {
@@ -343,6 +362,10 @@ export function buildRecurrenceRules(
     case "weekly": {
       const day = eventWeekdayCode(startIso, timeZone);
       return [`RRULE:FREQ=WEEKLY;BYDAY=${day}`];
+    }
+    case "biweekly": {
+      const day = eventWeekdayCode(startIso, timeZone);
+      return [`RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=${day}`];
     }
     case "monthly":
       return ["RRULE:FREQ=MONTHLY"];

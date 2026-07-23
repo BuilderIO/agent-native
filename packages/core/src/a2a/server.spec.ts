@@ -12,13 +12,18 @@ const setResponseStatusMock = vi.hoisted(() =>
     event._status = code;
   }),
 );
+const setResponseHeaderMock = vi.hoisted(() => vi.fn());
+const getSessionMock = vi.hoisted(() => vi.fn());
+const getApprovalMock = vi.hoisted(() => vi.fn());
+const claimApprovalMock = vi.hoisted(() => vi.fn());
+const settleApprovalMock = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event.method ?? "POST",
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
-  setResponseHeader: vi.fn(),
+  setResponseHeader: setResponseHeaderMock,
   setResponseStatus: setResponseStatusMock,
 }));
 
@@ -43,6 +48,18 @@ vi.mock("../org/context.js", () => ({
   getA2ASecretByDomain: getA2ASecretByDomainMock,
 }));
 
+vi.mock("../server/auth.js", () => ({ getSession: getSessionMock }));
+
+vi.mock("../server/request-context.js", () => ({
+  runWithRequestContext: (_context: unknown, fn: () => unknown) => fn(),
+}));
+
+vi.mock("./task-store.js", () => ({
+  getA2AApprovalForOwner: getApprovalMock,
+  claimA2AApproval: claimApprovalMock,
+  settleA2AApproval: settleApprovalMock,
+}));
+
 const config: A2AConfig = {
   name: "QA Agent",
   description: "Test agent",
@@ -57,6 +74,11 @@ describe("mountA2A auth", () => {
     handleJsonRpcH3Mock.mockClear();
     getA2ASecretByDomainMock.mockReset();
     setResponseStatusMock.mockClear();
+    setResponseHeaderMock.mockClear();
+    getSessionMock.mockReset();
+    getApprovalMock.mockReset();
+    claimApprovalMock.mockReset();
+    settleApprovalMock.mockReset();
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -149,6 +171,111 @@ describe("mountA2A auth", () => {
     ]);
   });
 
+  it("requires the owner's browser session for approval pages", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const handler = await mountedA2AApprovalHandler(config);
+    const event = { method: "GET", path: "/approval-1", context: {} };
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Sign in to review this approval",
+    });
+    expect(event).toMatchObject({ _status: 401 });
+    expect(getApprovalMock).not.toHaveBeenCalled();
+  });
+
+  it("prevents approval pages from being framed", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    getApprovalMock.mockResolvedValue({
+      id: "approval-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      tool: "send-email",
+      input: { to: "recipient@example.com" },
+      status: "pending",
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    });
+    const handler = await mountedA2AApprovalHandler(config);
+    const response = await handler({
+      method: "GET",
+      path: "/approval-1",
+      context: {},
+    });
+
+    expect(response).toContain("Approve and run");
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "x-frame-options",
+      "DENY",
+    );
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "content-security-policy",
+      "frame-ancestors 'none'",
+    );
+    expect(getApprovalMock).toHaveBeenCalledWith(
+      "approval-1",
+      "owner@example.com",
+      "org-1",
+    );
+  });
+
+  it("claims and executes an approval once from a same-origin owner session", async () => {
+    const approval = {
+      id: "approval-1",
+      taskId: "task-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      tool: "send-email",
+      input: { to: "recipient@example.com" },
+      approvalKey: "server-private-key",
+      callId: "call-1",
+      status: "processing" as const,
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    };
+    getSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    claimApprovalMock.mockResolvedValue(approval);
+    const executeApproval = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "Email sent",
+    }));
+    const handler = await mountedA2AApprovalHandler({
+      ...config,
+      executeApproval,
+    });
+
+    await expect(
+      handler({
+        method: "POST",
+        path: "/approval-1",
+        context: {},
+        headers: {
+          host: "mail.example",
+          origin: "https://mail.example",
+          "sec-fetch-site": "same-origin",
+        },
+      }),
+    ).resolves.toEqual({ status: "completed", output: "Email sent" });
+    expect(claimApprovalMock).toHaveBeenCalledWith(
+      "approval-1",
+      "owner@example.com",
+      "org-1",
+    );
+    expect(executeApproval).toHaveBeenCalledWith(approval);
+    expect(settleApprovalMock).toHaveBeenCalledWith(
+      "approval-1",
+      "completed",
+      "Email sent",
+    );
+  });
+
   it("allows legacy apiKeyEnv bearer auth even when A2A_SECRET is configured", async () => {
     process.env.A2A_SECRET = "jwt-secret";
     process.env.LEGACY_A2A_KEY = "legacy-key";
@@ -211,6 +338,28 @@ describe("mountA2A auth", () => {
     expect(event.context.__a2aOrgDomain).toBe("builder.io");
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+  });
+
+  it("marks a verified audience-bound identity for direct action calls", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://analytics.agent-native.test";
+    const token = await new jose.SignJWT({
+      sub: "alice+qa@builder.io",
+      aud: "https://analytics.agent-native.test",
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("https://slides.agent-native.test")
+      .setIssuedAt()
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("shared-global-secret"));
+    const handler = await mountedA2AHandler(config);
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
+    expect(event.context.__a2aAudienceVerified).toBe(true);
   });
 
   it("requires a bearer token on hosted runtimes when A2A_SECRET is configured", async () => {
@@ -299,6 +448,178 @@ describe("mountA2A auth", () => {
   });
 });
 
+describe("verifyA2AToken (exported)", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.resetModules();
+    getA2ASecretByDomainMock.mockReset();
+    process.env = { ...originalEnv, NODE_ENV: "production" };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  async function signToken(
+    secret: string,
+    claims: Record<string, unknown>,
+    exp: string | number = "15m",
+  ): Promise<string> {
+    return new jose.SignJWT(claims)
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime(exp)
+      .sign(new TextEncoder().encode(secret));
+  }
+
+  it("verifies a token signed with the shared A2A_SECRET", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+    });
+
+    // Event is optional: no audience claim, no org lookup needed here.
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("falls back to the org-level secret via org_domain (shared secret absent)", async () => {
+    delete process.env.A2A_SECRET;
+    getA2ASecretByDomainMock.mockResolvedValueOnce("org-a2a-secret");
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("org-a2a-secret", {
+      sub: "bob@builder.io",
+      org_domain: "builder.io",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(getA2ASecretByDomainMock).toHaveBeenCalledWith("builder.io");
+    expect(result).toEqual({
+      email: "bob@builder.io",
+      orgDomain: "builder.io",
+    });
+  });
+
+  it("rejects a token whose signature matches no candidate secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    getA2ASecretByDomainMock.mockResolvedValueOnce(undefined);
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("some-other-secret", {
+      sub: "mallory@builder.io",
+      org_domain: "builder.io",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("rejects an expired token", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken(
+      "shared-global-secret",
+      { sub: "alice@builder.io" },
+      Math.floor(Date.now() / 1000) - 60,
+    );
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("returns null identity when no secret is configured", async () => {
+    delete process.env.A2A_SECRET;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("anything", { sub: "alice@builder.io" });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("does not throw on a malformed token", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+
+    const result = await verifyA2AToken("not-a-jwt");
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("rejects a correctly-signed token whose aud targets another service (no derivable audience)", async () => {
+    // The signature is valid, but the token was minted for a different
+    // receiver. With no APP_URL/URL and no request event, this receiver can't
+    // derive its own audience — it must fail closed rather than accept a
+    // foreign-audience token just because the shared secret matches.
+    process.env.A2A_SECRET = "shared-global-secret";
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "mallory@builder.io",
+      aud: "https://attacker.example",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("still accepts a token WITHOUT an aud claim when no audience can be derived", async () => {
+    // Backward-compat: tokens minted before the audience claim shipped (and
+    // internal callers that don't set one) carry no `aud`, so there is nothing
+    // to check — the secret + exp checks still gate them.
+    process.env.A2A_SECRET = "shared-global-secret";
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("accepts a token whose aud matches the receiver's derived audience", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://receiver.example/";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://receiver.example",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("rejects a token whose aud does not match the receiver's derived audience", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://receiver.example";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "mallory@builder.io",
+      aud: "https://attacker.example",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+});
+
 async function mountedAgentCardHandler(
   config: A2AConfig,
   routePrefix?: string,
@@ -334,6 +655,19 @@ async function mountedA2AProcessorHandler(
     (entry) => entry.path === "/_agent-native/a2a/_process-task",
   );
   if (!route) throw new Error("A2A processor route was not mounted");
+  return route.handler;
+}
+
+async function mountedA2AApprovalHandler(
+  config: A2AConfig,
+): Promise<(event: any) => any> {
+  const { mountA2A } = await import("./server.js");
+  const app = { routes: [] as Array<{ path: string; handler: any }> };
+  mountA2A(app, config);
+  const route = app.routes.find(
+    (entry) => entry.path === "/_agent-native/a2a/approvals",
+  );
+  if (!route) throw new Error("A2A approval route was not mounted");
   return route.handler;
 }
 

@@ -1,11 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
+  buildA2AVerifiedMutationReceipt,
+  extractA2AArtifactIdentities,
+  guardA2AArtifactResponse,
+  stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("identifies framework-generated unverified artifact rejections", () => {
+    const guarded = guardA2AArtifactResponse(
+      "Created it: https://content.agent-native.com/page/provisional",
+      [],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(guarded.rejectedUnverifiedArtifactReferences).toBe(true);
+    expect(guarded.text).toContain("could not verify the document URL");
+  });
+
   it("appends a document URL from a successful create-document result", () => {
     const text = appendA2AArtifactLinks(
       "Created the brief.",
@@ -36,6 +53,558 @@ describe("appendA2AArtifactLinks", () => {
     );
 
     expect(text).not.toContain("Artifacts:");
+  });
+
+  it("appends a verified Content row URL from a form submission", () => {
+    const text = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdItemId: "item_123",
+            createdDocumentId: "request_123",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_123 (ID: request_123)",
+    );
+  });
+
+  it("extracts a compact stable identity from a Content form submission", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Is this thing on",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+            ignoredPayload: "not retained",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Is this thing on",
+        url: "/page/request_123",
+      },
+    ]);
+  });
+
+  it("trusts delegated identity only through the persisted-artifact marker", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-artifact-provenance");
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Launch ask v1.2",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includePersistedArtifactMarker: true,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "call-agent",
+        titleAtAction: "Launch ask v1.2",
+        url: "/page/request_123",
+      },
+    ]);
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result:
+            "Artifacts:\n- Document: https://content.agent.test/page/read_only (ID: read_only)",
+        },
+      ]),
+    ).toEqual([]);
+
+    expect(stripA2APersistedArtifactMarkers(downstream)).toBe(
+      'Filed the design ask.\n\nArtifacts:\n- Document "Launch ask v1.2": https://content.agent.test/page/request_123 (ID: request_123)',
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result: downstream.replace(/\.[a-f0-9]{64}\s*-->/, ".deadbeef -->"),
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("signs and verifies persisted artifacts with an explicit organization secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-artifact-provenance";
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities(
+        [{ tool: "call-agent", result: downstream }],
+        { persistedArtifactSecrets: [orgSecret] },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("carries organization-signed nested artifacts into the outer checkpoint", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-for-nested-artifact-provenance";
+    const inner = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_nested_org_123",
+            urlPath: "/page/request_nested_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    const outer = appendA2AArtifactLinks(
+      "The delegated agent finished.",
+      [{ tool: "call-agent", result: inner }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([{ tool: "call-agent", result: outer }], {
+        persistedArtifactSecrets: [orgSecret],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_nested_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("uses the global secret when no artifact signing override is provided", () => {
+    const globalSecret = "global-a2a-secret-for-artifact-provenance";
+    vi.stubEnv("A2A_SECRET", globalSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_global_123",
+            urlPath: "/page/request_global_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      { includePersistedArtifactMarker: true },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_global_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it("keeps nested mutation receipts on the target app origin", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-nested-mutation-receipts");
+    const downstream = appendA2AArtifactLinks(
+      "Updated the existing row.",
+      [
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_123" }),
+          completedSideEffect: true,
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includeReferencedArtifacts: true,
+        includePersistedArtifactMarker: true,
+      },
+    );
+    const callAgentResult = {
+      tool: "call-agent",
+      result: downstream,
+      completedSideEffect: true,
+    };
+
+    const receipt = buildA2AVerifiedMutationReceipt([callAgentResult], {
+      baseUrl: "https://dispatch.agent.test",
+    });
+    expect(receipt).toContain("Document ID: request_123");
+    expect(receipt).not.toContain(
+      "https://dispatch.agent.test/page/request_123",
+    );
+
+    const delivered = appendA2AArtifactLinks(receipt ?? "", [callAgentResult], {
+      baseUrl: "https://dispatch.agent.test",
+    });
+    expect(delivered).toContain(
+      "https://content.agent.test/page/request_123 (ID: request_123)",
+    );
+    expect(delivered).not.toContain(
+      "https://dispatch.agent.test/page/request_123",
+    );
+  });
+
+  it("excludes lookup artifacts from the stable identity ledger", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            items: Array.from({ length: 20 }, (_, index) => ({
+              documentId: `lookup_${index}`,
+              title: `Lookup ${index}`,
+            })),
+          }),
+        },
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_target",
+            createdDocumentTitle: "Target request",
+            urlPath: "/page/request_target",
+            verification: { found: true },
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_target",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Target request",
+        url: "/page/request_target",
+      },
+    ]);
+  });
+
+  it.each(["edit-image", "restyle-image", "save-generated-asset"])(
+    "retains image identity from the %s write alias",
+    (tool) => {
+      expect(
+        extractA2AArtifactIdentities([
+          {
+            tool,
+            result: JSON.stringify({
+              assetId: "asset_target",
+              title: "Target image",
+              pageUrl: "/assets/asset_target",
+            }),
+          },
+        ]),
+      ).toEqual([
+        {
+          resourceType: "image",
+          id: "asset_target",
+          sourceAction: tool,
+          titleAtAction: "Target image",
+          url: "/assets/asset_target",
+        },
+      ]);
+    },
+  );
+
+  it("retains image exports but excludes video exports from image identity", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "image_target",
+            artifactType: "image",
+            pageUrl: "/assets/image_target",
+          }),
+        },
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "video_target",
+            artifactType: "video",
+            pageUrl: "/assets/video_target",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "image",
+        id: "image_target",
+        sourceAction: "export-asset",
+        url: "/assets/image_target",
+      },
+    ]);
+  });
+
+  it("retains the stable identity of an empty design shell", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_shell", title: "Launch" }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "design",
+        id: "design_shell",
+        sourceAction: "create-design",
+        titleAtAction: "Launch",
+      },
+    ]);
+  });
+
+  it("appends the focused Analytics URL returned by save-monitor", () => {
+    const text = appendA2AArtifactLinks(
+      "The uptime monitor was created.",
+      [
+        {
+          tool: "save-monitor",
+          result: JSON.stringify({
+            id: "monitor_123",
+            name: "clips.agent-native.com",
+            monitorAppUrl:
+              "https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Monitor "clips.agent-native.com": https://analytics.agent-native.com/monitoring?view=uptime&monitor=monitor_123 (ID: monitor_123)',
+    );
+  });
+
+  it("appends the direct public URL returned for an anonymous published form", () => {
+    const text = appendA2AArtifactLinks(
+      "The feedback form is live.",
+      [
+        {
+          tool: "create-form",
+          result: JSON.stringify({
+            id: "form_123",
+            title: "Product feedback",
+            status: "published",
+            settings: { anonymous: true },
+            publicUrl:
+              "https://forms.agent-native.com/f/product-feedback-a1b2c3",
+          }),
+        },
+      ],
+      { baseUrl: "https://forms.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      '- Anonymous form "Product feedback": https://forms.agent-native.com/f/product-feedback-a1b2c3 (ID: form_123)',
+    );
+  });
+
+  it("recognizes add-database-item as a recoverable Content row artifact", () => {
+    const text = buildA2ARecoverableArtifactMessage(
+      [
+        {
+          tool: "add-database-item",
+          result: JSON.stringify({
+            createdItemId: "item_456",
+            createdDocumentId: "request_456",
+            items: [
+              {
+                id: "item_456",
+                document: { id: "request_456", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      '- Document "Homepage refresh": https://content.agent.test/page/request_456 (ID: request_456)',
+    );
+  });
+
+  it("builds an identity-only receipt for a verified document update", () => {
+    const text = buildA2AVerifiedMutationReceipt(
+      [
+        {
+          tool: "update-document",
+          result: JSON.stringify({
+            id: "request_456",
+            title: "Historical title must not be repeated",
+            urlPath: "/page/request_456",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain("A verified change was saved");
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_456 (ID: request_456)",
+    );
+    expect(text).not.toContain("Historical title must not be repeated");
+  });
+
+  it("does not treat read-only or failed action results as mutation receipts", () => {
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "get-document",
+          result: JSON.stringify({
+            id: "request_456",
+            urlPath: "/page/request_456",
+          }),
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "update-document",
+          result: "Error: update rejected",
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("builds a document receipt for a sparse property correction", () => {
+    const text = buildA2AVerifiedMutationReceipt(
+      [
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          completedSideEffect: true,
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_456 (ID: request_456)",
+    );
+  });
+
+  it("rejects conflicts and explicitly incomplete write events", () => {
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "update-document",
+          result: JSON.stringify({
+            conflict: true,
+            id: "request_456",
+            document: { id: "request_456" },
+          }),
+          completedSideEffect: true,
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          completedSideEffect: false,
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          isError: true,
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("ignores a mismatched Content submission URL and uses the canonical page route", () => {
+    const text = appendA2AArtifactLinks(
+      "Filed it.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_real",
+            url: "https://content.agent.test/page/request_other",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent.test/page/request_real (ID: request_real)",
+    );
+    expect(text).not.toContain("request_other");
   });
 
   it("appends a deck URL from a successful create-deck result", () => {
@@ -418,6 +987,233 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).toBe(
       "Document ready: https://content.agent-native.com/page/doc_123",
     );
+  });
+
+  it("allows a Content URL proven by a nested get-content-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "get-content-document",
+          result: JSON.stringify({
+            document: { id: "doc_read", title: "Design asks" },
+            url: "https://content.agent-native.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document: https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("rejects an off-origin URL from a get-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the document.",
+      [
+        {
+          tool: "get-document",
+          result: JSON.stringify({
+            id: "doc_read",
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain("https://content.agent-native.com/page/doc_read");
+    expect(text).not.toContain("https://untrusted.example.com/page/doc_read");
+  });
+
+  it("rejects an off-origin URL from a nested get-content-document read result", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the document.",
+      [
+        {
+          tool: "get-content-document",
+          result: JSON.stringify({
+            document: { id: "doc_read", title: "Design asks" },
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain("https://content.agent-native.com/page/doc_read");
+    expect(text).not.toContain("https://untrusted.example.com/page/doc_read");
+  });
+
+  it("allows database and row page URLs returned by get-content-database", () => {
+    const text = appendA2AArtifactLinks(
+      [
+        "Database: https://content.agent-native.com/page/database_doc",
+        "Row: https://content.agent-native.com/page/request_doc",
+      ].join("\n"),
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            database: {
+              id: "database_123",
+              documentId: "database_doc",
+              title: "Design asks",
+            },
+            items: [
+              {
+                id: "item_123",
+                document: { id: "request_doc", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      "Database: https://content.agent-native.com/page/database_doc",
+    );
+    expect(text).toContain(
+      "Row: https://content.agent-native.com/page/request_doc",
+    );
+    expect(text).not.toContain("could not verify");
+  });
+
+  it("rejects off-origin database and row URL candidates", () => {
+    const text = appendA2AArtifactLinks(
+      "Found the design asks database.",
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            url: "https://untrusted.example.com/page/database_doc",
+            database: {
+              id: "database_123",
+              documentId: "database_doc",
+              title: "Design asks",
+            },
+            items: [
+              {
+                id: "item_123",
+                url: "https://untrusted.example.com/page/request_doc",
+                document: { id: "request_doc", title: "Homepage refresh" },
+              },
+            ],
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent-native.com" },
+    );
+
+    expect(text).toContain(
+      "https://content.agent-native.com/page/database_doc",
+    );
+    expect(text).toContain("https://content.agent-native.com/page/request_doc");
+    expect(text).not.toContain("https://untrusted.example.com/page/");
+  });
+
+  it("does not treat an unavailable get-content-database result as document proof", () => {
+    const text = appendA2AArtifactLinks(
+      "Database: https://content.agent-native.com/page/database_missing",
+      [
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            available: false,
+            reason: "not_found",
+            databaseId: "database_123",
+            documentId: "database_missing",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("database_missing");
+  });
+
+  it("allows a canonical document URL paired with its ID by a generic read action", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_read",
+            url: "https://content.agent-native.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toBe(
+      "Document: https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("does not let a generic read result prove a document URL on another origin", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_read",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_read",
+            url: "https://untrusted.example.com/page/doc_read",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain(
+      "https://content.agent-native.com/page/doc_read",
+    );
+  });
+
+  it("does not let a generic read result prove a mismatched document URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_fake",
+      [
+        {
+          tool: "read-content-resource",
+          result: JSON.stringify({
+            documentId: "doc_real",
+            url: "https://content.agent-native.com/page/doc_fake",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("doc_fake");
+  });
+
+  it("does not let a generic write result prove a document URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Document: https://content.agent-native.com/page/doc_fake",
+      [
+        {
+          tool: "publish-unrelated-resource",
+          result: JSON.stringify({
+            documentId: "doc_fake",
+            url: "https://content.agent-native.com/page/doc_fake",
+          }),
+        },
+      ],
+      { baseUrl: "https://dispatch.agent-native.com" },
+    );
+
+    expect(text).toContain("could not verify the document URL");
+    expect(text).not.toContain("doc_fake");
   });
 
   it("allows artifact URLs proven by a downstream call-agent artifact block", () => {

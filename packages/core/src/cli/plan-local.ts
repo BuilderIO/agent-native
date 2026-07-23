@@ -194,7 +194,7 @@ export type RendererValidationIssue = {
 };
 
 export type RendererValidation = {
-  /** Whether the renderer validate endpoint was reachable and answered. */
+  /** Whether a loopback renderer validate endpoint was reachable and answered. */
   ran: boolean;
   endpoint: string;
   /** Renderer verdict — present only when `ran` is true. */
@@ -542,9 +542,18 @@ function localPlanBridgePageUrl(input: {
   bridgeUrl: string;
   appUrl?: string;
 }): string {
-  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/${encodeURIComponent(
-    path.basename(path.resolve(input.dir)),
-  )}?bridge=${encodeURIComponent(input.bridgeUrl)}`;
+  // Keep the real local folder name out of the hosted request path. The bridge
+  // payload supplies the actual slug after the browser connects on loopback.
+  // The opaque id keeps simultaneous bridge sessions distinct without
+  // disclosing the folder name or access token to the hosted request.
+  const bridgeId = crypto
+    .createHash("sha256")
+    .update(input.bridgeUrl)
+    .digest("hex")
+    .slice(0, 16);
+  return `${normalizeBridgeAppUrl(input.appUrl)}/local-plans/local-${bridgeId}#bridge=${encodeURIComponent(
+    input.bridgeUrl,
+  )}`;
 }
 
 function writeLocalPlanUrlFile(dir: string, url: string, urlFile?: string) {
@@ -2379,6 +2388,9 @@ function localPlanBridgeWarnings(input: {
     const bridgeUrl = new URL(input.bridgeUrl);
     if (appUrl.protocol === "https:" && bridgeUrl.protocol === "http:") {
       warnings.push(
+        `Chrome/Edge will ask for Local Network access so ${appUrl.hostname} can read this loopback bridge. Allow it; if you denied it, re-enable Local Network access in the ${appUrl.hostname} site settings, then retry.`,
+      );
+      warnings.push(
         "Safari may block the hosted HTTPS Plan UI from reading the HTTP localhost bridge. Use Chrome/Chromium/Edge, or pass --app-url http://localhost:8096 when running a local Plan app.",
       );
     }
@@ -2390,14 +2402,29 @@ function localPlanBridgeWarnings(input: {
 
 const VALIDATE_LOCAL_PLAN_ACTION = "validate-local-plan-source";
 
+function isLoopbackAppUrl(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      hostname === "::1" ||
+      hostname === "0.0.0.0" ||
+      hostname.startsWith("127.")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Ask the Plan app to validate the folder against its real renderer schema
+ * Ask a loopback Plan app to validate the folder against its real renderer schema
  * (`parsePlanMdxFolder` + `planContentSchema`) via the public, no-DB
  * `validate-local-plan-source` action. This is what makes `verify`
- * authoritative: the hand-rolled `check` lint can disagree with the renderer,
- * but this runs the renderer's own parser. Degrades gracefully (`ran: false`)
- * when the endpoint is unreachable or a Plan app predates the action, so an
- * old deploy never turns into a hard failure.
+ * authoritative without transmitting local plan source off-device. Remote app
+ * URLs are intentionally skipped: local-files privacy mode must never POST MDX
+ * or assets to a hosted validation action. Degrades gracefully (`ran: false`)
+ * when no local Plan app is running or it predates the action.
  */
 export async function fetchRendererValidation(input: {
   appUrl: string;
@@ -2406,6 +2433,14 @@ export async function fetchRendererValidation(input: {
 }): Promise<RendererValidation> {
   const fetchFn = input.fetchFn ?? fetch;
   const endpoint = planActionEndpoint(input.appUrl, VALIDATE_LOCAL_PLAN_ACTION);
+  if (!isLoopbackAppUrl(input.appUrl)) {
+    return {
+      ran: false,
+      endpoint,
+      error:
+        "Skipped remote renderer validation to keep local plan source on this device.",
+    };
+  }
   try {
     const response = await fetchActionWithTimeout(
       endpoint,
@@ -2463,9 +2498,9 @@ function rendererValidationWarnings(
   offlineIssues: LocalPlanValidationIssue[],
 ): string[] {
   if (!validation.ran) {
-    const base = `Plan content was NOT validated against the renderer schema (${
+    const base = `Plan content was NOT validated against a local renderer schema (${
       validation.error ?? "validate endpoint unavailable"
-    }). Fell back to the offline lint. Run against a Plan app that exposes ${VALIDATE_LOCAL_PLAN_ACTION} (e.g. --app-url http://localhost:8096) for authoritative validation.`;
+    }). Fell back to the offline lint. For authoritative validation without data egress, run a local Plan app that exposes ${VALIDATE_LOCAL_PLAN_ACTION} and pass --app-url http://localhost:8096.`;
     if (offlineIssues.length === 0) return [base];
     const preview = offlineIssues
       .slice(0, 8)
@@ -2926,6 +2961,7 @@ async function runServe(args: Record<string, string | boolean>): Promise<void> {
         appUrl: bridge.result.appUrl,
         bridgeUrl: bridge.result.bridgeUrl,
       }),
+      "Keep this bridge command running while the Plan page is open; stopping it makes this URL unreachable.",
       "Press Ctrl+C to stop.",
     ]
       .filter(Boolean)
@@ -3067,8 +3103,12 @@ Common flow:
 against that local-only source. The hosted app fetches the MDX from localhost in
 the browser; it does not write plan content to the hosted database. The served
 URL is written to \`.plan-url\` by default; pass \`--url-file\` to choose a
-different local-only file. On macOS, \`--open\` prefers Chromium browsers because
-Safari may block the hosted HTTPS page from reading the HTTP localhost bridge.
+different local-only file. On macOS, \`--open\` prefers Chromium browsers.
+Chrome/Edge will ask for Local Network access to read the loopback bridge; if
+you deny it, re-enable Local Network access in the plan.agent-native.com site
+settings and retry. Keep the bridge command running while the page is open.
+Safari may block the hosted HTTPS page from reading the HTTP localhost bridge;
+use a Chromium browser or a local Plan app via \`--app-url http://localhost:8096\`.
 Use \`plan local verify\` for headless bridge/CORS diagnostics that exit cleanly.
 Use \`plan local preview\` for a local Plan dev server route. \`preview --out\` is
 a legacy/debug escape hatch that writes a standalone static HTML file.

@@ -6,43 +6,260 @@ export const embeddedWheelBridgeScript: string = `"use strict";
 (() => {
   // app/components/design/bridge/embedded-wheel.bridge.ts
   (function() {
-    var enabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
-    if (!enabled) return;
+    var wheelEnabled = __EMBEDDED_WHEEL_FORWARDING_ENABLED__;
+    var spaceKeyForwardingEnabled = __EMBEDDED_SPACE_KEY_FORWARDING_ENABLED__;
+    var editingSafetyEnabled = __EDITING_SAFETY_ENABLED__;
+    var leftButtonEnabled = false;
+    var temporarySpacePanEnabled = false;
+    var activePointerId = null;
+    var activeButton = null;
+    var captureTarget = null;
+    var suppressClick = false;
+    var clearSuppressClickTimer = null;
+    var lastClientX = 0;
+    var lastClientY = 0;
+    var lastCtrlKey = false;
+    var lastMetaKey = false;
+    var lastShiftKey = false;
+    var lastAltKey = false;
+    if (editingSafetyEnabled) {
+      var freezeStyle = document.createElement("style");
+      freezeStyle.setAttribute("data-agent-native-editing-safety-style", "");
+      freezeStyle.textContent = "html,body{animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *){animation:none!important;transition:none!important;scroll-behavior:auto!important}body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::before,body *:not([data-agent-native-edit-overlay]):not([data-agent-native-edit-overlay] *)::after{animation:none!important;transition:none!important}";
+      (document.head || document.documentElement).appendChild(freezeStyle);
+    }
     function clamp(value, limit) {
       var number = Number(value) || 0;
       if (number > limit) return limit;
       if (number < -limit) return -limit;
       return number;
     }
-    function onWheel(e) {
+    function stopNativeInteraction(e) {
       e.preventDefault();
       e.stopPropagation();
       if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    }
+    function stopEditingNavigation(e) {
+      if (!editingSafetyEnabled) return;
+      stopNativeInteraction(e);
+    }
+    function stopEditingLinkNavigation(e) {
+      if (!editingSafetyEnabled) return;
+      var target = e.target;
+      if (!target || !target.closest) return;
+      if (target.closest("a[href], area[href]")) stopNativeInteraction(e);
+    }
+    function postToParent(message) {
       try {
-        window.parent.postMessage(
-          {
-            type: "embedded-canvas-wheel",
-            deltaX: clamp(e.deltaX, 240),
-            deltaY: clamp(e.deltaY, 240),
-            deltaZ: clamp(e.deltaZ, 240),
-            deltaMode: e.deltaMode,
-            clientX: e.clientX,
-            clientY: e.clientY,
-            ctrlKey: !!e.ctrlKey,
-            metaKey: !!e.metaKey,
-            shiftKey: !!e.shiftKey,
-            altKey: !!e.altKey
-          },
-          "*"
-        );
-      } catch (_err) {
+        window.parent.postMessage(message, "*");
+      } catch {
       }
+    }
+    function onWheel(e) {
+      if (!wheelEnabled) return;
+      stopNativeInteraction(e);
+      postToParent({
+        type: "embedded-canvas-wheel",
+        deltaX: clamp(e.deltaX, 240),
+        deltaY: clamp(e.deltaY, 240),
+        deltaZ: clamp(e.deltaZ, 240),
+        deltaMode: e.deltaMode,
+        clientX: clamp(e.clientX, 1e5),
+        clientY: clamp(e.clientY, 1e5),
+        ctrlKey: !!e.ctrlKey,
+        metaKey: !!e.metaKey,
+        shiftKey: !!e.shiftKey,
+        altKey: !!e.altKey
+      });
+    }
+    function shouldStartPan(e) {
+      if (e.button === 1) return true;
+      return e.button === 0 && (leftButtonEnabled || temporarySpacePanEnabled);
+    }
+    function postPan(phase, e) {
+      if (activeButton === null) return;
+      lastClientX = clamp(e.clientX, 1e5);
+      lastClientY = clamp(e.clientY, 1e5);
+      lastCtrlKey = !!e.ctrlKey;
+      lastMetaKey = !!e.metaKey;
+      lastShiftKey = !!e.shiftKey;
+      lastAltKey = !!e.altKey;
+      postToParent({
+        type: "embedded-canvas-pan",
+        phase,
+        pointerId: Math.max(0, Math.min(2147483647, Math.trunc(e.pointerId))),
+        button: activeButton,
+        buttons: phase === "end" || phase === "cancel" ? 0 : e.buttons,
+        clientX: lastClientX,
+        clientY: lastClientY,
+        ctrlKey: lastCtrlKey,
+        metaKey: lastMetaKey,
+        shiftKey: lastShiftKey,
+        altKey: lastAltKey
+      });
+    }
+    function releasePointerCapture(pointerId) {
+      if (!captureTarget) return;
+      try {
+        if (captureTarget.hasPointerCapture(pointerId)) {
+          captureTarget.releasePointerCapture(pointerId);
+        }
+      } catch {
+      }
+      captureTarget = null;
+    }
+    function scheduleClickSuppressionReset() {
+      if (clearSuppressClickTimer !== null) {
+        window.clearTimeout(clearSuppressClickTimer);
+      }
+      clearSuppressClickTimer = window.setTimeout(function() {
+        suppressClick = false;
+        clearSuppressClickTimer = null;
+      }, 0);
+    }
+    function onPointerDown(e) {
+      if (activePointerId !== null || !shouldStartPan(e)) return;
+      activePointerId = e.pointerId;
+      activeButton = e.button === 1 ? 1 : 0;
+      suppressClick = true;
+      captureTarget = e.target instanceof Element ? e.target : document.documentElement;
+      try {
+        captureTarget.setPointerCapture(e.pointerId);
+      } catch {
+      }
+      stopNativeInteraction(e);
+      postPan("start", e);
+    }
+    function onPointerMove(e) {
+      if (activePointerId !== e.pointerId || activeButton === null) return;
+      stopNativeInteraction(e);
+      postPan("move", e);
+    }
+    function finishPan(phase, e) {
+      if (activePointerId !== e.pointerId || activeButton === null) return;
+      stopNativeInteraction(e);
+      postPan(phase, e);
+      releasePointerCapture(e.pointerId);
+      activePointerId = null;
+      activeButton = null;
+      scheduleClickSuppressionReset();
+    }
+    function onPointerUp(e) {
+      finishPan("end", e);
+    }
+    function onPointerCancel(e) {
+      finishPan("cancel", e);
+    }
+    function suppressTrailingClick(e) {
+      if (!suppressClick) return;
+      stopNativeInteraction(e);
+      suppressClick = false;
+      if (clearSuppressClickTimer !== null) {
+        window.clearTimeout(clearSuppressClickTimer);
+        clearSuppressClickTimer = null;
+      }
+    }
+    function isTypingTarget(target) {
+      return !!(target instanceof Element && target.closest(
+        'input, textarea, select, [contenteditable], [role="textbox"], [data-agent-native-text-editing]'
+      ));
+    }
+    function onKeyDown(e) {
+      if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space" || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || isTypingTarget(e.target)) {
+        return;
+      }
+      temporarySpacePanEnabled = true;
+      stopNativeInteraction(e);
+      if (e.repeat) return;
+      postToParent({
+        type: "design-hotkey",
+        key: e.key,
+        code: e.code,
+        metaKey: false,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        repeat: false
+      });
+    }
+    function onKeyUp(e) {
+      if (!spaceKeyForwardingEnabled || e.key !== " " || e.code !== "Space") {
+        return;
+      }
+      var wasTemporarySpacePanEnabled = temporarySpacePanEnabled;
+      temporarySpacePanEnabled = false;
+      if (!wasTemporarySpacePanEnabled && isTypingTarget(e.target)) return;
+      stopNativeInteraction(e);
+      postToParent({ type: "design-hotkey-up", key: e.key, code: e.code });
+    }
+    function onHostMessage(e) {
+      if (e.source !== window.parent) return;
+      if (!e.data) return;
+      if (e.data.type === "embedded-canvas-pan-cancel") {
+        cancelActivePan();
+        return;
+      }
+      if (e.data.type === "embedded-canvas-pan-mode") {
+        leftButtonEnabled = !!e.data.leftButtonEnabled;
+        return;
+      }
+      if (e.data.type === "embedded-canvas-gesture-mode") {
+        wheelEnabled = !!e.data.wheelEnabled;
+        spaceKeyForwardingEnabled = !!e.data.spaceKeyForwardingEnabled;
+      }
+    }
+    function cancelActivePan() {
+      temporarySpacePanEnabled = false;
+      if (activePointerId === null || activeButton === null) return;
+      var pointerId = activePointerId;
+      postToParent({
+        type: "embedded-canvas-pan",
+        phase: "cancel",
+        pointerId,
+        button: activeButton,
+        buttons: 0,
+        clientX: lastClientX,
+        clientY: lastClientY,
+        ctrlKey: lastCtrlKey,
+        metaKey: lastMetaKey,
+        shiftKey: lastShiftKey,
+        altKey: lastAltKey
+      });
+      releasePointerCapture(pointerId);
+      activePointerId = null;
+      activeButton = null;
+      suppressClick = false;
+    }
+    function onWindowBlur() {
+      if (document.visibilityState === "hidden") cancelActivePan();
+    }
+    var reloadReported = false;
+    function reportRuntimeReload() {
+      if (!editingSafetyEnabled || reloadReported) return;
+      reloadReported = true;
+      postToParent({ type: "agent-native:runtime-reloading" });
     }
     var wheelTarget = document.documentElement || document.body || document;
     wheelTarget.addEventListener("wheel", onWheel, {
       passive: false,
       capture: true
     });
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, true);
+    document.addEventListener("pointerup", onPointerUp, true);
+    document.addEventListener("pointercancel", onPointerCancel, true);
+    document.addEventListener("click", suppressTrailingClick, true);
+    document.addEventListener("click", stopEditingLinkNavigation, true);
+    document.addEventListener("auxclick", suppressTrailingClick, true);
+    document.addEventListener("submit", stopEditingNavigation, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    document.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("message", onHostMessage);
+    window.addEventListener("blur", onWindowBlur);
+    document.addEventListener("visibilitychange", onWindowBlur);
+    window.addEventListener("beforeunload", reportRuntimeReload);
+    window.addEventListener("pagehide", reportRuntimeReload);
+    window.addEventListener("pagehide", cancelActivePan);
   })();
 })();
 `;

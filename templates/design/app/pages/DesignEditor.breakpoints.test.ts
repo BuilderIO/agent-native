@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import { parseBreakpointWidthInput } from "@/components/design/BreakpointBar";
 
+import { shouldPopToOverviewOnZoomOut } from "./design-editor/overview-camera";
 import {
   applyScopedVisualStyleEdit,
   formatPendingVisualStylePrompt,
-  shouldPopToOverviewOnZoomOut,
-} from "./DesignEditor";
+} from "./design-editor/pending-edits";
 
 const html = `<html><head></head><body><section data-agent-native-node-id="hero" class="text-sm p-4">Hello</section></body></html>`;
 
@@ -55,6 +55,45 @@ describe("applyScopedVisualStyleEdit (§6.4 single write path)", () => {
     expect(patch.content).toContain("left: 137px;");
     // The element's inline style is untouched.
     expect(patch.content).not.toContain('style="');
+  });
+
+  it("bounds breakpoint-only edits to the selected responsive range", () => {
+    const patch = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      lowerBoundPx: 390,
+      upperBoundPx: 809,
+    });
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      "@media (min-width: 390px) and (max-width: 809px)",
+    );
+    expect(patch.content).toContain("data-agent-native-breakpoint-range");
+    expect(patch.content).not.toContain("@media (max-width: 809px)");
+  });
+
+  it("replaces an exact-range property when switching back to the normal cascade", () => {
+    const exact = applyScopedVisualStyleEdit({
+      content: html,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "137px",
+      lowerBoundPx: 390,
+      upperBoundPx: 809,
+    });
+    const cascade = applyScopedVisualStyleEdit({
+      content: exact.content,
+      target: { nodeId: "hero" },
+      property: "left",
+      value: "144px",
+      upperBoundPx: 809,
+    });
+    expect(cascade.result.status).toBe("applied");
+    expect(cascade.content).not.toContain("data-agent-native-breakpoint-range");
+    expect(cascade.content).toContain("@media (max-width: 809px)");
+    expect(cascade.content).toContain("left: 144px");
   });
 
   it("scoped failures do not silently fall back to base writes", () => {
@@ -301,6 +340,44 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
 
 describe("DesignEditor breakpoint wiring (source assertions)", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const canvasSource = readFileSync(
+    "app/components/design/MultiScreenCanvas.tsx",
+    "utf8",
+  );
+
+  it("mounts a full editable DesignCanvas in every responsive overview frame", () => {
+    expect(source).toContain(
+      "renderBreakpointContent={renderBreakpointContent}",
+    );
+    expect(source).toContain("previewFrameId={");
+    expect(source).toContain("breakpointWidthPx,");
+    expect(canvasSource).toContain(
+      "const editableContent = renderBreakpointContent?.(",
+    );
+    expect(canvasSource).toContain("editableContent ? (");
+  });
+
+  it("keeps the current responsive scope visible and offers a bounded-only option", () => {
+    expect(source).toContain('value="cascade-smaller"');
+    expect(source).toContain('value="only"');
+    expect(source).toContain("handleResponsiveEditScopeChange");
+  });
+
+  it("keeps the responsive scope control inline beside the breakpoints", () => {
+    expect(source).toContain(
+      'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto"',
+    );
+    expect(source).toContain(
+      'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
+    );
+    expect(source).toContain("IconArrowsDown");
+    expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
+  });
+
+  it("confirms that deleting a base screen includes all responsive variants", () => {
+    expect(source).toContain("designEditor.screenDeletion.descriptionOne");
+    expect(source).toContain("designEditor.screenDeletion.descriptionMany");
+  });
 
   it("routes every style-commit path through the scoped write helper", () => {
     // commitVisualStyles + commitStylesToSelectedLayers +
@@ -329,7 +406,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("// Item 9 — agent→UI breakpoint sync"),
     );
     expect(handler).toContain("setActiveBreakpointWidthState(widthPx)");
-    expect(handler).toContain("setActiveBreakpointMutation");
+    expect(handler).toContain("persistActiveBreakpoint");
+  });
+
+  it("keeps a newer local responsive target ahead of an older app-state echo", () => {
+    const persistence = source.slice(
+      source.indexOf("const persistActiveBreakpoint"),
+      source.indexOf('// §6.4 — "show all breakpoints" toggle'),
+    );
+    expect(persistence).toContain(
+      "activeBreakpointWriteQueueRef.current?.enqueue",
+    );
+
+    const sync = source.slice(
+      source.indexOf("// Item 9 — agent→UI breakpoint sync"),
+      source.indexOf("// Agent→UI: open the write-consent dialog"),
+    );
+    expect(
+      sync.match(/activeBreakpointWriteQueueRef\.current\?\.hasPending\(\)/g),
+    ).toHaveLength(2);
   });
 
   it("BP-DEEP item 5: every overview click-to-target path returns the edit scope to Base", () => {
@@ -480,7 +575,32 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       source.indexOf("const handleOverviewEditBreakpoint"),
       source.indexOf("// Hooks must not be called conditionally"),
     );
-    expect(editor).toContain("enterSingleScreen(screenId)");
+    expect(editor).toContain("handleOverviewFrameAction(screenId)");
+  });
+
+  it("keeps overview visible when entering Interact and uses the frame action for Full view", () => {
+    const modeHandler = source.slice(
+      source.indexOf("const handleModeChange = useCallback"),
+      source.indexOf("const handleOverviewFrameAction = useCallback"),
+    );
+    expect(modeHandler).not.toContain('setViewMode("single")');
+    expect(source).toContain('interactMode={mode === "interact"}');
+    expect(source).toContain(
+      'currentMode === "interact" ? "interact" : "edit"',
+    );
+
+    const frameActionStart = source.indexOf(
+      "const handleOverviewFrameAction = useCallback",
+    );
+    const frameAction = source.slice(
+      frameActionStart,
+      source.indexOf("  useEffect(() => {", frameActionStart),
+    );
+    expect(frameAction).toContain('if (mode === "interact")');
+    expect(frameAction).toContain("enterSingleScreenInteract(screenId)");
+    expect(frameAction).toContain(
+      'handleModeChange("interact", { targetFileId: screenId })',
+    );
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {

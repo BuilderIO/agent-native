@@ -114,7 +114,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 यदि आप चैट-आधारित होस्ट का उपयोग कर रहे हैं जो सीधे MCP कनेक्टर URLs स्वीकार करता है
 (CLI-कॉन्फ़िगर क्लाइंट के बजाय), होस्ट किए गए प्लान कनेक्टर को यहां कनेक्ट करें
-`https://plan.agent-native.com/_agent-native/mcp` - क्लाइंट-विशिष्ट सेटअप के लिए [MCP Clients](/docs/mcp-clients) देखें।
+`https://plan.agent-native.com/mcp` - क्लाइंट-विशिष्ट सेटअप के लिए [MCP Clients](/docs/mcp-clients) देखें।
 
 प्रमाणीकरण सेटअप पर एक बार का ब्राउज़र साइन-इन है - यह इरादा है, और यह
 वह है जो एजेंट को अपने द्वारा बनाई गई योजनाओं को जारी रखने और साझा करने देता है। क्या बात है
@@ -212,6 +212,13 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
 **खुले प्रश्न** उसी योजना के निचले भाग में बनते हैं। इसका उत्तर देकर भेज रहा हूं
 यह एजेंट के लिए मौजूदा योजना के विरुद्ध एक संशोधन मोड़ शुरू करता है।
 
+## लागत और मॉडल चुनाव
+
+कोई योजना या रिकैप बनाना आपके कोडिंग एजेंट के LLM पर एक पूर्ण एजेंटिक सत्र चलाता है, न कि कोई हल्का टेम्प्लेट फिल, इसलिए लागत diff या योजना के आकार और आपके द्वारा चुने गए मॉडल के अनुसार बढ़ती है।
+
+- ऐप का अपना डिफ़ॉल्ट चैट मॉडल Sonnet 5 है; इसे किसी भी समय **सेटिंग्स** में बदलें। Haiku सस्ता Claude विकल्प है, और Luna GPT-5.6 परिवार में सस्ता विकल्प है।
+- GitHub Action से स्वचालित PR रिकैप इंटरैक्टिव ऐप से अलग चलते हैं और इनके अपने मॉडल और लागत नियंत्रण होते हैं — `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT`, और `VISUAL_RECAP_REASONING` के लिए [PR Visual Recap](/docs/pr-visual-recap) देखें।
+
 ## आप इसके साथ क्या कर सकते हैं
 
 - **कार्यान्वयन से पहले समीक्षा करें।** आरेख, वायरफ्रेम, विकल्प टैब के लिए React,
@@ -253,7 +260,7 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
   क्रॉस-डिवाइस या टीम समीक्षा) के लिए साइन इन करना आवश्यक है। Google साइन-इन तब दिखाई देता है जब
   मानक Google OAuth env संस्करण कॉन्फ़िगर किए गए हैं।
 
-होस्ट किया गया प्लान कनेक्टर `https://plan.agent-native.com/_agent-native/mcp` पर रहता है।
+होस्ट किया गया प्लान कनेक्टर `https://plan.agent-native.com/mcp` पर रहता है।
 कौशल फ़ाइलों में कभी भी साझा रहस्य न डालें।
 
 ## स्थानीय-फ़ाइलें गोपनीयता मोड {#local-files}
@@ -290,7 +297,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 पुल URL जैसा दिखता है
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 पेज सामान्य प्लान व्यूअर है, लेकिन ब्राउज़र `plan.mdx` प्राप्त करता है,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json`, और स्थानीय छवि संपत्ति
 लोकलहोस्ट ब्रिज। योजना सामग्री होस्ट किए गए डेटाबेस में नहीं लिखी गई है और
@@ -452,7 +459,7 @@ pnpm dev
 होस्टेड ऐप-समर्थित कौशल का उपयोग करता है:
 
 - ऐप: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 स्थानीय टेम्पलेट तब उपयोगी होता है जब आप स्वयं योजनाएँ विकसित कर रहे हों, स्थानीय दृढ़ता का परीक्षण कर रहे हों, या पूरी तरह से स्व-होस्टेड समीक्षा सतह चला रहे हों।
 

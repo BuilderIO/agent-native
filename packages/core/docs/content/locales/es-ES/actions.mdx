@@ -11,7 +11,7 @@ Actions son la única fuente de verdad para todo lo que hace su aplicación. Def
 - **Enganches React Typesafe**: `useActionQuery("name")` y `useActionMutation("name")` en la interfaz, tipos inferidos del esquema.
 - **Llamadas imperativas del cliente**: `callAction("name", params)` cuando un gancho no encaja.
 - **Transporte del marco**: montado automáticamente por el marco detrás de esos ganchos y disponible para clientes HTTP externos.
-- **Una herramienta MCP**: expuesta a aplicaciones Claude, ChatGPT personalizadas MCP, escritorio/código Claude, cursor, Codex y cualquier otro cliente MCP.
+- **Una herramienta MCP**: expuesta a aplicaciones Claude, ChatGPT personalizadas MCP, escritorio/código Claude, cursor, Codex y cualquier otro host MCP.
 - **Una herramienta A2A**: llamada por otras aplicaciones nativas del agente a través de A2A.
 - **Un comando CLI**: `pnpm action <name>` para secuencias de comandos y bucles de desarrollo.
 
@@ -443,8 +443,7 @@ Dos ganchos, ambos en `@agent-native/core/client`. Los tipos se infieren a parti
 Para actions que cambia de estado:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +461,7 @@ En caso de éxito, el marco emite un evento de cambio con `source: "action"` par
 Para GET actions de solo lectura:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -540,7 +538,7 @@ Si su aplicación es del mismo nivel [A2A](/docs/a2a-protocol), otras aplicacion
 
 ## Exponiéndolo sobre MCP {#mcp}
 
-Con MCP habilitado, su actions aparece en el servidor MCP del marco en `/_agent-native/mcp`. Cada persona que llama recibe un catálogo compacto de forma predeterminada (integraciones orientadas a la aplicación más la aplicación declarada con plantilla actions) y `tool-search` siempre está presente para que cualquier otra herramienta permanezca accesible bajo demanda. La superficie de acción completa se ofrece solo mediante suscripción explícita (token `--full-catalog` o `AGENT_NATIVE_MCP_FULL_CATALOG=1`), y `publicAgent.expose` opta por una herramienta de lectura/ingesta segura en la superficie pública. Consulte [MCP Protocol](/docs/mcp-protocol) para conocer los niveles del catálogo, la autenticación y los detalles del recurso `mcpApp`.
+Con MCP habilitado, su actions aparece en el servidor MCP del marco en `/mcp`. Cada persona que llama recibe un catálogo compacto de forma predeterminada (integraciones orientadas a la aplicación más la aplicación declarada con plantilla actions) y `tool-search` siempre está presente para que cualquier otra herramienta permanezca accesible bajo demanda. La superficie de acción completa se ofrece solo mediante suscripción explícita (token `--full-catalog` o `AGENT_NATIVE_MCP_FULL_CATALOG=1`), y `publicAgent.expose` opta por una herramienta de lectura/ingesta segura en la superficie pública. Consulte [MCP Protocol](/docs/mcp-protocol) para conocer los niveles del catálogo, la autenticación y los detalles del recurso `mcpApp`.
 
 Para los hosts MCP compatibles con UI, una acción puede declarar un recurso de aplicaciones MCP opcional a través del campo `mcpApp` (más un `link` coincidente) para que los hosts compatibles representen el resultado en línea. Cuando `link` y `mcpApp` deben apuntar a la misma ruta, `embedRoute()` construye ambos a partir de un generador de rutas puro:
 
@@ -562,7 +560,7 @@ export default defineAction({
 });
 ```
 
-Mantener `link` como respaldo para clientes CLI y MCP que no sean UI; también es el objetivo de lanzamiento del inserto. El puente de inserción (la sesión de inicio de inserción firmada, el trasplante frente a la renderización de marco controlado, el puente de host `ui/*`, CSP y la fijación de altura) es propiedad de [External Agents](/docs/external-agents#mcp-app-bridge).
+Mantener `link` como respaldo para la CLI y los hosts MCP sin interfaz de usuario; también es el objetivo de lanzamiento del inserto. El puente de inserción (la sesión de inicio de inserción firmada, el trasplante frente a la renderización de marco controlado, el puente de host `ui/*`, CSP y la fijación de altura) es propiedad de [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Estándar actions {#standard-actions}
 
@@ -617,6 +615,44 @@ export default defineAction({
   },
 });
 ```
+
++## Proteger funciones por etapas {#feature-flags}
+
+Usa indicadores de funciones de Core cuando una acción sea segura para desplegar, pero deba llegar gradualmente a producción. Declara una vez el indicador desactivado por defecto, regístralo desde un plugin de Nitro y evalúalo dentro de cada acción protegida. Ocultar el botón correspondiente es presentación; la comprobación de la acción es la aplicación de la regla.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Usa `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar o mostrar la superficie del cliente. Core proporciona `get-feature-flags`, `list-feature-flags` y `set-feature-flag`. La administración comprueba permisos y queda auditada; las interfaces de flota llaman las mismas actions locales de la app mediante delegación A2A restringida. Nunca canalices escrituras de indicadores mediante endpoints genéricos de configuración o SQL sin procesar, ni coloques autenticación, autorización, auditoría, secretos o caché SSR detrás de un indicador de tiempo de ejecución.
 
 ## actions estilo CLI heredado {#legacy-cli-actions}
 

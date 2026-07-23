@@ -902,14 +902,18 @@ function resolvePlanMcpUrlOverride(input: string): {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("--mcp-url must use http:// or https://.");
   }
-  const mcpSuffix = "/_agent-native/mcp";
+  const publicMcpSuffix = "/mcp";
+  const legacyMcpSuffix = "/_agent-native/mcp";
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const appPath = trimmedPath.endsWith(mcpSuffix)
+  const mcpSuffix = trimmedPath.endsWith(legacyMcpSuffix)
+    ? legacyMcpSuffix
+    : trimmedPath.endsWith(publicMcpSuffix)
+      ? publicMcpSuffix
+      : undefined;
+  const appPath = mcpSuffix
     ? trimmedPath.slice(0, -mcpSuffix.length)
     : trimmedPath;
-  const mcpPath = trimmedPath.endsWith(mcpSuffix)
-    ? trimmedPath
-    : `${trimmedPath || ""}${mcpSuffix}`;
+  const mcpPath = `${appPath || ""}${publicMcpSuffix}`;
   return {
     hostedUrl: `${parsed.origin}${appPath}`,
     mcpUrl: `${parsed.origin}${mcpPath}`,
@@ -1615,7 +1619,7 @@ const PR_VISUAL_RECAP_REUSABLE_WORKFLOW = `name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 permissions:
   contents: read
@@ -1626,6 +1630,7 @@ concurrency:
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       checks: write
       contents: read
@@ -1634,6 +1639,9 @@ jobs:
     uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
     with:
       skill-source: repo
+      runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: \${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
     secrets:
       PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}

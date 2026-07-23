@@ -51,6 +51,7 @@ function rowToDashboard(row: any): DashboardRecord {
     visibility: row.visibility,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy ?? null,
     archivedAt: row.archivedAt ?? null,
     hiddenAt: row.hiddenAt ?? null,
     hiddenBy: row.hiddenBy ?? null,

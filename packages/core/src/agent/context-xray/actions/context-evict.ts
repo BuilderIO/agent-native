@@ -7,12 +7,15 @@ import {
 } from "../../../server/request-context.js";
 import { callerOwnsThread } from "../../run-ownership.js";
 import {
+  readContextManifest,
   upsertContextDirective,
   writeContextManifestStatus,
 } from "../directives-store.js";
 import {
   contextXrayAuthError,
+  contextXraySystemSegmentError,
   contextXrayThreadNotFoundError,
+  isContextXraySystemSegment,
 } from "./errors.js";
 
 export default defineAction({
@@ -27,6 +30,14 @@ export default defineAction({
     if (!ownerEmail) throw contextXrayAuthError();
     if (!(await callerOwnsThread(ownerEmail, args.threadId))) {
       throw contextXrayThreadNotFoundError();
+    }
+    if (
+      isContextXraySystemSegment(
+        await readContextManifest(args.threadId),
+        args.segmentId,
+      )
+    ) {
+      throw contextXraySystemSegmentError();
     }
     const directive = await upsertContextDirective({
       threadId: args.threadId,

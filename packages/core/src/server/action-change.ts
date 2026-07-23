@@ -40,7 +40,7 @@ export async function writeActionChangeMarker(
       ...actionChangeMarkerValue(target),
       nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
     },
-    { requestSource: "agent" },
+    { requestSource: options.requestSource ?? "agent" },
   );
 }
 
@@ -54,13 +54,13 @@ export async function notifyActionChange(
     key: options.actionName,
     ...(target.owner ? { owner: target.owner } : {}),
     ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    ...(options.requestSource ? { requestSource: options.requestSource } : {}),
   });
 
   await writeActionChangeMarker({
     actionName: options.actionName,
     ...(target.owner ? { owner: target.owner } : {}),
     ...(target.orgId ? { orgId: target.orgId } : {}),
-    ...(target.requestSource ? { requestSource: target.requestSource } : {}),
+    ...(options.requestSource ? { requestSource: options.requestSource } : {}),
   });
 }

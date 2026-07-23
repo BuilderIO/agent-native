@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconClock,
@@ -95,7 +95,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
     >
       <Card
         className={cn(
-          "cursor-pointer transition-all duration-150",
+          "cursor-pointer transition-[transform,box-shadow,border-color] duration-150",
           "hover:border-foreground/20 hover:shadow-sm hover:-translate-y-px",
           "bg-background",
         )}
@@ -228,7 +228,7 @@ export function UpcomingMeetingCard({
   return (
     <Card
       className={cn(
-        "transition-all duration-150 hover:border-foreground/20 hover:shadow-sm",
+        "transition-[transform,box-shadow,border-color] duration-150 hover:border-foreground/20 hover:shadow-sm",
         joinable && "border-foreground/25",
       )}
     >

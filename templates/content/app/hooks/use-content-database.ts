@@ -1,11 +1,17 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
+  CancelPreparedBuilderSourceUpdateRequest,
+  CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseItem,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
@@ -18,12 +24,14 @@ import type {
   CreateDatabaseRequest,
   DatabaseItemsBatchRequest,
   DisconnectContentDatabaseSourceRequest,
+  DocumentPropertiesResponse,
   ExecuteBuilderSourceBatchRequest,
   ExecuteBuilderSourceBatchResponse,
   DuplicateDatabaseItemRequest,
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
   PrepareBuilderSourceExecutionRequest,
+  PreviewBuilderSourceReviewResponse,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
   ProcessBuilderBodyHydrationRequest,
@@ -34,6 +42,8 @@ import type {
   StageBuilderSourceBulkUpdateRequest,
   StageBuilderSourceBulkUpdateResponse,
   StageBuilderRevisionRequest,
+  SubmitContentDatabaseFormRequest,
+  SubmitContentDatabaseFormResponse,
   SuggestSourceJoinKeyResponse,
   UpdateContentDatabasePersonalViewRequest,
   UpdateContentDatabaseViewRequest,
@@ -44,6 +54,81 @@ import { useQueryClient } from "@tanstack/react-query";
 
 export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
+}
+
+export function contentDatabaseByIdQueryKey(databaseId: string) {
+  return ["action", "get-content-database", { databaseId }] as const;
+}
+
+export function applyOptimisticItemToContentDatabase(
+  current: ContentDatabaseResponse | undefined,
+  item: ContentDatabaseItem,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  if (
+    current.items.some(
+      (candidate) =>
+        candidate.id === item.id || candidate.document.id === item.document.id,
+    )
+  ) {
+    return current;
+  }
+
+  return {
+    ...current,
+    items: [...current.items, item],
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: current.pagination.totalItems + 1,
+          returnedItems: current.pagination.returnedItems + 1,
+        }
+      : current.pagination,
+  };
+}
+
+export function removeOptimisticItemFromContentDatabase(
+  current: ContentDatabaseResponse | undefined,
+  documentId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  const items = current.items.filter(
+    (candidate) => candidate.document.id !== documentId,
+  );
+  if (items.length === current.items.length) return current;
+
+  return {
+    ...current,
+    items,
+    pagination: current.pagination
+      ? {
+          ...current.pagination,
+          totalItems: Math.max(0, current.pagination.totalItems - 1),
+          returnedItems: Math.max(0, current.pagination.returnedItems - 1),
+        }
+      : current.pagination,
+  };
+}
+
+export function preserveScopedDatabasePlaceholder<T>(
+  previous: T | undefined,
+  previousQuery: Pick<Query, "queryKey"> | undefined,
+  scope: { documentId?: string; databaseId?: string },
+): T | undefined {
+  const previousParams = previousQuery?.queryKey[2];
+  if (!previousParams || typeof previousParams !== "object") return undefined;
+
+  const params = previousParams as {
+    documentId?: unknown;
+    databaseId?: unknown;
+  };
+  if (scope.documentId !== undefined) {
+    return params.documentId === scope.documentId ? previous : undefined;
+  }
+  if (scope.databaseId !== undefined) {
+    return params.databaseId === scope.databaseId ? previous : undefined;
+  }
+  return undefined;
 }
 
 function isContentDatabaseQueryForDocument(
@@ -129,6 +214,57 @@ export function applyDocumentPropertyValueToDatabaseResponse(
   });
 
   return changed ? { ...current, items } : current;
+}
+
+export function applyDocumentPropertiesToDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  response: Pick<DocumentPropertiesResponse, "databaseId" | "properties">,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+  if (response.databaseId && current.database.id !== response.databaseId) {
+    return current;
+  }
+
+  const sortedProperties = [...response.properties].sort(
+    (a, b) => a.definition.position - b.definition.position,
+  );
+  const propertyById = new Map(
+    sortedProperties.map((property) => [property.definition.id, property]),
+  );
+
+  return {
+    ...current,
+    properties: sortedProperties,
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties
+        .filter((property) => propertyById.has(property.definition.id))
+        .map((property) => ({
+          ...propertyById.get(property.definition.id)!,
+          value: property.value,
+        })),
+    })),
+  };
+}
+
+export function removeDocumentPropertyFromDatabaseResponse(
+  current: ContentDatabaseResponse | undefined,
+  propertyId: string,
+): ContentDatabaseResponse | undefined {
+  if (!current) return current;
+
+  return {
+    ...current,
+    properties: current.properties.filter(
+      (property) => property.definition.id !== propertyId,
+    ),
+    items: current.items.map((item) => ({
+      ...item,
+      properties: item.properties.filter(
+        (property) => property.definition.id !== propertyId,
+      ),
+    })),
+  };
 }
 
 // `get-content-database` returns a union at runtime: the full response, or an
@@ -385,7 +521,10 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
     {
       enabled: !!documentId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          documentId: documentId ?? undefined,
+        }),
       initialData: () =>
         documentId
           ? readCachedContentDatabaseResponse(queryClient, documentId)
@@ -393,6 +532,21 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
       // Cross-key seeds (e.g. a differently-paginated cached response) render
       // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
+    },
+  );
+}
+
+export function useContentDatabaseById(databaseId: string | null) {
+  return useActionQuery<ContentDatabaseResponse>(
+    "get-content-database",
+    databaseId ? { databaseId } : undefined,
+    {
+      enabled: !!databaseId,
+      retry: false,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          databaseId: databaseId ?? undefined,
+        }),
     },
   );
 }
@@ -468,6 +622,9 @@ export function useDeleteContentDatabase() {
   >("delete-content-database", {
     onSuccess: (data) => {
       clearDeletedContentDatabaseFromCache(queryClient, data.documentId);
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
+      });
     },
   });
 }
@@ -495,6 +652,9 @@ export function useRestoreContentDatabase() {
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-trashed-content-databases"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-trashed-documents"],
       });
       queryClient.invalidateQueries({
         queryKey: ["action", "list-content-databases"],
@@ -529,6 +689,26 @@ export function useAddDatabaseItem(documentId: string) {
       },
     },
   );
+}
+
+export function useSubmitContentDatabaseForm(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    SubmitContentDatabaseFormResponse,
+    SubmitContentDatabaseFormRequest
+  >("submit-content-database-form", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+  });
 }
 
 export function useDuplicateDatabaseItem(documentId: string) {
@@ -623,7 +803,10 @@ export function useContentDatabasePersonalView(databaseId: string | null) {
     {
       enabled: !!databaseId,
       retry: false,
-      placeholderData: (previous) => previous,
+      placeholderData: (previous, previousQuery) =>
+        preserveScopedDatabasePlaceholder(previous, previousQuery, {
+          databaseId: databaseId ?? undefined,
+        }),
     },
   );
 }
@@ -741,6 +924,27 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
   });
 }
 
+export function useMaterializeBuilderRequiredFields(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    { documentId: string; sourceId: string }
+  >("materialize-builder-required-fields", {
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      });
+    },
+  });
+}
+
 export function useBuilderCmsModels(enabled: boolean) {
   return useActionQuery<BuilderCmsModelsResponse>(
     "list-builder-cms-models",
@@ -752,6 +956,19 @@ export function useBuilderCmsModels(enabled: boolean) {
       staleTime: 5 * 60 * 1000,
       gcTime: 30 * 60 * 1000,
       refetchOnWindowFocus: false,
+    },
+  );
+}
+
+export function useNotionDatabaseSources(enabled: boolean) {
+  return useActionQuery(
+    "list-notion-database-sources",
+    enabled ? { limit: 50 } : undefined,
+    {
+      enabled,
+      retry: false,
+      placeholderData: (previous) => previous,
+      staleTime: 60_000,
     },
   );
 }
@@ -775,7 +992,11 @@ export function useContentDatabases(args: {
 
 export function useSuggestSourceJoinKey(args: {
   documentId: string;
-  candidateSourceType: "mock-local" | "builder-cms" | "local-table";
+  candidateSourceType:
+    | "mock-local"
+    | "builder-cms"
+    | "local-table"
+    | "notion-database";
   candidateSourceTable: string;
   enabled: boolean;
 }) {
@@ -923,6 +1144,23 @@ export function usePrepareBuilderSourceExecution(documentId: string) {
   });
 }
 
+export function useCancelPreparedBuilderSourceUpdate(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    CancelPreparedBuilderSourceUpdateResponse,
+    CancelPreparedBuilderSourceUpdateRequest
+  >("cancel-prepared-builder-source-update", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
 export function useValidateBuilderSourceExecution(documentId: string) {
   const queryClient = useQueryClient();
   return useActionMutation<
@@ -1006,6 +1244,33 @@ export function usePrepareBuilderSourceReview(documentId: string) {
       });
     },
   });
+}
+
+export function usePreviewBuilderSourceReview(args: {
+  documentId: string;
+  sourceId: string | null;
+  scope: "selected" | "all";
+  documentIds?: string[];
+  enabled: boolean;
+}) {
+  return useActionQuery<PreviewBuilderSourceReviewResponse>(
+    "preview-builder-source-review",
+    args.enabled && args.sourceId
+      ? {
+          documentId: args.documentId,
+          sourceId: args.sourceId,
+          scope: args.scope,
+          documentIds: args.documentIds,
+        }
+      : undefined,
+    {
+      enabled: args.enabled && !!args.sourceId,
+      retry: false,
+      staleTime: 0,
+      gcTime: 0,
+      refetchOnWindowFocus: false,
+    },
+  );
 }
 
 export function useStageBuilderSourceBulkUpdate(documentId: string) {

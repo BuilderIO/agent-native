@@ -15,4 +15,45 @@ describe("agent-native shell surface tokens", () => {
     expect(css).not.toMatch(/--agent-native-raised-surface:\s*color-mix\(/);
     expect(css).not.toMatch(/--agent-native-card-surface:\s*color-mix\(/);
   });
+
+  it("keeps app and agent main surfaces borderless", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+    const frameCss = readFileSync(
+      new URL("../../../frame/client/styles.css", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(css).not.toContain("--agent-native-raised-outline");
+    expect(css).toMatch(
+      /\.agent-layout-main-surface,\s*\.agent-layout-shell > \.agent-sidebar-shell > \.agent-sidebar-main-surface \{[^}]*box-shadow: none;/s,
+    );
+    expect(frameCss).not.toContain("--agent-native-raised-outline");
+    expect(frameCss).toMatch(
+      /\.agent-frame-main-surface\[data-agent-frame-main-state="open"\] \{[^}]*box-shadow: none;/s,
+    );
+  });
+
+  it("removes shell transitions while the agent sidebar is being resized", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toMatch(
+      /\.agent-sidebar-shell\[data-agent-sidebar-resizing="true"\],\s*\.agent-sidebar-shell\[data-agent-sidebar-resizing="true"\] \* \{[^}]*transition: none !important;/s,
+    );
+  });
+
+  it("keeps the active tool shine clipped to its label text", () => {
+    const css = readFileSync(new URL("./agent-native.css", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(css).toContain(".agent-running-shimmer");
+    expect(css).toContain("background-clip: text;");
+    expect(css).not.toContain(
+      '.agent-tool-call[data-active-tail="true"]::after',
+    );
+  });
 });

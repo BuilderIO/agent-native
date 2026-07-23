@@ -227,6 +227,31 @@ SSE gives same-process writes an immediate path to the browser, and a lightweigh
 
 AI is non-deterministic, so you need conversation flow to give feedback and iterate — not one-shot buttons — and the agent already has your codebase, instructions, skills, and history that an inline call lacks. Routing everything through the agent is also what lets the app be driven from Slack, Telegram, or another agent. See [Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge).
 
+### How do I upgrade an older Agent Native app? {#upgrade-older-app}
+
+Run the supported upgrade path from the app or workspace root:
+
+```bash
+npx @agent-native/core@latest upgrade
+```
+
+That bumps `@agent-native/*` dependencies to `latest`, installs, refreshes
+scaffold skills (`skills update scaffold --project`), and runs typecheck when
+available. Use `upgrade check` first if you want a doctor-only report of
+framework overrides/patches and pending bumps.
+
+Do **not** fix a broken upgrade with `pnpm.overrides`, `patchedDependencies`,
+or edits under `node_modules/@agent-native/*` (especially core/dispatch). If
+upgrade or typecheck fails, fix app-level code or ask — then re-run upgrade.
+
 ### Why is this a framework and not a library? {#why-framework-not-library}
 
 The shared database, live sync, actions system, and application state only work because they're wired together from the ground up — the UI reacts to agent changes instantly, agents communicate, and the agent understands what the user is looking at. A library gives you pieces; this is an architecture. See [Key Concepts](/docs/key-concepts).
+
+## What's next
+
+- [**Getting Started**](/docs/getting-started) — build your first action and render it inline in chat
+- [**What Is Agent-Native?**](/docs/what-is-agent-native) — the full explanation behind the answers above
+- [**Templates**](/docs/cloneable-saas) — fork a complete SaaS product instead of starting from scratch
+- [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, and portability
+- [**Deployment**](/docs/deployment) — host on your own domain or any Nitro-compatible provider

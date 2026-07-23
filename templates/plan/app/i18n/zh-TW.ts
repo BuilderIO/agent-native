@@ -28,10 +28,9 @@ const messages = {
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     editorTitle: "VS Code 擴充功能",
     editorDescription:
       "在 VS Code 的側邊面板中開啟並審閱計畫，而不是切換到單獨的瀏覽器標籤頁面。",
@@ -43,6 +42,10 @@ const messages = {
     suggestionShipped: "上週發布了什麼？",
     suggestionUi: "這個介面現在是什麼樣？",
     suggestionApi: "這個 API 的結構是什麼？",
+  },
+  contextXray: {
+    panelTitle: "脈絡 X 光",
+    snapshotsTitle: "快照",
   },
   sidebar: {
     openNavigation: "開啟導覽",
@@ -281,6 +284,7 @@ const messages = {
       advanced: "先進的",
       agentMissing: "連線代理以執行 - 新增 API 金鑰或使用 Builder。",
       assessment: {
+        design: "自動偵測到高擬真要求；代理將建立精緻的品牌化介面。",
         ui: "自動偵測 UI 狀態或流程；代理將制定線框優先計畫。",
         visual: "汽車將要求代理提供豐富的技術計畫，包括圖表和實施細節。",
       },
@@ -301,6 +305,10 @@ const messages = {
         ui: {
           description: "UI 流程 - 線框和狀態",
           label: "使用者介面流程",
+        },
+        design: {
+          description: "高擬真設計 - 精緻的品牌化介面",
+          label: "高擬真設計",
         },
         visual: {
           description: "一般視覺 - 圖表和註解",
@@ -467,6 +475,16 @@ const messages = {
     localPlanLoadError: {
       message: "無法讀取本機計畫資料夾“{{slug}}”。",
       title: "未找到本機計畫",
+    },
+    localPlanConnection: {
+      promptTitle: "連線至此本機計畫",
+      promptMessage:
+        "此計畫會保留在你的電腦上。Plan 需要瀏覽器權限，才能透過本機橋接讀取它。",
+      deniedTitle: "本機網路存取已遭封鎖",
+      deniedMessage:
+        "開啟瀏覽器中 Plan 的網站設定，允許存取本機網路，然後再次檢查。",
+      connect: "連線至本機計畫",
+      checkAgain: "再次檢查",
     },
     loggedOut: {
       copied: "已複製",

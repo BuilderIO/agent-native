@@ -1,21 +1,24 @@
 import {
   AgentSidebar,
-  FeedbackButton,
-  appBasePath,
-  appPath,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
-  useActionQuery,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useChatThreads,
-  useFormatters,
-  useT,
   type ChatThreadSummary,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
+  ChatHistoryRail,
+  type ChatHistoryItem,
+} from "@agent-native/toolkit/chat-history";
+import {
+  IconActivity,
   IconArrowUpRight,
   IconApps,
   IconBrain,
@@ -23,12 +26,9 @@ import {
   IconBrandTelegram,
   IconKey,
   IconChevronDown,
-  IconDots,
-  IconEdit,
   IconLayersSubtract,
   IconMessageQuestion,
   IconMessages,
-  IconPlus,
   IconPlugConnected,
   IconBroadcast,
   IconFingerprint,
@@ -43,10 +43,8 @@ import {
 import {
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentType,
-  type FormEvent,
   type ReactNode,
 } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
@@ -58,8 +56,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
-import { Input } from "../ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
+import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
@@ -93,17 +91,17 @@ export interface DispatchExtensionConfig {
 
 const PRIMARY_NAV_ITEMS = [
   {
-    id: "chat",
-    to: "/chat",
-    label: "Chat",
-    icon: IconMessageQuestion,
-    section: "primary",
-  },
-  {
     id: "overview",
     to: "/overview",
     label: "Overview",
     icon: IconBroadcast,
+    section: "primary",
+  },
+  {
+    id: "chat",
+    to: "/chat",
+    label: "Chat",
+    icon: IconMessageQuestion,
     section: "primary",
   },
   {
@@ -113,63 +111,28 @@ const PRIMARY_NAV_ITEMS = [
     icon: IconApps,
     section: "primary",
   },
+] as const satisfies readonly DispatchNavItem[];
+
+const OPERATIONS_NAV_ITEMS = [
+  {
+    id: "operations",
+    to: "/operations",
+    label: "Operations",
+    icon: IconActivity,
+    section: "operations",
+  },
   {
     id: "metrics",
     to: "/metrics",
     label: "Metrics",
     icon: IconChartBar,
-    section: "primary",
-  },
-  {
-    id: "vault",
-    to: "/vault",
-    label: "Vault",
-    icon: IconKey,
-    section: "primary",
-  },
-  {
-    id: "integrations",
-    to: "/integrations",
-    label: "Integrations",
-    icon: IconPuzzle,
-    section: "primary",
-  },
-  {
-    id: "agents",
-    to: "/agents",
-    label: "Agents",
-    icon: IconPlugConnected,
-    section: "primary",
-  },
-] as const satisfies readonly DispatchNavItem[];
-
-const OPERATIONS_NAV_ITEMS = [
-  {
-    id: "workspace",
-    to: "/workspace",
-    label: "Resources",
-    icon: IconLayersSubtract,
     section: "operations",
   },
   {
-    id: "messaging",
-    to: "/messaging",
-    label: "Messaging",
-    icon: IconBrandTelegram,
-    section: "operations",
-  },
-  {
-    id: "destinations",
-    to: "/destinations",
-    label: "Destinations",
-    icon: IconArrowUpRight,
-    section: "operations",
-  },
-  {
-    id: "identities",
-    to: "/identities",
-    label: "Identities",
-    icon: IconFingerprint,
+    id: "automations",
+    to: "/automations",
+    label: "Automations",
+    icon: IconSettingsAutomation,
     section: "operations",
   },
   {
@@ -180,10 +143,62 @@ const OPERATIONS_NAV_ITEMS = [
     section: "operations",
   },
   {
-    id: "automations",
-    to: "/automations",
-    label: "Automations",
-    icon: IconSettingsAutomation,
+    id: "destinations",
+    to: "/destinations",
+    label: "Destinations",
+    icon: IconArrowUpRight,
+    section: "operations",
+  },
+  {
+    id: "integrations",
+    to: "/integrations",
+    label: "Integrations",
+    icon: IconPuzzle,
+    section: "operations",
+  },
+  {
+    id: "vault",
+    to: "/vault",
+    label: "Vault",
+    icon: IconKey,
+    section: "operations",
+  },
+  {
+    id: "agents",
+    to: "/agents",
+    label: "Agents",
+    icon: IconPlugConnected,
+    section: "operations",
+  },
+  {
+    id: "workspace",
+    to: "/workspace",
+    label: "Resources",
+    icon: IconLayersSubtract,
+    section: "operations",
+  },
+  {
+    id: "settings",
+    to: "/settings",
+    label: "Settings",
+    icon: IconSettings,
+    section: "operations",
+  },
+] as const satisfies readonly DispatchNavItem[];
+
+const ADVANCED_NAV_ITEMS = [
+  {
+    id: "messaging",
+    to: "/messaging",
+    label: "Messaging",
+    icon: IconBrandTelegram,
+    section: "operations",
+  },
+  {
+    id: "identities",
+    to: "/identities",
+    label: "Identities",
+    icon: IconFingerprint,
     section: "operations",
   },
   {
@@ -205,13 +220,6 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/thread-debug",
     label: "Thread Debug",
     icon: IconMessages,
-    section: "operations",
-  },
-  {
-    id: "settings",
-    to: "/settings",
-    label: "Settings",
-    icon: IconSettings,
     section: "operations",
   },
 ] as const satisfies readonly DispatchNavItem[];
@@ -300,22 +308,17 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-function formatThreadAge(
-  updatedAt: number,
-  formatDate: ReturnType<typeof useFormatters>["formatDate"],
-) {
-  const diffMs = Math.max(0, Date.now() - updatedAt);
+export function formatThreadAge(updatedAt: number, now = Date.now()) {
+  const diffMs = Math.max(0, now - updatedAt);
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return formatDate(updatedAt, {
-    month: "short",
-    day: "numeric",
-  });
+  if (days < 14) return `${days}d`;
+  if (days < 365) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 365)}y`;
 }
 
 function threadTitle(thread: ChatThreadSummary, fallback: string) {
@@ -332,21 +335,17 @@ function threadUpdatedAt(thread: ChatThreadSummary) {
 
 function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
-  const { formatDate } = useFormatters();
   const navigate = useNavigate();
   const location = useLocation();
   const {
     threads,
     activeThreadId,
+    isLoading: chatsLoading,
     createThread,
     switchThread,
     renameThread,
     refreshThreads,
   } = useChatThreads(undefined, "dispatch", undefined, { autoCreate: false });
-  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const committingRenameRef = useRef(false);
 
   const visibleThreads = useMemo(
     () =>
@@ -355,9 +354,25 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
           (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
         )
         .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
-        .slice(0, 8),
+        .slice(0, 15),
     [activeThreadId, threads],
   );
+  const localPathname = localDispatchPath(location.pathname);
+  const displayedActiveThreadId =
+    threadIdFromPath(localPathname) ??
+    (localPathname === "/chat" ? null : activeThreadId);
+  const chatItems: ChatHistoryItem[] = visibleThreads.map((thread) => {
+    const title = threadTitle(thread, t("dispatch.sidebar.newChat"));
+    return {
+      id: thread.id,
+      title: <span title={title}>{title}</span>,
+      titleText: title,
+      timestamp:
+        thread.id === displayedActiveThreadId
+          ? ""
+          : formatThreadAge(threadUpdatedAt(thread)),
+    };
+  });
 
   useEffect(() => {
     const refresh = () => refreshThreads();
@@ -377,14 +392,6 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
       window.removeEventListener("focus", refresh);
     };
   }, [refreshThreads]);
-
-  useEffect(() => {
-    if (!renamingThreadId) return;
-    requestAnimationFrame(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    });
-  }, [renamingThreadId]);
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -409,164 +416,44 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
     if (threadId) openThread(threadId, { isNew: true });
   }
 
-  function startRenameThread(thread: ChatThreadSummary) {
-    committingRenameRef.current = false;
-    setRenameDraft(threadTitle(thread, t("dispatch.sidebar.newChat")));
-    setRenamingThreadId(thread.id);
-  }
-
-  function cancelRenameThread() {
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-  }
-
-  async function commitRenameThread() {
-    if (committingRenameRef.current) return;
-    const threadId = renamingThreadId;
-    const title = renameDraft.trim();
-    if (!threadId) return;
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-    if (title) await renameThread(threadId, title);
-    committingRenameRef.current = false;
-  }
-
-  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void commitRenameThread();
-  }
-
   return (
-    <div className="mt-2 border-s border-sidebar-border/70 ps-3">
-      <div className="mb-1 flex h-7 items-center gap-2 pe-1">
-        <div className="min-w-0 flex-1 text-xs font-medium text-sidebar-foreground/70">
-          {t("dispatch.sidebar.chats")}
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={handleNewChat}
-              className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              aria-label={t("dispatch.sidebar.newDispatchChat")}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("dispatch.sidebar.newChat")}</TooltipContent>
-        </Tooltip>
-      </div>
-      <div className="grid gap-0.5">
-        {visibleThreads.length > 0 ? (
-          visibleThreads.map((thread) => {
-            const localPathname = localDispatchPath(location.pathname);
-            const isActive =
-              thread.id ===
-              (threadIdFromPath(localPathname) ??
-                (localPathname === "/chat" ? null : activeThreadId));
-            const isRenaming = thread.id === renamingThreadId;
-            return (
-              <div
-                key={thread.id}
-                className={cn(
-                  "group flex h-8 min-w-0 items-center rounded-md text-sm transition-colors",
-                  isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
-                )}
-              >
-                {isRenaming ? (
-                  <form
-                    onSubmit={handleRenameSubmit}
-                    className="flex h-full min-w-0 flex-1 items-center px-1.5"
-                  >
-                    <Input
-                      ref={renameInputRef}
-                      value={renameDraft}
-                      onChange={(event) => setRenameDraft(event.target.value)}
-                      onBlur={() => void commitRenameThread()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          cancelRenameThread();
-                        }
-                      }}
-                      maxLength={160}
-                      aria-label={t("dispatch.sidebar.renameThread", {
-                        title: threadTitle(
-                          thread,
-                          t("dispatch.sidebar.newChat"),
-                        ),
-                      })}
-                      className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
-                    />
-                  </form>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openThread(thread.id)}
-                      className="flex h-full min-w-0 flex-1 cursor-pointer items-center px-2 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <span className="min-w-0 flex-1 truncate">
-                        {threadTitle(thread, t("dispatch.sidebar.newChat"))}
-                      </span>
-                    </button>
-                    <div className="relative flex size-7 shrink-0 items-center justify-end pe-1">
-                      <span className="text-[11px] text-sidebar-foreground/50 transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
-                        {isActive
-                          ? ""
-                          : formatThreadAge(
-                              threadUpdatedAt(thread),
-                              formatDate,
-                            )}
-                      </span>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={t("dispatch.sidebar.chatOptions", {
-                              title: threadTitle(
-                                thread,
-                                t("dispatch.sidebar.newChat"),
-                              ),
-                            })}
-                            className="absolute end-1 flex size-6 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/65 opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
-                          >
-                            <IconDots className="size-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          side="right"
-                          sideOffset={6}
-                        >
-                          <DropdownMenuItem
-                            onSelect={() => startRenameThread(thread)}
-                          >
-                            <IconEdit className="size-4" />
-                            {t("dispatch.sidebar.renameChat")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })
-        ) : (
-          <button
-            type="button"
-            onClick={handleNewChat}
-            className="flex h-8 cursor-pointer items-center rounded-md px-2 text-start text-sm text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground"
+    <div className="ms-4 min-w-0 space-y-0.5">
+      {chatsLoading &&
+        visibleThreads.length === 0 &&
+        Array.from({ length: 3 }).map((_, index) => (
+          <div
+            key={`chat-skeleton-${index}`}
+            className="flex items-center gap-2 px-3 py-1"
           >
-            <span className="truncate">{t("dispatch.sidebar.newChat")}</span>
-          </button>
-        )}
-      </div>
+            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+            <Skeleton className="h-3 w-3/4 rounded" />
+          </div>
+        ))}
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("dispatch.sidebar.newChat"),
+          showMore: t("dispatch.sidebar.chats"),
+          showLess: t("dispatch.sidebar.chats"),
+        }}
+        renameMaxLength={160}
+        onRename={(threadId, title) => void renameThread(threadId, title)}
+        labels={{
+          options: (item) =>
+            t("dispatch.sidebar.chatOptions", {
+              title: item.titleText ?? "",
+            }),
+          renameInput: (item) =>
+            t("dispatch.sidebar.renameThread", {
+              title: item.titleText ?? "",
+            }),
+          rename: t("dispatch.sidebar.renameChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -604,7 +491,7 @@ export function NavContent({
     ...navItemsForSection(extensionNavItems, "operations"),
   ];
   const localPathname = localDispatchPath(location.pathname);
-  const operationsOpen = operationsNavItems.some((item) =>
+  const advancedOpen = ADVANCED_NAV_ITEMS.some((item) =>
     navItemMatchesPath(item, localPathname),
   );
   const navLabel = (item: DispatchNavItem) => {
@@ -651,7 +538,7 @@ export function NavContent({
                 className={({ isActive }) => {
                   const active = isActive || itemMatchesLocalPath;
                   return cn(
-                    "flex h-10 w-10 items-center justify-center rounded-md text-sm",
+                    "flex h-8 w-8 items-center justify-center rounded-md text-sm",
                     active
                       ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -720,35 +607,26 @@ export function NavContent({
         <div
           className={cn(
             "flex items-center",
-            collapsed ? "justify-center" : "gap-3",
+            collapsed ? "justify-center" : "gap-2",
           )}
         >
           {!collapsed && (
             <>
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
-                <img
-                  src={appPath("/agent-native-icon-light.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="block h-4 w-auto shrink-0 dark:hidden"
-                />
-                <img
-                  src={appPath("/agent-native-icon-dark.svg")}
-                  alt=""
-                  aria-hidden="true"
-                  className="hidden h-4 w-auto shrink-0 dark:block"
-                />
-              </div>
+              <img
+                src={appPath("/agent-native-icon-light.svg")}
+                alt=""
+                aria-hidden="true"
+                className="block h-5 w-auto shrink-0 dark:hidden"
+              />
+              <img
+                src={appPath("/agent-native-icon-dark.svg")}
+                alt=""
+                aria-hidden="true"
+                className="hidden h-5 w-auto shrink-0 dark:block"
+              />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-foreground">
+                <div className="truncate text-lg font-bold tracking-tight text-foreground">
                   {workspaceLabel ?? "Dispatch"}
-                </div>
-                <div className="truncate text-xs text-muted-foreground">
-                  {workspaceLabel
-                    ? t("dispatch.sidebar.workspaceSubtitle", {
-                        count: ws?.appCount ?? 0,
-                      })
-                    : t("dispatch.sidebar.workspaceControlPlane")}
                 </div>
               </div>
             </>
@@ -787,34 +665,50 @@ export function NavContent({
         <nav className={cn("py-3", collapsed ? "px-1" : "px-2")}>
           <ul
             className={cn(
-              "space-y-0.5",
-              collapsed && "flex flex-col items-center",
+              collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
             )}
           >
-            {(collapsed
-              ? [...primaryNavItems, ...operationsNavItems]
-              : primaryNavItems
-            ).map(renderNavItem)}
+            {primaryNavItems.map(renderNavItem)}
           </ul>
-        </nav>
 
-        {!collapsed ? (
-          <div className="mt-auto shrink-0">
-            <div className="px-2 py-2">
-              <details className="group" open={operationsOpen}>
-                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium uppercase text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
-                  <span>{t("dispatch.nav.operations")}</span>
+          {collapsed ? (
+            <>
+              <ul className="mt-5 flex flex-col items-center gap-1">
+                {operationsNavItems.map(renderNavItem)}
+              </ul>
+              <ul className="mt-3 flex flex-col items-center gap-1">
+                {ADVANCED_NAV_ITEMS.map(renderNavItem)}
+              </ul>
+            </>
+          ) : (
+            <div className="mt-5">
+              <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/45">
+                {t("dispatch.nav.operate", { defaultValue: "Operate" })}
+              </p>
+              <ul className="space-y-0.5">
+                {operationsNavItems.map(renderNavItem)}
+              </ul>
+
+              <details className="group mt-3" open={advancedOpen}>
+                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
+                  <span>
+                    {t("dispatch.nav.advanced", { defaultValue: "Advanced" })}
+                  </span>
                   <IconChevronDown
                     size={14}
                     className="transition-transform group-open:rotate-180"
                   />
                 </summary>
                 <ul className="mt-1 space-y-0.5">
-                  {operationsNavItems.map(renderNavItem)}
+                  {ADVANCED_NAV_ITEMS.map(renderNavItem)}
                 </ul>
               </details>
             </div>
+          )}
+        </nav>
 
+        {!collapsed ? (
+          <div className="mt-auto shrink-0">
             <div className="px-2 py-1">
               <ExtensionsSidebarSection />
             </div>
@@ -823,7 +717,7 @@ export function NavContent({
               <OrgSwitcher />
             </div>
 
-            <div className="px-3 py-2">
+            <div className="px-3 py-2 empty:hidden">
               <FeedbackButton />
             </div>
           </div>
@@ -836,9 +730,11 @@ export function NavContent({
 export function Layout({
   children,
   extensions,
+  agentPageHref,
 }: {
   children: ReactNode;
   extensions?: DispatchExtensionConfig;
+  agentPageHref?: string;
 }) {
   const t = useT();
   const location = useLocation();
@@ -864,6 +760,7 @@ export function Layout({
     storageKey: "dispatch",
     isChatPath: (pathname: string) =>
       pathname === "/chat" || pathname.startsWith("/chat/"),
+    requireActiveHandoff: true,
   };
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
 
@@ -924,6 +821,7 @@ export function Layout({
     <AgentSidebar
       position="right"
       defaultOpen={false}
+      agentPageHref={agentPageHref}
       chatViewTransition
       storageKey="dispatch"
       openOnChatRunning={chatHomeHandoffActive}
@@ -942,7 +840,7 @@ export function Layout({
           data-collapsed={sidebarCollapsed ? "true" : "false"}
           className={cn(
             "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-            sidebarCollapsed ? "w-12" : "w-64",
+            sidebarCollapsed ? "w-14" : "w-56",
           )}
         >
           <NavContent

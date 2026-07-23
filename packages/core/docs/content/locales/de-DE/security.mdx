@@ -390,6 +390,8 @@ Dies war zuvor eine „Warnen und Akzeptieren“-Haltung – legen Sie das Gehei
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` ist **nicht** festgelegt, es sei denn, Ihre Organisation teilt tatsächlich Arbeitsbereichsschlüssel – siehe [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] In mandantenfähigen Bereitstellungen **bringen Benutzer ihr eigenes `ANTHROPIC_API_KEY` mit** – das Framework weigert sich, auf die Umgebungsvariable auf Bereitstellungsebene zurückzugreifen
 
+Führen Sie `agent-native doctor` aus (`pnpm doctor` in einer gescaffoldeten App), um die Schema-, Credential- und Umgebungsvariablen-Punkte dieser Checkliste automatisch zu prüfen – jeder Befund nennt Guard, Datei und Zeile. Siehe die [Doctor](/docs/doctor)-Dokumentation.
+
 ---
 
 In den folgenden Abschnitten werden Nischenumgebungsflags behandelt, die Sie nur in bestimmten Bereitstellungen erreichen. Die meisten Apps berühren sie nie.
@@ -417,3 +419,11 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 Für geheime Schreibvorgänge im Arbeitsbereichsbereich ist unabhängig von diesem Flag weiterhin die Rolle „Organisationsbesitzer/-administrator“ erforderlich.
+
+## Nächste Schritte
+
+- [**Authentication**](/docs/authentication) — Auth-Modi, Cookie-Realms und Sitzungsdetails, auf denen diese Seite aufbaut
+- [**Multi-Tenancy**](/docs/multi-tenancy) — das Org-Mitgliedschaftsmodell hinter dem `org_id`-Scoping
+- [**Sharing**](/docs/sharing) — das `ownableColumns()`- und Access-Guard-Muster, angewendet auf teilbare Ressourcen
+- [**Messaging**](/docs/messaging#env-vars) — die Webhook-Signaturgeheimnisse pro Integration, auf die in der obigen Checkliste verwiesen wird
+- [**Deployment**](/docs/deployment) — die Produktionsumgebungsvariablen, deren Vorhandensein diese Checkliste voraussetzt

@@ -51,91 +51,15 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "cloneable-saas",
-        labelKey: "templates",
+        labelKey: "templatesOverview",
         slug: "cloneable-saas",
       },
+      {
+        id: "pure-agent-apps",
+        labelKey: "pureAgentApps",
+        slug: "pure-agent-apps",
+      },
       { id: "faq", labelKey: "faq", slug: "faq" },
-    ],
-  },
-  {
-    id: "toolkits",
-    titleKey: "agentNativeToolkit",
-    items: [
-      {
-        id: "agent-native-toolkit",
-        labelKey: "toolkitOverview",
-        slug: "agent-native-toolkit",
-      },
-      {
-        id: "toolkit-sharing",
-        labelKey: "toolkitSharing",
-        slug: "toolkit-sharing",
-      },
-      {
-        id: "toolkit-collaboration",
-        labelKey: "toolkitCollaboration",
-        slug: "toolkit-collaboration",
-      },
-      {
-        id: "toolkit-settings",
-        labelKey: "toolkitSettings",
-        slug: "toolkit-settings",
-      },
-      {
-        id: "toolkit-org-team",
-        labelKey: "toolkitOrgTeam",
-        slug: "toolkit-org-team",
-      },
-      {
-        id: "toolkit-setup-connections",
-        labelKey: "toolkitSetupConnections",
-        slug: "toolkit-setup-connections",
-      },
-      {
-        id: "toolkit-command-navigation",
-        labelKey: "toolkitCommandNavigation",
-        slug: "toolkit-command-navigation",
-      },
-      {
-        id: "toolkit-resources",
-        labelKey: "toolkitResources",
-        slug: "toolkit-resources",
-      },
-      {
-        id: "toolkit-agent-ux",
-        labelKey: "toolkitAgentUx",
-        slug: "toolkit-agent-ux",
-      },
-      {
-        id: "toolkit-history",
-        labelKey: "toolkitHistory",
-        slug: "toolkit-history",
-      },
-      {
-        id: "toolkit-comments-review",
-        labelKey: "toolkitCommentsReview",
-        slug: "toolkit-comments-review",
-      },
-      {
-        id: "toolkit-observability",
-        labelKey: "toolkitObservability",
-        slug: "toolkit-observability",
-      },
-      {
-        id: "toolkit-ui",
-        labelKey: "toolkitUiPrimitives",
-        slug: "toolkit-ui",
-      },
-      {
-        id: "toolkit-app-adapters",
-        labelKey: "toolkitAppAdapters",
-        slug: "toolkit-app-adapters",
-      },
-      {
-        id: "toolkit-shell-hooks",
-        labelKey: "toolkitShellHooks",
-        slug: "toolkit-shell-hooks",
-      },
     ],
   },
   {
@@ -194,6 +118,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "tracking",
       },
       { id: "audit-log", labelKey: "auditLog", slug: "audit-log" },
+      {
+        id: "doctor",
+        labelKey: "doctorCodeChecks",
+        slug: "doctor",
+      },
       { id: "observability", labelKey: "observability", slug: "observability" },
       {
         id: "observational-memory",
@@ -243,13 +172,13 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     ],
   },
   {
-    id: "workspace",
-    titleKey: "workspace",
+    id: "agent-resources",
+    titleKey: "agentResources",
     items: [
       {
-        id: "workspace-overview",
-        labelKey: "workspaceOverview",
-        slug: "workspace",
+        id: "agent-resources-overview",
+        labelKey: "agentResourcesOverview",
+        slug: "agent-resources",
       },
       { id: "skills-guide", labelKey: "skills", slug: "skills-guide" },
       {
@@ -290,6 +219,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     id: "integrations",
     titleKey: "integrations",
     items: [
+      {
+        id: "integration-directory",
+        labelKey: "integrations",
+        slug: "integrations",
+      },
       { id: "messaging", labelKey: "messaging", slug: "messaging" },
       { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
       { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
@@ -307,6 +241,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
+      {
+        id: "automation-connectors",
+        labelKey: "automationConnectors",
+        slug: "automation-connectors",
+      },
       {
         id: "workspace-connections",
         labelKey: "workspaceConnections",
@@ -333,6 +272,115 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     ],
   },
   {
+    id: "toolkits",
+    titleKey: "agentNativeToolkit",
+    items: [
+      {
+        id: "agent-native-toolkit",
+        labelKey: "toolkitOverview",
+        slug: "agent-native-toolkit",
+      },
+      {
+        id: "toolkit-ui",
+        labelKey: "toolkitUiPrimitives",
+        slug: "toolkit-ui",
+      },
+      {
+        id: "toolkit-editors-canvases",
+        labelKey: "toolkitEditorsCanvases",
+        slug: "toolkit-editors-canvases",
+      },
+      {
+        id: "toolkit-context-knowledge",
+        labelKey: "toolkitContextKnowledge",
+        slug: "toolkit-context-knowledge",
+      },
+      {
+        id: "toolkit-feature-kits",
+        labelKey: "featureKits",
+        children: [
+          {
+            id: "toolkit-sharing",
+            labelKey: "toolkitSharing",
+            slug: "toolkit-sharing",
+          },
+          {
+            id: "toolkit-collaboration",
+            labelKey: "toolkitCollaboration",
+            slug: "toolkit-collaboration",
+          },
+          {
+            id: "toolkit-history",
+            labelKey: "toolkitHistory",
+            slug: "toolkit-history",
+          },
+          {
+            id: "toolkit-comments-review",
+            labelKey: "toolkitCommentsReview",
+            slug: "toolkit-comments-review",
+          },
+          {
+            id: "toolkit-observability",
+            labelKey: "toolkitObservability",
+            slug: "toolkit-observability",
+          },
+        ],
+      },
+      {
+        id: "toolkit-app-chrome",
+        labelKey: "appChrome",
+        children: [
+          {
+            id: "toolkit-settings",
+            labelKey: "toolkitSettings",
+            slug: "toolkit-settings",
+          },
+          {
+            id: "toolkit-org-team",
+            labelKey: "toolkitOrgTeam",
+            slug: "toolkit-org-team",
+          },
+          {
+            id: "toolkit-setup-connections",
+            labelKey: "toolkitSetupConnections",
+            slug: "toolkit-setup-connections",
+          },
+          {
+            id: "toolkit-command-navigation",
+            labelKey: "toolkitCommandNavigation",
+            slug: "toolkit-command-navigation",
+          },
+          {
+            id: "toolkit-resources",
+            labelKey: "toolkitResources",
+            slug: "toolkit-resources",
+          },
+          {
+            id: "toolkit-agent-ux",
+            labelKey: "toolkitAgentUx",
+            slug: "toolkit-agent-ux",
+          },
+        ],
+      },
+      {
+        id: "toolkit-capability-packages",
+        labelKey: "capabilityPackages",
+        children: [
+          {
+            id: "toolkit-capability-packages-overview",
+            labelKey: "capabilityPackagesOverview",
+            slug: "toolkit-capability-packages",
+          },
+          {
+            id: "package-lifecycle",
+            labelKey: "packageLifecycle",
+            slug: "package-lifecycle",
+          },
+        ],
+      },
+    ],
+  },
+  {
     id: "advanced-runtime",
     titleKey: "advancedRuntime",
     items: [
@@ -340,11 +388,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "code-agents-ui",
         labelKey: "agentNativeCodeUi",
         slug: "code-agents-ui",
-      },
-      {
-        id: "migration-workbench",
-        labelKey: "migrating",
-        slug: "migration-workbench",
       },
       {
         id: "harness-agents",
@@ -474,9 +517,10 @@ export function getDocsNavSections(
 }
 
 // Flat list for prev/next navigation and current-item lookups. Nested
-// children (e.g. the plan docs under the Plans group) are flattened in place
-// where their parent sits; chevron-only group headers (no `to`) are skipped
-// so reading order stays intuitive and prev/next only lands on real pages.
+// children (e.g. the plan docs under the Plans group, or the Toolkit
+// "Feature Kits" / "App Chrome" groups) are flattened in place where their
+// parent sits; chevron-only group headers (no `to`) are skipped so reading
+// order stays intuitive and prev/next only lands on real pages.
 function flattenItems(items: NavItem[]): NavItem[] {
   return items.flatMap((item) =>
     item.children

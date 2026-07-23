@@ -16,12 +16,39 @@ import {
   resetBuilderWaitlistRateLimitForTests,
   resolveFrameworkSseRoutes,
   resolveLegacyToolsRedirect,
+  normalizeAgentEngineStatusModel,
   runDbHealthProbe,
   AVATAR_RASTER_MIME,
   resolveAvatarEmailParam,
   getFrameworkRouteRequestUrl,
   getFrameworkEnvKeys,
+  readLegacyCoreRouteInitSettings,
 } from "./core-routes-plugin.js";
+
+describe("readLegacyCoreRouteInitSettings", () => {
+  it("starts independent setting reads in parallel and isolates failures", async () => {
+    let resolvePersisted: (
+      value: Record<string, unknown> | null,
+    ) => void = () => {};
+    const persisted = new Promise<Record<string, unknown> | null>((resolve) => {
+      resolvePersisted = resolve;
+    });
+    const calls: string[] = [];
+
+    const resultPromise = readLegacyCoreRouteInitSettings(async (key) => {
+      calls.push(key);
+      if (key === "persisted-env-vars") return persisted;
+      throw new Error("builder setting unavailable");
+    });
+
+    expect(calls).toEqual(["persisted-env-vars", "builder-disconnected"]);
+    resolvePersisted({ OTHER_KEY: "value" });
+    await expect(resultPromise).resolves.toEqual({
+      persistedEnvVars: { OTHER_KEY: "value" },
+      builderDisconnected: null,
+    });
+  });
+});
 
 function createMockEvent(url: string): H3Event {
   const parsed = new URL(url);
@@ -77,6 +104,21 @@ describe("getFrameworkEnvKeys", () => {
     expect(keys).toContain("RESEND_API_KEY");
     expect(keys).toContain("SENDGRID_API_KEY");
     expect(keys).toContain("EMAIL_FROM");
+  });
+});
+
+describe("normalizeAgentEngineStatusModel", () => {
+  it("normalizes removed model ids before reporting current status", () => {
+    expect(
+      normalizeAgentEngineStatusModel(
+        {
+          name: "builder",
+          defaultModel: "claude-sonnet-5",
+          supportedModels: ["auto", "claude-opus-4-8", "claude-sonnet-5"],
+        },
+        "claude-opus-4-7",
+      ),
+    ).toBe("claude-opus-4-8");
   });
 });
 
@@ -402,6 +444,50 @@ describe("buildBuilderWaitlistFormPayload", () => {
         useCase: "docs_build_online_waitlist",
       },
     });
+  });
+
+  it("preserves template context for docs customization waitlist submissions", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        pageUrl: "https://agent-native.com/apps",
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      }),
+    ).toMatchObject({
+      data: {
+        email: "reader@example.com",
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      },
+      _meta: {
+        source: "docs_template_card",
+        template: "clips",
+        useCase: "docs_edit_online_waitlist",
+      },
+    });
+  });
+
+  it("normalizes valid template slugs and drops unsafe values", () => {
+    const event = createMockEvent(
+      "https://agent-native.com/_agent-native/builder/branch-waitlist",
+    );
+
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        template: "  clips  ",
+      }).data.template,
+    ).toBe("clips");
+    expect(
+      buildBuilderWaitlistFormPayload(event, "reader@example.com", {
+        template: "clips\n<!channel>",
+      }).data.template,
+    ).toBeUndefined();
   });
 });
 

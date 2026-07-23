@@ -12,11 +12,12 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
-  listPropertiesForDocument,
+  getDatabaseById,
+  listPropertiesForDatabaseDocuments,
   nanoid,
   normalizedValueJson,
-  resolvePropertyDatabaseForDocument,
   writeBlockFieldContent,
   writePrimaryBlocksContent,
 } from "./_property-utils.js";
@@ -29,27 +30,34 @@ export default defineAction({
     value: z.unknown().describe("Value for the property type"),
   }),
   run: async ({ documentId, propertyId, value }) => {
-    const access = await assertAccess("document", documentId, "editor");
-    const document = access.resource;
     const db = getDb();
-    const database = await resolvePropertyDatabaseForDocument(document);
-    if (!database) throw new Error("Document is not part of a database.");
-
     const [definition] = await db
       .select()
       .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+    if (!definition) throw new Error(`Property "${propertyId}" not found`);
+    if (!definition.databaseId) {
+      throw new Error(`Property "${propertyId}" is not attached to a database`);
+    }
+    const database = await getDatabaseById(definition.databaseId);
+    if (!database) throw new Error("Document database not found.");
+    await assertAccess("document", database.documentId, "editor");
+    if (definition.systemRole) {
+      throw new Error("System properties are derived and cannot be edited.");
+    }
+    const access = await resolveContentDocumentAccess(documentId);
+    if (!access) throw new Error(`Document "${documentId}" not found`);
+    const document = access.resource;
+    const [membership] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
       .where(
         and(
-          eq(schema.documentPropertyDefinitions.id, propertyId),
-          eq(
-            schema.documentPropertyDefinitions.ownerEmail,
-            document.ownerEmail,
-          ),
-          eq(schema.documentPropertyDefinitions.databaseId, database.id),
+          eq(schema.contentDatabaseItems.databaseId, database.id),
+          eq(schema.contentDatabaseItems.documentId, documentId),
         ),
       );
-    if (!definition) throw new Error(`Property "${propertyId}" not found`);
-
+    if (!membership) throw new Error("Document is not part of this database.");
     const type = definition.type as DocumentPropertyType;
     if (isComputedPropertyType(type)) {
       throw new Error("Computed properties cannot be edited.");
@@ -61,6 +69,7 @@ export default defineAction({
     // primary "Content" field writes to the document body; additional Blocks
     // fields write to their own independent store.
     if (isBlocksPropertyType(type)) {
+      await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";
       const target = blocksStorageTarget(
@@ -72,7 +81,7 @@ export default defineAction({
         await writeBlockFieldContent({
           documentId,
           propertyId,
-          ownerEmail: document.ownerEmail,
+          ownerEmail: database.ownerEmail,
           content,
           now,
         });
@@ -80,11 +89,17 @@ export default defineAction({
       return {
         documentId,
         databaseId: database.id,
-        properties: await listPropertiesForDocument({
-          ...document,
-          content: target === "document_body" ? content : document.content,
-          updatedAt: now,
-        }),
+        properties:
+          (
+            await listPropertiesForDatabaseDocuments(database.id, [
+              {
+                ...document,
+                content:
+                  target === "document_body" ? content : document.content,
+                updatedAt: now,
+              },
+            ])
+          ).get(documentId) ?? [],
       };
     }
 
@@ -107,7 +122,7 @@ export default defineAction({
     } else {
       await db.insert(schema.documentPropertyValues).values({
         id: nanoid(),
-        ownerEmail: document.ownerEmail,
+        ownerEmail: database.ownerEmail,
         documentId,
         propertyId,
         valueJson,
@@ -119,7 +134,10 @@ export default defineAction({
     return {
       documentId,
       databaseId: database.id,
-      properties: await listPropertiesForDocument(document),
+      properties:
+        (await listPropertiesForDatabaseDocuments(database.id, [document])).get(
+          documentId,
+        ) ?? [],
     };
   },
 });

@@ -64,6 +64,7 @@ async function retypeBooleanColumnsOnPostgres(): Promise<void> {
     ["recording_viewers", "counted_view", false],
     ["recording_viewers", "cta_clicked", false],
     ["meeting_participants", "is_organizer", false],
+    ["clips_meetings", "share_transcript", false],
   ];
   for (const [table, column, defaultTrue] of alters) {
     try {
@@ -104,7 +105,7 @@ const migrations = runMigrations(
       slug TEXT NOT NULL,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -348,7 +349,7 @@ const migrations = runMigrations(
       organization_id TEXT PRIMARY KEY,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,
@@ -825,6 +826,30 @@ const migrations = runMigrations(
         `CREATE UNIQUE INDEX IF NOT EXISTS recording_views_session_unique_idx ON recording_views (recording_id, viewer_key, view_session_id)`,
       ].join("; "),
     },
+    {
+      version: 48,
+      name: "recording-viewers-canonical-viewer-key",
+      sql: [
+        `ALTER TABLE recording_viewers ADD COLUMN IF NOT EXISTS viewer_key TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS recording_viewers_recording_viewer_key_unique_idx ON recording_viewers (recording_id, viewer_key)`,
+      ].join("; "),
+    },
+    {
+      version: 49,
+      name: "clips-meetings-share-transcript",
+      sql: `ALTER TABLE clips_meetings ADD COLUMN IF NOT EXISTS share_transcript INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 50,
+      name: "clips-public-organization-default",
+      // Earlier releases persisted the old private default into org rows.
+      // Normalize that state once; the org setting remains an explicit override.
+      // guard:allow-unscoped — startup migration normalizes legacy defaults across organizations.
+      sql: [
+        `UPDATE workspaces SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+        `UPDATE organization_settings SET default_visibility = 'public' WHERE default_visibility = 'private' AND updated_at = created_at`,
+      ].join("; "),
+    },
   ],
   { table: "clips_migrations" },
 );
@@ -1255,7 +1280,9 @@ function rowNumber(value: unknown): number {
  * rows forever. We only delete sessions whose recording row is gone, or whose
  * recording reached a terminal status more than an hour ago. Abandoned browser
  * uploads can leave the recording stuck in `uploading`, so those are swept only
- * after a much longer grace window.
+ * after a much longer grace window. Resumable session activity is the heartbeat
+ * for in-progress uploads because streaming chunks do not update the recording
+ * row on every provider relay.
  */
 async function sweepOrphanedResumableSessions(): Promise<void> {
   const exec = getDbExec();
@@ -1306,6 +1333,8 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
     if (!key.startsWith(prefix)) continue;
     const recordingId = key.slice(prefix.length);
     if (!recordingId) continue;
+    const sessionUpdatedAt =
+      typeof row.updated_at === "string" ? row.updated_at : "";
 
     let shouldSweep = false;
     try {
@@ -1328,7 +1357,7 @@ async function sweepOrphanedResumableSessions(): Promise<void> {
       } else if (
         (recording.status === "uploading" ||
           recording.status === "processing") &&
-        (recording.updated_at ?? "") < staleInProgressIso
+        (sessionUpdatedAt || recording.updated_at || "") < staleInProgressIso
       ) {
         try {
           await exec.execute({

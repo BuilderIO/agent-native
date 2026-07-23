@@ -1,13 +1,13 @@
 ---
 title: "共享和隐私"
-description: "Google Docs 风格的共享，内置于框架中。每个用户创建的资源（文档、仪表板、设计、演示文稿、剪辑、录音、表单）都会获得相同的默认私有模型以及一致的共享 UI。"
+description: "框架内置了熟悉且一致的共享方式。用户创建的每种资源（文档、仪表板、设计、演示文稿、剪辑、录音和表单）都采用相同的默认私有模型和一致的共享 UI。"
 ---
 
 # 共享和隐私
 
 用户在代理原生应用程序中创建的每个资源（文档、仪表板、设计、演示文稿、屏幕录制、会议记录、表单、预订链接）**默认情况下对创建者来说是私有的**。仅当创建者明确共享它或将其可见性更改为 `org` 或 `public` 时，其他人才能看到它。
 
-它的外观和工作方式与 Google 文档类似。相同的共享按钮、相同的对话框、相同的三层可见性模型、相同的每用户/每组织授权 - 跨每个模板，无需针对每个应用进行重新设计。
+所有地方都使用一种熟悉的共享模型：相同的共享按钮、相同的对话框、相同的三级可见性模型，以及相同的按用户和按组织授权，覆盖每个模板，无需为每个应用重新实现。
 
 ## 为什么选择一种模型 {#why}
 
@@ -92,7 +92,7 @@ description: "Google Docs 风格的共享，内置于框架中。每个用户创
 - **内容** — 文档
 - **幻灯片** — 幻灯片
 - **设计** — 设计和资产
-- **剪辑** — 屏幕录制（Loom 风格）
+- **剪辑** — 屏幕录制
 - **Plan** — visual plans and PR recaps
 - **表单** — 表单定义
 - **日历** — 活动和预订链接
@@ -115,15 +115,14 @@ description: "Google Docs 风格的共享，内置于框架中。每个用户创
 
 - 可见性选择器（`Private` / `Organization` / `Public link`）。
 - “添加人员或团队”自动完成 - 搜索组织中的用户或粘贴电子邮件。
-- 用于个人电子邮件授权的 Google 文档样式 `通知 people` 复选框。
+- 用于单独电子邮件授权的 `通知人员` 复选框。
 - 包含角色选择器和删除控件的当前授权列表。
 - 尊重当前可见性的复制链接按钮。
 
 共享按钮是一次导入：
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client";
-
+import { ShareButton } from "@agent-native/core/client/sharing";
 <ShareButton
   resourceType="deck"
   resourceId={deck.id}
@@ -270,7 +269,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 `server/db/index.ts` 中的一次注册电话：
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -315,9 +314,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 共享依赖于框架更广泛的数据范围模型 - 对可拥有表的列表/读/写访问通过 `accessFilter()` / `resolveAccess()` / `assertAccess()`，并且 `org_id` 标记的资源在组织中不可见。有关完整管道、CI 防护和威胁面，请参阅 [Security → Data Scoping](/docs/security#data-scoping)。
 
-## 另请参阅 {#see-also}
+## 后续步骤 {#see-also}
 
-- [Security & Data Scoping](/docs/security) - 共享所依赖的访问过滤器和所有权模型。
-- [Authentication](/docs/authentication) — 会话、组织以及身份如何流入请求上下文。
-- [Extensions](/docs/extensions#sharing) — 在沙盒迷你应用表面中共享。
-- [Creating Templates](/docs/creating-templates) — 将 `ownableColumns` 连接到新模板的架构中。
+- [**安全 — 数据作用域**](/docs/security#data-scoping) — 共享所依赖的访问过滤和所有权模型
+- [**身份验证**](/docs/authentication) — 会话、组织以及身份如何流入请求上下文
+- [**Extensions**](/docs/extensions#sharing) — 沙盒化迷你应用表面中的共享
+- [**创建模板**](/docs/creating-templates) — 将 `ownableColumns` 接入新模板的架构

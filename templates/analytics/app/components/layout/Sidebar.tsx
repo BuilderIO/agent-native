@@ -16,11 +16,11 @@ import {
   IconArchive,
   IconActivity,
   IconHeartbeat,
-  IconPin,
   IconPlus,
   IconLock,
   IconLink,
   IconMessageCircle,
+  IconHierarchy2,
   IconUsersGroup,
   IconEye,
   IconEyeOff,
@@ -42,7 +42,6 @@ import {
   useRef,
   useMemo,
   Fragment,
-  type FormEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -68,22 +67,40 @@ type SidebarDashboard = {
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
+
+const SIDEBAR_SYNC_SETTLE_MS = 500;
+
+function useSettledSyncVersion(version: number): number {
+  const [settledVersion, setSettledVersion] = useState(version);
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSettledVersion(version),
+      SIDEBAR_SYNC_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [version]);
+  return settledVersion;
+}
 import {
-  DevDatabaseLink,
-  FeedbackButton,
-  LanguagePicker,
-  appApiPath,
-  callAction,
-  appPath,
   navigateWithAgentChatViewTransition,
   useChatThreads,
+  type ChatThreadSummary,
+} from "@agent-native/core/client/agent-chat";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import {
+  callAction,
   useActionMutation,
   useChangeVersions,
-  useT,
-  type ChatThreadSummary,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import {
+  ChatHistoryRail,
+  type ChatHistoryItem,
+} from "@agent-native/toolkit/chat-history";
 
 import {
   AlertDialog,
@@ -123,6 +140,7 @@ import {
   type DashboardView,
 } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
+import { shouldRenderDashboardList } from "@/lib/dashboard-list-loading";
 import { usePopularity, popularityOf } from "@/lib/item-popularity";
 import {
   analysisDetailPrefetchKey,
@@ -133,6 +151,7 @@ import type { ResourceAccess } from "@/lib/resource-access";
 
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { NewDashboardDialog } from "./NewDashboardDialog";
+import { SidebarLoadError } from "./SidebarLoadError";
 
 type AnalysisHiddenFilter = "visible" | "hidden";
 
@@ -168,6 +187,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
+  {
+    icon: IconHierarchy2,
+    labelKey: "settings.agentTitle",
+    href: "/agent",
+  },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -277,7 +301,7 @@ function SidebarSectionSettingsPopover({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={settingsLabel}
             >
               <IconFilter className="h-3.5 w-3.5" />
@@ -600,7 +624,7 @@ function SortableRow({
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <button
         type="button"
-        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-[opacity,color] hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
         aria-label={t("sidebar.dragItemPersonal", { name })}
         {...attributes}
         {...listeners}
@@ -916,7 +940,7 @@ function SortableDashboardItem({
               <div
                 key={sv.id}
                 className={cn(
-                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-all",
+                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-[opacity,color,background-color]",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-primary",
@@ -975,7 +999,7 @@ function SortableDashboardItem({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <PopoverTrigger asChild>
-                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0">
+                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-[opacity,color,background-color] shrink-0">
                               <IconTrash className="h-2.5 w-2.5" />
                             </button>
                           </PopoverTrigger>
@@ -1117,28 +1141,24 @@ type SqlDashboardListItem = {
 async function fetchSqlDashboards(
   t: (key: string) => string,
 ): Promise<SqlDashboardListItem[]> {
-  try {
-    const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
-    return (Array.isArray(rows) ? rows : [])
-      .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
-      .map((d: any) => ({
-        id: d.id,
-        name:
-          typeof d.name === "string" && d.name.trim().length > 0
-            ? d.name
-            : t("sidebar.untitledDashboard"),
-        visibility:
-          d.visibility === "org" || d.visibility === "public"
-            ? (d.visibility as Visibility)
-            : ("private" as Visibility),
-        parentId:
-          typeof d.parentId === "string" && d.parentId.trim().length > 0
-            ? d.parentId
-            : undefined,
-      }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : [])
+    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .map((d: any) => ({
+      id: d.id,
+      name:
+        typeof d.name === "string" && d.name.trim().length > 0
+          ? d.name
+          : t("sidebar.untitledDashboard"),
+      visibility:
+        d.visibility === "org" || d.visibility === "public"
+          ? (d.visibility as Visibility)
+          : ("private" as Visibility),
+      parentId:
+        typeof d.parentId === "string" && d.parentId.trim().length > 0
+          ? d.parentId
+          : undefined,
+    }));
 }
 
 async function fetchSidebarAnalyses(
@@ -1152,31 +1172,27 @@ async function fetchSidebarAnalyses(
     hiddenAt: string | null;
   }[]
 > {
-  try {
-    const rows = await callAction(
-      "list-analyses",
-      {
-        ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
-      } as Record<string, unknown>,
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : [])
-      .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
-      .map((a: any) => ({
-        id: a.id,
-        name:
-          typeof a.name === "string" && a.name.trim().length > 0
-            ? a.name
-            : t("sidebar.untitledAnalysis"),
-        visibility:
-          a.visibility === "org" || a.visibility === "public"
-            ? a.visibility
-            : ("private" as Visibility),
-        hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
-      }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction(
+    "list-analyses",
+    {
+      ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
+    } as Record<string, unknown>,
+    { method: "GET" },
+  );
+  return (Array.isArray(rows) ? rows : [])
+    .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
+    .map((a: any) => ({
+      id: a.id,
+      name:
+        typeof a.name === "string" && a.name.trim().length > 0
+          ? a.name
+          : t("sidebar.untitledAnalysis"),
+      visibility:
+        a.visibility === "org" || a.visibility === "public"
+          ? a.visibility
+          : ("private" as Visibility),
+      hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
+    }));
 }
 
 type PrefetchedSqlDashboard = {
@@ -1295,7 +1311,7 @@ function persistedAnalyticsThreadId() {
   }
 }
 
-function AnalyticsChatsSection() {
+function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -1312,19 +1328,34 @@ function AnalyticsChatsSection() {
     autoCreate: false,
     restoreActiveThread: false,
   });
-  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
-  const [renameDraft, setRenameDraft] = useState("");
-  const renameInputRef = useRef<HTMLInputElement | null>(null);
-  const committingRenameRef = useRef(false);
 
   const visibleThreads = useMemo(
     () =>
       threads
         .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
         .sort(compareThreads)
-        .slice(0, SIDEBAR_PREVIEW_COUNT),
+        .slice(0, 15),
     [threads],
   );
+  const chatItems = useMemo<ChatHistoryItem[]>(
+    () =>
+      visibleThreads.map((thread) => ({
+        id: thread.id,
+        title: threadTitle(thread, t("chat.untitledChat")),
+        titleText: threadTitle(thread, t("chat.untitledChat")),
+        timestamp:
+          isAskRoute &&
+          (thread.id === activeThreadId ||
+            thread.id === persistedAnalyticsThreadId())
+            ? undefined
+            : formatThreadAge(threadUpdatedAt(thread)),
+        pinned: Boolean(thread.pinnedAt),
+      })),
+    [activeThreadId, isAskRoute, t, visibleThreads],
+  );
+  const displayedActiveThreadId = isAskRoute
+    ? (activeThreadId ?? persistedAnalyticsThreadId())
+    : null;
 
   useEffect(() => {
     const refresh = () => refreshThreads();
@@ -1344,14 +1375,6 @@ function AnalyticsChatsSection() {
       window.removeEventListener("focus", refresh);
     };
   }, [refreshThreads]);
-
-  useEffect(() => {
-    if (!renamingThreadId) return;
-    requestAnimationFrame(() => {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    });
-  }, [renamingThreadId]);
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -1383,36 +1406,10 @@ function AnalyticsChatsSection() {
     }
   }
 
-  function startRenameThread(thread: ChatThreadSummary) {
-    committingRenameRef.current = false;
-    setRenameDraft(threadTitle(thread, t("chat.untitledChat")));
-    setRenamingThreadId(thread.id);
-  }
-
-  function cancelRenameThread() {
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-  }
-
-  async function commitRenameThread() {
-    if (committingRenameRef.current) return;
-    const threadId = renamingThreadId;
-    const title = renameDraft.trim();
-    if (!threadId) return;
-    committingRenameRef.current = true;
-    setRenamingThreadId(null);
-    setRenameDraft("");
-    if (title) {
-      const renamed = await renameThread(threadId, title);
+  function handleRenameThread(threadId: string, title: string) {
+    void renameThread(threadId, title).then((renamed) => {
       if (!renamed) toast.error(t("chat.renameFailed"));
-    }
-    committingRenameRef.current = false;
-  }
-
-  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void commitRenameThread();
+    });
   }
 
   return (
@@ -1436,131 +1433,37 @@ function AnalyticsChatsSection() {
             />
           </div>
         ))}
-      {visibleThreads.map((thread) => {
-        const title = threadTitle(thread, t("chat.untitledChat"));
-        const isActive =
-          thread.id === activeThreadId ||
-          thread.id === persistedAnalyticsThreadId();
-        const isRenaming = thread.id === renamingThreadId;
-        return (
-          <div
-            key={thread.id}
-            className={cn(
-              "group/item relative flex min-w-0 items-center rounded-lg transition-colors",
-              isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-primary",
-            )}
-          >
-            {isRenaming ? (
-              <form
-                onSubmit={handleRenameSubmit}
-                className="flex min-w-0 flex-1 items-center px-1"
-              >
-                <Input
-                  ref={renameInputRef}
-                  value={renameDraft}
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  onBlur={() => void commitRenameThread()}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      cancelRenameThread();
-                    }
-                  }}
-                  maxLength={160}
-                  aria-label={t("chat.renameThread", { title })}
-                  className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
-                />
-              </form>
-            ) : (
-              <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => openThread(thread.id)}
-                      className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        {thread.pinnedAt ? (
-                          <IconPin
-                            aria-hidden="true"
-                            className="size-3 shrink-0 text-current opacity-60"
-                          />
-                        ) : null}
-                        <span className="block min-w-0 truncate">{title}</span>
-                      </span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">{title}</TooltipContent>
-                </Tooltip>
-                <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-                  <span className="pointer-events-none pe-1 text-[11px] text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
-                    {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
-                  </span>
-                  <DropdownMenu>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <DropdownMenuTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label={t("chat.optionsFor", { title })}
-                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-all hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
-                          >
-                            <IconDots className="h-3 w-3" />
-                          </button>
-                        </DropdownMenuTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="right">
-                        {t("chat.optionsFor", { title })}
-                      </TooltipContent>
-                    </Tooltip>
-                    <DropdownMenuContent
-                      side="right"
-                      align="start"
-                      className="w-44"
-                    >
-                      <DropdownMenuItem
-                        onSelect={() => startRenameThread(thread)}
-                      >
-                        <IconPencil className="me-2 h-3.5 w-3.5" />
-                        {t("chat.renameChat")}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() =>
-                          void pinThread(thread.id, !thread.pinnedAt)
-                        }
-                      >
-                        <IconPin className="me-2 h-3.5 w-3.5" />
-                        {thread.pinnedAt
-                          ? t("chat.unpinChat")
-                          : t("chat.pinChat")}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => void handleArchiveThread(thread.id)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <IconArchive className="me-2 h-3.5 w-3.5" />
-                        {t("chat.archiveChat")}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </>
-            )}
-          </div>
-        );
-      })}
-      <button
-        type="button"
-        onClick={() => void handleNewChat()}
-        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary"
-      >
-        <IconPlus className="h-3 w-3" />
-        {t("chat.newChat")}
-      </button>
+      <ChatHistoryRail
+        items={chatItems}
+        activeId={displayedActiveThreadId}
+        onSelect={(threadId) => openThread(threadId)}
+        onNewChat={() => void handleNewChat()}
+        railLabels={{
+          newChat: t("chat.newChat"),
+          showMore: t("sidebar.showMore", {
+            count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
+          }),
+          showLess: t("sidebar.showLess"),
+        }}
+        renameMaxLength={160}
+        onTogglePin={(threadId) => {
+          const thread = visibleThreads.find((item) => item.id === threadId);
+          if (thread) void pinThread(threadId, !thread.pinnedAt);
+        }}
+        onRename={handleRenameThread}
+        onDelete={(threadId) => void handleArchiveThread(threadId)}
+        labels={{
+          options: (item) =>
+            t("chat.optionsFor", { title: item.titleText ?? "" }),
+          renameInput: (item) =>
+            t("chat.renameThread", { title: item.titleText ?? "" }),
+          rename: t("chat.renameChat"),
+          pin: t("chat.pinChat"),
+          unpin: t("chat.unpinChat"),
+          delete: t("chat.archiveChat"),
+        }}
+        className="min-w-0"
+      />
     </div>
   );
 }
@@ -1621,7 +1524,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     useState<SidebarSortMode>(() => getStoredSortMode(DASHBOARD_SORT_MODE_KEY));
   const [analysisSortMode, setAnalysisSortModeState] =
     useState<SidebarSortMode>(() => getStoredSortMode(ANALYSIS_SORT_MODE_KEY));
-  const popularity = usePopularity();
+  const { data: popularity, isReady: popularityReady } = usePopularity();
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.localStorage.getItem("theme")) {
@@ -1682,7 +1585,11 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   );
 
   // Server-backed favorites
-  const { data: favoritesData, save: saveFavorites } = useUserPref<{
+  const {
+    data: favoritesData,
+    isLoading: favoritesLoading,
+    save: saveFavorites,
+  } = useUserPref<{
     ids: string[];
   }>("favorites");
   const favoriteIds = useMemo(
@@ -1756,26 +1663,37 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
-  // depend on `action` too because the agent runner emits an `action`
-  // event for every successful tool call — even when the matching
-  // resource-table emit (`dashboards` / `analyses`) is missed (e.g. event
-  // batching). See `use-change-version.ts` in @agent-native/core.
-  const dashboardsSync = useChangeVersions(["dashboards", "action"]);
-  const analysesSync = useChangeVersions(["analyses", "action"]);
+  // Domain counters keep these lists targeted. Folding the generic `action`
+  // counter into the keys makes unrelated background work cancel and restart
+  // both sidebar reads.
+  const dashboardsSync = useSettledSyncVersion(
+    useChangeVersions(["dashboards"]),
+  );
+  const analysesSync = useSettledSyncVersion(useChangeVersions(["analyses"]));
   const dashboardsSyncRef = useRef(dashboardsSync);
   const analysesSyncRef = useRef(analysesSync);
   dashboardsSyncRef.current = dashboardsSync;
   analysesSyncRef.current = analysesSync;
 
-  const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
-    useQuery({
-      queryKey: ["sql-dashboards-sidebar", dashboardsSync],
-      queryFn: () => fetchSqlDashboards(t),
-      staleTime: 30_000,
-      placeholderData: (prev) => prev,
-    });
+  const {
+    data: sqlDashboards = [],
+    isLoading: sqlDashboardsLoading,
+    isPlaceholderData: sqlDashboardsPlaceholder,
+    isError: sqlDashboardsError,
+    refetch: refetchSqlDashboards,
+  } = useQuery({
+    queryKey: ["sql-dashboards-sidebar", dashboardsSync],
+    queryFn: () => fetchSqlDashboards(t),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
 
-  const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
+  const {
+    data: analysesList = [],
+    isLoading: analysesLoading,
+    isError: analysesError,
+    refetch: refetchAnalyses,
+  } = useQuery({
     queryKey: ["analyses-sidebar", analysesSync, analysisHiddenFilter],
     queryFn: () => fetchSidebarAnalyses(t, analysisHiddenFilter),
     staleTime: 30_000,
@@ -1902,7 +1820,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       const aPop = popularityOf(popularity, "dashboard", a.id);
       const bPop = popularityOf(popularity, "dashboard", b.id);
       if (aPop !== bPop) return bPop - aPop;
-      return a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
     });
   }, [
     hiddenIds,
@@ -1957,6 +1875,19 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         : topLevelDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
     [topLevelDashboards, dashShowAll],
   );
+
+  const dashboardListHasRendered = useRef(false);
+  const dashboardListReady = shouldRenderDashboardList({
+    sqlDashboardsLoading,
+    sqlDashboardsPlaceholder,
+    isInitialLoad: !dashboardListHasRendered.current,
+    favoritesLoading,
+    popularityReady,
+    sortMode: dashboardSortMode,
+  });
+  useEffect(() => {
+    if (dashboardListReady) dashboardListHasRendered.current = true;
+  }, [dashboardListReady]);
 
   // The flattened id order exactly as rendered (each parent immediately
   // followed by its nested children). Drag reordering must use this so the
@@ -2386,6 +2317,18 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       },
     },
     {
+      icon: IconChartBar,
+      label: t("navigation.dashboards"),
+      href: "/dashboards",
+      active: isAdhocActive,
+    },
+    {
+      icon: IconReportAnalytics,
+      label: t("navigation.analyses"),
+      href: "/analyses",
+      active: location.pathname.startsWith("/analyses"),
+    },
+    {
       icon: IconPlayerPlay,
       label: t("navigation.sessions"),
       href: "/sessions",
@@ -2416,16 +2359,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/data-dictionary"),
     },
     {
-      icon: IconChartBar,
-      label: t("navigation.dashboards"),
-      href: "/dashboards",
-      active: isAdhocActive,
-    },
-    {
-      icon: IconReportAnalytics,
-      label: t("navigation.analyses"),
-      href: "/analyses",
-      active: location.pathname.startsWith("/analyses"),
+      icon: IconHierarchy2,
+      label: t("settings.agentTitle"),
+      href: "/agent",
+      active: location.pathname === "/agent",
     },
     {
       icon: IconSettings,
@@ -2538,10 +2475,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
               {/* Ask section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-1 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     isAskRoute
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2587,14 +2524,14 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && <AnalyticsChatsSection />}
+                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
               </div>
 
               {/* Sessions link */}
               <Link
                 to="/sessions"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-4 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/sessions")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2608,7 +2545,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/monitoring"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-5 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/monitoring")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2622,7 +2559,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/agents"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-6 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/agents")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2636,7 +2573,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/data-sources"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-7 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname === "/data-sources"
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2650,7 +2587,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-8 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/data-dictionary")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2661,10 +2598,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </Link>
 
               {/* Dashboards section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-2 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     isAdhocActive
                       ? "text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2721,64 +2658,67 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="ms-4 min-w-0 space-y-0.5">
-                        {displayedDashboards.map((d) => {
-                          const children = dashboardChildren.get(d.id) ?? [];
-                          return (
-                            <Fragment key={d.id}>
-                              <SortableDashboardItem
-                                d={d}
-                                isActive={activeDashboardId === d.id}
-                                location={location}
-                                favoriteIds={favoriteIds}
-                                onToggleFavorite={toggleFavorite}
-                                onDelete={handleDashboardDelete}
-                                onRename={handleDashboardRename}
-                                onArchive={handleDashboardArchive}
-                                onSetVisibility={handleDashboardSetVisibility}
-                                onPrefetch={prefetchDashboard}
-                                views={allViewsMap[d.id]}
-                              />
-                              {children.length > 0 && (
-                                <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
-                                  {children.map((child) => (
-                                    <SortableDashboardItem
-                                      key={child.id}
-                                      d={child}
-                                      isActive={activeDashboardId === child.id}
-                                      location={location}
-                                      favoriteIds={favoriteIds}
-                                      onToggleFavorite={toggleFavorite}
-                                      onDelete={handleDashboardDelete}
-                                      onRename={handleDashboardRename}
-                                      onArchive={handleDashboardArchive}
-                                      onSetVisibility={
-                                        handleDashboardSetVisibility
-                                      }
-                                      onPrefetch={prefetchDashboard}
-                                      views={allViewsMap[child.id]}
-                                    />
-                                  ))}
-                                </div>
-                              )}
-                            </Fragment>
-                          );
-                        })}
-                        {topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
-                          <button
-                            onClick={() => setDashShowAll(!dashShowAll)}
-                            className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
-                          >
-                            {dashShowAll
-                              ? t("sidebar.showLess")
-                              : t("sidebar.showMore", {
-                                  count:
-                                    topLevelDashboards.length -
-                                    SIDEBAR_PREVIEW_COUNT,
-                                })}
-                          </button>
-                        )}
-                        {sqlDashboardsLoading &&
-                          sqlDashboards.length === 0 &&
+                        {dashboardListReady &&
+                          displayedDashboards.map((d) => {
+                            const children = dashboardChildren.get(d.id) ?? [];
+                            return (
+                              <Fragment key={d.id}>
+                                <SortableDashboardItem
+                                  d={d}
+                                  isActive={activeDashboardId === d.id}
+                                  location={location}
+                                  favoriteIds={favoriteIds}
+                                  onToggleFavorite={toggleFavorite}
+                                  onDelete={handleDashboardDelete}
+                                  onRename={handleDashboardRename}
+                                  onArchive={handleDashboardArchive}
+                                  onSetVisibility={handleDashboardSetVisibility}
+                                  onPrefetch={prefetchDashboard}
+                                  views={allViewsMap[d.id]}
+                                />
+                                {children.length > 0 && (
+                                  <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
+                                    {children.map((child) => (
+                                      <SortableDashboardItem
+                                        key={child.id}
+                                        d={child}
+                                        isActive={
+                                          activeDashboardId === child.id
+                                        }
+                                        location={location}
+                                        favoriteIds={favoriteIds}
+                                        onToggleFavorite={toggleFavorite}
+                                        onDelete={handleDashboardDelete}
+                                        onRename={handleDashboardRename}
+                                        onArchive={handleDashboardArchive}
+                                        onSetVisibility={
+                                          handleDashboardSetVisibility
+                                        }
+                                        onPrefetch={prefetchDashboard}
+                                        views={allViewsMap[child.id]}
+                                      />
+                                    ))}
+                                  </div>
+                                )}
+                              </Fragment>
+                            );
+                          })}
+                        {dashboardListReady &&
+                          topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                            <button
+                              onClick={() => setDashShowAll(!dashShowAll)}
+                              className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
+                            >
+                              {dashShowAll
+                                ? t("sidebar.showLess")
+                                : t("sidebar.showMore", {
+                                    count:
+                                      topLevelDashboards.length -
+                                      SIDEBAR_PREVIEW_COUNT,
+                                  })}
+                            </button>
+                          )}
+                        {!dashboardListReady &&
                           Array.from({ length: 3 }).map((_, i) => (
                             <div
                               key={`sql-skeleton-${i}`}
@@ -2799,6 +2739,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
+                        {sqlDashboardsError && sqlDashboards.length === 0 && (
+                          <SidebarLoadError
+                            message={t("sidebar.dashboardsLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchSqlDashboards()}
+                          />
+                        )}
                         <NewDashboardDialog />
                       </div>
                     </SortableContext>
@@ -2807,10 +2754,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
 
               {/* Analyses section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-3 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     location.pathname.startsWith("/analyses")
                       ? "text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2934,11 +2881,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
-                        {!analysesLoading && sortedAnalyses.length === 0 && (
-                          <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                            {t("sidebar.noAnalysesYet")}
-                          </p>
+                        {analysesError && sortedAnalyses.length === 0 && (
+                          <SidebarLoadError
+                            message={t("sidebar.analysesLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchAnalyses()}
+                          />
                         )}
+                        {!analysesLoading &&
+                          !analysesError &&
+                          sortedAnalyses.length === 0 && (
+                            <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                              {t("sidebar.noAnalysesYet")}
+                            </p>
+                          )}
                         <NewAnalysisDialog />
                       </div>
                     </SortableContext>
@@ -2957,7 +2913,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       key={item.href}
                       to={item.href}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                         isActive
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2977,7 +2933,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <div className="space-y-2 pt-2">
                 <OrgSwitcher />
                 <TooltipProvider delayDuration={200}>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-end gap-1">
                     <DevDatabaseLink />
                     <FeedbackButton className="min-w-0 flex-1" />
                     <div className="flex shrink-0 items-center gap-0.5">
@@ -2992,7 +2948,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               )
                             }
                             aria-label={t("sidebar.search")}
-                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                           >
                             <IconSearch className="h-4 w-4" />
                           </button>

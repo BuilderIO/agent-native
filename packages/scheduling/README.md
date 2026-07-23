@@ -2,6 +2,10 @@
 
 Scheduling primitives for agent-native apps.
 
+Scheduling is a Toolkit capability module installed on demand. It lives in its
+own npm package so apps only take the domain model, actions, UI, and lifecycle
+metadata they need.
+
 Powers the `calendar` template and custom scheduling surfaces. Provides:
 
 - **Drizzle schemas** — event types, schedules, availability rules, bookings, teams, workflows, routing forms
@@ -34,6 +38,22 @@ export { default } from "@agent-native/scheduling/actions/create-booking";
 ```
 
 Override by replacing the stub body with a full `defineAction(...)`.
+
+## Package lifecycle
+
+Scheduling publishes a static, versioned `agent-native.package.json`. Inspect
+its contributions without executing package code, preview installation, or
+eject the published source into a local workspace package:
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Add and eject are dry-run unless `--apply` is explicit. The CLI refuses file
+collisions and unsupported layouts and rolls back if dependency installation
+fails.
 
 ## Docs for your AI
 

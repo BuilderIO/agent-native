@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
   IconChevronUp,
@@ -310,92 +310,89 @@ export function TranscriptBubbles({
         )}
       </div>
       <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
-        <div className="space-y-3">
+        <div className="mx-auto max-w-3xl space-y-6">
           {groups.map((group, gi) => {
             const isMe = group.source === "mic";
             return (
-              <div
-                key={gi}
-                className={cn(
-                  "flex flex-col gap-1",
-                  isMe ? "items-end" : "items-start",
-                )}
-              >
-                <div
-                  className={cn(
-                    "text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 px-1",
-                  )}
-                >
+              <section key={gi} className="space-y-1.5">
+                <div className="flex items-center gap-2 px-1 text-[11px] font-medium tracking-wide text-muted-foreground">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      isMe ? "bg-primary" : "bg-muted-foreground/50",
+                    )}
+                  />
                   {isMe
                     ? t("transcriptBubbles.me")
                     : t("transcriptBubbles.them")}
                 </div>
-                {group.segments.map(({ seg, index }) => {
-                  const clickable = !!recordingId;
-                  return (
-                    <Tooltip key={index}>
-                      <TooltipTrigger asChild>
-                        <div
-                          ref={(el) => {
-                            segmentRefs.current[index] = el;
-                          }}
-                          role={clickable ? "button" : undefined}
-                          tabIndex={clickable ? 0 : -1}
-                          onClick={() => clickable && onSeek(seg.startMs)}
-                          onKeyDown={(e) => {
-                            if (
+                <div className="space-y-0.5">
+                  {group.segments.map(({ seg, index }) => {
+                    const clickable = !!recordingId;
+                    return (
+                      <Tooltip key={index}>
+                        <TooltipTrigger asChild>
+                          <div
+                            ref={(el) => {
+                              segmentRefs.current[index] = el;
+                            }}
+                            role={clickable ? "button" : undefined}
+                            tabIndex={clickable ? 0 : -1}
+                            onClick={() => clickable && onSeek(seg.startMs)}
+                            onKeyDown={(e) => {
+                              if (
+                                clickable &&
+                                (e.key === "Enter" || e.key === " ")
+                              ) {
+                                e.preventDefault();
+                                onSeek(seg.startMs);
+                              }
+                            }}
+                            className={cn(
+                              "group/segment -mx-1 rounded-md px-1 py-1 text-left text-sm leading-relaxed text-foreground transition-colors",
                               clickable &&
-                              (e.key === "Enter" || e.key === " ")
-                            ) {
-                              e.preventDefault();
-                              onSeek(seg.startMs);
-                            }
-                          }}
-                          className={cn(
-                            "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed transition-shadow",
-                            isMe
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground",
-                            clickable && "cursor-pointer hover:opacity-90",
-                          )}
-                        >
-                          {seg.speaker && !isMe && (
-                            <div className="text-[10px] font-medium opacity-70 mb-0.5">
-                              {seg.speaker}
-                            </div>
-                          )}
-                          <p className="whitespace-pre-wrap">
-                            {normalizedQuery
-                              ? highlightRuns(seg.text, normalizedQuery).map(
-                                  (run, ri) =>
-                                    run.match ? (
-                                      <mark
-                                        key={ri}
-                                        className={cn(
-                                          "rounded-sm bg-yellow-400/70 text-foreground",
-                                          index === activeMatchIndex &&
-                                            "bg-yellow-400 ring-1 ring-yellow-600",
-                                        )}
-                                      >
-                                        {run.text}
-                                      </mark>
-                                    ) : (
-                                      <span key={ri}>{run.text}</span>
-                                    ),
-                                )
-                              : seg.text}
-                          </p>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side={isMe ? "left" : "right"}>
-                        <span className="font-mono tabular-nums text-[11px]">
-                          {formatTimestamp(seg.startMs)}
-                        </span>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
+                                "cursor-pointer hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                          >
+                            {seg.speaker && !isMe && (
+                              <span className="me-2 text-[11px] font-medium text-muted-foreground">
+                                {seg.speaker}
+                              </span>
+                            )}
+                            <span className="whitespace-pre-wrap">
+                              {normalizedQuery
+                                ? highlightRuns(seg.text, normalizedQuery).map(
+                                    (run, ri) =>
+                                      run.match ? (
+                                        <mark
+                                          key={ri}
+                                          className={cn(
+                                            "rounded-sm bg-yellow-400/70 text-foreground",
+                                            index === activeMatchIndex &&
+                                              "bg-yellow-400 ring-1 ring-yellow-600",
+                                          )}
+                                        >
+                                          {run.text}
+                                        </mark>
+                                      ) : (
+                                        <span key={ri}>{run.text}</span>
+                                      ),
+                                  )
+                                : seg.text}
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <span className="font-mono tabular-nums text-[11px]">
+                            {formatTimestamp(seg.startMs)}
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </section>
             );
           })}
           <div ref={liveEndRef} />

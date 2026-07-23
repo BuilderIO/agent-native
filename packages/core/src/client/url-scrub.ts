@@ -12,6 +12,7 @@ const SENSITIVE_QUERY_PARAMS = new Set([
   "code",
   "share",
   "share_token",
+  "bridge",
 ]);
 
 export function scrubUrl(url: string | undefined): string | undefined {
@@ -25,6 +26,18 @@ export function scrubUrl(url: string | undefined): string | undefined {
         u.searchParams.set(key, "<redacted>");
         mutated = true;
       }
+    }
+    if (u.hash.includes("=")) {
+      const hashParams = new URLSearchParams(u.hash.slice(1));
+      let hashMutated = false;
+      for (const key of Array.from(hashParams.keys())) {
+        if (SENSITIVE_QUERY_PARAMS.has(key.toLowerCase())) {
+          hashParams.set(key, "<redacted>");
+          mutated = true;
+          hashMutated = true;
+        }
+      }
+      if (hashMutated) u.hash = hashParams.toString();
     }
     if (!mutated) return url;
     // If the original URL was relative, return only the path/query/fragment.

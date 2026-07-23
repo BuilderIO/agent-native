@@ -5,7 +5,11 @@ description: "Dispatch ist die Steuerungsebene des Arbeitsbereichs – zentraler
 
 # Versand
 
-> **Siehe auch:** Eine konzeptionelle Übersicht darüber, was Dispatch tut und wann Sie es benötigen, finden Sie unter [Dispatch](/docs/dispatch). Diese Seite ist die vorlagenspezifische Referenz.
+<Callout tone="info">
+
+**Siehe auch:** Eine konzeptionelle Übersicht darüber, was Dispatch tut und wann Sie es benötigen, finden Sie unter [Dispatch](/docs/dispatch). Diese Seite ist die vorlagenspezifische Referenz.
+
+</Callout>
 
 Dispatch ist die **Arbeitsbereich-Steuerungsebene**. Wo andere Vorlagen Domänen-Apps sind (Mail, Kalender, Analytics, Brain), ist Dispatch die App, die Sie _neben_ ihnen ausführen, um alles zu koordinieren: einen zentralen Posteingang, einen Geheimspeicher, geplante Jobs, Slack/Telegram-Integration und einen Orchestrator-Agenten, der Domänenarbeit über [A2A](/docs/a2a-protocol) an die richtige Spezial-App delegiert.
 
@@ -119,7 +123,7 @@ Tag für Tag ist Dispatch der Ort, an dem Administratoren und Betriebsmitarbeite
   Verteilen Sie den Zugriff, ohne rohe Geheimnisse zu kopieren. App-spezifische Quelle
   Konfiguration bleibt in der App, die den Anbieter verwendet.
 - **Einen MCP-Anschluss freilegen.** Hinzufügen
-  `https://dispatch.agent-native.com/_agent-native/mcp` in Claude, ChatGPT,
+  `https://dispatch.agent-native.com/mcp` in Claude, ChatGPT,
   Codex, Cursor oder ein anderer MCP-Host und wählen Sie dann aus, welche Workspace-Apps verwendet werden sollen
   -Connector kann über die **Agents**-Seite von Dispatch erreicht werden. Verwenden Sie eine direkte App URL
   nur wenn dieser Host auf eine App isoliert werden soll.
@@ -300,7 +304,7 @@ _Wie es unter der Haube funktioniert (für Entwickler)._
   ]}
 />
 
-- **MCP-Hub-Modus.** Dispatch kann weiterhin als [MCP hub](/docs/mcp-clients#hub) des Arbeitsbereichs fungieren, sodass jede andere App im Arbeitsbereich dieselbe MCP-Serverliste im Organisationsbereich abruft. Unabhängig davon ist der `/_agent-native/mcp`-Endpunkt von Dispatch der empfohlene externe MCP-Anschluss für Claude, ChatGPT und andere Hosts, die mehrere Workspace-Apps erreichen sollen.
+- **MCP-Hub-Modus.** Dispatch kann weiterhin als [MCP hub](/docs/mcp-clients#hub) des Arbeitsbereichs fungieren, sodass jede andere App im Arbeitsbereich dieselbe MCP-Serverliste im Organisationsbereich abruft. Unabhängig davon ist der `/mcp`-Endpunkt von Dispatch der empfohlene externe MCP-Anschluss für Claude, ChatGPT und andere Hosts, die mehrere Workspace-Apps erreichen sollen.
 
 ## Träume {#dreams}
 

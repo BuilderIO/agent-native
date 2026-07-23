@@ -47,6 +47,28 @@ iframe-backed screens on the infinite canvas.
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means `http://localhost:1234/onboarding/1`.
 
+## Select And Reprompt
+
+When a chat message begins with `[Reprompt selection]`, the selected subtree is
+a hard write boundary. The only mutation path is `propose-node-rewrite` with
+the exact `repromptId`, target, and `baseVersionHash` captured in
+`design-reprompt-pending:<designId>:<fileId>`. Never use `apply-visual-edit`,
+`apply-source-edit`, `write-source`, `write-local-file`, `edit-design`, or any
+other content-writing action for that request. Clarifying questions are allowed,
+but a requested change must remain a proposal.
+
+Produce one variant by default. Produce two or three only when the instruction
+asks for options. A retry includes `priorProposalId`; keep the same target and
+base version, incorporate the feedback, and call `propose-node-rewrite` again.
+The UI previews the returned subtree without persisting it.
+
+Use `resolve-node-rewrite` for the accept/reject lifecycle. Accept applies the
+chosen variant as one version-checked inline/Yjs content transaction so one
+undo restores the prior structure; reject clears the proposal without changing
+content. For conversational resolution such as “apply the second one,” call
+`view-screen`, read the active `design.reprompt.proposal`, and pass its
+`proposalId` plus the zero-based `variantIndex` to `resolve-node-rewrite`.
+
 ## Review Quality
 
 - Treat the running app as the truth. Preserve its component language, tokens,
@@ -60,31 +82,43 @@ iframe-backed screens on the infinite canvas.
 
 ## Required Local Bridge
 
-From the target app repo, make sure its dev server is running, then run the
-Design bridge with `npx`:
+The live-edit bridge is unlocked by a shared secret (the "bridge token") that
+must match on two sides: the local bridge process and the user's connection row
+(which the browser reads to authorize `/live-edit-bridge`, `/read-file`,
+`/write-file`). Let the authenticated `connect-localhost` / `open-visual-edit`
+action mint the token, then start the bridge adopting it — the bridge cannot
+push its own token to the server without a CLI auth token, so the server mints.
+
+From the target app repo, make sure its dev server is running, then:
+
+**1. Discover routes without a durable bridge** (one-shot, exits):
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
 ```
 
-Use the app's real port. The command starts a local bridge on
-`http://127.0.0.1:7331` by default and exposes:
+Prints the manifest (routes + capabilities). Use it to build `routeManifest` for
+the action call. Skip if the user already gave explicit paths/URLs.
 
-- `GET /manifest.json` — dev server URL, bridge URL, discovered routes, root.
-- `GET /routes.json` — route manifest only.
-- `GET /health` — bridge liveness.
+**2. Register the connection** via `connect-localhost` / `open-visual-edit`
+(Action Flow below) with NO `bridgeToken`. The server mints one, stores it on the
+connection row, and returns it as `bridgeToken`. Capture it.
 
-For one-shot agent setup, ask for JSON and keep the long-running bridge open in
-a second terminal if the user needs live updates:
+**3. Start the persistent bridge adopting that token:**
 
 ```bash
-npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
-curl http://127.0.0.1:7331/manifest.json
+AGENT_NATIVE_BRIDGE_TOKEN="<bridgeToken from step 2>" \
+  npx @agent-native/core@latest design connect \
+  --url http://localhost:5173 --root . --daemon
 ```
 
-Do not use `--json` for an editable session. `--json`, `--once`, and
-`--dry-run` print the manifest and exit, so Design will fall back to a
-non-editable live iframe as soon as it tries to refresh the snapshot.
+(Or pass `--bridge-token <token>`; prefer the env var to keep the secret out of
+`ps`.) The bridge exposes `GET /manifest.json`, `GET /routes.json`,
+`GET /health`, and now authorizes live-edit because its token matches the row.
+
+Only use `--json` for the step-1 route probe. Never use `--json`, `--once`, or
+`--dry-run` for the durable step-3 bridge: they print the manifest and exit, so
+Design falls back to a non-editable live iframe.
 
 ## Action Flow
 
@@ -196,6 +230,21 @@ the connected app's text/code files through the bridge
 - Saves are conflict-checked against the file's on-disk version — a file that
   changed since it was read fails with a version conflict instead of being
   overwritten.
+- React/TSX canvas edits use build/debug provenance to locate the responsible
+  source. A single-instance leaf text edit, literal `className`/`class` edit, or
+  flat literal `style={{ ... }}` property may use `apply-visual-edit` with a
+  `local-file` source and exact `target.sourceAnchor`. Preview first (omit
+  `persist`), inspect `proposedDiff`, then call with `persist: true`; the action
+  re-reads and writes through the consented, version-guarded local bridge.
+  Structural meaning still belongs to the coding agent. Do not apply a generic
+  AST reparent/group/ungroup transform. Repeated `.map()` instances, shared
+  components, dynamic expressions, breakpoint edits, and cross-file edits
+  always require semantic inspection.
+- For every semantic React write, read the file first, pass that exact
+  `versionHash` to `write-local-file` with `requireExpectedVersionHash: true`,
+  re-read and re-plan if it conflicts, and
+  verify the resulting HMR/runtime state before treating the preview as saved.
+  Human write consent remains mandatory and cannot be granted by an agent.
 
 ## Verification
 

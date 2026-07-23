@@ -1,13 +1,13 @@
 ---
 title: "드롭인 에이전트"
-description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여 상담원 채팅 + 작업 공간을 React 앱에 마운트하세요."
+description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여 상담원 채팅 + 에이전트 리소스를 React 앱에 마운트하세요."
 ---
 
 # 드롭인 에이전트
 
 > **개발자 페이지.** 이 페이지는 React 앱에 에이전트를 내장하는 개발자를 위한 것입니다. 에이전트 작업에 대한 최종 사용자 경험은 [Using Your Agent](/docs/using-your-agent)를 참조하세요.
 
-처음부터 에이전트 네이티브를 구축할 필요는 없습니다. 상담원 채팅, 작업 공간 탭, CLI 터미널, 음성 입력 및 모든 관련 인프라는 앱에 드롭하는 소수의 React 구성 요소로 제공됩니다.
+처음부터 에이전트 네이티브를 구축할 필요는 없습니다. 상담원 채팅, 에이전트 리소스 탭, CLI 터미널, 음성 입력 및 모든 관련 인프라는 앱에 드롭하는 소수의 React 구성 요소로 제공됩니다.
 
 > **전제 조건:** 서버는 `agent-chat-plugin`를 실행해야 합니다(모든 템플릿에 자동으로 마운트됨). 처음부터 시작하는 경우 [Server](/docs/server)를 참조하세요.
 >
@@ -19,7 +19,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 | --------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `<AgentSidebar>`      | 루트 앱 레이아웃을 래핑하고 전체 에이전트가 포함된 전환 가능한 측면 패널을 추가합니다. | 모든 화면에서 앱과 함께 에이전트를 사용할 수 있기를 원합니다.       |
 | `<AgentToggleButton>` | `<AgentSidebar>` 열기/닫기(헤더에 넣기)                                                | `<AgentSidebar>`와 페어링                                           |
-| `<AgentPanel>`        | 원시 패널 자체 — 채팅 + CLI + 작업 공간 탭                                             | 레이아웃 또는 전담 에이전트 페이지에 대한 완전한 제어를 원하는 경우 |
+| `<AgentPanel>`        | 원시 패널 자체 — 채팅 + CLI + 에이전트 리소스 탭                                       | 레이아웃 또는 전담 에이전트 페이지에 대한 완전한 제어를 원하는 경우 |
 | `<AgentChatSurface>`  | 사전 연결된 패널/페이지 채팅 화면                                                      | 사이드바 래퍼 없이 채팅을 원합니다                                  |
 | `<AssistantChat>`     | 작성기/기록 후크가 있는 하위 수준 채팅 렌더러                                          | 표준 대화 UI에 맞춤 크롬이 필요합니다                               |
 | `sendToAgentChat()`   | 프로그래밍 방식으로 채팅에 메시지 보내기                                               | 인라인으로 실행하는 대신 에이전트에 직접 작업을 수행하는 버튼       |
@@ -41,7 +41,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
       </div>
       <div class="diagram-node panel">
         에이전트 패널<br /><small class="diagram-muted"
-          >chat &middot; CLI &middot; workspace</small
+          >chat &middot; CLI &middot; resources</small
         >
       </div>
     </div>
@@ -105,7 +105,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
   filename="app/root.tsx"
   language="tsx"
   code={
-    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="무엇을 도와드릴까요?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client/agent-chat";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="무엇을 도와드릴까요?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
   annotations={[
     {
@@ -136,7 +136,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
   ]}
 />
 
-그렇습니다. 이제 사용자는 채팅 기록, 작업 공간 탭, CLI 터미널, 음성 입력 및 전체 화면 모드를 포함하여 모든 페이지에 전환 가능한 에이전트를 갖게 됩니다. `localStorage`를 통해 다시 로드해도 상태가 유지됩니다.
+그렇습니다. 이제 사용자는 채팅 기록, 에이전트 리소스 탭, CLI 터미널, 음성 입력 및 전체 화면 모드를 포함하여 모든 페이지에 전환 가능한 에이전트를 갖게 됩니다. `localStorage`를 통해 다시 로드해도 상태가 유지됩니다.
 
 ### 소품
 
@@ -154,8 +154,7 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 
 ```tsx
 // app/routes/agent.tsx
-import { AgentPanel } from "@agent-native/core/client";
-
+import { AgentPanel } from "@agent-native/core/client/agent-chat";
 export default function AgentRoute() {
   return (
     <div className="h-screen">
@@ -165,7 +164,7 @@ export default function AgentRoute() {
 }
 ```
 
-`<AgentPanel>`는 사이드바 래퍼, 축소 버튼 또는 상태 지속성 없이 원시 탭(Chat / CLI / Workspace)을 제공합니다. 원하는 곳에 두십시오. 레이아웃을 처리합니다.
+`<AgentPanel>`는 사이드바 래퍼, 축소 버튼 또는 상태 지속성 없이 원시 탭(Chat / CLI / 에이전트 리소스)을 제공합니다. 원하는 곳에 두십시오. 레이아웃을 처리합니다.
 
 ### 선택한 소품
 
@@ -182,8 +181,7 @@ export default function AgentRoute() {
 인라인 `llm()` 호출을 실행하는 대신 에이전트에 직접 작업을 전달하는 버튼 - [ladder](/docs/what-is-agent-native#the-ladder)의 안티 패턴:
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 <Button
   onClick={() =>
     sendToAgentChat({
@@ -232,8 +230,7 @@ MCP 앱 브리지 동작을 위한 [Client](/docs/client#sendtoagentchat).
 로드 상태를 원하면 `useSendToAgentChat()` 후크를 사용하세요. `send`와 `isGenerating`를 모두 반환합니다.
 
 ```ts
-import { useSendToAgentChat } from "@agent-native/core/client";
-
+import { useSendToAgentChat } from "@agent-native/core/client/agent-chat";
 const { send, isGenerating } = useSendToAgentChat();
 ```
 
@@ -267,8 +264,7 @@ const { send, isGenerating } = useSendToAgentChat();
 UI가 에이전트 도구가 실행하는 것과 동일한 작업을 실행해야 하는 경우([ladder](/docs/what-is-agent-native#rung-three)의 3번 단계) `useActionMutation`를 사용하세요.
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
@@ -298,8 +294,7 @@ import {
   AgentSidebar,
   AgentToggleButton,
   sendToAgentChat,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/agent-chat";
 export default function Root() {
   return (
     <AgentSidebar suggestions={["Draft a reply", "Summarize selection"]}>
@@ -336,5 +331,5 @@ export default function Root() {
 
 - [**Actions**](/docs/actions) — `defineAction()` 및 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 선택, 탐색, 보기 화면
-- [**Workspace**](/docs/workspace) — 작업 공간 탭에 포함된 내용(skills, 메모리, MCP 서버, 예약된 작업)
+- [**에이전트 리소스**](/docs/agent-resources) — 에이전트 리소스 탭에 포함된 내용(skills, 메모리, MCP 서버, 예약된 작업)
 - [**Voice Input**](/docs/voice-input) — 채팅 작성기의 마이크

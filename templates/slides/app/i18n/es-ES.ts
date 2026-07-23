@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["es-ES"],
   root: {
     commandPresentations: "Presentaciones",
     searchDecks: "Buscar decks",
@@ -34,10 +37,10 @@ const messages = {
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    agentTitle: "Ajustes del agente",
+    agentTitle: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    openAgentSettings: "Abrir ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Gestionar agente",
   },
   agent: {
     emptyState: "Pregúntame cualquier cosa sobre tus presentaciones",
@@ -105,6 +108,7 @@ const messages = {
     searchImagesPlaceholder: "Buscar imágenes...",
     searchForLogosImagesIcons: "Buscar logos, imágenes, iconos...",
     search: "Buscar",
+    searchFailed: "Error al buscar",
     logoSearchTitle: "Búsqueda de logos",
     searchCompanyLogo: "Busca una empresa para encontrar su logo",
     searchCompanyPlaceholder: "Buscar nombre de empresa (p. ej. Intuit)",
@@ -336,6 +340,8 @@ const messages = {
     hideResolved: "Ocultar resueltos",
     showResolved: "Mostrar {{count}} resueltos",
     noCommentsYet: "Aún no hay comentarios",
+    loadFailed: "No se pudieron cargar los comentarios",
+    retry: "Reintentar",
     clickToAddComment: "Haz clic para añadir un comentario",
     selectSlideToAdd: "Selecciona una diapositiva para añadir uno",
   },
@@ -561,6 +567,10 @@ const messages = {
     chooseAnotherFile: "Elegir otro archivo",
   },
   home: {
+    loadFailed: "No se pudo cargar el contenido",
+    loadFailedDescription:
+      "El contenido guardado sigue disponible. Comprueba la conexión e inténtalo de nuevo.",
+    retry: "Reintentar",
     decksTitle: "Decks",
     newDeck: "Nuevo deck",
     deckLengthQuestion: "¿Qué longitud debe tener este deck?",

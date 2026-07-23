@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { prettyScreenName } from "@/lib/screen-names";
@@ -139,6 +139,7 @@ export function ExplorerView({
           key={provider.key}
           providerKey={provider.key}
           providerLabel={`LOCAL FILES — ${provider.label}` /* i18n-ignore */}
+          providerTitle={provider.rootPath}
           capabilities={provider.capabilities}
           nodes={buildFileTree(localhostFiles[provider.key] ?? [])}
           activeUri={activeUri}

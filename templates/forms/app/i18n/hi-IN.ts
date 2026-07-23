@@ -4,6 +4,7 @@ const messages = {
     searchForms: "फॉर्म खोजें",
     appearance: "दिखावट",
     toggleTheme: "थीम बदलें",
+    openAgent: "एजेंट खोलें",
   },
   header: {
     settings: "सेटिंग्स",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "प्रपत्र पूछें",
     allForms: "सभी फॉर्म",
     team: "टीम",
+    agent: "एजेंट",
   },
   settings: {
     title: "सेटिंग्स",
@@ -31,10 +33,10 @@ const messages = {
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
-    agentTitle: "एजेंट सेटिंग्स",
+    agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    openAgentSettings: "एजेंट प्रबंधित करें",
   },
   agent: {
     emptyState: "अपने फॉर्म के बारे में कुछ भी पूछें",
@@ -188,6 +190,12 @@ const messages = {
       successMessage: "सफलता संदेश",
       defaultSuccessMessage: "धन्यवाद! आपकी प्रतिक्रिया रिकॉर्ड हो गई है।",
       redirectUrl: "रीडायरेक्ट URL (वैकल्पिक)",
+      anonymousResponses: "गुमनाम प्रतिक्रियाएँ",
+      anonymousResponsesDescription:
+        "IP पते, प्रतिक्रिया देने वाले की पहचान या स्रोत मेटाडेटा सहेजें नहीं।",
+      emailNewResponses: "नई प्रतिक्रियाओं के लिए मुझे ईमेल करें",
+      emailNewResponsesDescription:
+        "हर प्रतिक्रिया पर फ़ॉर्म के मालिक के खाते के ईमेल पर सूचना भेजें।",
       saveSettings: "सेटिंग्स सहेजें",
     },
     integrations: {
@@ -250,6 +258,8 @@ const messages = {
     duplicated: "फॉर्म डुप्लिकेट किया गया",
     duplicateFailed: "प्रपत्र की नकल बनाने में विफल",
     movedToArchive: "फॉर्म को पुरालेख में ले जाया गया",
+    movingToArchive: "फॉर्म को पुरालेख में ले जाया जा रहा है…",
+    archiveFailed: "फॉर्म को पुरालेख में ले जाने में विफल",
     restored: "फॉर्म बहाल हो गया",
     permanentlyDeleted: "फ़ॉर्म स्थायी रूप से हटा दिया गया",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

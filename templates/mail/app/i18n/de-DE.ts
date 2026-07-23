@@ -443,10 +443,10 @@ const messages = {
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
   },
   settings: {
-    openAgentSettings: "Agent-Einstellungen öffnen",
+    openAgentSettings: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    agentTitle: "Agent-Einstellungen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    agentTitle: "Agent verwalten",
     aliasName: "Aliasname",
     aliasNamePlaceholder: "z. B. Design-Team",
     recipientsOnePerLine: "Empfänger (eine E-Mail pro Zeile)",
@@ -523,10 +523,10 @@ const messages = {
     slackUpdateFailed: "Slack-Eingang konnte nicht aktualisiert werden",
     slackConfigured: "Slack-Anmeldedaten sind konfiguriert.",
     slackNeedsCredentials:
-      "Füge SLACK_BOT_TOKEN und SLACK_SIGNING_SECRET hinzu, um Slack-Eingang zu aktivieren.",
-    slackIntake: "Slack-Eingang",
+      "Der alte benutzerdefinierte Eingang benötigt SLACK_BOT_TOKEN und SLACK_SIGNING_SECRET. Verbinde für neue Slack-Nachrichtenautomatisierungen einen Workspace unter Einstellungen > Messaging.",
+    slackIntake: "Slack-Eingang (veraltet)",
     slackDescription:
-      "Ermöglicht Organisationsmitgliedern, E-Mail-Entwürfe aus Slack einzureihen.",
+      "Veraltete benutzerdefinierte Integration, mit der Organisationsmitglieder E-Mail-Entwürfe aus Slack einreihen können.",
     enabled: "Aktiviert",
     disable: "Deaktivieren",
     enable: "Aktivieren",

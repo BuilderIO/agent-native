@@ -74,6 +74,11 @@ import {
 } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+  isMcpProtocolPath,
+} from "../mcp/route-paths.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
 import { DEFAULT_SSR_CACHE_HEADERS } from "../shared/cache-control.js";
@@ -99,9 +104,12 @@ import type { BetterAuthConfig } from "./better-auth-instance.js";
 import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_CONNECT_PARAM,
+  BUILDER_RELAY_PATH,
+  BUILDER_RELAY_STATE_PARAM,
   BUILDER_STATE_PARAM,
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
+  verifyBuilderPreviewRelayStateForCallback,
 } from "./builder-browser.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
@@ -139,6 +147,7 @@ import {
   type OnboardingHtmlOptions,
 } from "./onboarding-html.js";
 import { captureAuthError } from "./sentry.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 /**
  * Get the configured session max age. Desktop SSO broker writes from
@@ -718,8 +727,9 @@ async function getBearerLegacySession(
  * `agent-native connect` mints this token for the local Plans publish flow and
  * POSTs it to the HOSTED action route
  * `/_agent-native/actions/import-visual-plan-source`. That token is audience-
- * bound to the app's MCP resource (`{appUrl}/_agent-native/mcp`), not to the
- * legacy `sessions` table — so the legacy bearer lookup above never matches it.
+ * bound to the app's canonical MCP resource (`{appUrl}/mcp`; the legacy
+ * `/_agent-native/mcp` resource is also accepted), not to the legacy `sessions`
+ * table — so the legacy bearer lookup above never matches it.
  * Reuse the MCP surface's canonical `verifyAuth` here so the HTTP action surface
  * honors EXACTLY the tokens the MCP endpoint honors: same signature check, same
  * audience binding to THIS app's resource, same connect-token revocation gate.
@@ -740,13 +750,13 @@ async function getMcpOAuthBearerSession(
   if (!bearerToken) return null;
 
   try {
-    const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
+    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
       await Promise.all([
         import("../mcp/oauth-route.js"),
         import("../mcp/build-server.js"),
       ]);
     const result = await verifyAuth(authHeader, undefined, {
-      resourceUrl: getMcpOAuthResource(event),
+      resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
     });
     const identity = result.authed ? result.identity : undefined;
@@ -1449,13 +1459,6 @@ function mountAuthCorsMiddleware(app: H3App): void {
   app.use("/_agent-native/google", handler);
 }
 
-function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
-  );
-}
-
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {
   return (
     pathname.startsWith("/_agent-native/") &&
@@ -1522,7 +1525,15 @@ function verifiedBuilderConnectOwnerFromUrl(url: string): string | null {
   return verifyBuilderConnectTokenAndGetOwner(token);
 }
 
-function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
+export function shouldBypassAuthForBuilderConnect(
+  event: H3Event,
+  p: string,
+): boolean {
+  // The preview-safe second hop is authenticated by its timestamped HMAC and
+  // one-shot pending row. It cannot carry a browser session from the corporate
+  // callback deployment, so let the route perform that stronger check itself.
+  if (p === BUILDER_RELAY_PATH) return true;
+
   if (p === "/_agent-native/builder/connect") {
     const url = event.node?.req?.url ?? event.path ?? "/";
     return Boolean(verifiedBuilderConnectOwnerFromUrl(url));
@@ -1537,6 +1548,19 @@ function shouldBypassAuthForBuilderConnect(event: H3Event, p: string): boolean {
             BUILDER_STATE_PARAM,
           )
         : null;
+    const relayState =
+      queryStart >= 0
+        ? new URLSearchParams(url.slice(queryStart + 1)).get(
+            BUILDER_RELAY_STATE_PARAM,
+          )
+        : null;
+    if (relayState) {
+      try {
+        if (verifyBuilderPreviewRelayStateForCallback(relayState)) return true;
+      } catch {
+        // Dedicated relay secret missing: let the auth guard fail closed.
+      }
+    }
     // The signed `_an_state` authenticates this specific Builder callback
     // flow back to our app. A stale localhost session cookie can otherwise
     // make the global guard reject the callback before the handler gets to
@@ -1627,7 +1651,7 @@ function loginHtmlResponse(loginHtml: string, event: H3Event): Response {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       // The sign-in document is part of the public server shell. Keep it on the
-      // same short-fresh/long-SWR CDN policy as React Router SSR so hosted
+      // same long-fresh/long-SWR CDN policy as React Router SSR so hosted
       // template roots do not invoke origin just to render anonymous login UI.
       // The login HTML is env-INDEPENDENT (a Google-only app always renders a
       // working button), so a cached copy is never "wrong" — never downgrade
@@ -1775,7 +1799,11 @@ function createAuthGuardFn(): (
     // the stdio proxy or HTTP can never reach it. Exact protocol endpoint only:
     // tolerate the common trailing slash, but keep
     // `/_agent-native/mcp/*` management subroutes on normal session auth.
-    if (p === "/_agent-native/mcp" || p === "/_agent-native/mcp/") {
+    if (
+      isMcpProtocolPath(p) ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/` ||
+      p === `${MCP_LEGACY_ROUTE_PREFIX}/`
+    ) {
       return;
     }
 
@@ -1806,7 +1834,13 @@ function createAuthGuardFn(): (
       p === "/_agent-native/mcp/connect/device/poll" ||
       p === "/_agent-native/mcp/oauth/authorize" ||
       p === "/_agent-native/mcp/oauth/token" ||
-      p === "/_agent-native/mcp/oauth/register"
+      p === "/_agent-native/mcp/oauth/register" ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/start` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/connect/device/poll` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/token` ||
+      p === `${MCP_PUBLIC_ROUTE_PREFIX}/oauth/register`
     ) {
       return;
     }
@@ -1860,53 +1894,35 @@ function createAuthGuardFn(): (
     }
 
     // Force-sign-in entrypoint. Templates send viewers from public pages
-    // (share links, embeds) here with a `?return=<path>` query — anonymous
-    // visitors get the loginHtml, and once they sign in the loginHtml's
-    // post-login reload re-hits this same URL with a session cookie set,
-    // so we 302 them to the original page.
-    //
-    // `return` is validated by parsing it against a sentinel base origin
-    // and checking the resolved origin still matches. This rejects every
-    // open-redirect shape — `//evil.com/...` (network-path reference),
-    // `/\evil.com/...` (WHATWG URL parser normalises `\` to `/` in HTTP
-    // URLs, so a naive prefix check on `//` misses this), absolute URLs
-    // like `https://evil.com`, and `data:` / `javascript:` schemes. The
-    // reconstructed path comes from the parsed segments so any leftover
-    // quirks get normalised. Control chars (incl. CR/LF for header
-    // injection) are rejected up front.
-    //
+    // (share links, embeds) here with a `?return=<path>` query. The cached
+    // login document validates that return path in the browser and redirects
+    // there after sign-in or when its client-side session check finds an
+    // existing session.
     if (p === "/_agent-native/sign-in") {
-      const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
-      const safeReturn = safeReturnPath(
-        new URLSearchParams(queryStr).get("return"),
-      );
-      const session = await getSession(event);
-      if (session) {
-        return new Response("", {
-          status: 302,
-          headers: { Location: safeReturn },
-        });
-      }
-      return loginHtmlResponse(loginHtml, event);
-    }
-
-    // Auth entry pages are framework-owned pages, not app routes. When a user
-    // already has a session, redirect them back to the mounted app instead of
-    // letting React Router try to render /login.
-    if (p === "/login" || p === "/signup") {
-      const session = await getSession(event);
-      if (session) {
+      // Preserve the zero-setup localhost experience without putting a
+      // session lookup back on the cacheable app-shell URL. The client gate
+      // reaches this explicit entrypoint after discovering there is no
+      // session; only a fresh local development DB can take this redirect.
+      if (getMethod(event) === "GET") {
         const queryStr = queryStart >= 0 ? url.slice(queryStart + 1) : "";
         const safeReturn = safeReturnPath(
           new URLSearchParams(queryStr).get("return"),
         );
-        return new Response("", {
-          status: 302,
-          headers: {
-            Location: safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
-          },
-        });
+        const autoSession = await maybeAutoCreateDevSession(
+          event,
+          safeReturn === "/" ? getAppBasePath() || "/" : safeReturn,
+        );
+        if (autoSession) return autoSession;
       }
+      return loginHtmlResponse(loginHtml, event);
+    }
+
+    // Auth entry pages are framework-owned pages, not app routes. Always serve
+    // the same public, cacheable login document here. Its client-side session
+    // check redirects signed-in visitors to the validated return path. Keeping
+    // session-dependent decisions out of this server response prevents the CDN
+    // from caching two different representations for the same URL.
+    if (p === "/login" || p === "/signup") {
       return loginHtmlResponse(loginHtml, event);
     }
 
@@ -1950,6 +1966,36 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Normal app documents and React Router page-data requests are an
+    // impersonal SSR shell. `createH3SSRHandler` renders both under an
+    // explicitly anonymous request context and gives them one shared public
+    // cache policy, so production requests must not vary either response by
+    // cookie. `AppProviders` resolves the browser session and gates private UI
+    // after hydration.
+    const isAppPageRequest =
+      p !== "/api" &&
+      !p.startsWith("/api/") &&
+      p !== "/_agent-native" &&
+      !p.startsWith("/_agent-native/") &&
+      (isHtmlDocumentRequest(event, p) ||
+        (isReadMethod(event) && p.endsWith(".data")));
+    if (isAppPageRequest) {
+      // A freshly scaffolded, loopback-only development app needs its initial
+      // session before Vite starts optimizing and potentially reloading the
+      // client. Waiting for the hydrated client gate to reach sign-in can lose
+      // that one-time redirect after the dev account is created, leaving the
+      // browser at the login page with no way to recreate its random password.
+      // `maybeAutoCreateDevSession` is strictly development + loopback scoped,
+      // does not read an existing session, and returns null for every existing
+      // dev account, so production SSR remains one cacheable anonymous shell
+      // and explicit sign-out still works.
+      if (getMethod(event) === "GET") {
+        const autoSession = await maybeAutoCreateDevSession(event, url);
+        if (autoSession) return autoSession;
+      }
+      return;
+    }
+
     const session = await getSession(event);
     if (session) return;
 
@@ -1958,22 +2004,8 @@ function createAuthGuardFn(): (
       return { error: "Unauthorized" };
     }
 
-    if (!isHtmlDocumentRequest(event, p)) {
-      setResponseStatus(event, 401);
-      return { error: "Unauthorized" };
-    }
-
-    // Local-dev convenience: on the first page GET of a freshly-scaffolded
-    // app, transparently create + sign in `dev@local.test` instead of
-    // showing the sign-up form. Gated on NODE_ENV=development AND no real users in the
-    // DB, so production and any app that has ever had a real signup are
-    // unaffected. See maybeAutoCreateDevSession for full conditions.
-    if (getMethod(event) === "GET") {
-      const autoSession = await maybeAutoCreateDevSession(event, url);
-      if (autoSession) return autoSession;
-    }
-
-    return loginHtmlResponse(loginHtml, event);
+    setResponseStatus(event, 401);
+    return { error: "Unauthorized" };
   };
 }
 
@@ -1982,8 +2014,8 @@ function createAuthGuardFn(): (
 // validator (a bare `dev@local` has no TLD and is rejected as INVALID_EMAIL,
 // which silently broke the zero-setup auto-sign-in on every fresh dev DB).
 const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
-// No fixed password: maybeAutoCreateDevSession mints a random one per DB
-// and prints it to the console once (see there).
+// No fixed password: maybeAutoCreateDevSession mints a random one per DB and
+// never emits it to logs.
 
 // Pre-fix local dev DBs may already contain a `dev@local` user. Treat that
 // legacy address as the dev account too, so the "any real users?" check
@@ -2058,15 +2090,12 @@ async function createAutoDevAccountForSession(
         return null;
       }
 
-      // Print the throwaway credential exactly once so the developer can
-      // sign back in manually after logout (auto-flow won't refire once the
-      // dev row exists). Local console only — never Sentry.
+      // Confirm the convenience path without emitting the generated email or
+      // password. Terminal output is frequently captured and shared in bug
+      // reports, CI artifacts, and remote development sessions.
       console.log(
-        `\n[agent-native] Local dev auto-login ready.\n` +
-          `  email:    ${AUTO_DEV_ACCOUNT_EMAIL}\n` +
-          `  password: ${devPassword}\n` +
-          `  (random, this DB only — needed to sign back in after logout.\n` +
-          `   Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.)\n`,
+        "[agent-native] Local dev auto-login ready. " +
+          "Set AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1 to disable.",
       );
 
       return { password: devPassword };
@@ -2110,10 +2139,9 @@ async function createAutoDevAccountForSession(
  *    reverse-proxied / misconfigured-non-prod dev server never auto-signs
  *    in a directly-remote visitor (mirrors the desktop SSO broker).
  *  - **Random per-DB password.** The account password is freshly
- *    generated on creation and printed to the server console exactly
- *    once — there is no source-code-known credential. After logout the
- *    auto-flow won't refire (dev row exists), so signing back in uses
- *    that printed password; lost it ⇒ drop the row or wipe the local DB.
+ *    generated on creation and never logged — there is no
+ *    source-code-known credential. After logout the auto-flow won't refire
+ *    (dev row exists); use normal signup or reset the local DB to start over.
  *  - **NODE_ENV.** Still gated on development/test.
  *
  * Set `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` to opt out entirely

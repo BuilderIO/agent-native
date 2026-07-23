@@ -121,11 +121,12 @@ Need a custom backend, the provider-registry API, or the batching/singleton inte
 
 Call `track()` from action handlers to record user or agent activity:
 
-```ts
-// actions/create-project.ts
+```ts filename="actions/create-project.ts"
 import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Create a new project.",
@@ -134,14 +135,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -173,8 +175,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -193,8 +194,7 @@ This is distinct from the framework's internal browser telemetry (`trackEvent()`
 Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -234,6 +234,8 @@ Privacy defaults are intentionally conservative but still useful for playback:
 - Sensitive zones are blocked with selectors such as `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, and credit-card/password/SSN-like fields.
 - URLs are scrubbed with the same `scrubUrl()` helper used by browser analytics.
 - Replay capture is web-only and opt-in; it does not record native desktop screens.
+
+Framework-owned iframes, including extensions and rendered email content, are included in replay capture. The same masking and blocking selectors apply inside recorded frames. A third-party cross-origin iframe remains opaque unless its own document runs a compatible rrweb recorder with cross-origin iframe recording enabled; browser origin boundaries cannot be bypassed from the parent page.
 
 While recording, session replay also captures browser console output (`log`, `info`, `warn`, `error`, `debug`, plus window `error` / `unhandledrejection`) and network request metadata (`fetch` and XHR) as tagged rrweb custom events, so agents and the replay viewer can debug user-reported issues. Capture is on by default when replay is enabled; tune or disable it with the `sessionReplay.console` and `sessionReplay.network` options, each accepting a boolean or an options object (`{ maxEvents?: number }`, with `network` additionally accepting `captureErrorBodies` and `maxErrorBodyLength`). Request bodies and headers are never captured; response bodies are captured only as a bounded, redacted snippet for 5xx (server error) responses (`captureErrorBodies`, default true, capped at `maxErrorBodyLength` chars, default 2048) — non-5xx and network-failure responses never carry a body. URLs are scrubbed, messages are truncated, the recorder's own ingest/tracking traffic is excluded, and per-session budgets (1000 console / 2000 network events) add a truncation notice when exceeded.
 
@@ -349,5 +351,5 @@ The framework also tracks `builder connect clicked` from Connect Builder CTAs, a
 ## What's next
 
 - [**Actions**](/docs/actions) — where most tracking calls originate
-- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
-- [**Secrets**](/docs/security) — manage API keys for tracking providers
+- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
+- [**Security — Secrets Management**](/docs/security#secrets) — manage API keys for tracking providers

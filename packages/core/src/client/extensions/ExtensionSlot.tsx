@@ -1,6 +1,6 @@
 import { IconPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
@@ -17,6 +17,7 @@ import {
 } from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface SlotInstall {
   installId: string;
@@ -48,6 +49,8 @@ export interface ExtensionSlotProps {
   className?: string;
   /** Optional className applied to each EmbeddedExtension. */
   toolClassName?: string;
+  /** Fires once when the slot query and all installed extensions are ready. */
+  onReady?: () => void;
 }
 
 /**
@@ -69,8 +72,12 @@ export function ExtensionSlot({
   showEmptyAffordance,
   className,
   toolClassName,
+  onReady,
 }: ExtensionSlotProps) {
-  const { data: installs = [], isLoading } = useQuery<SlotInstall[]>({
+  const t = useT();
+  const readyInstallIds = useRef(new Set<string>());
+  const readyNotified = useRef(false);
+  const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
     queryFn: async () => {
       const res = await fetch(
@@ -78,13 +85,56 @@ export function ExtensionSlot({
           `/_agent-native/slots/${encodeURIComponent(id)}/installs`,
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok)
+        throw new Error(`Failed to load slot installs (${res.status})`);
       return res.json();
     },
   });
+  const installs = installsQuery.data ?? [];
 
-  if (isLoading) {
+  useEffect(() => {
+    readyInstallIds.current.clear();
+    readyNotified.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (readyNotified.current || installsQuery.isLoading) return;
+    if (
+      installsQuery.isError ||
+      installs.length === 0 ||
+      readyInstallIds.current.size >= installs.length
+    ) {
+      readyNotified.current = true;
+      onReady?.();
+    }
+  }, [installs, installsQuery.isError, installsQuery.isLoading, onReady]);
+
+  const markInstallReady = (installId: string) => {
+    readyInstallIds.current.add(installId);
+    if (
+      !readyNotified.current &&
+      !installsQuery.isLoading &&
+      readyInstallIds.current.size >= installs.length
+    ) {
+      readyNotified.current = true;
+      onReady?.();
+    }
+  };
+
+  if (installsQuery.isLoading) {
     return null;
+  }
+
+  if (installsQuery.isError) {
+    return (
+      <ExtensionQueryErrorState
+        compact
+        className={className}
+        message={t("extensions.widgetsLoadError")}
+        onRetry={() => void installsQuery.refetch()}
+        retrying={installsQuery.isFetching}
+      />
+    );
   }
 
   if (installs.length === 0) {
@@ -105,6 +155,8 @@ export function ExtensionSlot({
           slotId={id}
           context={context}
           className={toolClassName}
+          onReady={() => markInstallReady(install.installId)}
+          onUnavailable={() => markInstallReady(install.installId)}
         />
       ))}
     </div>
@@ -114,7 +166,7 @@ export function ExtensionSlot({
 function SlotEmptyAffordance({ slotId }: { slotId: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const { data: available = [], isLoading } = useQuery<AvailableTool[]>({
+  const availableQuery = useQuery<AvailableTool[]>({
     queryKey: ["slot-available", slotId],
     queryFn: async () => {
       const res = await fetch(
@@ -122,11 +174,14 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
           `/_agent-native/slots/${encodeURIComponent(slotId)}/available`,
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) {
+        throw new Error(`Failed to load available extensions (${res.status})`);
+      }
       return res.json();
     },
     enabled: open,
   });
+  const available = availableQuery.data ?? [];
   const queryClient = useQueryClient();
 
   const install = async (extensionId: string) => {
@@ -210,16 +265,26 @@ function SlotEmptyAffordance({ slotId }: { slotId: string }) {
           </p>
         </div>
         <div className="max-h-72 overflow-y-auto py-1">
-          {isLoading && (
+          {availableQuery.isLoading && (
             <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
               {t("extensions.loading")}
             </div>
           )}
-          {!isLoading && available.length === 0 && (
-            <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
-              {t("extensions.noWidgetsAvailable")}
-            </div>
+          {availableQuery.isError && (
+            <ExtensionQueryErrorState
+              compact
+              message={t("extensions.widgetsLoadError")}
+              onRetry={() => void availableQuery.refetch()}
+              retrying={availableQuery.isFetching}
+            />
           )}
+          {!availableQuery.isLoading &&
+            !availableQuery.isError &&
+            available.length === 0 && (
+              <div className="px-3 py-3 text-[12px] text-muted-foreground/60">
+                {t("extensions.noWidgetsAvailable")}
+              </div>
+            )}
           {available.map((extension) => (
             <button
               key={extension.extensionId}

@@ -48,6 +48,7 @@ interface PendingNewFile {
 interface FileTreeProps {
   providerKey: string;
   providerLabel: string;
+  providerTitle?: string;
   capabilities: WorkspaceCapabilities;
   nodes: TreeNode[];
   activeUri: string | null;
@@ -69,6 +70,7 @@ interface FileTreeProps {
 export function FileTree({
   providerKey,
   providerLabel,
+  providerTitle,
   capabilities,
   nodes,
   activeUri,
@@ -93,6 +95,16 @@ export function FileTree({
     text: "",
     at: 0,
   });
+  // When Enter/Escape ends a rename or new-file input via setRenamingPath /
+  // setPendingNewFile, React unmounts the focused input as part of that same
+  // update. Removing a focused DOM node makes the browser fire a native blur
+  // on it, which our onBlur handler would otherwise treat as an independent
+  // commit — double-submitting on Enter (rename/create called twice) and
+  // silently committing the draft on Escape instead of discarding it. These
+  // refs let the key handler mark "I already resolved this input" so the
+  // resulting blur is a no-op.
+  const renameHandledRef = useRef(false);
+  const newFileHandledRef = useRef(false);
 
   const rows = flattenVisibleTree(nodes, expandedPaths);
 
@@ -121,6 +133,7 @@ export function FileTree({
   );
 
   const startRename = useCallback((node: TreeNode) => {
+    renameHandledRef.current = false;
     setRenamingPath(node.path);
     setRenameDraft(baseName(node.path));
   }, []);
@@ -286,13 +299,16 @@ export function FileTree({
   return (
     <div className="flex flex-col">
       <div className="group/header flex h-[22px] shrink-0 items-center gap-1 px-2 pt-1 text-[11px] font-bold uppercase tracking-wide text-[var(--workbench-muted-fg)]">
-        <span className="min-w-0 flex-1 truncate">{providerLabel}</span>
+        <span className="min-w-0 flex-1 truncate" title={providerTitle}>
+          {providerLabel}
+        </span>
         <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover/header:opacity-100">
           {capabilities.create ? (
             <HeaderIconButton
               label="New File" /* i18n-ignore */
               icon={IconPlus}
               onClick={() => {
+                newFileHandledRef.current = false;
                 setPendingNewFile({ parentPath: "" });
                 setNewFileDraft("");
               }}
@@ -390,14 +406,25 @@ export function FileTree({
                       value={renameDraft}
                       onClick={(event) => event.stopPropagation()}
                       onChange={(event) => setRenameDraft(event.target.value)}
-                      onBlur={() => commitRename(row.node)}
+                      onBlur={() => {
+                        // Enter/Escape already resolved this input; the blur
+                        // firing right after is just the DOM node unmounting,
+                        // not a real "user clicked away" commit request.
+                        if (renameHandledRef.current) {
+                          renameHandledRef.current = false;
+                          return;
+                        }
+                        void commitRename(row.node);
+                      }}
                       onKeyDown={(event) => {
                         event.stopPropagation();
                         if (event.key === "Enter") {
                           event.preventDefault();
+                          renameHandledRef.current = true;
                           void commitRename(row.node);
                         } else if (event.key === "Escape") {
                           event.preventDefault();
+                          renameHandledRef.current = true;
                           setRenamingPath(null);
                         }
                       }}
@@ -418,6 +445,7 @@ export function FileTree({
                   <ContextMenuItem
                     className="text-[12px]"
                     onSelect={() => {
+                      newFileHandledRef.current = false;
                       toggleFolder(row.path, true);
                       setPendingNewFile({ parentPath: row.path });
                       setNewFileDraft("");
@@ -481,14 +509,25 @@ export function FileTree({
               value={newFileDraft}
               placeholder="filename.ext" /* i18n-ignore */
               onChange={(event) => setNewFileDraft(event.target.value)}
-              onBlur={() => commitNewFile()}
+              onBlur={() => {
+                // Enter/Escape already resolved this input; the blur firing
+                // right after is just the DOM node unmounting, not a real
+                // "user clicked away" commit request.
+                if (newFileHandledRef.current) {
+                  newFileHandledRef.current = false;
+                  return;
+                }
+                void commitNewFile();
+              }}
               onKeyDown={(event) => {
                 event.stopPropagation();
                 if (event.key === "Enter") {
                   event.preventDefault();
+                  newFileHandledRef.current = true;
                   void commitNewFile();
                 } else if (event.key === "Escape") {
                   event.preventDefault();
+                  newFileHandledRef.current = true;
                   setPendingNewFile(null);
                   setNewFileDraft("");
                 }

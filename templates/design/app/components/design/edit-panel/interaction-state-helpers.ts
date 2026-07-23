@@ -43,3 +43,30 @@ export function resolveInteractionStateValue(
   const override = stateStyles[property] ?? stateStyles[kebabProperty];
   return override !== undefined ? override : baseValue;
 }
+
+/**
+ * Project active state declarations onto an ElementInfo snapshot so every
+ * existing inspector section reads the same override-or-base values without
+ * each field needing bespoke state plumbing. Stored CSS names are kebab-case;
+ * bridge computed/inline maps are primarily camelCase, so both aliases are
+ * populated. Returns the original object for Default/no overrides.
+ */
+export function elementWithInteractionStateStyles(
+  element: ElementInfo,
+  stateStyles: Record<string, string> | undefined,
+): ElementInfo {
+  if (!stateStyles || Object.keys(stateStyles).length === 0) return element;
+  const aliases: Record<string, string> = {};
+  for (const [property, value] of Object.entries(stateStyles)) {
+    const camel = property.replace(/-([a-z])/g, (_, letter: string) =>
+      letter.toUpperCase(),
+    );
+    aliases[property] = value;
+    aliases[camel] = value;
+  }
+  return {
+    ...element,
+    computedStyles: { ...element.computedStyles, ...aliases },
+    inlineStyles: { ...(element.inlineStyles ?? {}), ...aliases },
+  };
+}

@@ -1,5 +1,10 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
-import { IconArrowBackUp, IconTrash } from "@tabler/icons-react";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  IconAlertTriangle,
+  IconArrowBackUp,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -41,12 +46,13 @@ export default function TrashRoute() {
   const t = useT();
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [singlePurgeId, setSinglePurgeId] = useState<string | null>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
 
   const args = useMemo(() => ({ view: "trash" as const, sort }), [sort]);
-  const { data, isLoading } = useRecordings(args);
+  const { data, isLoading, isError, isFetching, refetch } = useRecordings(args);
   const recordings = (data?.recordings ?? []) as RecordingSummary[];
 
   // These actions are owned by other teams and ship with the template.
@@ -55,13 +61,26 @@ export default function TrashRoute() {
     "delete-recording-permanent",
   );
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: string, shiftKey = false) => {
     setSelected((prev) => {
+      if (shiftKey && lastSelectedId && lastSelectedId !== id) {
+        const ids = recordings.map((r) => r.id);
+        const fromIndex = ids.indexOf(lastSelectedId);
+        const toIndex = ids.indexOf(id);
+        if (fromIndex !== -1 && toIndex !== -1) {
+          const [start, end] =
+            fromIndex < toIndex ? [fromIndex, toIndex] : [toIndex, fromIndex];
+          const next = new Set(prev);
+          for (let i = start; i <= end; i++) next.add(ids[i]);
+          return next;
+        }
+      }
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+    setLastSelectedId(id);
   };
 
   const restoreAll = async (ids: string[]) => {
@@ -165,6 +184,7 @@ export default function TrashRoute() {
         ? new Set()
         : new Set(recordings.map((r) => r.id)),
     );
+    setLastSelectedId(null);
   };
 
   return (
@@ -221,6 +241,24 @@ export default function TrashRoute() {
             {Array.from({ length: 6 }).map((_, i) => (
               <Skeleton key={i} />
             ))}
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center gap-3 px-8 py-20 text-center">
+            <IconAlertTriangle className="size-10 text-destructive" />
+            <h2 className="text-base font-semibold">
+              {t("libraryGrid.loadFailedTitle")}
+            </h2>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              {t("libraryGrid.loadFailedBody")}
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              {t("libraryGrid.retry")}
+            </Button>
           </div>
         ) : recordings.length === 0 ? (
           <EmptyState kind="trash" />

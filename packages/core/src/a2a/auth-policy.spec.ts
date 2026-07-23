@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
+  isLoopbackAddress,
+  isTrustedLocalRuntime,
   shouldAdvertiseJwtA2AAuth,
 } from "./auth-policy.js";
 
@@ -21,6 +23,7 @@ const A2A_ENV_KEYS = [
   "FLY_APP_NAME",
   "K_SERVICE",
   "A2A_SECRET",
+  "A2A_ALLOW_UNSIGNED_INTERNAL",
 ] as const;
 
 describe("a2a auth-policy", () => {
@@ -150,5 +153,48 @@ describe("a2a auth-policy", () => {
       process.env.NODE_ENV = "development";
       expect(shouldAdvertiseJwtA2AAuth()).toBe(false);
     });
+  });
+
+  describe("isTrustedLocalRuntime", () => {
+    it("is false on a production runtime even when loopback", () => {
+      process.env.NODE_ENV = "production";
+      expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
+    });
+
+    it("is true with no secret, loopback true, dev", () => {
+      process.env.NODE_ENV = "development";
+      expect(isTrustedLocalRuntime({ loopback: true })).toBe(true);
+    });
+
+    it("is false with no secret, loopback false, no flag, dev (the VPS hole is now closed)", () => {
+      process.env.NODE_ENV = "development";
+      expect(isTrustedLocalRuntime({ loopback: false })).toBe(false);
+    });
+
+    it("is true with no secret, loopback false, when the explicit opt-in flag is set", () => {
+      process.env.A2A_ALLOW_UNSIGNED_INTERNAL = "1";
+      expect(isTrustedLocalRuntime({ loopback: false })).toBe(true);
+    });
+
+    it("is false on a recognized cloud host regardless of loopback", () => {
+      process.env.NETLIFY = "true";
+      expect(isTrustedLocalRuntime({ loopback: true })).toBe(false);
+    });
+  });
+
+  describe("isLoopbackAddress", () => {
+    it.each(["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.5"])(
+      "treats %s as loopback",
+      (addr) => {
+        expect(isLoopbackAddress(addr)).toBe(true);
+      },
+    );
+
+    it.each([undefined, "", "10.0.0.4", "example.com"])(
+      "does NOT treat %s as loopback",
+      (addr) => {
+        expect(isLoopbackAddress(addr)).toBe(false);
+      },
+    );
   });
 });

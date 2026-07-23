@@ -28,6 +28,7 @@ const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
+const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
 
 type StoredSecret =
@@ -85,6 +86,12 @@ export interface RemoteConnectorSettings {
   enabled: boolean;
 }
 
+export interface DesktopAppPreferences {
+  appsRoot: string;
+  managedAppIds: string[];
+  appOrder: string[];
+}
+
 interface ShortcutStore {
   version: 1;
   bindings: DesktopShortcutBinding[];
@@ -93,14 +100,14 @@ interface ShortcutStore {
 function defaultFrameSettings(): FrameSettings {
   return {
     enabled: true,
-    showCodeTab: false,
+    showCodeTab: true,
     mode: app.isPackaged ? "prod" : "dev",
   };
 }
 
 function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
   return {
-    enabled: true,
+    enabled: false,
   };
 }
 
@@ -173,6 +180,10 @@ function getCodeAgentProviderStorePath(): string {
 
 function getShortcutStorePath(): string {
   return path.join(app.getPath("userData"), SHORTCUT_STORE_FILE);
+}
+
+function getDesktopAppPreferencesStorePath(): string {
+  return path.join(app.getPath("userData"), DESKTOP_APP_PREFERENCES_STORE_FILE);
 }
 
 function writeJsonFileAtomic(
@@ -356,16 +367,6 @@ function hasStoredProviderSecretBlob(
   return Boolean(secret?.value);
 }
 
-function canReadStoredProviderSecret(
-  secret: StoredSecret | undefined,
-): boolean {
-  if (!secret?.value) return false;
-  if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
-    return true;
-  }
-  return Boolean(decryptProviderSecret(secret));
-}
-
 export function loadCodeAgentProviderCredentials(): Partial<
   Record<CodeAgentProviderCredentialKey, string>
 > {
@@ -435,7 +436,7 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   const store = loadCodeAgentProviderStore();
   const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
     const savedKeys = provider.keys.filter((key) =>
-      canReadStoredProviderSecret(store.credentials[key]),
+      hasStoredProviderSecretBlob(store.credentials[key]),
     );
     const envKeys = provider.keys.filter((key) => Boolean(process.env[key]));
     const configuredKeys = provider.keys.filter(
@@ -508,6 +509,97 @@ export function saveRemoteConnectorSettings(
   const updated = { ...current, ...settings };
   writeJsonFileAtomic(getRemoteConnectorStorePath(), updated);
   return updated;
+}
+
+export function getDefaultDesktopAppsRoot(): string {
+  return path.join(app.getPath("home"), "Agent Native Apps");
+}
+
+export function loadDesktopAppPreferences(): DesktopAppPreferences {
+  const defaults: DesktopAppPreferences = {
+    appsRoot: getDefaultDesktopAppsRoot(),
+    managedAppIds: [],
+    appOrder: [],
+  };
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getDesktopAppPreferencesStorePath(), "utf-8"),
+    ) as Partial<DesktopAppPreferences>;
+    const appsRoot =
+      typeof raw.appsRoot === "string" && raw.appsRoot.trim()
+        ? path.resolve(raw.appsRoot.trim())
+        : defaults.appsRoot;
+    const managedAppIds = Array.isArray(raw.managedAppIds)
+      ? raw.managedAppIds.filter(
+          (id): id is string => typeof id === "string" && Boolean(id.trim()),
+        )
+      : [];
+    const appOrder = Array.isArray(raw.appOrder)
+      ? raw.appOrder.filter(
+          (id): id is string => typeof id === "string" && Boolean(id.trim()),
+        )
+      : [];
+    return {
+      appsRoot,
+      managedAppIds: [...new Set(managedAppIds)],
+      appOrder: [...new Set(appOrder)],
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveDesktopAppPreferences(
+  settings: Partial<DesktopAppPreferences>,
+): DesktopAppPreferences {
+  const current = loadDesktopAppPreferences();
+  const updated: DesktopAppPreferences = {
+    appsRoot:
+      typeof settings.appsRoot === "string" && settings.appsRoot.trim()
+        ? path.resolve(settings.appsRoot.trim())
+        : current.appsRoot,
+    managedAppIds: [
+      ...new Set(settings.managedAppIds ?? current.managedAppIds),
+    ],
+    appOrder: [...new Set(settings.appOrder ?? current.appOrder)],
+  };
+  writeJsonFileAtomic(getDesktopAppPreferencesStorePath(), updated);
+  return updated;
+}
+
+export function markDesktopManagedApp(
+  appId: string,
+  appsRoot?: string,
+): DesktopAppPreferences {
+  const current = loadDesktopAppPreferences();
+  return saveDesktopAppPreferences({
+    appsRoot: appsRoot ?? current.appsRoot,
+    managedAppIds: [...current.managedAppIds, appId],
+    appOrder: current.appOrder.includes(appId)
+      ? current.appOrder
+      : [...current.appOrder, appId],
+  });
+}
+
+export function isDesktopManagedApp(appId: string): boolean {
+  return loadDesktopAppPreferences().managedAppIds.includes(appId);
+}
+
+function orderAppsForDesktop(apps: AppConfig[]): AppConfig[] {
+  const customOrder = loadDesktopAppPreferences().appOrder;
+  if (customOrder.length === 0) return sortDesktopApps(apps);
+
+  const orderIndex = new Map(customOrder.map((id, index) => [id, index]));
+  const fallbackIndex = new Map(apps.map((item, index) => [item.id, index]));
+  return [...apps].sort((a, b) => {
+    const aIndex =
+      orderIndex.get(a.id) ??
+      customOrder.length + (fallbackIndex.get(a.id) ?? apps.length);
+    const bIndex =
+      orderIndex.get(b.id) ??
+      customOrder.length + (fallbackIndex.get(b.id) ?? apps.length);
+    return aIndex - bIndex;
+  });
 }
 
 export function loadDesktopShortcutBindings(): DesktopShortcutBinding[] {
@@ -648,7 +740,7 @@ export function loadApps(): AppConfig[] {
       }
     }
 
-    const orderedApps = sortDesktopApps(apps);
+    const orderedApps = orderAppsForDesktop(apps);
     if (orderedApps.some((app, index) => app !== apps[index])) {
       apps = orderedApps;
       migrated = true;
@@ -672,12 +764,39 @@ export function addApp(newApp: AppConfig): AppConfig[] {
   const apps = loadApps();
   apps.push(newApp);
   saveApps(apps);
+  const preferences = loadDesktopAppPreferences();
+  if (preferences.appOrder.length > 0) {
+    saveDesktopAppPreferences({
+      appOrder: [...preferences.appOrder, newApp.id],
+    });
+  }
   return apps;
 }
 
 export function removeApp(id: string): AppConfig[] {
   const apps = loadApps().filter((a) => a.id !== id);
   saveApps(apps);
+  const preferences = loadDesktopAppPreferences();
+  saveDesktopAppPreferences({
+    managedAppIds: preferences.managedAppIds.filter((appId) => appId !== id),
+    appOrder: preferences.appOrder.filter((appId) => appId !== id),
+  });
+  return apps;
+}
+
+export function reorderApp(id: string, direction: "up" | "down"): AppConfig[] {
+  const apps = loadApps();
+  const index = apps.findIndex((candidate) => candidate.id === id);
+  if (index === -1) return apps;
+  const nextIndex = direction === "up" ? index - 1 : index + 1;
+  if (nextIndex < 0 || nextIndex >= apps.length) return apps;
+
+  const [moved] = apps.splice(index, 1);
+  apps.splice(nextIndex, 0, moved);
+  saveApps(apps);
+  saveDesktopAppPreferences({
+    appOrder: apps.map((candidate) => candidate.id),
+  });
   return apps;
 }
 
@@ -697,5 +816,6 @@ export function updateApp(
 export function resetToDefaults(): AppConfig[] {
   const apps = defaultApps();
   saveApps(apps);
+  saveDesktopAppPreferences({ managedAppIds: [], appOrder: [] });
   return apps;
 }

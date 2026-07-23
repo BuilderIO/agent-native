@@ -116,7 +116,7 @@ O comando instala três comandos: `/visual-plan`, `/visual-recap` e `/visualize-
 
 Se você estiver usando um host baseado em bate-papo que aceita conectores MCP diretamente dos URLs
 (em vez de um cliente configurado com CLI), conecte o conector de Planos hospedado em
-`https://plan.agent-native.com/_agent-native/mcp` — consulte [MCP Clients](/docs/mcp-clients) para configuração específica do cliente.
+`https://plan.agent-native.com/mcp` — consulte [MCP Clients](/docs/mcp-clients) para configuração específica do cliente.
 
 A autenticação é um login único do navegador durante a configuração — isso é intencional e é
 é o que permite ao agente persistir e compartilhar os planos que gera. O que a autenticação
@@ -214,6 +214,20 @@ Se a primeira passagem ainda tiver decisões responsáveis, o agente pode fazer 
 **Formulário de perguntas abertas** na parte inferior do mesmo plano. Respondendo e enviando
 o agente inicia uma revisão do plano existente.
 
+## Custo e escolha do modelo
+
+Gerar um plano ou uma recapitulação executa uma sessão completa de agente contra
+o LLM do seu agente de codificação, não um preenchimento leve de modelo, então o
+custo escala com o tamanho do diff ou do plano e o modelo que você escolher.
+
+- O modelo de chat padrão do próprio aplicativo é o Sonnet 5; altere-o a qualquer
+  momento em **Configurações**. Haiku é a opção Claude mais barata, e Luna é a
+  opção mais barata da família GPT-5.6.
+- As recapitulações automáticas de PR da GitHub Action são executadas
+  separadamente do aplicativo interativo e têm seus próprios controles de
+  modelo e custo — veja [PR Visual Recap](/docs/pr-visual-recap) para
+  `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT` e `VISUAL_RECAP_REASONING`.
+
 ## O que você pode fazer com isso
 
 - **Revisão antes da implementação.** React para diagramas, wireframes, guias de opções,
@@ -255,7 +269,7 @@ Compartilhar e comentar são os fluxos de trabalho que precisam de uma conta:
   revisão entre dispositivos ou em equipe) requer login. O login do Google aparece quando
   as variáveis de ambiente padrão do Google OAuth estão configuradas.
 
-O conector de planos hospedados fica em `https://plan.agent-native.com/_agent-native/mcp`.
+O conector de planos hospedados fica em `https://plan.agent-native.com/mcp`.
 Nunca coloque segredos compartilhados em arquivos de habilidades.
 
 ## Modo de privacidade de arquivos locais {#local-files}
@@ -292,7 +306,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 A ponte URL se parece com
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 A página é o visualizador normal do Plano, mas o navegador busca `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json` e recursos de imagem locais de
 a ponte localhost. O conteúdo do plano não é gravado no banco de dados hospedado e é
@@ -454,7 +468,7 @@ pnpm dev
 A habilidade apoiada pelo aplicativo hospedado usa:
 
 - Aplicativo: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 O modelo local é útil quando você está desenvolvendo os próprios Planos, testando a persistência local ou executando uma superfície de revisão totalmente auto-hospedada.
 

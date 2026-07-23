@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Buscar formularios",
     appearance: "Apariencia",
     toggleTheme: "Cambiar tema",
+    openAgent: "Abrir agente",
   },
   header: {
     settings: "Ajustes",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Preguntar a Forms",
     allForms: "Todos los formularios",
     team: "Equipo",
+    agent: "Agente",
   },
   settings: {
     title: "Ajustes",
@@ -32,10 +34,10 @@ const messages = {
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    agentTitle: "Ajustes del agente",
+    agentTitle: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    openAgentSettings: "Abrir ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Gestionar agente",
   },
   agent: {
     emptyState: "Preguntame cualquier cosa sobre tus formularios",
@@ -192,6 +194,12 @@ const messages = {
       successMessage: "Mensaje de éxito",
       defaultSuccessMessage: "Gracias! Tu respuesta se ha registrado.",
       redirectUrl: "URL de redirección (opcional)",
+      anonymousResponses: "Respuestas anónimas",
+      anonymousResponsesDescription:
+        "No conservar direcciones IP, identidad del remitente ni metadatos de origen.",
+      emailNewResponses: "Enviarme un correo por respuestas nuevas",
+      emailNewResponsesDescription:
+        "Envía una notificación al correo de la cuenta propietaria del formulario cada vez que alguien responde.",
       saveSettings: "Guardar ajustes",
     },
     integrations: {
@@ -260,6 +268,8 @@ const messages = {
     duplicated: "Formulario duplicado",
     duplicateFailed: "No se pudo duplicar el formulario",
     movedToArchive: "Formulario movido al archivo",
+    movingToArchive: "Moviendo el formulario al archivo…",
+    archiveFailed: "No se pudo mover el formulario al archivo",
     restored: "Formulario restaurado",
     permanentlyDeleted: "Formulario eliminado permanentemente",
     bulkPermanentlyDeleted:

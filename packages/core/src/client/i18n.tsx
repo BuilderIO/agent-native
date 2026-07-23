@@ -1,3 +1,7 @@
+import {
+  Picker,
+  useDesignSystemComponent,
+} from "@agent-native/toolkit/design-system";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
@@ -413,6 +417,7 @@ export function AgentNativeI18nProvider({
   }, []);
 
   useEffect(() => {
+    if (!persistPreference) return;
     void setClientAppState(
       "localization",
       {
@@ -424,7 +429,7 @@ export function AgentNativeI18nProvider({
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, preference]);
+  }, [locale, persistPreference, preference]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {
@@ -546,8 +551,8 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "agentPanel.chat": "Chat",
   "agentPanel.cliTerminalMode": "CLI terminal mode",
   "agentPanel.cli": "CLI",
-  "agentPanel.workspaceMode": "Workspace files, agents, skills, and tasks",
-  "agentPanel.workspace": "Workspace",
+  "agentPanel.workspaceMode": "Files, agents, skills, and tasks",
+  "agentPanel.workspace": "Resources",
   "agentPanel.newChat": "New chat",
   "agentPanel.newTerminal": "New terminal",
   "agentPanel.panelOptions": "Agent panel options",
@@ -706,10 +711,28 @@ export function LanguagePicker({
   const selected = options.find((option) => option.value === preference);
   const selectedLabel = selected?.label ?? preference;
   const triggerLabel = `${resolvedLabel}: ${selectedLabel}`;
+  const customPicker = useDesignSystemComponent("Picker");
 
   function handleOptionClick(value: LocalePreference) {
     setOpen(false);
     void setPreference(normalizeLocalizationPreference(value).locale);
+  }
+
+  if (variant === "select" && customPicker) {
+    return (
+      <Picker<LocalePreference>
+        mode="select"
+        options={options}
+        value={preference}
+        onChange={(value) => {
+          if (value == null) return;
+          void setPreference(normalizeLocalizationPreference(value).locale);
+        }}
+        placeholder={selectedLabel}
+        aria-label={triggerLabel}
+        className={className}
+      />
+    );
   }
 
   return (

@@ -1,13 +1,4 @@
-/**
- * Renders markdown content as HTML with:
- * - Syntax-highlighted code blocks (via Shiki)
- * - Heading anchor links (clickable # on h2/h3)
- * - Tailwind Typography styling via .docs-content
- *
- * Uses the 'marked' library for markdown→HTML conversion.
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { marked, type RendererThis, type Tokens } from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
@@ -95,6 +86,8 @@ const GENERIC_LANGUAGES = new Set(["", "plain", "plaintext", "text", "txt"]);
 interface CodeFenceOptions {
   language?: string;
   maxLines?: number;
+  /** Real project file path from a `filename="path/to/file.ts"` fence attribute. */
+  filename?: string;
 }
 
 function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
@@ -104,6 +97,7 @@ function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
   for (const token of tokens) {
     const normalized = token.toLowerCase();
     const maxLinesMatch = token.match(/^(?:maxlines|max-lines|lines)=(.+)$/i);
+    const filenameMatch = token.match(/^filename=(.+)$/i);
     const disablesCollapse = [
       "expanded",
       "showall",
@@ -121,6 +115,12 @@ function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
           Math.min(MAX_CONFIGURED_CODE_LINES, Math.floor(parsed)),
         );
       }
+      continue;
+    }
+
+    if (filenameMatch) {
+      const raw = filenameMatch[1].replace(/^['"]|['"]$/g, "").trim();
+      if (raw) options.filename = raw;
       continue;
     }
 
@@ -319,8 +319,12 @@ function createRenderer() {
     const fade = collapsible
       ? `<div class="code-block-fade" aria-hidden="true"></div>`
       : "";
+    const filenameAttr = options.filename ? ` data-filename="true"` : "";
+    const filenameBar = options.filename
+      ? `<div class="code-block-filename"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg><span>${escapeHtml(options.filename)}</span></div>`
+      : "";
 
-    return `<div class="code-block group relative"${collapsedAttrs}><div class="code-block-scroll"><pre><code${langClass}>${escapeHtml(text)}</code></pre>${fade}</div>${toggle}</div>\n`;
+    return `<div class="code-block group relative"${filenameAttr}${collapsedAttrs}>${filenameBar}<div class="code-block-scroll"><pre><code${langClass}>${escapeHtml(text)}</code></pre>${fade}</div>${toggle}</div>\n`;
   };
 
   renderer.heading = function (

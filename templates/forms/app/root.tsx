@@ -1,19 +1,22 @@
 import {
-  useDbSync,
-  AppProviders,
-  CommandMenu,
-  appPath,
-  createAgentNativeQueryClient,
-  getLocaleInitScript,
-  useCommandMenuShortcut,
-  getThemeInitScript,
-  configureTracking,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
+} from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  useDbSync,
+  AppProviders,
+  createAgentNativeQueryClient,
   setClientAppState,
-  useT,
-} from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -235,6 +238,7 @@ function FormsCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -246,6 +250,10 @@ function FormsCommandMenu({
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.searchForms")}
         </CommandMenu.Item>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.appearance")}>
         <ThemeToggleItem />
@@ -254,22 +262,48 @@ function FormsCommandMenu({
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
+    <>
+      <DbSyncSetup />
+      <NavigationStateSync />
+      <UrlStateSync />
+      <OpenLinkInterceptor />
+      <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+      <Outlet />
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isPublicPath =
+    location.pathname === "/f" || location.pathname.startsWith("/f/");
+
+  if (isPublicPath) {
+    return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          i18n={{ catalog: i18nCatalog }}
+        >
+          <Outlet />
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
+  return (
     <AppToolkitProvider>
       <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
-        <DbSyncSetup />
-        <NavigationStateSync />
-        <UrlStateSync />
-        <OpenLinkInterceptor />
-        <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-        <Outlet />
+        <PrivateAppContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

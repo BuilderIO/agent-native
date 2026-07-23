@@ -1,4 +1,5 @@
-import { appBasePath, useT } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconDownload,
   IconFileTypePdf,
@@ -7,6 +8,7 @@ import {
   IconShare2,
   IconBrandGoogle,
 } from "@tabler/icons-react";
+import { toast } from "sonner";
 
 import {
   DropdownMenu,
@@ -16,7 +18,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { toast } from "@/hooks/use-toast";
 
 interface ExportMenuProps {
   deckId: string;
@@ -73,13 +74,11 @@ export function ExportMenu({
       await onExportPptx();
     } catch (err) {
       console.error("Export failed:", err);
-      toast({
-        title: t("editorExport.exportFailed"),
+      toast.error(t("editorExport.exportFailed"), {
         description:
           err instanceof Error
             ? err.message
             : t("editorExport.exportPptxError"),
-        variant: "destructive",
       });
     }
   };
@@ -87,19 +86,16 @@ export function ExportMenu({
   const handleExportGoogleSlides = async () => {
     try {
       await onExportPptx();
-      toast({
-        title: t("editorExport.googleSlidesDownloaded"),
+      toast.success(t("editorExport.googleSlidesDownloaded"), {
         description: t("editorExport.googleSlidesImportHint"),
       });
     } catch (err) {
       console.error("Export failed:", err);
-      toast({
-        title: t("editorExport.exportFailed"),
+      toast.error(t("editorExport.exportFailed"), {
         description:
           err instanceof Error
             ? err.message
             : t("editorExport.exportGoogleSlidesError"),
-        variant: "destructive",
       });
     }
   };
@@ -124,13 +120,11 @@ export function ExportMenu({
       triggerBlobDownload(blob, filename);
     } catch (err) {
       console.error("Export failed:", err);
-      toast({
-        title: t("editorExport.exportFailed"),
+      toast.error(t("editorExport.exportFailed"), {
         description:
           err instanceof Error
             ? err.message
             : t("editorExport.exportHtmlError"),
-        variant: "destructive",
       });
     }
   };

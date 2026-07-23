@@ -14,9 +14,11 @@ import {
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { createThread } from "../chat-threads/store.js";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
@@ -92,6 +94,9 @@ export function parseTriggerFrontmatter(content: string): {
       case "domain":
         meta.domain = value;
         break;
+      case "delegatedPolicyId":
+        meta.delegatedPolicyId = value || undefined;
+        break;
       case "createdBy":
         meta.createdBy = value;
         break;
@@ -133,6 +138,16 @@ export function buildTriggerContent(
     lines.push(`condition: "${meta.condition.replace(/"/g, '\\"')}"`);
   lines.push(`mode: ${meta.mode}`);
   if (meta.domain) lines.push(`domain: ${meta.domain}`);
+  if (
+    meta.delegatedPolicyId &&
+    !/^[a-z0-9][a-z0-9._:-]{0,127}$/i.test(meta.delegatedPolicyId)
+  ) {
+    throw new Error(
+      "Delegated automation policy IDs must be 1-128 letters, numbers, dots, underscores, colons, or hyphens.",
+    );
+  }
+  if (meta.delegatedPolicyId)
+    lines.push(`delegatedPolicyId: ${meta.delegatedPolicyId}`);
   if (meta.createdBy) lines.push(`createdBy: ${meta.createdBy}`);
   if (meta.orgId) lines.push(`orgId: ${meta.orgId}`);
   if (meta.runAs) lines.push(`runAs: ${meta.runAs}`);
@@ -152,6 +167,13 @@ export function buildTriggerContent(
 export interface TriggerDispatcherDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  /**
+   * Tool names to expose on the FIRST engine request for a trigger run. See
+   * `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) — same
+   * semantics. Omit to keep the full `getActions()` set visible up front
+   * (current behavior).
+   */
+  getInitialToolNames?: () => string[] | undefined;
   apiKey?: string;
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
@@ -351,7 +373,7 @@ async function isTriggerRunAsStillValid(
 }
 
 async function dispatchAgentic(
-  resource: { path: string; owner: string; content: string },
+  resource: { id: string; path: string; owner: string; content: string },
   meta: TriggerFrontmatter,
   body: string,
   payload: unknown,
@@ -401,9 +423,20 @@ async function dispatchAgentic(
     { userEmail: jobUserEmail, orgId: jobOrgId },
     async () => {
       try {
-        const actions = _deps!.getActions();
+        const baseActions = _deps!.getActions();
         const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
-        const tools = actionsToEngineTools(actions);
+        const initialToolNames = _deps!.getInitialToolNames?.();
+        // Only attach tool-search (and pay its schema cost) when the caller
+        // actually supplied an initial subset to filter down to — otherwise
+        // this is byte-for-byte the prior unfiltered behavior.
+        const actions = initialToolNames
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
+        const availableTools = actionsToEngineTools(actions);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         const engine = await resolveEngine({
           apiKey,
@@ -457,11 +490,18 @@ ${body}`;
             model,
             systemPrompt,
             tools,
+            availableTools,
             messages,
             actions,
             send: (event) => events.push(event),
             signal: controller.signal,
             threadId: thread.id,
+            actionCaller: "automation",
+            automation: {
+              triggerId: resource.id,
+              triggerName,
+              policyId: meta.delegatedPolicyId,
+            },
           });
         } finally {
           clearTimeout(timeout);

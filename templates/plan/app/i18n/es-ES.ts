@@ -30,10 +30,10 @@ const messages = {
       "Gestiona miembros del equipo, acceso de la organización y preferencias compartidas.",
     openTeamSettings: "Abrir ajustes del equipo",
     openResourceSettings: "Abrir ajustes de recursos",
-    agentTitle: "Ajustes del agente",
+    agentTitle: "Gestionar agente",
     agentDescription:
-      "Abre los ajustes del agente en la barra lateral para modelos, claves API, automatizaciones, voz y otros controles.",
-    openAgentSettings: "Abrir ajustes del agente",
+      "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+    openAgentSettings: "Gestionar agente",
     editorTitle: "Extensión de VS Code",
     editorDescription:
       "Abre y revisa los planes en un panel lateral dentro de VS Code en lugar de una pestaña aparte del navegador.",
@@ -45,6 +45,10 @@ const messages = {
     suggestionShipped: "¿Qué se lanzó la semana pasada?",
     suggestionUi: "¿Cómo se ve esta interfaz?",
     suggestionApi: "¿Cuál es la forma de esta API?",
+  },
+  contextXray: {
+    panelTitle: "Radiografía de contexto",
+    snapshotsTitle: "Instantáneas",
   },
   sidebar: {
     openNavigation: "Abrir navegación",
@@ -294,6 +298,8 @@ const messages = {
       agentMissing:
         "Conecte el agente para ejecutarlo: agregue una clave API o use Builder.",
       assessment: {
+        design:
+          "Se detectó automáticamente una solicitud de alta fidelidad; el agente creará pantallas de marca pulidas.",
         ui: "Estados o flujos de UI detectados automáticamente; el agente hará un plan primero con estructura alámbrica.",
         visual:
           "Auto le pedirá al agente un plan técnico completo con diagramas y detalles de implementación.",
@@ -317,6 +323,10 @@ const messages = {
           description:
             "Flujo de interfaz de usuario: estructuras alámbricas y estados",
           label: "flujo de interfaz de usuario",
+        },
+        design: {
+          description: "Diseño de alta fidelidad: pantallas de marca pulidas",
+          label: "Diseño de alta fidelidad",
         },
         visual: {
           description: "Visual general: diagramas y notas.",
@@ -499,6 +509,16 @@ const messages = {
     localPlanLoadError: {
       message: 'No se pudo leer la carpeta del plan local "{{slug}}".',
       title: "Plan local no encontrado",
+    },
+    localPlanConnection: {
+      promptTitle: "Conectarse a este plan local",
+      promptMessage:
+        "Este plan permanece en tu ordenador. Plan necesita permiso del navegador para leerlo desde el puente local.",
+      deniedTitle: "El acceso a la red local está bloqueado",
+      deniedMessage:
+        "Abre la configuración del sitio de Plan en el navegador, permite el acceso a la red local y vuelve a comprobarlo.",
+      connect: "Conectarse al plan local",
+      checkAgain: "Comprobar de nuevo",
     },
     loggedOut: {
       copied: "copiado",

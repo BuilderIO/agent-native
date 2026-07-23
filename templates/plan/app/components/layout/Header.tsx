@@ -1,4 +1,5 @@
-import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useHeaderTitle,
   useHeaderActions,
@@ -11,6 +12,7 @@ import { APP_TITLE } from "@/lib/app-config";
 const pageTitleKeys: Record<string, string> = {
   "/": "header.plan",
   "/plans": "header.plan",
+  "/agent": "settings.agentTitle",
   "/settings": "header.settings",
 };
 

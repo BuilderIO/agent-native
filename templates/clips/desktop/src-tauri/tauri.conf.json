@@ -22,7 +22,7 @@
     "targets": ["dmg", "app", "msi"],
     "icon": ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
     "macOS": {
-      "minimumSystemVersion": "11.0",
+      "minimumSystemVersion": "13.0",
       "entitlements": "./Entitlements.plist",
       "files": {
         "Resources/Assets.car": "Assets.car"
@@ -39,8 +39,13 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["clips"]
+      }
+    },
     "shell": {
-      "open": true
+      "open": "(((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)).+|(zoommtg://([A-Za-z0-9-]+\\.)*zoom\\.us/join\\?.+)|(ms-settings:[A-Za-z0-9._?=&-]+))"
     },
     "updater": {
       "active": true,

@@ -118,6 +118,13 @@ export interface RequestRunContext {
   toolCalls?: Array<{ name: string; input: unknown }>;
   /** Tool results returned so far in the current agent loop. */
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
+  /** Per-run fingerprints for large extension bodies already sent to the LLM. */
+  extensionContentReads?: Record<string, string>;
+  /** Per-run fingerprints for repeated tool-search calls already sent to the LLM. */
+  toolSearchReads?: Record<
+    string,
+    { totalTools: number; resultNames: string[] }
+  >;
 }
 
 export interface RequestContext {
@@ -157,6 +164,26 @@ export interface RequestContext {
     attempts?: number;
     incoming: import("../integrations/types.js").IncomingMessage;
     placeholderRef?: string;
+    /** Opaque provider-native progress surface for a durable continuation. */
+    progressRef?: import("../integrations/types.js").PlatformRunProgressRef;
+    installationId?: string;
+    scopeId?: string;
+    principalType?: "user" | "service";
+    lineage?: {
+      runId?: string;
+      parentTaskId?: string;
+      source?: {
+        kind: string;
+        platform?: string;
+        id: string;
+        url?: string;
+      };
+      network?: {
+        protocol: "a2a" | "mcp" | "provider-api";
+        id: string;
+        peer?: string;
+      };
+    };
   };
   /**
    * Mutable per-request agent-run state. Populated by the agent-chat plugin

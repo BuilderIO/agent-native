@@ -116,7 +116,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 MCP コネクタ URL を直接受け入れるチャットベースのホストを使用している場合
 (CLI で構成されたクライアントではなく)、ホストされたプラン コネクタに
-`https://plan.agent-native.com/_agent-native/mcp` — クライアント固有のセットアップについては、[MCP Clients](/docs/mcp-clients) を参照してください。
+`https://plan.agent-native.com/mcp` — クライアント固有のセットアップについては、[MCP Clients](/docs/mcp-clients) を参照してください。
 
 認証はセットアップ時に 1 回限りのブラウザ サインインです。これは意図されたものであり、
 により、エージェントは永続化し、生成した計画を共有できるようになります。なんという認証
@@ -214,6 +214,13 @@ Codex、Claude コード、Markdown、または貼り付けられたプランが
 **公開質問** フォームは同じプランの下部にあります。返信して送信
 エージェントに対するそれは、既存の計画に対する改訂ターンを開始します。
 
+## コストとモデルの選択
+
+プランや要約の生成は、軽量なテンプレート埋め込みではなく、コーディング エージェントの LLM に対するフルエージェント型セッションを実行するため、コストは差分やプランのサイズと選択したモデルに応じて変わります。
+
+- アプリ自体のデフォルト チャット モデルは Sonnet 5 です。いつでも **[設定]** で変更できます。Haiku はより安価な Claude の選択肢で、Luna は GPT-5.6 ファミリーの中でより安価な選択肢です。
+- GitHub Action による自動 PR 要約は、インタラクティブなアプリとは別に実行され、独自のモデルとコストの調整項目を持ちます。`VISUAL_RECAP_MODEL`、`VISUAL_RECAP_AGENT`、`VISUAL_RECAP_REASONING` については [PR Visual Recap](/docs/pr-visual-recap) を参照してください。
+
 ## それを使って何ができるか
 
 - **実装前に確認してください。** React を図、ワイヤーフレーム、オプション タブに追加します。
@@ -255,7 +262,7 @@ Codex、Claude コード、Markdown、または貼り付けられたプランが
   クロスデバイスまたはチームでのレビュー）にはサインインが必要です。Google サインインは次の場合に表示されます。
   標準の Google OAuth 環境変数が設定されています。
 
-ホストされたプラン コネクタは `https://plan.agent-native.com/_agent-native/mcp` にあります。
+ホストされたプラン コネクタは `https://plan.agent-native.com/mcp` にあります。
 スキル ファイルには共有シークレットを決して入れないでください。
 
 ## ローカル ファイル プライバシー モード {#local-files}
@@ -292,7 +299,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 橋 URL は次のようになります
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 このページは通常のプラン ビューアですが、ブラウザは `plan.mdx` を取得します。
 `canvas.mdx`、`prototype.mdx`、`.plan-state.json`、およびローカル画像アセット
 ローカルホストブリッジ。プランのコンテンツはホストされたデータベースに書き込まれず、
@@ -453,7 +460,7 @@ pnpm dev
 ホストされたアプリベースのスキルは以下を使用します:
 
 - アプリ: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 ローカル テンプレートは、プラン自体を開発する場合、ローカルの永続性をテストする場合、または完全に自己ホスト型のレビュー サーフェスを実行する場合に役立ちます。
 

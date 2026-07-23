@@ -1,4 +1,5 @@
-import { AgentToggleButton, useT } from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import { IconAlertTriangle, IconHeartbeat } from "@tabler/icons-react";
 import { useSearchParams } from "react-router";
@@ -55,7 +56,7 @@ export default function MonitoringPage() {
 
   const toggles = (
     <div className="flex shrink-0 items-center gap-2">
-      <RunsTray />
+      <RunsTray pollMs={0} />
       <AgentToggleButton />
     </div>
   );
@@ -69,11 +70,17 @@ export default function MonitoringPage() {
         {inSubView ? null : (
           <div className="flex items-center justify-between gap-2">
             <TabsList>
-              <TabsTrigger value="uptime" className="gap-2">
+              <TabsTrigger
+                value="uptime"
+                className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+              >
                 <IconHeartbeat className="h-4 w-4" />
                 {t("navigation.monitoringUptime")}
               </TabsTrigger>
-              <TabsTrigger value="errors" className="gap-2">
+              <TabsTrigger
+                value="errors"
+                className="gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+              >
                 <IconAlertTriangle className="h-4 w-4" />
                 {t("navigation.monitoringErrors")}
               </TabsTrigger>

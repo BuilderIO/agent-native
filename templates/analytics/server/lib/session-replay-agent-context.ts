@@ -22,6 +22,7 @@ import {
 } from "../../shared/session-replay-diagnostics.js";
 import {
   compactSessionRecordingSummary,
+  getSessionReplayEvents,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
   getSessionReplayTokenizedSummary,
@@ -50,6 +51,7 @@ const MOUSE_INTERACTION = {
   DblClick: 4,
   Focus: 5,
 } as const;
+const SCROLL_MARKER_BURST_MS = 1_000;
 
 function appBasePath(): string {
   const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
@@ -81,18 +83,14 @@ function replayStartedAt(events: AgentReplayEvent[]): number {
 
 function pathLabel(href: string): string {
   try {
-    const parsed = new URL(href);
-    return parsed.pathname || parsed.hostname;
+    const parsed = new URL(href, "https://placeholder.agent-native.local");
+    return boundedDiagnosticText(
+      parsed.pathname || parsed.hostname,
+      MAX_DIAGNOSTIC_URL_CHARS,
+    );
   } catch {
-    return href;
+    return boundedDiagnosticText(href, MAX_DIAGNOSTIC_URL_CHARS);
   }
-}
-
-function markerDetail(event: AgentReplayEvent): string | null {
-  const payload = event.data?.payload;
-  if (typeof payload?.message === "string") return payload.message;
-  if (typeof event.data?.href === "string") return event.data.href;
-  return null;
 }
 
 const TIMELINE_MARKER_CAP = 200;
@@ -499,6 +497,7 @@ function capReplayTimelineMarkers(
 function buildReplayTimeline(events: AgentReplayEvent[]) {
   const startedAt = replayStartedAt(events);
   const markers: ReplayTimelineMarker[] = [];
+  const lastScrollByTarget = new Map<string, number>();
 
   for (const event of events) {
     const timestamp = Number(event.timestamp ?? 0);
@@ -526,10 +525,9 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         if (isFailedSessionReplayNetworkStatus(status)) {
           const method =
             boundedDiagnosticText(tagged.payload.method, 16) || "GET";
-          const url = boundedDiagnosticText(
-            tagged.payload.url,
-            MAX_DIAGNOSTIC_URL_CHARS,
-          );
+          // External-agent timelines intentionally expose only a path label.
+          // Query strings commonly contain emails, tokens, and other secrets.
+          const url = pathLabel(String(tagged.payload.url ?? ""));
           markers.push({
             timestamp,
             offsetMs: Math.max(0, timestamp - startedAt),
@@ -551,7 +549,7 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "navigation",
         label: pathLabel(event.data.href),
-        detail: event.data.href,
+        detail: pathLabel(event.data.href),
       });
     } else if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
@@ -568,6 +566,15 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
       event.data?.source === INCREMENTAL_SOURCE.Scroll
     ) {
+      const target = String(event.data?.id ?? "viewport");
+      const previousTimestamp = lastScrollByTarget.get(target);
+      if (
+        previousTimestamp !== undefined &&
+        timestamp - previousTimestamp <= SCROLL_MARKER_BURST_MS
+      ) {
+        lastScrollByTarget.set(target, timestamp);
+        continue;
+      }
       markers.push({
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
@@ -575,6 +582,7 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         label: "Scroll",
         detail: null,
       });
+      lastScrollByTarget.set(target, timestamp);
     } else if (
       event.type === RRWEB_EVENT_TYPE.IncrementalSnapshot &&
       event.data?.source === INCREMENTAL_SOURCE.MouseInteraction &&
@@ -594,8 +602,14 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
         timestamp,
         offsetMs: Math.max(0, timestamp - startedAt),
         kind: "custom",
-        label: String(event.data?.tag ?? "Custom event"),
-        detail: markerDetail(event),
+        label: boundedDiagnosticText(
+          String(event.data?.tag ?? "Custom event"),
+          MAX_DIAGNOSTIC_MESSAGE_CHARS,
+        ),
+        // Custom-event payloads are application-defined and can contain input
+        // values or secrets. The tag and timestamp are sufficient metadata for
+        // this sanitized external-agent timeline.
+        detail: null,
       });
     }
   }
@@ -603,14 +617,56 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
   return capReplayTimelineMarkers(markers);
 }
 
+export async function getSessionReplayTimeline(
+  recordingId: string,
+  scope: ReplayScope,
+  options: { eventLimit?: number } = {},
+) {
+  const eventLimit = Math.min(
+    10_000,
+    Math.max(1, Math.floor(options.eventLimit ?? 10_000)),
+  );
+  const eventsResponse = await getSessionReplayEvents(recordingId, scope, {
+    limit: eventLimit,
+  });
+  const events = eventsResponse.chunks.flatMap((chunk) =>
+    chunk.events.filter(
+      (event): event is AgentReplayEvent =>
+        Boolean(event) && typeof event === "object",
+    ),
+  );
+  const markers = buildReplayTimeline(events);
+
+  return {
+    recording: compactSessionRecordingSummary(eventsResponse.recording),
+    markerCount: markers.length,
+    markers,
+    eventCount: eventsResponse.eventCount,
+    truncated: eventsResponse.truncated,
+    unavailableChunks: eventsResponse.unavailableChunks,
+  };
+}
+
 export function verifySessionReplayAgentAccess(
   recordingId: string,
   token: string,
 ): boolean {
-  return verifyScopedAgentAccessToken(token, {
+  return resolveSessionReplayAgentAccess(recordingId, token) !== null;
+}
+
+export function resolveSessionReplayAgentAccess(
+  recordingId: string,
+  token: string,
+): { viewerEmail: string } | null {
+  const result = verifyScopedAgentAccessToken(token, {
     resourceKind: SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
     resourceId: recordingId,
-  }).ok;
+  });
+  // Replay grants are always minted by an authenticated viewer. Fail closed
+  // for grants without that signed identity: access policy is viewer-scoped,
+  // so guessing from the ambient request could expose identities to agents.
+  if (!result.ok || !result.viewerEmail) return null;
+  return { viewerEmail: result.viewerEmail };
 }
 
 export async function createSessionReplayAgentLink({
@@ -663,14 +719,18 @@ export async function buildSessionReplayAgentContext({
   origin?: string;
   includeTimeline?: boolean;
 }) {
-  if (!verifySessionReplayAgentAccess(recordingId, token)) {
+  const access = resolveSessionReplayAgentAccess(recordingId, token);
+  if (!access) {
     const error = Object.assign(new Error("Invalid or expired agent access"), {
       statusCode: 401,
     });
     throw error;
   }
 
-  const recording = await getSessionReplayTokenizedSummary(recordingId);
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    access.viewerEmail,
+  );
   const resolvedOrigin = appOrigin(origin);
   const basePath = appBasePath();
   const contextUrl = buildAgentAccessApiUrl({
@@ -703,7 +763,9 @@ export async function buildSessionReplayAgentContext({
   });
 
   const eventsResponse = includeTimeline
-    ? await getSessionReplayTokenizedEvents(recording.id, { limit: 10000 })
+    ? await getSessionReplayTokenizedEvents(recording.id, access.viewerEmail, {
+        limit: 10000,
+      })
     : null;
   const events =
     eventsResponse?.chunks.flatMap((chunk) =>

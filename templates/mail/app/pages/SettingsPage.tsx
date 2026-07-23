@@ -1,18 +1,19 @@
+import { useChatModels } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import {
-  agentNativePath,
   useActionMutation,
-  useChatModels,
   useChangeVersions,
-  ChangelogSettingsCard,
-  LanguagePicker,
+} from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
+import {
   SettingsTabsPage,
   useAgentSettingsTabs,
-  useT,
   type SettingsSearchEntry,
   type SettingsTabItem,
-} from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
 import type {
   Alias,
   AutomationAction,
@@ -1492,6 +1493,7 @@ export function SettingsPage() {
         id: "automations",
         label: t("settings.automations"),
         icon: IconBolt,
+        group: "automation",
         content: <AutomationsSection />,
         keywords: "automations rules triggers events labels model",
       },
@@ -1499,6 +1501,7 @@ export function SettingsPage() {
         id: "gmail-filters",
         label: t("settings.gmailFilters"),
         icon: IconFilter,
+        group: "integrations",
         content: <GmailFiltersSection />,
         keywords: "gmail filters import rules",
       },
@@ -1520,6 +1523,7 @@ export function SettingsPage() {
         id: "slack",
         label: t("settings.slack"),
         icon: IconBolt,
+        group: "integrations",
         content: <SlackIntakeSection />,
         keywords: "slack intake integration webhook",
       },

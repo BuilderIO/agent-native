@@ -43,6 +43,9 @@ import {
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
 
+// Real libSQL access matrices run alongside every workspace suite in CI.
+vi.setConfig({ testTimeout: 60_000 });
+
 // ---------------------------------------------------------------------------
 // Test DB wiring. A single libSQL :memory: db is shared across the file; rows
 // are reset between tests. The plan resource is registered against it so the
@@ -88,7 +91,10 @@ const VIEWER = "viewer@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
-const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 30_000;
+// The full CI matrix imports every action package concurrently with the other
+// template suites. The setup is normally a few seconds, but can exceed the
+// Vitest default under a saturated runner without indicating a product fault.
+const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 60_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.

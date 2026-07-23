@@ -11,7 +11,7 @@ Design es un estudio de creación de prototipos HTML nativo del agente. En lugar
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lanzamiento del producto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Prototipo HTML generado</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Haz el hero más denso y el CTA más claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisión</button></div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lanzamiento del producto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>Lanza más rápido con Agent-Native</strong><span class='wf-muted' style='max-width:70%'>Genera un prototipo funcional a partir de un prompt y después refínalo en el mismo lugar.</span><button class='primary'>Empezar</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Haz el hero más denso y el CTA más claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisión</button></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -89,6 +89,7 @@ Cuando abre la aplicación, el prototipo generado es el centro del espacio de tr
 ## Qué puedes hacer con él
 
 - **Genere prototipos completos.** Describa la pantalla o página que necesita y el agente creará un documento funcional HTML con estilo Tailwind y Alpine interactions.
+- **Empieza con plantillas reutilizables.** Elige un formato con dimensiones para anuncios, documentos de una página o páginas de destino, o guarda cualquier diseño integrado como plantilla. La indicación ajusta el contenido desbloqueado y conserva logotipos y fondos bloqueados.
 - **Compara variantes.** Comience con varias direcciones, elija la más fuerte y luego continúe perfeccionando.
 - **Ajuste visualmente.** Utilice los controles de ajuste integrados para realizar cambios comunes o solicite al agente actualizaciones de copia, diseño, color, espaciado e interacción.
 - **Aplica sistemas de diseño.** Guarda y reutiliza las preferencias del sistema de diseño para que el trabajo generado esté más cerca de tu marca.
@@ -132,6 +133,8 @@ pnpm dev
 ### Modelo de datos
 
 Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/design/server/db/schema.ts`. Los diseños y los sistemas de diseño llevan el estándar `ownableColumns` y una tabla de recursos compartidos de marco correspondiente, por lo que encajan en el modelo de uso compartido por usuario/por organización.
+
+La tabla siguiente cubre los recursos propios principales: diseños, archivos, plantillas, versiones y sistemas de diseño. Otras siete tablas del mismo esquema respaldan funciones descritas en otras partes de este documento, en lugar del modelo de recursos principal: `design_localhost_connections` y `design_localhost_write_grants` (modo de origen localhost), `component_index` (indexación de componentes), `motion_timeline` (movimiento), `design_state` (instantáneas del estado del editor), `design_fusion_edits` (modo de fusión de aplicaciones completas) y `design_review_snapshot` (instantáneas de revisión).
 
 | Tabla                                    | Qué contiene                                                                                                                                       |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -360,6 +363,22 @@ El modo de una sola pantalla sirve para desplazarse, interactuar con el
 comportamiento del prototipo y editar las capas DOM/código dentro de un archivo
 renderizado. El panel de capas refleja esa división: las pantallas son marcos de
 nivel superior, con capas DOM/código anidadas para la pantalla activa.
+
+### Tweaks
+
+Los tweaks son controles con nombre para cambiar rápidamente las propiedades visuales
+más útiles de un diseño sin editar su código fuente. Un diseño puede ofrecer muestras
+de color, opciones segmentadas, deslizadores e interruptores para propiedades como el
+color de acento, el radio de las esquinas, el espaciado, la densidad o la visibilidad.
+Cada control está conectado a una propiedad CSS personalizada utilizada por el diseño,
+por lo que la vista previa se actualiza al ajustarlo.
+
+Los tweaks siguen la cascada del editor. Los puntos de quiebre y estados heredan el
+valor definido en el diseño base. Cambiar un tweak mientras un punto de quiebre o
+estado está activo crea una modificación para ese contexto; restablecer el control
+elimina la modificación y recupera el valor heredado. Los valores guardados permanecen
+con el diseño. Usa **Agregar controles de ajuste** o pide al agente que exponga otra
+propiedad visual cuando falte el control que necesitas.
 
 Instala `/visual-edit` cuando un agente de código deba abrir una app local en
 ejecución dentro de Design en lugar de generar HTML de prototipo independiente:

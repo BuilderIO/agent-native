@@ -441,10 +441,10 @@ const messages = {
       "Crie um widget personalizado para minha caixa de entrada",
   },
   settings: {
-    openAgentSettings: "Abrir configurações do agente",
+    openAgentSettings: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    agentTitle: "Configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    agentTitle: "Gerenciar agente",
     aliasName: "Nome do alias",
     aliasNamePlaceholder: "ex.: Equipe de design",
     recipientsOnePerLine: "Destinatários (um email por linha)",
@@ -521,10 +521,10 @@ const messages = {
     slackUpdateFailed: "Falha ao atualizar entrada do Slack",
     slackConfigured: "As credenciais do Slack estão configuradas.",
     slackNeedsCredentials:
-      "Adicione SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET para ativar a entrada do Slack.",
-    slackIntake: "Entrada do Slack",
+      "A entrada personalizada legada requer SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET. Para novas automações de mensagens do Slack, conecte um workspace em Configurações > Mensagens.",
+    slackIntake: "Entrada do Slack (legada)",
     slackDescription:
-      "Permita que membros da organização coloquem rascunhos de email na fila pelo Slack.",
+      "Integração personalizada legada que permite colocar rascunhos de email na fila pelo Slack.",
     enabled: "Ativado",
     disable: "Desativar",
     enable: "Ativar",

@@ -1,0 +1,46 @@
+---
+title: 软件包生命周期
+description: 安全检查、添加和弹出由清单驱动的 Agent Native 软件包。
+---
+
+# 软件包生命周期
+
+可复用软件包可以发布带版本的静态 `agent-native.package.json`。CLI 在检查时
+只读取此 JSON，不执行软件包代码。
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+添加和弹出默认仅预览。只有指定 `--apply` 才会写入文件并运行检测到的软件包
+管理器。CLI 会拒绝冲突和未知布局；安装失败时会还原文件和锁文件。
+
+## 弹出单个功能
+
+请按以下顺序定制：配置公共 API、组合公共组件、弹出最小单元；如果多个应用
+需要相同改动，再提出共享扩展点。
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+这些命令默认只预览。应用后，会把软件包版本、清单摘要、文件哈希和 import
+重写记录到可提交的 `agent-native.ejections.json`。Restore 仅在文件和 import
+保持不变时执行；否则会显示差异并拒绝删除本地修改。
+
+第一方清单覆盖所有公共 Toolkit 入口和第一方集成目录。缺少第一方配方属于
+框架覆盖错误；未知第三方软件包会收到 add 风格的蓝图。受保护的 Core 契约
+不会复制，CLI 会引导到公共配置、适配器或扩展接口。
+
+## 迁移
+
+已发布的软件包包含记录移动路径和符号的 `migration-manifest.json`。`npx @agent-native/core@latest upgrade --codemods` 会预览差异，审核后使用 `--yes` 应用。CI 中运行 `agent-native doctor --only migration-manifest`；此检查没有 opt-out。
+
+`planned` 条目可以先于目标发布；它们只会显示为非阻塞警告，codemod 不会重写。active 移动仅在目标 export 已安装时才会重写。

@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";

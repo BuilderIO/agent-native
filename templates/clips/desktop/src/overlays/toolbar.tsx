@@ -6,6 +6,7 @@ import {
   IconRefresh,
   IconTrash,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
 import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -58,11 +59,25 @@ export function Toolbar() {
   // Stop / Pause are disabled until the recorder actually begins, at which
   // point `clips:toolbar-enabled` fires with `true` from the recorder.
   const [enabled, setEnabled] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [popoverVisible, setPopoverVisible] = useState(true);
   const [diskSpaceLevel, setDiskSpaceLevel] = useState<
     "ok" | "warning" | "critical"
   >("ok");
   const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandedRef = useRef(false);
+  const pauseTransitionRef = useRef<"pause" | "resume" | null>(null);
+  const pauseTransitionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  function clearPauseTransition() {
+    pauseTransitionRef.current = null;
+    if (pauseTransitionTimerRef.current) {
+      clearTimeout(pauseTransitionTimerRef.current);
+      pauseTransitionTimerRef.current = null;
+    }
+  }
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -90,7 +105,18 @@ export function Toolbar() {
       listen<{ paused: boolean; elapsedMs: number }>(
         "clips:recorder-state",
         (ev) => {
-          setPaused(!!ev.payload.paused);
+          const nextPaused = !!ev.payload.paused;
+          const pendingTransition = pauseTransitionRef.current;
+          const transitionReached =
+            (pendingTransition === "pause" && nextPaused) ||
+            (pendingTransition === "resume" && !nextPaused);
+          // Native pause/resume can take a beat. Keep the first click's
+          // optimistic state instead of letting an in-flight timer tick briefly
+          // flip the button back and invite duplicate clicks.
+          if (!pendingTransition || transitionReached) {
+            setPaused(nextPaused);
+          }
+          if (transitionReached) clearPauseTransition();
           setElapsed(ev.payload.elapsedMs ?? 0);
         },
       ),
@@ -98,12 +124,23 @@ export function Toolbar() {
     trackListen(
       listen<boolean>("clips:toolbar-enabled", (ev) => {
         setEnabled(!!ev.payload);
+        setPreparing(false);
         setPendingAction(null);
         if (!ev.payload) {
           setDiskSpaceLevel("ok");
           setPaused(false);
           setElapsed(0);
         }
+      }),
+    );
+    trackListen(
+      listen<boolean>("clips:toolbar-preparing", (ev) => {
+        setPreparing(!!ev.payload);
+      }),
+    );
+    trackListen(
+      listen<boolean>("clips:popover-visible", (ev) => {
+        setPopoverVisible(!!ev.payload);
       }),
     );
     trackListen(
@@ -137,6 +174,7 @@ export function Toolbar() {
         clearTimeout(fallbackTimer.current);
         fallbackTimer.current = null;
       }
+      clearPauseTransition();
     };
   }, []);
 
@@ -181,11 +219,31 @@ export function Toolbar() {
     // left with a zombie pill floating over their screen. The recorder
     // closing us first is a no-op on the already-closed window.
   }
+
+  const isPreparing = preparing || (!enabled && !popoverVisible);
   function togglePause() {
     if (!enabled || pendingAction) return;
-    emit(paused ? "clips:recorder-resume" : "clips:recorder-pause").catch(
-      () => {},
-    );
+    const transition = paused ? "resume" : "pause";
+    clearPauseTransition();
+    pauseTransitionRef.current = transition;
+    setPaused(transition === "pause");
+    pauseTransitionTimerRef.current = setTimeout(clearPauseTransition, 3_000);
+    emit(`clips:recorder-${transition}`).catch((err) => {
+      console.error(
+        `[clips-toolbar] emit clips:recorder-${transition} failed:`,
+        err,
+      );
+      clearPauseTransition();
+      setPaused(paused);
+    });
+  }
+  function activatePauseFromPointer(e: React.PointerEvent<HTMLButtonElement>) {
+    if (e.button !== 0) return;
+    // The native toolbar resizes as the pointer enters it. Dispatch on
+    // pointer-down so that resize/focus changes cannot cancel the subsequent
+    // click, while the click handler below remains available to keyboards.
+    e.preventDefault();
+    togglePause();
   }
   function restart() {
     if (pendingAction || !enabled) return;
@@ -277,13 +335,22 @@ export function Toolbar() {
           }
           data-no-drag
         >
-          {pendingAction === "stop" ? (
+          {pendingAction === "stop" || isPreparing ? (
             <IconLoader2 className="toolbar-v-spinner" size={18} />
           ) : (
             <span className="toolbar-v-stop-square" />
           )}
         </button>
-        <div className="toolbar-v-time">{formatTime(elapsed)}</div>
+        <button
+          type="button"
+          className={`toolbar-v-time ${isPreparing ? "toolbar-v-time-preparing" : ""}`}
+          onClick={() => invoke("show_popover").catch(() => {})}
+          aria-label="Open Clips"
+          title="Open Clips"
+          data-no-drag
+        >
+          {isPreparing ? "Preparing…" : formatTime(elapsed)}
+        </button>
         {diskSpaceLevel !== "ok" && (
           <div
             className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}
@@ -299,7 +366,10 @@ export function Toolbar() {
         )}
         <button
           className="toolbar-v-pause"
-          onClick={togglePause}
+          onPointerDown={activatePauseFromPointer}
+          onClick={(e) => {
+            if (e.detail === 0) togglePause();
+          }}
           disabled={!enabled || !!pendingAction}
           aria-label={paused ? "Resume" : "Pause"}
           title={

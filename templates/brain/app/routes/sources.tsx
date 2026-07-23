@@ -1,17 +1,19 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconArchive,
   IconBrandGithub,
   IconBrandSlack,
   IconChecks,
+  IconChevronDown,
   IconCircleCheck,
   IconCircleDashed,
   IconClock,
+  IconCopy,
   IconDatabaseImport,
   IconDotsVertical,
   IconExternalLink,
@@ -39,7 +41,14 @@ import {
 } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,12 +76,18 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   type BrainConnectionProvider,
   type BrainHealthResponse,
   type BrainCaptureReviewStatus,
   type BrainCaptureReviewItem,
   type EnqueueCapturesDistillationResponse,
   type CapturesResponse,
+  type CreateSourceResponse,
   type BrainSource,
   type BrainWorkspaceConnectionGrantState,
   type BrainWorkspaceConnectionStatus,
@@ -90,6 +105,11 @@ import {
   sourceReviewRequired,
   sourceType,
 } from "@/lib/brain";
+import {
+  createOneTimeIngestHandoff,
+  type OneTimeIngestHandoff,
+} from "@/lib/ingest-handoff";
+import { cn } from "@/lib/utils";
 
 type Provider = "manual" | "generic" | "clips" | "slack" | "granola" | "github";
 type CaptureStatusFilter = BrainCaptureReviewStatus | "all";
@@ -112,6 +132,7 @@ interface SourceFormState {
   sourceKey: string;
   autoSync: boolean;
   reviewRequired: boolean;
+  includePublicChannels: boolean;
 }
 
 const providers: Array<{
@@ -200,6 +221,7 @@ function defaultForm(
     autoSync:
       provider === "slack" || provider === "granola" || provider === "github",
     reviewRequired: true,
+    includePublicChannels: false,
   };
 }
 
@@ -251,6 +273,7 @@ function formFromSource(source: BrainSource): SourceFormState {
     sourceKey: "",
     autoSync: sourceAutoSync(source),
     reviewRequired: sourceReviewRequired(source),
+    includePublicChannels: config.includePublicChannels === true,
   };
 }
 
@@ -281,6 +304,7 @@ function buildConfig(form: SourceFormState) {
   if (form.provider === "slack") {
     config.channelIds = splitLines(form.channelRefs);
     config.historyLimit = numberValue(form.historyLimit, 15, 1, 15);
+    config.includePublicChannels = form.includePublicChannels;
   }
   if (form.provider === "granola") {
     config.pageSize = numberValue(form.granolaPageSize, 10, 1, 30);
@@ -1495,20 +1519,30 @@ function SourceFact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+function ingestSourceKey(source: BrainSource) {
+  const sourceKey = source.config?.sourceKey;
+  return typeof sourceKey === "string" && sourceKey.trim()
+    ? sourceKey.trim()
+    : null;
+}
+
 function SourceListItem({
   source,
   syncPending,
   onReview,
+  onRotateIngestToken,
   onSync,
   onTune,
 }: {
   source: BrainSource;
   syncPending: boolean;
   onReview: () => void;
+  onRotateIngestToken?: () => void;
   onSync: () => void;
   onTune: () => void;
 }) {
   const t = useT();
+  const [expanded, setExpanded] = useState(false);
   const Icon = sourceProviderIcon(source.provider);
   const retry = sourceRetryAfter(source);
   const hasSyncNotice = Boolean(
@@ -1519,107 +1553,171 @@ function SourceListItem({
     : null;
   const coverage =
     typeof source.coverage === "number" ? formatPercent(source.coverage) : null;
+  const captureCount = (source.recordCount ?? 0).toLocaleString();
+  const lastSync = shortDate(sourceLastSync(source)) ?? t("sources.never");
 
   return (
-    <Card className="overflow-hidden shadow-none">
-      <CardContent className="p-4">
-        <div className="brain-source-card-grid grid gap-4">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-muted/35">
-              <Icon className="size-4 text-muted-foreground" />
+    <div className="group bg-card transition-colors hover:bg-muted/20">
+      <div className="flex min-w-0 items-center gap-3 px-4 py-3 sm:px-5">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted/35">
+          <Icon className="size-4 text-muted-foreground" />
+        </span>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <h2 className="truncate text-sm font-medium text-foreground sm:text-[0.9375rem]">
+              {sourceName(source)}
+            </h2>
+            <StatusBadge status={sourceHealth(source)} />
+          </div>
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span className="capitalize">{sourceType(source)}</span>
+            <span aria-hidden="true">·</span>
+            <span>
+              {captureCount} {t("sources.captures").toLocaleLowerCase()}
             </span>
-            <div className="min-w-0">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h2 className="truncate text-base font-medium text-foreground">
-                  {sourceName(source)}
-                </h2>
-                <StatusBadge status={sourceHealth(source)} />
-              </div>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="max-w-full capitalize">
-                  {sourceType(source)}
-                </Badge>
-                {nextSync ? (
-                  <span className="text-xs text-muted-foreground">
-                    {t("sources.nextSync", { date: nextSync })}
+            <span aria-hidden="true">·</span>
+            <span className="truncate">
+              {t("sources.lastSyncWithDate", { date: lastSync })}
+            </span>
+            {hasSyncNotice ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="ms-1 inline-flex size-4 items-center justify-center text-destructive"
+                    aria-label={t("sources.actionFailedTitle")}
+                  >
+                    <IconAlertTriangle className="size-3.5" />
                   </span>
-                ) : null}
-              </div>
-              <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
-                {sourceDescription(source)}
-              </p>
-            </div>
-          </div>
-
-          <div
-            className={
-              coverage
-                ? "grid grid-cols-2 gap-4 sm:grid-cols-3 xl:min-w-80"
-                : "grid grid-cols-2 gap-4 xl:min-w-64"
-            }
-          >
-            <SourceFact
-              label={t("sources.captures")}
-              value={(source.recordCount ?? 0).toLocaleString()}
-            />
-            <SourceFact
-              label={t("sources.lastSync")}
-              value={shortDate(sourceLastSync(source)) ?? t("sources.never")}
-            />
-            {coverage ? (
-              <SourceFact label={t("sources.coverage")} value={coverage} />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sources.actionFailedTitle")}
+                </TooltipContent>
+              </Tooltip>
             ) : null}
-          </div>
-
-          <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="outline" onClick={onReview}>
-              <IconFileSearch className="size-4" />
-              {t("sources.captures")}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="size-9"
-                  aria-label={t("sources.moreActionsFor", {
-                    source: sourceName(source),
-                  })}
-                >
-                  <IconDotsVertical className="size-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
-                  <IconRefresh className="size-4" />
-                  {t("sources.syncNow")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={onTune}>
-                  <IconSettings2 className="size-4" />
-                  {t("sources.tuneSource")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
           </div>
         </div>
 
-        {coverage ? (
-          <Progress
-            value={(source.coverage ?? 0) * 100}
-            className="mt-4 h-1.5 bg-muted"
-          />
-        ) : null}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                onClick={onReview}
+                aria-label={`${t("sources.captures")}: ${sourceName(source)}`}
+              >
+                <IconFileSearch className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("sources.captures")}</TooltipContent>
+          </Tooltip>
 
-        {hasSyncNotice ? (
-          <div className="mt-3 flex gap-2 rounded-md border border-border bg-muted/25 px-3 py-2 text-sm">
-            <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-            <p className="min-w-0 truncate text-muted-foreground">
-              {syncDetail(source, t)}
-            </p>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                aria-label={t("sources.moreActionsFor", {
+                  source: sourceName(source),
+                })}
+              >
+                <IconDotsVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem disabled={syncPending} onSelect={onSync}>
+                <IconRefresh className="size-4" />
+                {t("sources.syncNow")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={onTune}>
+                <IconSettings2 className="size-4" />
+                {t("sources.tuneSource")}
+              </DropdownMenuItem>
+              {onRotateIngestToken ? (
+                <DropdownMenuItem onSelect={onRotateIngestToken}>
+                  <IconRefresh className="size-4" />
+                  {t("sources.rotateIngestToken")}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-8"
+                onClick={() => setExpanded((value) => !value)}
+                aria-expanded={expanded}
+                aria-label={
+                  expanded ? t("sources.hideDetails") : t("sources.details")
+                }
+              >
+                <IconChevronDown
+                  className={cn(
+                    "size-4 transition-transform duration-200 ease-out",
+                    expanded && "rotate-180",
+                  )}
+                />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {expanded ? t("sources.hideDetails") : t("sources.details")}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {expanded ? (
+        <div className="border-t border-border/70 px-4 pb-4 pt-3 sm:px-5">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div className="min-w-0">
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                {sourceDescription(source)}
+              </p>
+              {hasSyncNotice ? (
+                <div className="mt-3 flex gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm">
+                  <IconAlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+                  <p className="min-w-0 text-muted-foreground">
+                    {syncDetail(source, t)}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <div
+              className={cn(
+                "grid grid-cols-2 gap-x-6 gap-y-3 lg:min-w-64",
+                coverage && "lg:grid-cols-3 lg:min-w-80",
+              )}
+            >
+              <SourceFact label={t("sources.captures")} value={captureCount} />
+              <SourceFact label={t("sources.lastSync")} value={lastSync} />
+              {coverage ? (
+                <SourceFact label={t("sources.coverage")} value={coverage} />
+              ) : null}
+            </div>
           </div>
-        ) : null}
-      </CardContent>
-    </Card>
+
+          {coverage ? (
+            <Progress
+              value={(source.coverage ?? 0) * 100}
+              className="mt-4 h-1.5 bg-muted"
+            />
+          ) : null}
+
+          {nextSync ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t("sources.nextSync", { date: nextSync })}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1629,6 +1727,11 @@ export default function SourcesRoute() {
   const type = params.get("type") ?? "all";
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [ingestHandoff, setIngestHandoff] =
+    useState<OneTimeIngestHandoff | null>(null);
+  const [copiedHandoffField, setCopiedHandoffField] = useState<string | null>(
+    null,
+  );
   const [editingSource, setEditingSource] = useState<BrainSource | null>(null);
   const [reviewSource, setReviewSource] = useState<BrainSource | null>(null);
   const [captureStatus, setCaptureStatus] =
@@ -1668,7 +1771,7 @@ export default function SourcesRoute() {
     }
   >("update-source" as any);
   const createSource = useActionMutation<
-    unknown,
+    CreateSourceResponse,
     {
       title: string;
       provider: Provider;
@@ -1677,6 +1780,10 @@ export default function SourcesRoute() {
       sourceKey?: string;
     }
   >("create-source" as any);
+  const rotateSourceIngestToken = useActionMutation<
+    CreateSourceResponse,
+    { sourceId: string }
+  >("rotate-source-ingest-token" as any);
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
     "sync-source" as any,
   );
@@ -1814,10 +1921,20 @@ export default function SourcesRoute() {
     setForm((current) => ({ ...current, ...patch }));
   }
 
-  function submitSource() {
+  function closeIngestHandoff() {
+    setIngestHandoff(null);
+    setCopiedHandoffField(null);
+  }
+
+  async function copyIngestHandoffValue(value: string, field: string) {
+    await navigator.clipboard.writeText(value);
+    setCopiedHandoffField(field);
+  }
+
+  async function submitSource() {
     const config = buildConfig(form);
     if (editingSource) {
-      updateSource.mutate({
+      await updateSource.mutateAsync({
         id: editingSource.id,
         title: form.title.trim() || defaultTitle(form.provider, t),
         status:
@@ -1825,15 +1942,37 @@ export default function SourcesRoute() {
         config,
       });
     } else {
-      createSource.mutate({
+      const result = await createSource.mutateAsync({
         title: form.title.trim() || defaultTitle(form.provider, t),
         provider: form.provider,
         visibility: "org",
         config,
         sourceKey: form.sourceKey.trim() || undefined,
       });
+      const handoff = createOneTimeIngestHandoff({
+        origin: window.location.origin,
+        provider: form.provider,
+        result,
+        sourceKey: form.sourceKey,
+      });
+      if (handoff) setIngestHandoff(handoff);
     }
     setSetupOpen(false);
+  }
+
+  async function rotateIngestToken(source: BrainSource) {
+    const sourceKey = ingestSourceKey(source);
+    if (!sourceKey) return;
+    const result = await rotateSourceIngestToken.mutateAsync({
+      sourceId: source.id,
+    });
+    const handoff = createOneTimeIngestHandoff({
+      origin: window.location.origin,
+      provider: source.provider ?? "",
+      result,
+      sourceKey,
+    });
+    if (handoff) setIngestHandoff(handoff);
   }
 
   function toggleCaptureSelection(captureId: string, checked: boolean) {
@@ -1901,16 +2040,27 @@ export default function SourcesRoute() {
             <LoadingRows rows={3} />
           </div>
         ) : visibleSources.length ? (
-          visibleSources.map((source) => (
-            <SourceListItem
-              key={source.id}
-              source={source}
-              syncPending={syncSource.isPending}
-              onReview={() => openCaptureReview(source)}
-              onSync={() => syncSource.mutate({ sourceId: source.id })}
-              onTune={() => openEdit(source)}
-            />
-          ))
+          <div className="overflow-hidden rounded-lg border border-border bg-card divide-y divide-border">
+            {visibleSources.map((source) => (
+              <SourceListItem
+                key={source.id}
+                source={source}
+                syncPending={
+                  syncSource.isPending || rotateSourceIngestToken.isPending
+                }
+                onReview={() => openCaptureReview(source)}
+                onRotateIngestToken={
+                  (source.provider === "clips" ||
+                    source.provider === "generic") &&
+                  ingestSourceKey(source)
+                    ? () => void rotateIngestToken(source)
+                    : undefined
+                }
+                onSync={() => syncSource.mutate({ sourceId: source.id })}
+                onTune={() => openEdit(source)}
+              />
+            ))}
+          </div>
         ) : (
           <div>
             <EmptyActionState
@@ -1924,6 +2074,7 @@ export default function SourcesRoute() {
         connectionProvidersQuery.isError ||
         updateSource.isError ||
         createSource.isError ||
+        rotateSourceIngestToken.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ? (
@@ -2298,6 +2449,77 @@ export default function SourcesRoute() {
         </SheetContent>
       </Sheet>
 
+      <Dialog
+        open={Boolean(ingestHandoff)}
+        onOpenChange={(open) => {
+          if (!open) closeIngestHandoff();
+        }}
+      >
+        {ingestHandoff ? (
+          <DialogContent className="max-w-xl gap-5">
+            <DialogHeader>
+              <DialogTitle>
+                {t("sources.connectIngestSource", {
+                  source: ingestHandoff.source.title,
+                })}
+              </DialogTitle>
+              <DialogDescription>
+                {t("sources.ingestHandoffDescription")}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4">
+              {[
+                [t("sources.endpoint"), ingestHandoff.endpoint, "endpoint"],
+                [t("sources.sourceKey"), ingestHandoff.sourceKey, "source-key"],
+                [
+                  t("sources.ingestToken"),
+                  ingestHandoff.ingestToken,
+                  "ingest-token",
+                ],
+              ].map(([label, value, field]) => (
+                <div key={field} className="grid gap-2">
+                  <Label htmlFor={`ingest-handoff-${field}`}>{label}</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id={`ingest-handoff-${field}`}
+                      value={value}
+                      readOnly
+                      className="min-w-0 font-mono text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={() => void copyIngestHandoffValue(value, field)}
+                    >
+                      {copiedHandoffField === field ? (
+                        <IconChecks className="size-4" />
+                      ) : (
+                        <IconCopy className="size-4" />
+                      )}
+                      {copiedHandoffField === field
+                        ? t("sources.copied")
+                        : t("sources.copy")}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-md border border-border bg-muted/25 p-3 text-sm leading-6 text-muted-foreground">
+              {t("sources.ingestTokenSecurity")}
+            </div>
+
+            <DialogFooter>
+              <Button type="button" onClick={closeIngestHandoff}>
+                {t("sources.ingestHandoffSaved")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
       <Sheet open={setupOpen} onOpenChange={setSetupOpen}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
           <SheetHeader>
@@ -2393,6 +2615,17 @@ export default function SourcesRoute() {
 
             {form.provider === "slack" && (
               <div className="grid gap-4 rounded-md border border-border p-4">
+                <div className="grid gap-3 rounded-md border border-border bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                  <p>
+                    <span className="font-medium text-foreground">
+                      {t("sources.slackDiscoveryMode")}
+                    </span>{" "}
+                    — {t("sources.slackDiscoveryModeDescription")}
+                  </p>
+                  <p>{t("sources.slackExclusions")}</p>
+                  <p>{t("sources.slackManualInvite")}</p>
+                  <p>{t("sources.sensitivityPreviewDescription")}</p>
+                </div>
                 <div className="rounded-md border border-border bg-muted/25 p-3">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <IconShieldCheck className="size-4 text-muted-foreground" />
@@ -2419,6 +2652,22 @@ export default function SourcesRoute() {
                     {t("sources.allowedChannelsDescription")}
                   </p>
                 </div>
+                <label className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
+                  <span>
+                    <span className="block text-sm font-medium">
+                      {t("sources.includePublicChannels")}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                      {t("sources.includePublicChannelsDescription")}
+                    </span>
+                  </span>
+                  <Switch
+                    checked={form.includePublicChannels}
+                    onCheckedChange={(includePublicChannels) =>
+                      updateForm({ includePublicChannels })
+                    }
+                  />
+                </label>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <Label htmlFor="history-limit">

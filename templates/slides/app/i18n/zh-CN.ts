@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-CN"],
   root: {
     commandPresentations: "演示文稿",
     searchDecks: "搜索幻灯片",
@@ -32,10 +35,9 @@ const messages = {
     workspaceDescription: "管理团队成员、组织访问权限和共享工作区偏好。",
     openTeamSettings: "打开团队设置",
     openResourceSettings: "打开资源设置",
-    agentTitle: "代理设置",
-    agentDescription:
-      "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-    openAgentSettings: "打开代理设置",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+    openAgentSettings: "管理代理",
   },
   agent: {
     emptyState: "可以询问我任何关于演示文稿的问题",
@@ -102,6 +104,7 @@ const messages = {
     searchImagesPlaceholder: "画像を検索...",
     searchForLogosImagesIcons: "ロゴ、画像、アイコンを検索...",
     search: "搜索",
+    searchFailed: "搜索失败",
     logoSearchTitle: "徽标搜索",
     searchCompanyLogo: "会社を検索してロゴを見つける",
     searchCompanyPlaceholder: "会社名を検索（例: Intuit）",
@@ -325,6 +328,8 @@ const messages = {
     hideResolved: "隐藏已解决",
     showResolved: "显示 {{count}} 条已解决",
     noCommentsYet: "还没有评论",
+    loadFailed: "无法加载评论",
+    retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
   },
@@ -531,6 +536,9 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    loadFailed: "无法加载内容",
+    loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
+    retry: "重试",
     decksTitle: "幻灯片",
     newDeck: "新建幻灯片",
     deckLengthQuestion: "这份幻灯片需要多长？",

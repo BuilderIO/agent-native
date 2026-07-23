@@ -5,15 +5,20 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelAgentChatSubmit,
+  listAgentChatContext,
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
+  setAgentChatContextItem,
   sendToAgentChat,
+  _resetAgentChatContextForTests,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
 import {
   MultiTabAssistantChat,
   type MultiTabAssistantChatHeaderProps,
 } from "./MultiTabAssistantChat.js";
+import type { ChatThreadSummary } from "./use-chat-threads.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -51,6 +56,8 @@ const threadMocks = vi.hoisted(() => ({
   searchThreads: vi.fn(async () => []),
   refreshThreads: vi.fn(async () => undefined),
   isNewThread: vi.fn(() => false),
+  pinThread: vi.fn(async () => true),
+  renameThread: vi.fn(async () => true),
 }));
 
 const chatThreadHookMocks = vi.hoisted(() => ({
@@ -110,6 +117,9 @@ vi.mock("./components/ui/popover.js", () => ({
   PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
+  PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
 }));
 
 vi.mock("./use-chat-threads.js", () => ({
@@ -128,6 +138,7 @@ vi.mock("./AssistantChat.js", async () => {
       const props = _props as {
         composerSlot?: React.ReactNode;
         emptyStateAddon?: React.ReactNode;
+        selectedEffort?: string;
       };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
@@ -142,7 +153,10 @@ vi.mock("./AssistantChat.js", async () => {
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
       return (
-        <div data-testid="assistant-chat">
+        <div
+          data-testid="assistant-chat"
+          data-reasoning-effort={props.selectedEffort}
+        >
           {props.emptyStateAddon}
           {props.composerSlot}
         </div>
@@ -168,6 +182,10 @@ function resetThreadMocks() {
   threadMocks.createThread.mockImplementation(
     async (requestedId?: string) => requestedId ?? "thread-2",
   );
+  threadMocks.pinThread.mockReset();
+  threadMocks.pinThread.mockImplementation(async () => true);
+  threadMocks.renameThread.mockReset();
+  threadMocks.renameThread.mockImplementation(async () => true);
   chatThreadHookMocks.useChatThreads.mockReset();
   chatThreadHookMocks.useChatThreads.mockImplementation(() => threadMocks);
 }
@@ -216,6 +234,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     act(() => {
       root.unmount();
     });
+    _resetAgentChatContextForTests();
     container.remove();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
@@ -235,6 +254,33 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "Review this before sending\n\n<context>\nSelected rows: a, b\n</context>",
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("defaults reasoning to medium", () => {
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-reasoning-effort"),
+    ).toBe("medium");
+  });
+
+  it("migrates persisted legacy auto reasoning to medium", async () => {
+    window.localStorage.setItem(
+      "agent-native:chat-models:selection:legacy-medium-test",
+      JSON.stringify({ model: "claude-sonnet-5", effort: "auto" }),
+    );
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="legacy-medium-test" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container
+        .querySelector("[data-testid='assistant-chat']")
+        ?.getAttribute("data-reasoning-effort"),
+    ).toBe("medium");
   });
 
   it("continues to submit when submit is omitted", () => {
@@ -537,7 +583,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     ).toHaveLength(1);
   });
 
-  it("renders scoped context as a composer tab", async () => {
+  it("renders resource context as a normal composer context item", async () => {
     threadMocks.threads = [
       {
         ...threadMocks.threads[0],
@@ -559,21 +605,27 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    const badges = container.querySelectorAll(".agent-scope-badge-wrapper");
     const hostSlot = container.querySelector(
       "[data-testid='host-composer-slot']",
     );
     const composerChildren = Array.from(
       container.querySelector("[data-testid='assistant-chat']")?.children ?? [],
     );
-    const badgeButton = badges[0]?.querySelector("button");
-    expect(badges).toHaveLength(1);
-    expect(badges[0]?.textContent).toContain("Using this form");
-    expect(badgeButton?.className).not.toContain("shadow");
-    expect(composerChildren).toEqual([hostSlot, badges[0]]);
+    expect(
+      container.querySelectorAll(".agent-scope-badge-wrapper"),
+    ).toHaveLength(0);
+    expect(container.textContent).not.toContain("Using this form");
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "agent-current-resource-context",
+        title: "Form",
+        context: expect.stringContaining("Resource context: form:form-1"),
+      }),
+    ]);
+    expect(composerChildren).toEqual([hostSlot]);
   });
 
-  it("can hide the scoped context composer tab", async () => {
+  it("keeps resource context in the composer when the legacy badge flag is false", async () => {
     threadMocks.threads = [
       {
         ...threadMocks.threads[0],
@@ -599,12 +651,49 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(
       container.querySelectorAll(".agent-scope-badge-wrapper"),
     ).toHaveLength(0);
-    expect(
-      container.querySelector("[data-testid='host-composer-slot']"),
-    ).not.toBeNull();
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "agent-current-resource-context",
+        title: "Design",
+      }),
+    ]);
   });
 
-  it("keeps previous scoped chats out of the empty chat state", async () => {
+  it("does not remove richer app-owned context when resource context unmounts", async () => {
+    setAgentChatContextItem({
+      key: "analytics-selected-dashboard",
+      title: "Dashboard",
+      context: "Dashboard context from the analytics app",
+    });
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{
+            type: "dashboard",
+            id: "dashboard-1",
+            contextKey: "analytics-selected-dashboard",
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+      await Promise.resolve();
+    });
+
+    expect(listAgentChatContext()).toEqual([
+      expect.objectContaining({
+        key: "analytics-selected-dashboard",
+        context: "Dashboard context from the analytics app",
+      }),
+    ]);
+  });
+
+  it("keeps resource history out of the empty chat state", async () => {
     const now = Date.now();
     threadMocks.threads = [
       {
@@ -637,8 +726,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("Using this form");
-    expect(container.textContent).toContain("Older form chat");
+    expect(container.textContent).not.toContain("Using this form");
     expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
@@ -718,6 +806,52 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
       "bridge-test",
       null,
       expect.objectContaining({ routeThreadId: null }),
+    );
+  });
+
+  it("opens a shared thread link even when URL syncing is not enabled", async () => {
+    window.history.replaceState(null, "", "/overview?thread=thread-1");
+
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
+    );
+  });
+
+  it("accepts a shared query thread on a route-owned chat home", async () => {
+    window.history.replaceState(null, "", "/?thread=thread-1");
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          threadUrlSync={{
+            routeThreadId: null,
+            getPath: (threadId) =>
+              threadId ? `/chat/${encodeURIComponent(threadId)}` : "/",
+            navigate: vi.fn(),
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(chatThreadHookMocks.useChatThreads).toHaveBeenLastCalledWith(
+      expect.any(String),
+      "bridge-test",
+      null,
+      expect.objectContaining({ routeThreadId: "thread-1" }),
     );
   });
 
@@ -917,6 +1051,7 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
       "Sent before mount",
       undefined,
+      { submitMessageId: expect.any(String) },
     );
   });
 
@@ -939,7 +1074,31 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
       "Once only",
       undefined,
+      { submitMessageId: "dup-1" },
     );
+  });
+
+  it("drops a pending delivery after its confirmation times out", async () => {
+    threadMocks.activeThreadId = "";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      dispatchSubmitChat({
+        message: "Never deliver late",
+        submitMessageId: "cancelled-submit",
+      });
+    });
+    cancelAgentChatSubmit("cancelled-submit");
+
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
 
   it("replays an open-thread request sent before the lazy panel mounted", async () => {
@@ -974,6 +1133,56 @@ describe("MultiTabAssistantChat cold-start delivery (Mode B)", () => {
     });
 
     expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-2");
+  });
+
+  it("does not restore a transient thread after the user selected another one", async () => {
+    threadMocks.activeThreadId = "thread-2";
+    threadMocks.threads = [
+      ...threadMocks.threads,
+      {
+        id: "thread-2",
+        title: "Other thread",
+        preview: "",
+        messageCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: null,
+      },
+    ];
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="bridge-test" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "thread-1",
+        onlyIfActiveThreadId: "thread-1",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).not.toHaveBeenCalled();
+  });
+
+  it("restores a transient thread while its captured thread is still active", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="mode-b" />);
+    });
+
+    act(() => {
+      requestAgentChatThreadOpen({
+        threadId: "thread-1",
+        onlyIfActiveThreadId: "thread-1",
+      });
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(threadMocks.switchThread).toHaveBeenCalledWith("thread-1");
   });
 
   it("replays an agent-task open request sent before the lazy panel mounted", async () => {
@@ -1137,5 +1346,285 @@ describe("MultiTabAssistantChat agent-team tabs", () => {
         subAgentName: "Research",
       }),
     );
+  });
+});
+
+describe("MultiTabAssistantChat page overlay", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetThreadMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:page-overlay-test",
+      JSON.stringify(["thread-1"]),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("marks the page overlay only after the thread scrolls", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="page-overlay-test"
+          renderOverlay={() => (
+            <div className="agent-chat-scroll" data-testid="chat-scroll" />
+          )}
+        />,
+      );
+    });
+
+    const scrollTarget = container.querySelector<HTMLElement>(
+      '[data-testid="chat-scroll"]',
+    );
+    expect(scrollTarget).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-page-chat-topbar]"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-agent-page-chat-scrolled]"),
+    ).toBeNull();
+
+    await act(async () => {
+      if (!scrollTarget) return;
+      scrollTarget.scrollTop = 24;
+      scrollTarget.dispatchEvent(new Event("scroll"));
+    });
+
+    expect(
+      container.querySelector("[data-agent-page-chat-scrolled]"),
+    ).not.toBeNull();
+  });
+
+  it("reserves the page top bar even when its actions are temporarily empty", async () => {
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="page-overlay-test"
+          renderOverlay={() => null}
+        />,
+      );
+    });
+
+    const topbar = container.querySelector<HTMLElement>(
+      "[data-agent-page-chat-topbar]",
+    );
+    expect(topbar).not.toBeNull();
+    expect(topbar?.className).toContain("pt-14");
+  });
+});
+
+describe("MultiTabAssistantChat history popover", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+      cb(0);
+      return 0;
+    });
+    resetThreadMocks();
+    const now = Date.now();
+    threadMocks.activeThreadId = "thread-1";
+    const historyThreads: ChatThreadSummary[] = [
+      {
+        id: "thread-1",
+        title: "Active chat",
+        preview: "",
+        messageCount: 1,
+        createdAt: now,
+        updatedAt: now,
+        scope: null,
+      },
+      {
+        id: "thread-2",
+        title: "Pinned chat",
+        preview: "",
+        messageCount: 2,
+        createdAt: now,
+        updatedAt: now,
+        scope: null,
+        pinnedAt: now,
+      },
+      {
+        id: "thread-3",
+        title: "Other chat",
+        preview: "",
+        messageCount: 3,
+        createdAt: now,
+        updatedAt: now,
+        scope: null,
+      },
+    ];
+    threadMocks.threads = historyThreads;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:history-test",
+      JSON.stringify(["thread-1"]),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function openHistory() {
+    await act(async () => {
+      root.render(<MultiTabAssistantChat storageKey="history-test" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const historyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="All chats"]',
+    );
+    expect(historyButton).not.toBeNull();
+    act(() => {
+      historyButton!.click();
+    });
+  }
+
+  it("groups pinned threads into a dedicated section, sorted ahead of the rest", async () => {
+    await openHistory();
+
+    const labels = Array.from(
+      container.querySelectorAll(".an-chat-history__section-label"),
+    ).map((el) => el.textContent);
+    expect(labels).toEqual(["Pinned"]);
+
+    const titles = Array.from(
+      container.querySelectorAll(".an-chat-history-row__title"),
+    ).map((el) => el.textContent);
+    expect(titles).toEqual(["Pinned chat", "Active chat", "Other chat"]);
+  });
+
+  it("pins an unpinned thread via the row action menu", async () => {
+    await openHistory();
+
+    const rows = container.querySelectorAll(".an-chat-history-row");
+    // Row order: Pinned chat (pinned section), Active chat, Other chat.
+    const otherRow = rows[2];
+    const trigger = otherRow.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      trigger!.click();
+    });
+    const pinItem = Array.from(
+      otherRow.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((el) => el.textContent?.includes("Pin to top"));
+    expect(pinItem).toBeDefined();
+    act(() => {
+      (pinItem as HTMLButtonElement).click();
+    });
+
+    expect(threadMocks.pinThread).toHaveBeenCalledWith("thread-3", true);
+  });
+
+  it("unpins an already-pinned thread via the row action menu", async () => {
+    await openHistory();
+
+    const pinnedRow = container.querySelector(".an-chat-history-row");
+    const trigger = pinnedRow!.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      trigger!.click();
+    });
+    const unpinItem = Array.from(
+      pinnedRow!.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((el) => el.textContent?.includes("Unpin from top"));
+    expect(unpinItem).toBeDefined();
+    act(() => {
+      (unpinItem as HTMLButtonElement).click();
+    });
+
+    expect(threadMocks.pinThread).toHaveBeenCalledWith("thread-2", false);
+  });
+
+  it("renames a thread via the row action menu", async () => {
+    await openHistory();
+
+    const rows = container.querySelectorAll(".an-chat-history-row");
+    const activeRow = rows[1]; // "Active chat"
+    const trigger = activeRow.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      trigger!.click();
+    });
+    const renameItem = Array.from(
+      activeRow.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).find((el) => el.textContent?.includes("Rename"));
+    act(() => {
+      (renameItem as HTMLButtonElement).click();
+    });
+
+    const input = activeRow.querySelector<HTMLInputElement>(
+      ".an-chat-history-row__rename-input",
+    );
+    expect(input).not.toBeNull();
+
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(input, "Renamed chat");
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(threadMocks.renameThread).toHaveBeenCalledWith(
+      "thread-1",
+      "Renamed chat",
+    );
+  });
+
+  it("does not render a delete row action (no confirm UX wired yet)", async () => {
+    await openHistory();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-row__menu-trigger",
+    );
+    act(() => {
+      trigger!.click();
+    });
+
+    const menuItems = Array.from(
+      container.querySelectorAll(".an-chat-history-row__menu-item"),
+    ).map((el) => el.textContent);
+    expect(menuItems.length).toBeGreaterThan(0);
+    expect(menuItems.some((text) => text?.includes("Delete"))).toBe(false);
   });
 });

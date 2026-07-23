@@ -12,10 +12,9 @@
  * returns:
  *
  *   - `screenshots[]` — a PNG per viewport, persisted through the shared
- *     `uploadFile` provider (falls back to an inline base64 data URL when no
- *     upload provider is configured, matching `set-thumbnail`'s fallback
- *     pattern). The result carries a plain `url` per screenshot so a human can
- *     view it by opening the link, or the agent can embed it as
+ *     `uploadFile` provider. The result carries a plain `url` per screenshot
+ *     when storage is configured so a human can view it by opening the link,
+ *     or the agent can embed it as
  *     `![...](url)` in its own chat reply today. NOTE: tool results are
  *     currently text-only end-to-end — this action does not attach the PNG as
  *     a model-visible image content block. The moment the engine supports
@@ -97,8 +96,9 @@ export interface ScreenshotDiagnostics {
 export interface ScreenshotResult {
   viewport: ScreenshotViewport;
   url: string;
-  /** True when persisted via a durable upload provider; false for the inline data-URL fallback. */
+  /** True when persisted via a durable upload provider. */
   persisted: boolean;
+  uploadError?: string;
   bytes: number;
   diagnostics: ScreenshotDiagnostics;
 }
@@ -125,75 +125,50 @@ function labelForWidth(widthPx: number): string {
   return `desktop-${widthPx}`;
 }
 
-/** Resolve the viewport list from the optional `widths` input, defaulting to desktop + mobile. */
-export function resolveViewports(widths?: number[]): ScreenshotViewport[] {
+/**
+ * Resolve the viewport list from the optional `widths` input, defaulting to
+ * desktop + mobile. `heights`, when provided, is matched index-for-index
+ * against `widths` so a caller that already knows the exact content height
+ * (e.g. the annotate-to-agent draw pipeline compositing over a specific
+ * on-screen rect) gets a screenshot with the same aspect ratio instead of the
+ * device-heuristic default — annotation coordinates are recorded in that
+ * exact rect's pixel space, so a mismatched aspect ratio would misalign the
+ * composited drawing against the screenshot content. A missing/undefined
+ * entry at a given index falls back to `heightForWidth` unchanged, so
+ * existing callers that only pass `widths` are unaffected.
+ */
+export function resolveViewports(
+  widths?: number[],
+  heights?: number[],
+): ScreenshotViewport[] {
   if (!widths || widths.length === 0) return DEFAULT_VIEWPORTS;
-  return widths.map((widthPx) => ({
+  return widths.map((widthPx, index) => ({
     label: labelForWidth(widthPx),
     widthPx,
-    heightPx: heightForWidth(widthPx),
+    heightPx: heights?.[index] || heightForWidth(widthPx),
   }));
 }
 
 // ---------------------------------------------------------------------------
 // Playwright loading (mirrors packages/core/src/cli/recap.ts's runShot: a
 // dynamic import + system-Chrome fallback, so a missing browser binary is a
-// clean, catchable failure rather than an unhandled module-resolution crash)
+// clean, catchable failure rather than an unhandled module-resolution crash).
+// The actual bootstrap lives in `playwright-runtime.ts` so other server-side
+// Chromium consumers (e.g. the Figma SVG export's scene extractor in
+// `design-to-figma-svg.ts`) share it instead of duplicating it; re-exported
+// here for backward compatibility with this file's existing imports/spec.
 // ---------------------------------------------------------------------------
 
-type PlaywrightModule = { chromium: import("@playwright/test").BrowserType };
-
-async function importPlaywright(): Promise<PlaywrightModule> {
-  try {
-    // Bare "playwright" — present when @agent-native/core's optional
-    // dependency resolved (matches how packages/core/src/cli/recap.ts loads
-    // it). Loaded via a non-literal specifier so bundlers don't try to
-    // statically resolve/include it (it's optional and can be entirely
-    // absent, e.g. in a hosted deploy).
-    const specifier = "playwright";
-    return (await import(specifier)) as unknown as PlaywrightModule;
-  } catch {
-    // "@playwright/test" is a direct devDependency of this template (used by
-    // its own e2e suite) and re-exports the same chromium/Browser API.
-    return (await import("@playwright/test")) as unknown as PlaywrightModule;
-  }
-}
-
-const SYSTEM_CHROME_EXECUTABLES = [
-  "/usr/bin/google-chrome-stable",
-  "/usr/bin/google-chrome",
-  "/usr/bin/chromium-browser",
-  "/usr/bin/chromium",
-];
-
-/** Exported for tests — pure classifier for "no Chromium binary available" errors. */
-export function isMissingBrowserError(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return /Executable doesn't exist|playwright install|browser.*not found|chromium.*not found/i.test(
-    message,
-  );
-}
-
-async function launchChromium(
-  chromium: import("@playwright/test").BrowserType,
-): Promise<import("@playwright/test").Browser> {
-  const launchOptions = { args: ["--no-sandbox"] };
-  try {
-    return await chromium.launch(launchOptions);
-  } catch (err) {
-    if (!isMissingBrowserError(err)) throw err;
-    const { existsSync } = await import("node:fs");
-    for (const executablePath of SYSTEM_CHROME_EXECUTABLES) {
-      if (!existsSync(executablePath)) continue;
-      try {
-        return await chromium.launch({ ...launchOptions, executablePath });
-      } catch {
-        // Try the next candidate; the original error is rethrown below.
-      }
-    }
-    throw err;
-  }
-}
+export {
+  importPlaywright,
+  isMissingBrowserError,
+  launchChromium,
+} from "../server/lib/playwright-runtime.js";
+import {
+  importPlaywright,
+  launchChromium,
+  type PlaywrightModule,
+} from "../server/lib/playwright-runtime.js";
 
 /** Human-readable, model-actionable message for the "no Chromium available" case. */
 export function chromiumUnavailableReason(err: unknown): string {
@@ -510,10 +485,20 @@ export default defineAction({
         "Viewport widths in px to render. Defaults to [1280, 375] (desktop + mobile). " +
           "Height is derived per width using standard device aspect ratios.",
       ),
+    heights: z
+      .array(z.number().int().min(200).max(4096))
+      .optional()
+      .describe(
+        "Exact viewport heights in px, matched index-for-index against `widths`. " +
+          "Use when the caller needs the screenshot's aspect ratio to match a " +
+          "known on-screen rect exactly (e.g. compositing an overlay on top) " +
+          "instead of the device-heuristic default. Omit an index to fall back " +
+          "to the standard derived height for that width.",
+      ),
   }),
   readOnly: true,
   http: { method: "POST" },
-  run: async ({ designId, fileId, filename, widths }, ctx) => {
+  run: async ({ designId, fileId, filename, widths, heights }, ctx) => {
     if (!designId && !fileId) {
       throw new Error("designId or fileId is required.");
     }
@@ -569,7 +554,7 @@ export default defineAction({
       return { ok: false, reason: chromiumUnavailableReason(err) };
     }
 
-    const viewports = resolveViewports(widths);
+    const viewports = resolveViewports(widths, heights);
     let browser: import("@playwright/test").Browser | undefined;
     try {
       browser = await launchChromium(playwright.chromium);
@@ -587,6 +572,18 @@ export default defineAction({
           viewport: { width: viewport.widthPx, height: viewport.heightPx },
           deviceScaleFactor: 2,
         });
+        // esbuild/tsx `keepNames` rewrites a named inner function inside a
+        // page.evaluate callback (e.g. `collectPageDiagnostics`'s local
+        // helpers) into `__name(fn, "name")`. Playwright serializes that
+        // callback with Function#toString() and runs it in the page, where
+        // `__name` doesn't exist — this throws `ReferenceError: __name is
+        // not defined` and the action fails outright whenever it's invoked
+        // through a tsx/esbuild-transpiled entrypoint (e.g. `pnpm action`).
+        // Mirrors the identical fix in packages/core/src/cli/recap.ts
+        // (RECAP_SHOT_NAME_SHIM) — same root cause, same shim.
+        await context.addInitScript(
+          "globalThis.__name = globalThis.__name || function (value) { return value; };",
+        );
         const page = await context.newPage();
         const consoleErrors: string[] = [];
         const fontLoadFailures: string[] = [];
@@ -607,11 +604,69 @@ export default defineAction({
 
         try {
           await page.setContent(html, { waitUntil: "networkidle" });
-          // Best-effort settle for Alpine.js x-init / CDN Tailwind JIT compile.
-          await page.waitForTimeout(300);
+          // Bounded wait for webfonts to finish loading. `networkidle` alone
+          // is not enough: a screenshot taken while a custom Google Font is
+          // still downloading renders with fallback-font metrics — a
+          // different, often overflowing layout — which is exactly the kind
+          // of "broken layout" this action's visual self-review pass exists
+          // to catch, not produce.
+          await page
+            .evaluate(async () => {
+              const fontsReady = document.fonts?.ready;
+              if (!fontsReady) return;
+              await Promise.race([
+                fontsReady,
+                new Promise<void>((resolve) => setTimeout(resolve, 4_000)),
+              ]);
+            })
+            .catch(() => {});
+          // Best-effort settle for Alpine.js x-init / CDN Tailwind JIT
+          // compile: wait for the page's total CSSOM rule count to stop
+          // growing across polls (a CDN stylesheet injected after
+          // `networkidle` fires looks exactly like this), instead of a flat
+          // guess that either wastes time or fires too early on a complex
+          // design with many stylesheets.
+          await page
+            .waitForFunction(
+              () => {
+                const win = window as unknown as {
+                  __anExportRuleCounts?: number[];
+                  __anExportRuleStart?: number;
+                };
+                win.__anExportRuleStart ??= Date.now();
+                const count = Array.from(document.styleSheets).reduce(
+                  (sum, sheet) => {
+                    try {
+                      return sum + (sheet.cssRules?.length ?? 0);
+                    } catch {
+                      return sum + 1;
+                    }
+                  },
+                  0,
+                );
+                const history = [
+                  ...(win.__anExportRuleCounts ?? []).slice(-5),
+                  count,
+                ];
+                win.__anExportRuleCounts = history;
+                return (
+                  history.length >= 6 &&
+                  history.every((value) => value === history[0]) &&
+                  Date.now() - win.__anExportRuleStart >= 600
+                );
+              },
+              { timeout: 2500, polling: 100 },
+            )
+            .catch(() => {});
 
           const pageDiagnostics = await page.evaluate(collectPageDiagnostics);
-          const png = await page.screenshot({ type: "png" });
+          // `fullPage` is required here: Playwright's default screenshot
+          // crops to the current viewport, so any screen taller than the
+          // requested viewport height (tall landing pages, long dashboards)
+          // silently loses everything below the fold instead of erroring —
+          // this is the "PNG export produces ... broken layouts" complaint
+          // for tall complex screens, reproduced on a 1440x3200 fixture.
+          const png = await page.screenshot({ type: "png", fullPage: true });
 
           const uploaded = await uploadFile({
             data: png,
@@ -620,13 +675,16 @@ export default defineAction({
             ownerEmail,
           }).catch(() => null);
 
-          const url =
-            uploaded?.url ?? `data:image/png;base64,${png.toString("base64")}`;
-
           screenshots.push({
             viewport,
-            url,
+            url: uploaded?.url ?? "",
             persisted: !!uploaded,
+            ...(uploaded?.url
+              ? {}
+              : {
+                  uploadError:
+                    "Screenshot was rendered but not returned because file storage is not configured.",
+                }),
             bytes: png.byteLength,
             diagnostics: {
               viewport,

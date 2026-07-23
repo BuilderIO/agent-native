@@ -1,4 +1,7 @@
-import { useActionQuery, appPath, useT } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
   IconArrowLeft,
   IconArrowUpRight,
@@ -14,6 +17,7 @@ import {
   type LoaderFunctionArgs,
 } from "react-router";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -96,11 +100,10 @@ export async function clientLoader({
 export default function WorkspaceAppCatchAllRoute() {
   const t = useT();
   const { appId } = useParams();
-  const { data: apps = [], isLoading } = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false },
-    { refetchInterval: 2_000 },
-  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const { data: apps = [], isLoading } = appsQuery;
   const app = useMemo(
     () =>
       (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
@@ -117,6 +120,20 @@ export default function WorkspaceAppCatchAllRoute() {
 
   if (isSelfReference) {
     return <Navigate to={appPath("/overview")} replace />;
+  }
+
+  if (appsQuery.isError) {
+    return (
+      <DispatchShell
+        title={t("dispatch.pages.dataLoadFailed")}
+        description={t("dispatch.pages.pageNotFoundDescription")}
+      >
+        <ActionQueryError
+          error={appsQuery.error}
+          onRetry={() => void appsQuery.refetch()}
+        />
+      </DispatchShell>
+    );
   }
 
   if ((isLoading && !app) || (app && app.status !== "pending" && href)) {
@@ -166,7 +183,14 @@ export default function WorkspaceAppCatchAllRoute() {
             ) : null}
             {app.builderUrl ? (
               <Button asChild>
-                <a href={app.builderUrl} target="_blank" rel="noreferrer">
+                <a
+                  href={withBuilderUtmTrackingParams(app.builderUrl, {
+                    campaign: "product",
+                    content: "dispatch_branch",
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   {t("dispatch.pages.openBuilderBranch")}
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>

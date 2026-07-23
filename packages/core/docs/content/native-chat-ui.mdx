@@ -98,7 +98,7 @@ Server actions should import the server-safe helpers and schemas from
 `@agent-native/core/data-widgets`; client code can import the same types from
 `@agent-native/core/client/chat` or `@agent-native/core/client`.
 
-```ts
+```ts filename="actions/chart-form-responses.ts"
 import { defineAction } from "@agent-native/core/action";
 import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
 import {
@@ -216,7 +216,7 @@ deep link fallback.
 Register product-specific components by exact renderer id, then declare that id
 on the action:
 
-```tsx
+```tsx filename="app/chat-renderers.tsx"
 import { registerActionChatRenderer } from "@agent-native/core/client/chat";
 
 registerActionChatRenderer({
@@ -226,7 +226,7 @@ registerActionChatRenderer({
 });
 ```
 
-```ts
+```ts filename="actions/show-deal-card.ts"
 export default defineAction({
   description: "Show a deal card.",
   outputSchema: dealCardSchema,
@@ -397,7 +397,7 @@ connector helpers. ACP remains coding-agent/editor interoperability, not the
 general app-chat runtime for end users. A2UI is not claimed as supported here;
 if it matures, it should adapt into this same explicit runtime/widget contract.
 
-## Related docs {#related-docs}
+## What's next {#whats-next}
 
 - [Actions](/docs/actions) — define the operations that return native widget data.
 - [Agent Surfaces](/docs/agent-surfaces) — decide whether you need headless, chat, sidecar, or full app.

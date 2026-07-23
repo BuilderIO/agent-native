@@ -8,6 +8,7 @@ import {
   isLayerHiddenBySize,
   isTextElement,
   mixedElementFromSelection,
+  mergeOptimisticInteractionStateStyles,
   outlineOffsetForPosition,
   readStrokeOutlinePosition,
   readTextStrokeStyle,
@@ -113,6 +114,20 @@ describe("isTextElement", () => {
         }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("mergeOptimisticInteractionStateStyles", () => {
+  it("keeps pending localhost state values visible over persisted styles", () => {
+    expect(
+      mergeOptimisticInteractionStateStyles(
+        { color: "rgb(0, 0, 0)", opacity: "0.5" },
+        { color: "rgb(255, 0, 0)" },
+      ),
+    ).toEqual({
+      color: "rgb(255, 0, 0)",
+      opacity: "0.5",
+    });
   });
 });
 
@@ -483,6 +498,57 @@ describe("mixedElementFromSelection", () => {
     const b = makeElement({ tagName: "div", primitiveKind: "text" });
     const merged = mixedElementFromSelection([a, b]);
     expect(merged?.primitiveKind).toBe("text");
+  });
+
+  // isParentFlex/isParentGrid/parentFlexDirection (element-classification.ts)
+  // read parentDisplay/parentAutoLayout/parentLayout to decide whether
+  // LayoutContextProperties renders FlexChildControls/GridChildControls at
+  // all. Left to leak through the `...base` spread unchecked, these would
+  // report whichever element was selected LAST, misrendering (and
+  // misapplying align-self/flex-grow edits) for a selection spanning two
+  // different parents.
+  it("clears parentDisplay/parentAutoLayout/parentLayout when the selection's parents disagree", () => {
+    const a = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout: {
+        display: "flex",
+        sourceId: "parent-a",
+        boundingRect: { x: 0, y: 0, width: 200, height: 100 },
+      },
+      parentLayout: { display: "flex", flexDirection: "row" },
+    });
+    const b = makeElement({
+      parentDisplay: "block",
+      parentAutoLayout: undefined,
+      parentLayout: undefined,
+    });
+    const merged = mixedElementFromSelection([a, b]);
+    expect(merged?.parentDisplay).toBeUndefined();
+    expect(merged?.parentAutoLayout).toBeUndefined();
+    expect(merged?.parentLayout).toBeUndefined();
+  });
+
+  it("keeps parentDisplay/parentAutoLayout/parentLayout when every selected element shares the same parent", () => {
+    const parentAutoLayout = {
+      display: "flex",
+      sourceId: "parent-shared",
+      boundingRect: { x: 0, y: 0, width: 200, height: 100 },
+    };
+    const parentLayout = { display: "flex", flexDirection: "column" };
+    const a = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout,
+      parentLayout,
+    });
+    const b = makeElement({
+      parentDisplay: "flex",
+      parentAutoLayout: { ...parentAutoLayout },
+      parentLayout: { ...parentLayout },
+    });
+    const merged = mixedElementFromSelection([a, b]);
+    expect(merged?.parentDisplay).toBe("flex");
+    expect(merged?.parentAutoLayout).toEqual(parentAutoLayout);
+    expect(merged?.parentLayout).toEqual(parentLayout);
   });
 });
 

@@ -12,7 +12,7 @@ import { getWorkspaceAppIdValidationError } from "../shared/workspace-app-id.js"
 import { sendToAgentChat } from "./agent-chat.js";
 import { agentNativePath, appBasePath } from "./api-path.js";
 import { isInBuilderFrame } from "./builder-frame.js";
-import { PromptComposer } from "./composer/PromptComposer.js";
+import { PromptComposer } from "./composer/index.js";
 import { useDevMode } from "./use-dev-mode.js";
 
 export interface VaultSecretOption {

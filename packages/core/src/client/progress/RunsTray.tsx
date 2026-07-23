@@ -1,4 +1,9 @@
 import {
+  Popover as DesignSystemPopover,
+  Spinner as DesignSystemSpinner,
+  Tooltip as DesignSystemTooltip,
+} from "@agent-native/toolkit/design-system";
+import {
   IconAlertCircle,
   IconCheck,
   IconClock,
@@ -17,23 +22,14 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "../components/ui/dropdown-menu.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "../components/ui/popover.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 import { useFormatters, useT } from "../i18n.js";
+import { useChangeVersion } from "../use-change-version.js";
 import { usePausingInterval } from "../use-pausing-interval.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";
+const RUN_CHANGE_SETTLE_MS = 250;
 
 interface RunsTrayProps {
   /** Poll interval in ms. 0 disables. Default 3000. */
@@ -77,6 +73,7 @@ function useRunsTrayState({
   const t = useT();
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
   const includeRecent = showRecent ?? !hideWhenIdle;
+  const runsVersion = useChangeVersion("runs");
 
   const refresh = useCallback(async () => {
     try {
@@ -94,8 +91,17 @@ function useRunsTrayState({
   }, [includeRecent, limit]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (runsVersion <= 0) return;
+    const timeout = window.setTimeout(
+      () => void refresh(),
+      RUN_CHANGE_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [refresh, runsVersion]);
 
   usePausingInterval(refresh, pollMs);
 
@@ -228,80 +234,91 @@ export function RunsTray({
 
   if (!hasRuns && hideWhenIdle) return null;
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <TooltipProvider delayDuration={200}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                aria-label={triggerLabel}
-                aria-expanded={open}
-                className={cn(
-                  "an-runs-tray__trigger relative inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground",
-                  triggerVariant === "pill"
-                    ? "h-7 min-w-[68px] gap-1.5 border border-border/70 bg-background px-2 text-[11px] font-medium"
-                    : "h-8 w-8",
-                  open && "bg-accent/50 text-foreground",
-                  className,
-                )}
-              >
-                <TriggerIcon
-                  size={triggerVariant === "pill" ? 14 : 18}
-                  className={cn(triggerTone, activeCount > 0 && "animate-spin")}
-                  aria-hidden
-                />
-                {triggerVariant === "pill" ? (
-                  <span className="leading-none">{t("runsTray.runs")}</span>
-                ) : null}
-                {activeCount > 0 ? (
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "an-runs-tray__badge rounded-full bg-primary text-[10px] font-medium leading-[14px] text-primary-foreground",
-                      triggerVariant === "pill"
-                        ? "min-w-4 px-1"
-                        : "absolute -right-0.5 -top-0.5 px-1",
-                    )}
-                  >
-                    {activeCount > 9 ? "9+" : activeCount}
-                  </span>
-                ) : failedCount > 0 ? (
-                  <span
-                    aria-hidden
-                    className={cn(
-                      "rounded-full bg-destructive text-[10px] font-medium leading-[14px] text-destructive-foreground",
-                      triggerVariant === "pill"
-                        ? "min-w-4 px-1"
-                        : "absolute -right-0.5 -top-0.5 px-1",
-                    )}
-                  >
-                    {failedCount > 9 ? "9+" : failedCount}
-                  </span>
-                ) : null}
-              </button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>{triggerLabel}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-      <PopoverContent
-        align={align}
-        sideOffset={8}
-        className="an-runs-tray__menu w-80 max-w-[calc(100vw-24px)] p-0"
-      >
-        <RunsTrayContent
-          runs={runs}
-          hasRuns={hasRuns}
-          activeCount={activeCount}
-          terminalCount={terminalCount}
-          onDismiss={dismissRun}
-          onStop={stopRun}
-          onOpenThread={onOpenThread}
+  const trigger = (
+    <button
+      type="button"
+      aria-label={triggerLabel}
+      aria-expanded={open}
+      className={cn(
+        "an-runs-tray__trigger relative inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/40 hover:text-foreground",
+        triggerVariant === "pill"
+          ? "h-7 min-w-[68px] gap-1.5 border border-border/70 bg-background px-2 text-[11px] font-medium"
+          : "h-8 w-8",
+        open && "bg-accent/50 text-foreground",
+        className,
+      )}
+    >
+      {activeCount > 0 ? (
+        <DesignSystemSpinner
+          label={triggerLabel}
+          size={triggerVariant === "pill" ? "compact" : "default"}
+          className={cn(triggerTone, "motion-reduce:animate-none")}
         />
-      </PopoverContent>
-    </Popover>
+      ) : (
+        <TriggerIcon
+          size={triggerVariant === "pill" ? 14 : 18}
+          className={triggerTone}
+          aria-hidden
+        />
+      )}
+      {triggerVariant === "pill" ? (
+        <span className="leading-none">{t("runsTray.runs")}</span>
+      ) : null}
+      {activeCount > 0 ? (
+        <span
+          aria-hidden
+          className={cn(
+            "an-runs-tray__badge rounded-full bg-primary text-[10px] font-medium leading-[14px] text-primary-foreground",
+            triggerVariant === "pill"
+              ? "min-w-4 px-1"
+              : "absolute -right-0.5 -top-0.5 px-1",
+          )}
+        >
+          {activeCount > 9 ? "9+" : activeCount}
+        </span>
+      ) : failedCount > 0 ? (
+        <span
+          aria-hidden
+          className={cn(
+            "rounded-full bg-destructive text-[10px] font-medium leading-[14px] text-destructive-foreground",
+            triggerVariant === "pill"
+              ? "min-w-4 px-1"
+              : "absolute -right-0.5 -top-0.5 px-1",
+          )}
+        >
+          {failedCount > 9 ? "9+" : failedCount}
+        </span>
+      ) : null}
+    </button>
+  );
+
+  return (
+    <DesignSystemPopover
+      open={open}
+      onOpenChange={setOpen}
+      trigger={
+        <span className="contents">
+          <DesignSystemTooltip
+            trigger={trigger}
+            content={triggerLabel}
+            delayMs={200}
+          />
+        </span>
+      }
+      align={align}
+      placement="bottom"
+      className="an-runs-tray__menu w-80 max-w-[calc(100vw-24px)] p-0"
+    >
+      <RunsTrayContent
+        runs={runs}
+        hasRuns={hasRuns}
+        activeCount={activeCount}
+        terminalCount={terminalCount}
+        onDismiss={dismissRun}
+        onStop={stopRun}
+        onOpenThread={onOpenThread}
+      />
+    </DesignSystemPopover>
   );
 }
 
@@ -559,14 +576,17 @@ function RunRow({
           {run.percent != null ? (
             <div
               className={cn(
-                "h-full transition-all",
+                "h-full origin-left transition-transform duration-200 ease-[var(--ease-collapse)]",
                 run.status === "failed"
                   ? "bg-destructive"
                   : run.status === "cancelled"
                     ? "bg-muted-foreground/50"
                     : "bg-primary",
               )}
-              style={{ width: `${run.percent}%` }}
+              style={{
+                transform: `scaleX(${run.percent / 100})`,
+                width: "100%",
+              }}
             />
           ) : (
             <div className="h-full w-1/3 animate-pulse bg-primary/60" />

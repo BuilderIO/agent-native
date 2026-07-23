@@ -11,7 +11,7 @@ Actions sind die einzige Quelle der Wahrheit für alles, was Ihre App tut. Defin
 - **Typsichere React-Hooks** – `useActionQuery("name")` und `useActionMutation("name")` im Frontend, Typen aus dem Schema abgeleitet.
 - **Imperative Client-Aufrufe** – `callAction("name", params)`, wenn ein Hook nicht passt.
 - **Framework-Transport** – wird automatisch vom Framework hinter diesen Hooks bereitgestellt und ist für externe HTTP-Clients verfügbar.
-- **Ein MCP-Tool** – verfügbar für benutzerdefinierte MCP-Apps von Claude, ChatGPT, Claude Desktop/Code, Cursor, Codex und alle anderen MCP-Clients.
+- **Ein MCP-Tool** – verfügbar für benutzerdefinierte MCP-Apps von Claude, ChatGPT, Claude Desktop/Code, Cursor, Codex und alle anderen MCP-Hosts.
 - **Ein A2A-Tool** – wird von anderen agentennativen Apps über A2A aufgerufen.
 - **Ein CLI-Befehl** – `pnpm action <name>` für Skripterstellung und Entwicklungsschleifen.
 
@@ -443,8 +443,7 @@ Zwei Haken, beide in `@agent-native/core/client`. Typen werden aus Ihren `define
 Für actions, die den Status ändern:
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -462,8 +461,7 @@ Bei Erfolg gibt das Framework ein Änderungsereignis mit `source: "action"` aus,
 Für schreibgeschütztes GET actions:
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -540,7 +538,7 @@ Wenn Ihre App ein [A2A](/docs/a2a-protocol)-Peer ist, erkennen andere agentennat
 
 ## Es über MCP verfügbar machen {#mcp}
 
-Wenn MCP aktiviert ist, wird Ihr actions auf dem MCP-Server des Frameworks unter `/_agent-native/mcp` angezeigt. Jeder Anrufer erhält standardmäßig einen kompakten Katalog – App-orientierte integrierte Apps sowie die in der Vorlage deklarierte App actions – und `tool-search` ist immer vorhanden, sodass jedes andere Tool bei Bedarf erreichbar bleibt. Die vollständige Aktionsoberfläche wird nur bei explizitem Opt-in bereitgestellt (`--full-catalog`-Token oder `AGENT_NATIVE_MCP_FULL_CATALOG=1`), und `publicAgent.expose` wählt ein sicheres Lese-/Aufnahmetool für die öffentliche Oberfläche aus. Siehe [MCP Protocol](/docs/mcp-protocol) für Katalogstufen, Authentifizierung und die `mcpApp`-Ressourcendetails.
+Wenn MCP aktiviert ist, wird Ihr actions auf dem MCP-Server des Frameworks unter `/mcp` angezeigt. Jeder Anrufer erhält standardmäßig einen kompakten Katalog – App-orientierte integrierte Apps sowie die in der Vorlage deklarierte App actions – und `tool-search` ist immer vorhanden, sodass jedes andere Tool bei Bedarf erreichbar bleibt. Die vollständige Aktionsoberfläche wird nur bei explizitem Opt-in bereitgestellt (`--full-catalog`-Token oder `AGENT_NATIVE_MCP_FULL_CATALOG=1`), und `publicAgent.expose` wählt ein sicheres Lese-/Aufnahmetool für die öffentliche Oberfläche aus. Siehe [MCP Protocol](/docs/mcp-protocol) für Katalogstufen, Authentifizierung und die `mcpApp`-Ressourcendetails.
 
 Für UI-fähige MCP-Hosts kann eine Aktion eine optionale MCP-Apps-Ressource über das `mcpApp`-Feld (plus ein passendes `link`) deklarieren, sodass fähige Hosts das Ergebnis inline rendern. Wenn `link` und `mcpApp` auf die gleiche Route zeigen sollen, erstellt `embedRoute()` beide aus einem reinen Pfad-Builder:
 
@@ -562,7 +560,7 @@ export default defineAction({
 });
 ```
 
-Behalten Sie `link` als Fallback für CLI- und Nicht-UI-MCP-Clients bei; Es ist auch das Startziel der Einbettung. Die Embed Bridge – die signierte Embed-Start-Sitzung, Transplantation vs. Controlled-Frame-Rendering, die `ui/*` Host Bridge, CSP und Height Clamping – ist Eigentum von [External Agents](/docs/external-agents#mcp-app-bridge).
+Behalten Sie `link` als Fallback für CLI- und Nicht-UI-MCP-Hosts bei; Es ist auch das Startziel der Einbettung. Die Embed Bridge – die signierte Embed-Start-Sitzung, Transplantation vs. Controlled-Frame-Rendering, die `ui/*` Host Bridge, CSP und Height Clamping – ist Eigentum von [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## Standard actions {#standard-actions}
 
@@ -617,6 +615,44 @@ export default defineAction({
   },
 });
 ```
+
++## Staged-Features absichern {#feature-flags}
+
+Verwende Core-Feature-Flags, wenn eine Action sicher ausgerollt werden kann, aber schrittweise in Produktion gelangen soll. Definiere das standardmäßig deaktivierte Flag einmal, registriere es über ein Nitro-Plugin und prüfe es in jeder geschützten Action. Die passende Schaltfläche auszublenden ist Darstellung; die Prüfung in der Action ist die Durchsetzung.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Verwende `useFeatureFlag(FULL_APP_BUILDING.key)` aus `@agent-native/core/client`, um die Client-Oberfläche ein- oder auszublenden. Core stellt `get-feature-flags`, `list-feature-flags` und `set-feature-flag` bereit. Die Verwaltung wird geprüft und auditiert; Fleet-Oberflächen rufen dieselben app-lokalen Actions über eng begrenzte A2A-Delegierung auf. Leite Flag-Schreibvorgänge niemals über allgemeine Einstellungs-Endpunkte oder unverarbeitetes SQL und lege Authentifizierung, Autorisierung, Auditierung, Secrets oder SSR-Cache-Verhalten niemals hinter ein Laufzeit-Flag.
 
 ## Legacy CLI-Stil actions {#legacy-cli-actions}
 

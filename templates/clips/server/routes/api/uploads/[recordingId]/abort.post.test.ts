@@ -3,12 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockDeleteAppStateByPrefix = vi.hoisted(() => vi.fn());
+const mockDeleteAppState = vi.hoisted(() => vi.fn());
 const mockGetRouterParam = vi.hoisted(() => vi.fn());
 const mockReadBody = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockGetEventOwnerContext = vi.hoisted(() => vi.fn());
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockDeleteResumableSession = vi.hoisted(() => vi.fn());
+const mockGetResumableSession = vi.hoisted(() => vi.fn());
+const mockAbortSession = vi.hoisted(() => vi.fn());
+const mockResolveResumableUploadProvider = vi.hoisted(() => vi.fn());
 const mockUpdateSets = vi.hoisted(() => [] as Record<string, unknown>[]);
 const mockSelectRows = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
@@ -30,6 +34,7 @@ const mockDb = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  deleteAppState: (...args: unknown[]) => mockDeleteAppState(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
   deleteAppStateByPrefix: (...args: unknown[]) =>
@@ -74,6 +79,12 @@ vi.mock("../../../../lib/recordings.js", () => ({
 vi.mock("../../../../lib/resumable-session.js", () => ({
   deleteResumableSession: (...args: unknown[]) =>
     mockDeleteResumableSession(...args),
+  getResumableSession: (...args: unknown[]) => mockGetResumableSession(...args),
+}));
+
+vi.mock("../../../../lib/resumable-upload-provider.js", () => ({
+  resolveResumableUploadProvider: (...args: unknown[]) =>
+    mockResolveResumableUploadProvider(...args),
 }));
 
 import handler from "./abort.post";
@@ -100,7 +111,13 @@ describe("/api/uploads/:recordingId/abort route", () => {
     });
     mockOwnerEmailMatches.mockReturnValue("owner-match");
     mockDeleteAppStateByPrefix.mockResolvedValue(2);
+    mockDeleteAppState.mockResolvedValue(true);
     mockDeleteResumableSession.mockResolvedValue(undefined);
+    mockGetResumableSession.mockResolvedValue(null);
+    mockAbortSession.mockResolvedValue(undefined);
+    mockResolveResumableUploadProvider.mockResolvedValue({
+      resumable: { abortSession: mockAbortSession },
+    });
     mockReadAppState.mockResolvedValue({
       recordingId: "rec-1",
       status: "uploading",
@@ -136,6 +153,9 @@ describe("/api/uploads/:recordingId/abort route", () => {
         hasCamera: false,
       }),
     );
+    expect(mockDeleteAppState).toHaveBeenCalledWith(
+      "recording-media-verification-rec-1",
+    );
     expect(mockUpdateSets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -145,6 +165,34 @@ describe("/api/uploads/:recordingId/abort route", () => {
         }),
       ]),
     );
+  });
+
+  it("does not let an older client abort durable media verification", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "processing",
+        videoUrl: "https://cdn.example.com/rec-1",
+        failureReason: null,
+      },
+    ];
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "processing",
+      pendingMediaVerification: true,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      verificationPending: true,
+      chunksCleared: 0,
+    });
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDeleteAppState).not.toHaveBeenCalled();
+    expect(mockDeleteAppStateByPrefix).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
   });
 
   it("clears buffered chunks for ordinary abort failures", async () => {
@@ -167,6 +215,100 @@ describe("/api/uploads/:recordingId/abort route", () => {
     expect(mockDeleteAppStateByPrefix).toHaveBeenCalledWith(
       "recording-chunks-rec-1-",
     );
+    expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
+  });
+
+  it("aborts provider storage before deleting a resumable session", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await handler({} as any);
+
+    expect(mockResolveResumableUploadProvider).toHaveBeenCalledWith("s3");
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+    });
+    expect(mockAbortSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mockDeleteResumableSession.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("preserves the resumable session when provider abort cleanup fails", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "uploading",
+        videoUrl: null,
+        failureReason: null,
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+    mockAbortSession.mockRejectedValue(new Error("S3 unavailable"));
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual({
+        ok: true,
+        recordingId: "rec-1",
+        chunksCleared: 2,
+      });
+    } finally {
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockAbortSession).toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
+  it("retries retained provider cleanup for an already-failed recording", async () => {
+    mockSelectRows.rows = [
+      {
+        id: "rec-1",
+        status: "failed",
+        videoUrl: null,
+        failureReason: "Cancelled",
+      },
+    ];
+    mockReadBody.mockResolvedValue({ reason: "Cancelled" });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 123,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      ok: true,
+      recordingId: "rec-1",
+      chunksCleared: 2,
+    });
+
+    expect(mockAbortSession).toHaveBeenCalledWith({
+      sessionId: "upload-example",
+      meta: { objectKey: "clips/rec-1.webm" },
+    });
     expect(mockDeleteResumableSession).toHaveBeenCalledWith("rec-1");
   });
 });

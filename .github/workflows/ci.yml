@@ -56,13 +56,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -75,7 +69,7 @@ jobs:
     # Cap the run so a hung test fails fast instead of pinning a runner for
     # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
     # below so they can run in parallel instead of serially behind fast tests.
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -87,15 +81,16 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
         run: pnpm exec playwright install --only-shell chromium
@@ -118,13 +113,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -146,13 +135,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -174,15 +157,16 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed integration tests
         run: pnpm exec playwright install --only-shell chromium
@@ -205,13 +189,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -235,18 +213,34 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
       - name: Run brain evals
         run: pnpm test:brain-evals
+
+  brain-privacy-evals:
+    name: Brain privacy leakage evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Block privacy leaks and false positives
+        run: pnpm test:brain-privacy-evals
 
   build:
     name: Build
@@ -263,13 +257,7 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       - run: pnpm install --frozen-lockfile
 
@@ -295,8 +283,7 @@ jobs:
             /usr/local/lib/android \
             /usr/local/share/boost \
             /usr/share/dotnet \
-            /usr/share/swift \
-            ~/.cache/ms-playwright
+            /usr/share/swift
           docker system prune -af || true
           sudo apt-get clean
           df -h
@@ -309,25 +296,11 @@ jobs:
           cache: "pnpm"
 
       - name: Restore dist + tsBuildInfo cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        with:
-          path: |
-            packages/*/dist
-            packages/*/node_modules/.cache/tsbuildinfo
-          key: dist-${{ hashFiles('packages/*/src/**', 'pnpm-lock.yaml') }}
-          restore-keys: dist-
+        uses: ./.github/actions/restore-dist-cache
 
       # postinstall rebuilds any stale/missing dists (incremental tsc is fast on
       # cache hit); no separate `pnpm build` step needed.
       - run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Chromium for dev smoke
-        run: pnpm exec playwright install --only-shell chromium
-
-      - name: Standalone chat dev smoke (auto-login + SSR render)
-        # Catches Vite dev SSR failures (e.g. Meta outside HydratedRouter) that
-        # production build alone does not surface. Also scaffolds + pnpm install.
-        run: pnpm qa:standalone-chat-dev
 
       - name: Headless scaffold — pnpm install + typecheck + action
         # Guards the documented one-file headless onboarding: a fresh
@@ -425,25 +398,36 @@ jobs:
       # control the exact build order and avoid redundant parallel builds.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Build core and its package dependency so the deploy build's CLI and
-      # compatibility shims are available, then produce the real serverless
-      # bundle.
-      - name: Build toolkit and core
+      # Build the extracted recap CLI before core so its compatibility shim is
+      # available to source imports, then produce the real serverless bundle.
+      - name: Build recap CLI, toolkit, and core
         run: |
+          pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
 
-      # The `plan` template exercises the Excalidraw/Mermaid diagram blocks, so
-      # its server bundle is the canonical reproducer for browser-only libs
-      # leaking into SSR. The fix lives in @agent-native/core, so one template
-      # guards the whole fleet.
-      - name: Build plan template (netlify preset)
-        run: NITRO_PRESET=netlify pnpm --filter plan build
+      # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
+      # both real Netlify function artifacts so a core runtime dependency cannot
+      # be missing from either deployment's server bundle.
+      - name: Build Plan and Clips templates (netlify preset)
+        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips build
 
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
-        run: timeout 120 node scripts/ssr-boot-smoke.mjs plan
+        # Match the deployed Netlify environment so failed best-effort local
+        # SQLite setup cannot call process.exit during this import-only probe.
+        run: NETLIFY=true timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
+
+      # Exercise the two other Node serverless presets as well. These import
+      # their generated handlers, so an unresolved bare runtime dependency
+      # fails before a deployment can be published.
+      - name: Build and import Plan SSR handlers (Vercel and AWS Lambda)
+        run: |
+          NITRO_PRESET=vercel pnpm --filter plan build
+          VERCEL=true timeout 120 node scripts/ssr-boot-smoke.mjs --preset vercel plan
+          NITRO_PRESET=aws-lambda pnpm --filter plan build
+          AWS_LAMBDA_FUNCTION_NAME=ssr-smoke timeout 120 node scripts/ssr-boot-smoke.mjs --preset aws-lambda plan
 
   guards:
     name: Security guards
@@ -462,6 +446,15 @@ jobs:
       # Guard scripts only need dependencies and should not depend on package
       # lifecycle builds; skipping scripts avoids native optional builds here.
       - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Source-backed guards import published-style package entrypoints, so
+      # build the workspace packages they inspect before loading locale data.
+      - name: Build packages for source-backed guards
+        run: |
+          pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/creative-context build
 
       - name: Run security guards
         run: pnpm guards

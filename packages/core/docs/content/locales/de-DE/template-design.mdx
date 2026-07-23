@@ -11,7 +11,7 @@ Design ist ein agentennatives Prototyping-Studio. Anstelle einer geschichteten Z
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Produkt-Launch-Seite</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generierter HTML-Prototyp</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Mach den Hero dichter und den CTA klarer.</span><div style='flex:1'></div><button class='primary'>Revision anwenden</button></div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Produkt-Launch-Seite</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>Schneller starten mit Agent-Native</strong><span class='wf-muted' style='max-width:70%'>Erzeugen Sie aus einem Prompt einen funktionierenden Prototyp und verfeinern Sie ihn direkt.</span><button class='primary'>Loslegen</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Mach den Hero dichter und den CTA klarer.</span><div style='flex:1'></div><button class='primary'>Revision anwenden</button></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -89,6 +89,7 @@ Wenn Sie die App öffnen, befindet sich der generierte Prototyp im Mittelpunkt d
 ## Was Sie damit machen können
 
 - **Generieren Sie vollständige Prototypen.** Beschreiben Sie den Bildschirm oder die Seite, die Sie benötigen, und der Agent erstellt ein funktionierendes HTML-Dokument mit Tailwind-Stil und Alpine interactions.
+- **Mit wiederverwendbaren Vorlagen starten.** Wähle ein passendes Format für Anzeigen, Einseiter oder Landingpages oder speichere ein Inline-Design als Vorlage. Der Prompt passt nur entsperrte Inhalte an; gesperrte Logos und Hintergründe bleiben unverändert.
 - **Varianten vergleichen.** Beginnen Sie mit mehreren Richtungen, wählen Sie die stärkste aus und verfeinern Sie sie dann weiter.
 - **Optimieren Sie visuell.** Verwenden Sie die integrierten Optimierungssteuerelemente für häufige Änderungen oder bitten Sie den Agenten um Aktualisierungen von Text, Layout, Farbe, Abstand und Interaktion.
 - **Wenden Sie Designsysteme an.** Speichern Sie Designsystemeinstellungen und verwenden Sie sie wieder, damit die generierte Arbeit näher an Ihrer Marke bleibt.
@@ -132,6 +133,8 @@ pnpm dev
 ### Datenmodell
 
 Alle Daten befinden sich in SQL über Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs und Designsysteme verfügen über den Standard `ownableColumns` und eine passende Framework-Freigabentabelle, sodass sie in das Freigabemodell pro Benutzer/pro Organisation passen.
+
+Die folgende Tabelle behandelt die zentralen eigenen Ressourcen – Designs, Dateien, Vorlagen, Versionen und Designsysteme. Sieben weitere Tabellen im selben Schema unterstützen Funktionen, die an anderer Stelle in diesem Dokument beschrieben werden, und gehören nicht zum zentralen Ressourcenmodell: `design_localhost_connections` und `design_localhost_write_grants` (Localhost-Quellmodus), `component_index` (Komponentenindexierung), `motion_timeline` (Bewegung), `design_state` (Momentaufnahmen des Editorzustands), `design_fusion_edits` (Fusion-Modus für vollständige Apps) und `design_review_snapshot` (Review-Momentaufnahmen).
 
 | Tabelle                                  | Was es enthält                                                                                                                                      |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -361,6 +364,24 @@ Der Einzelbildschirmmodus ist für Scrollen, Interaktion mit Prototypverhalten
 und Bearbeitung der DOM-/Code-Ebenen in einer gerenderten Datei gedacht. Das
 Ebenenfenster spiegelt diese Trennung wider: Bildschirme sind Rahmen der
 obersten Ebene, darunter liegen die DOM-/Code-Ebenen des aktiven Bildschirms.
+
+### Tweaks
+
+Tweaks sind benannte Steuerelemente, mit denen sich die wichtigsten visuellen
+Eigenschaften eines Designs schnell und ohne Quellcodeänderung anpassen lassen.
+Ein Design kann Farbfelder, segmentierte Optionen, Schieberegler und Schalter
+für Akzentfarbe, Eckenradius, Abstände, Dichte oder Sichtbarkeit anbieten. Jedes
+Steuerelement ist mit einer vom gerenderten Design verwendeten
+CSS-Benutzereigenschaft verbunden, sodass die Vorschau beim Anpassen aktualisiert
+wird.
+
+Tweaks folgen der Kaskade des Editors. Responsive Breakpoints und Zustände erben
+den im Basisdesign festgelegten Wert. Wird ein Tweak bei aktivem Breakpoint oder
+Zustand geändert, entsteht eine Überschreibung für diesen Kontext; das Zurücksetzen
+entfernt sie und stellt den geerbten Wert wieder her. Gespeicherte Werte bleiben
+beim Design. Verwenden Sie **Fügen Sie Optimierungssteuerelemente hinzu** oder
+bitten Sie den Agenten, eine weitere visuelle Eigenschaft bereitzustellen, wenn
+das benötigte Steuerelement fehlt.
 
 Installiere `/visual-edit`, wenn ein Coding Agent eine laufende lokale App in
 Design öffnen soll, statt eigenständiges Prototype-HTML zu generieren:

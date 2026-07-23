@@ -441,10 +441,10 @@ const messages = {
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
   },
   settings: {
-    openAgentSettings: "エージェント設定を開く",
+    openAgentSettings: "エージェントを管理",
     agentDescription:
-      "右サイドバーのエージェント設定を開き、モデル、API キー、自動化、音声などを管理します。",
-    agentTitle: "エージェント設定",
+      "エージェントのモデル、API キー、自動化、音声などを管理します。",
+    agentTitle: "エージェントを管理",
     aliasName: "エイリアス名",
     aliasNamePlaceholder: "例: デザインチーム",
     recipientsOnePerLine: "宛先（1 行に 1 件のメール）",
@@ -516,10 +516,10 @@ const messages = {
     slackUpdateFailed: "Slack 取り込みを更新できませんでした",
     slackConfigured: "Slack 認証情報は設定済みです。",
     slackNeedsCredentials:
-      "Slack 取り込みを有効にするには SLACK_BOT_TOKEN と SLACK_SIGNING_SECRET を追加してください。",
-    slackIntake: "Slack 取り込み",
+      "従来のカスタム取り込みには SLACK_BOT_TOKEN と SLACK_SIGNING_SECRET が必要です。新しい Slack メッセージ自動化では、設定 > メッセージングでワークスペースを接続してください。",
+    slackIntake: "Slack 取り込み（レガシー）",
     slackDescription:
-      "組織メンバーが Slack からメール下書きをキューに入れられます。",
+      "組織メンバーが Slack からメール下書きをキューに入れられる従来のカスタム連携です。",
     enabled: "有効",
     disable: "無効化",
     enable: "有効化",

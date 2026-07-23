@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
+import { and, desc, eq, isNull, or, sql } from "@agent-native/core/db/schema";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import {
   deleteAppSecret,
@@ -567,8 +567,59 @@ export async function createGrant(
   if (!secret) throw new Error("Secret not found");
 
   const timestamp = now();
-  const grantId = id();
   const actor = ctx.ownerEmail;
+  const [existing] = await db
+    .select()
+    .from(schema.vaultGrants)
+    .where(
+      and(
+        eq(schema.vaultGrants.secretId, secretId),
+        eq(schema.vaultGrants.appId, appId),
+        ctxScope(schema.vaultGrants, ctx),
+      ),
+    )
+    .orderBy(desc(schema.vaultGrants.updatedAt))
+    .limit(1);
+
+  if (existing?.status === "active") {
+    return existing;
+  }
+
+  if (existing) {
+    await db
+      .update(schema.vaultGrants)
+      .set({
+        grantedBy: actor,
+        status: "active",
+        syncedAt: null,
+        updatedAt: timestamp,
+      })
+      .where(
+        and(
+          eq(schema.vaultGrants.id, existing.id),
+          ctxScope(schema.vaultGrants, ctx),
+        ),
+      );
+
+    await recordVaultAudit({
+      action: "grant.reinstated",
+      secretId,
+      appId,
+      summary: `Reinstated "${secret.name}" (${secret.credentialKey}) for ${appId}`,
+      metadata: { grantId: existing.id },
+    });
+
+    await recordAudit({
+      action: "vault.grant.reinstated",
+      targetType: "vault-grant",
+      targetId: existing.id,
+      summary: `Reinstated vault secret "${secret.name}" for ${appId}`,
+    });
+
+    return getGrant(existing.id, ctx);
+  }
+
+  const grantId = id();
 
   await db.insert(schema.vaultGrants).values({
     id: grantId,
@@ -710,6 +761,64 @@ export async function syncSecretsToCredentialStore(
   }
 
   return { ...target, keys: syncedKeys };
+}
+
+/**
+ * Re-sync every vault secret across every tenant into the shared credential
+ * store, regardless of which request/ctx is currently active.
+ *
+ * `syncSecretsToCredentialStore` normally only runs on `createSecret` /
+ * `updateSecret`, so it only re-encrypts the rows a user happens to touch.
+ * When the shared `app_secrets` encryption format changes underneath it
+ * (e.g. a new dual-write format, or a change to how key material is
+ * derived), existing rows are stuck on the old format until someone
+ * manually re-saves each vault secret. This walks every `vault_secrets`
+ * row directly — bypassing the ctx-scoped `listSecrets()` — groups them by
+ * their (orgId, ownerEmail) tenant, and re-runs the sync per group so every
+ * row regains fresh ciphertext.
+ *
+ * A failure syncing one tenant's group is caught and logged (key NAMES
+ * only, never values) so it can't block the rest of the resync.
+ */
+export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
+  groups: number;
+  failedGroups: number;
+  syncedKeys: number;
+}> {
+  const db = getDb();
+  const rows = await db.select().from(schema.vaultSecrets);
+
+  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
+  for (const row of rows) {
+    if (!row.credentialKey || !row.value) continue;
+    const ctx: VaultCtx = { ownerEmail: row.ownerEmail, orgId: row.orgId };
+    const groupKey = `${ctx.orgId ?? ""} ${ctx.ownerEmail}`;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.rows.push(row);
+    } else {
+      groups.set(groupKey, { ctx, rows: [row] });
+    }
+  }
+
+  let failedGroups = 0;
+  let syncedKeys = 0;
+
+  for (const { ctx, rows: groupRows } of groups.values()) {
+    try {
+      const result = await syncSecretsToCredentialStore(groupRows, ctx);
+      syncedKeys += result.keys.length;
+    } catch (error) {
+      failedGroups++;
+      const keyNames = groupRows.map((row) => row.credentialKey).join(", ");
+      console.warn(
+        `[dispatch] vault boot resync failed for org=${ctx.orgId ?? "(solo)"} owner=${ctx.ownerEmail}; affected keys: ${keyNames}`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return { groups: groups.size, failedGroups, syncedKeys };
 }
 
 export async function cleanupSyncedCredentialKeysIfUnused(
@@ -956,65 +1065,115 @@ export async function approveRequest(
   const db = getDb();
   const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be approved");
-  }
 
   const timestamp = now();
   const reviewer = ctx.ownerEmail;
+  const staleApplyingBefore = timestamp - 5 * 60 * 1000;
 
-  // Update request status — scoped to caller's tenant.
-  await db
+  // Fence the transition on the current status — scoped to caller's tenant —
+  // so a concurrent approve can't both win: only the caller that flips
+  // pending -> applying proceeds to create the secret/grant. A crashed worker
+  // leaves an applying row behind, so a later reviewer may reclaim a lease
+  // that has been idle for five minutes. See
+  // claimAgentTeamRun in packages/core/src/server/agent-teams-run-queue.ts
+  // for the same pattern.
+  const claimed = await db
     .update(schema.vaultRequests)
     .set({
-      status: "approved",
-      reviewedBy: reviewer,
-      reviewedAt: timestamp,
+      status: "applying",
       updatedAt: timestamp,
     })
     .where(
       and(
         eq(schema.vaultRequests.id, requestId),
         ctxScope(schema.vaultRequests, ctx),
+        or(
+          eq(schema.vaultRequests.status, "pending"),
+          and(
+            eq(schema.vaultRequests.status, "applying"),
+            sql`${schema.vaultRequests.updatedAt} < ${staleApplyingBefore}`,
+          ),
+        ),
       ),
-    );
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    const current = await getRequest(requestId, ctx);
+    if (current?.status === "applying") {
+      throw new Error("Vault request is already being applied");
+    }
+    return current;
+  }
+
+  const claimedRequest = claimed[0];
 
   // Secret + grant must land in the REQUEST's tenant, not the approver's
   // (the approver may be acting on behalf of another user in the same org).
-  const requestCtx = ctxForRow(request);
+  const requestCtx = ctxForRow(claimedRequest);
 
-  // Check if secret already exists in the request's tenant for this key.
-  const existingSecrets = await db
-    .select()
-    .from(schema.vaultSecrets)
+  try {
+    // Check if secret already exists in the request's tenant for this key.
+    const existingSecrets = await db
+      .select()
+      .from(schema.vaultSecrets)
+      .where(
+        and(
+          eq(schema.vaultSecrets.credentialKey, claimedRequest.credentialKey),
+          ctxScope(schema.vaultSecrets, requestCtx),
+        ),
+      );
+    let secret = existingSecrets[0] ?? null;
+
+    if (!secret) {
+      secret = await createSecret(
+        {
+          credentialKey: claimedRequest.credentialKey,
+          value: secretValue,
+          name: secretName || claimedRequest.credentialKey,
+        },
+        requestCtx,
+      );
+    }
+
+    if (secret) {
+      // Create the grant in the request's tenant as well.
+      await createGrant(secret.id, claimedRequest.appId, requestCtx);
+    }
+  } catch (error) {
+    await db
+      .update(schema.vaultRequests)
+      .set({ status: "pending", updatedAt: now() })
+      .where(
+        and(
+          eq(schema.vaultRequests.id, requestId),
+          ctxScope(schema.vaultRequests, ctx),
+          eq(schema.vaultRequests.status, "applying"),
+        ),
+      );
+    throw error;
+  }
+
+  await db
+    .update(schema.vaultRequests)
+    .set({
+      status: "approved",
+      reviewedBy: reviewer,
+      reviewedAt: timestamp,
+      updatedAt: now(),
+    })
     .where(
       and(
-        eq(schema.vaultSecrets.credentialKey, request.credentialKey),
-        ctxScope(schema.vaultSecrets, requestCtx),
+        eq(schema.vaultRequests.id, requestId),
+        ctxScope(schema.vaultRequests, ctx),
+        eq(schema.vaultRequests.status, "applying"),
       ),
     );
-  let secret = existingSecrets[0] ?? null;
-
-  if (!secret) {
-    secret = await createSecret(
-      {
-        credentialKey: request.credentialKey,
-        value: secretValue,
-        name: secretName || request.credentialKey,
-      },
-      requestCtx,
-    );
-  }
-
-  if (secret) {
-    // Create the grant in the request's tenant as well.
-    await createGrant(secret.id, request.appId, requestCtx);
-  }
 
   await recordVaultAudit({
     action: "request.approved",
-    appId: request.appId,
-    summary: `Approved ${request.credentialKey} for ${request.appId} (requested by ${request.requestedBy})`,
+    appId: claimedRequest.appId,
+    summary: `Approved ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,
     metadata: { requestId, reviewer },
   });
 
@@ -1029,14 +1188,11 @@ export async function denyRequest(
   const db = getDb();
   const request = await getRequest(requestId, ctx);
   if (!request) throw new Error("Request not found");
-  if (request.status !== "pending") {
-    throw new Error("Only pending requests can be denied");
-  }
 
   const timestamp = now();
   const reviewer = ctx.ownerEmail;
 
-  await db
+  const claimed = await db
     .update(schema.vaultRequests)
     .set({
       status: "denied",
@@ -1048,13 +1204,21 @@ export async function denyRequest(
       and(
         eq(schema.vaultRequests.id, requestId),
         ctxScope(schema.vaultRequests, ctx),
+        eq(schema.vaultRequests.status, "pending"),
       ),
-    );
+    )
+    .returning();
+
+  if (claimed.length === 0) {
+    return getRequest(requestId, ctx);
+  }
+
+  const claimedRequest = claimed[0];
 
   await recordVaultAudit({
     action: "request.denied",
-    appId: request.appId,
-    summary: `Denied ${request.credentialKey} for ${request.appId} (requested by ${request.requestedBy})`,
+    appId: claimedRequest.appId,
+    summary: `Denied ${claimedRequest.credentialKey} for ${claimedRequest.appId} (requested by ${claimedRequest.requestedBy})`,
     metadata: { requestId, reviewer, reason },
   });
 

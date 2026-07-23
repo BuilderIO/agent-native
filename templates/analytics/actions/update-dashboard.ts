@@ -13,12 +13,17 @@ import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
+import {
+  upsertDashboard,
+  upsertDashboardWithRetry,
+} from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
 import {
   applyPanelOrder,
   compactDashboardResult,
+  type PanelOrderResult,
 } from "./dashboard-panel-order";
 
 /**
@@ -322,6 +327,7 @@ export function validateDashboardConfig(
     "first-party",
     "demo",
     "prometheus",
+    "program",
   ]);
   const isValidColumnCount = (v: unknown): v is number =>
     typeof v === "number" &&
@@ -356,7 +362,7 @@ export function validateDashboardConfig(
       }
     }
     if (!isSection && !isExtension && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`;
     }
     if (isExtension) {
       const cfg = p.config as Record<string, unknown> | undefined;
@@ -364,8 +370,12 @@ export function validateDashboardConfig(
         cfg && typeof cfg.extensionId === "string"
           ? cfg.extensionId.trim()
           : "";
-      if (!extensionId) {
-        return `panel[${i}].config.extensionId is required for extension panels (the id of the extension to render inline)`;
+      const extensionSlotId =
+        cfg && typeof cfg.extensionSlotId === "string"
+          ? cfg.extensionSlotId.trim()
+          : "";
+      if (!extensionId && !extensionSlotId) {
+        return `panel[${i}].config.extensionId or config.extensionSlotId is required for extension panels`;
       }
     }
     if (
@@ -382,19 +392,19 @@ export function validateDashboardConfig(
   return null;
 }
 
-/**
- * Dry-run each BigQuery panel's SQL so bad column names or type
- * mismatches fail here, with the full BigQuery error text, rather than
- * silently saving a broken dashboard that crashes on render.
- */
+/** Validate every query panel, or only the supplied ids for a targeted edit. */
 export async function validatePanelSql(
   config: Record<string, unknown>,
+  panelIds?: ReadonlySet<string>,
 ): Promise<string | null> {
   const panels = config.panels;
   if (!Array.isArray(panels)) return null;
   const vars = buildDryRunVars(config);
   for (let i = 0; i < panels.length; i++) {
     const p = panels[i] as Record<string, unknown>;
+    if (panelIds && (typeof p.id !== "string" || !panelIds.has(p.id))) {
+      continue;
+    }
     // Sections are layout-only and extensions render their own iframe — neither
     // has SQL to dry-run. heatmap, callout, and other query panels still
     // validate normally below.
@@ -417,8 +427,20 @@ export async function validatePanelSql(
       const raw = typeof p.sql === "string" ? p.sql : "";
       if (raw.trim()) {
         try {
+          const timeScopeError = validateFirstPartyDashboardTimeScope(
+            p,
+            config,
+            i,
+          );
+          if (timeScopeError) return timeScopeError;
           validateFirstPartyAnalyticsSql(interpolate(raw, vars));
         } catch (e: any) {
+          if (
+            typeof e?.message === "string" &&
+            e.message.startsWith("panel[")
+          ) {
+            return e.message;
+          }
           return `panel[${i}] "${p.title || p.id}" first-party analytics SQL is invalid: ${e?.message ?? e}`;
         }
       }
@@ -548,6 +570,7 @@ export default defineAction({
     "Use this action when creating a brand-new dashboard from a complete config, for the UI full-config save path, or for an explicitly requested low-level JSON-pointer compatibility edit. " +
     "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
     "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
+    "First-party event panels must bind to a declared dashboard time filter with `{{timeRange}}` or date-range variables. Intentional fixed-window, cohort-history, and all-time exceptions must be explicit in `panel.config.timeScope`; unbounded first-party SQL is rejected at save time. " +
     "To add a shipped catalog template's panels to an existing dashboard, prefer `install-dashboard-template` with `mergePanels: true` — it appends the template's panels in one call without you having to author each panel. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
     "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
@@ -627,29 +650,27 @@ export default defineAction({
       );
     }
 
-    const existing = await getDashboard(dashboardId, ctx);
-    if (!existing) {
-      throw new Error(
-        `dashboard "${dashboardId}" not found (or you don't have access).`,
-      );
-    }
-
-    const root = existing.config as any;
-
     if (args.panelOrder) {
-      const orderDetails = applyPanelOrder(root, args.panelOrder);
-      const validation = validateDashboardConfig(root);
-      if (validation) throw new Error(validation);
-      await upsertDashboard(
+      // Recomputed on every retry attempt from the freshest dashboard config,
+      // so a concurrent writer's edit is never silently overwritten by this
+      // move.
+      let orderDetails!: PanelOrderResult;
+      const saved = await upsertDashboardWithRetry(
         dashboardId,
-        existing.kind,
-        root as Record<string, unknown>,
         ctx,
+        (existing) => {
+          const root = existing.config as Record<string, unknown>;
+          orderDetails = applyPanelOrder(root, args.panelOrder!);
+          const validation = validateDashboardConfig(root);
+          if (validation) throw new Error(validation);
+          return { kind: existing.kind, body: root };
+        },
       );
-      await syncToCollab(dashboardId, root as Record<string, unknown>);
+      const root = saved.config as Record<string, unknown>;
+      await syncToCollab(dashboardId, root);
       return dashboardResult(
         dashboardId,
-        root as Record<string, unknown>,
+        root,
         1,
         `Moved ${orderDetails.movedPanelIds.length} panel id(s) to the front of dashboard "${dashboardId}"; it now has ${orderDetails.panelCount} panel(s).`,
         orderDetails.movedPanelIds,
@@ -657,36 +678,45 @@ export default defineAction({
       );
     }
 
-    const details: string[] = [];
-    for (const op of args.ops!) {
-      try {
-        details.push(applyJsonOp(root, op as JsonOp));
-      } catch (err: any) {
-        throw new Error(`applying op ${JSON.stringify(op)}: ${err.message}`);
-      }
-    }
-
-    const validation = validateDashboardConfig(root);
-    if (validation) throw new Error(validation);
-    if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
-      const sqlError = await validatePanelSql(root);
-      if (sqlError) throw new Error(sqlError);
-    }
-
-    await upsertDashboard(
+    // Recomputed on every retry attempt from the freshest dashboard config —
+    // JSON-pointer ops are replayed against fresh state, not the stale config
+    // that produced the first (lost) attempt.
+    let appliedDetails: string[] = [];
+    const saved = await upsertDashboardWithRetry(
       dashboardId,
-      existing.kind,
-      root as Record<string, unknown>,
       ctx,
-    );
-    await syncToCollab(dashboardId, root as Record<string, unknown>);
+      async (existing) => {
+        const root = existing.config as Record<string, unknown>;
+        const details: string[] = [];
+        for (const op of args.ops!) {
+          try {
+            details.push(applyJsonOp(root, op as JsonOp));
+          } catch (err: any) {
+            throw new Error(
+              `applying op ${JSON.stringify(op)}: ${err.message}`,
+            );
+          }
+        }
 
-    const panelCount = countPanels(root as Record<string, unknown>);
+        const validation = validateDashboardConfig(root);
+        if (validation) throw new Error(validation);
+        if (args.ops!.some((op) => opCanChangePanelSql(op as JsonOp))) {
+          const sqlError = await validatePanelSql(root);
+          if (sqlError) throw new Error(sqlError);
+        }
+        appliedDetails = details;
+        return { kind: existing.kind, body: root };
+      },
+    );
+    const root = saved.config as Record<string, unknown>;
+    await syncToCollab(dashboardId, root);
+
+    const panelCount = countPanels(root);
     return dashboardResult(
       dashboardId,
-      root as Record<string, unknown>,
-      details.length,
-      `Applied ${details.length} op(s); dashboard "${dashboardId}" now has ${panelCount} panel(s).`,
+      root,
+      appliedDetails.length,
+      `Applied ${appliedDetails.length} op(s); dashboard "${dashboardId}" now has ${panelCount} panel(s).`,
       [],
       args.returnConfig === true,
     );

@@ -10,7 +10,7 @@ import type {
   IframeContextMenuPayload,
   IframeFigmaClipboardPastePayload,
   IframeHotkeyPayload,
-} from "../DesignCanvas";
+} from "../design-canvas/iframe-events";
 import type {
   DeviceFrameType,
   ElementInfo,
@@ -34,6 +34,10 @@ export interface ScreenFile {
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  /** Stable persisted connection scope for URL-backed local/Fusion screens. */
+  connectionId?: string;
+  /** Read-only localhost preview credential. Never a filesystem token. */
+  previewToken?: string;
   /**
    * When set, renders multiple side-by-side breakpoint frames (mobile-first,
    * §6.4). Each entry is a pixel width; the active breakpoint determines the
@@ -42,6 +46,9 @@ export interface ScreenFile {
   breakpointWidths?: number[];
   /** Id of the currently active breakpoint frame for this screen. */
   activeBreakpointWidth?: number;
+  /** Generated variation-set membership. Used only to preserve/reflow the
+   * action-authored lineup when responsive preview rows are introduced. */
+  layoutGroupId?: string;
 }
 
 export type ScreenSourceType = "localhost" | "fusion" | "inline";
@@ -93,12 +100,14 @@ export interface ScreenMetadata {
   sourceType?: string;
   lod?: string;
   previewState?: string;
+  status?: string;
   title?: string;
   width?: number;
   height?: number;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
+  previewToken?: string;
 }
 
 export interface DuplicateRequest {
@@ -114,7 +123,22 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** Hidden screen/file rows retain geometry but do not render or participate
+   * in overview hit testing, fit, or selection until shown again. */
+  hiddenScreenIds?: ReadonlySet<string> | readonly string[];
+  /** Locked screen/file rows remain visible but cannot be selected or
+   * transformed directly from the overview canvas. */
+  lockedScreenIds?: ReadonlySet<string> | readonly string[];
   fullViewScreenIds?: string[];
+  /** Screens with generated candidates waiting for explicit review. */
+  pendingReviewScreenIds?: ReadonlySet<string> | readonly string[];
+  /** Opens candidate review for one pending screen. */
+  onReviewPendingScreen?: (screenId: string) => void;
+  /** Lets every live frame receive native pointer interaction while the
+   * overview camera and frame chrome remain available. */
+  interactMode?: boolean;
+  /** Viewer mode keeps selection/inspection available without edit chrome. */
+  readOnly?: boolean;
   activeScreenHasHoveredChild?: boolean;
   hoveredChildScreenId?: string | null;
   directlyHoveredScreenId?: string | null;
@@ -145,9 +169,22 @@ export interface MultiScreenCanvasProps {
   onPrimitiveReparent?: (args: {
     sourceNodeId: string;
     sourceScreenId: string;
+    /**
+     * The moveNode/moveNodeBetweenDocuments anchor: the containing primitive
+     * itself when `placement` is "inside" (append), or a sibling child of
+     * that container when `placement` is "before"/"after" (flow-insert at a
+     * specific index) — see PrimitiveDropTarget.anchorNodeId in
+     * primitive-drop-target.ts, which resolves which one to pass.
+     */
     targetNodeId: string;
     targetScreenId: string;
-    placement: "inside";
+    /**
+     * "inside" appends into the target container (absolute-drop parity with
+     * the historic behavior). "before"/"after" flow-inserts next to
+     * `targetNodeId` at the resolved auto-layout index, mirroring
+     * onCrossScreenElementDrop's targetAnchorPlacement contract.
+     */
+    placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
@@ -156,6 +193,22 @@ export interface MultiScreenCanvasProps {
     screen: ScreenFile,
     metadata: ResolvedScreenMetadata,
     geometry: FrameGeometry,
+  ) => ReactNode;
+  /**
+   * Renders the fully editable runtime for one responsive sub-frame. Keeping
+   * this separate from `renderScreenContent` prevents a breakpoint preview
+   * from falling back to the lightweight, pointer-inert thumbnail iframe.
+   */
+  renderBreakpointContent?: (
+    screen: ScreenFile,
+    metadata: ResolvedScreenMetadata,
+    frame: {
+      widthPx: number;
+      viewportHeight: number;
+      displayWidth: number;
+      displayHeight: number;
+      active: boolean;
+    },
   ) => ReactNode;
   onScreenSelectionChange?: (ids: string[]) => void;
   selectAllRequest?: number;
@@ -194,7 +247,7 @@ export interface MultiScreenCanvasProps {
   ) => void;
   /**
    * STEVE TEST BATCH 3 item 8b — "full view" entry for one breakpoint frame
-   * in overview (double-click or its own full-view button): enter
+   * in overview (double-click or its own Interact button): enter
    * single-screen mode for the owning screen with this breakpoint width as
    * the active edit/viewport scope. Falls back to plain `onEdit` when unset
    * so existing callers keep working unchanged.

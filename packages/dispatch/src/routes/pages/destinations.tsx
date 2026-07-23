@@ -1,11 +1,12 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { TaskQueueHealth } from "../../components/task-queue-health";
 import {
@@ -78,7 +79,8 @@ function QuickSendRow({
 
 export default function DestinationsRoute() {
   const t = useT();
-  const { data } = useActionQuery("list-destinations", {});
+  const destinationsQuery = useActionQuery("list-destinations", {});
+  const { data } = destinationsQuery;
   const [form, setForm] = useState({
     name: "",
     platform: "slack",
@@ -115,70 +117,81 @@ export default function DestinationsRoute() {
             <h2 className="text-lg font-semibold text-foreground">
               {t("dispatch.pages.savedDestinations")}
             </h2>
-            <div className="mt-4 space-y-3">
-              {(data || []).map((destination: any) => (
-                <div
-                  key={destination.id}
-                  className="rounded-xl border bg-muted/30 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-medium text-foreground">
-                        {destination.name}
+            {destinationsQuery.isError ? (
+              <ActionQueryError
+                className="mt-4"
+                error={destinationsQuery.error}
+                onRetry={() => void destinationsQuery.refetch()}
+              />
+            ) : (
+              <div className="mt-4 space-y-3">
+                {(data || []).map((destination: any) => (
+                  <div
+                    key={destination.id}
+                    className="rounded-xl border bg-muted/30 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">
+                          {destination.name}
+                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                          {destination.platform} · {destination.destination}
+                          {destination.threadRef
+                            ? ` · thread ${destination.threadRef}`
+                            : ""}
+                        </div>
+                        {destination.notes && (
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {destination.notes}
+                          </p>
+                        )}
                       </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {destination.platform} · {destination.destination}
-                        {destination.threadRef
-                          ? ` · thread ${destination.threadRef}`
-                          : ""}
-                      </div>
-                      {destination.notes && (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {destination.notes}
-                        </p>
-                      )}
-                    </div>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm">
-                          {t("dispatch.pages.delete")}
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>
-                            {t("dispatch.pages.deleteDestinationTitle")}
-                          </AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t("dispatch.pages.deleteDestinationDescription", {
-                              name: destination.name,
-                            })}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>
-                            {t("dispatch.pages.cancel")}
-                          </AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() =>
-                              remove.mutate({ id: destination.id })
-                            }
-                          >
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm">
                             {t("dispatch.pages.delete")}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              {t("dispatch.pages.deleteDestinationTitle")}
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {t(
+                                "dispatch.pages.deleteDestinationDescription",
+                                {
+                                  name: destination.name,
+                                },
+                              )}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>
+                              {t("dispatch.pages.cancel")}
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() =>
+                                remove.mutate({ id: destination.id })
+                              }
+                            >
+                              {t("dispatch.pages.delete")}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                    <QuickSendRow destination={destination} />
                   </div>
-                  <QuickSendRow destination={destination} />
-                </div>
-              ))}
-              {(data?.length || 0) === 0 && (
-                <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
-                  {t("dispatch.pages.noDestinations")}
-                </div>
-              )}
-            </div>
+                ))}
+                {(data?.length || 0) === 0 && (
+                  <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
+                    {t("dispatch.pages.noDestinations")}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           <section className="rounded-2xl border bg-card p-5">

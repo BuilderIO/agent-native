@@ -29,6 +29,48 @@ start in chat, appear as a native table or chart, become a durable page in the
 app, and still run from jobs, scripts, MCP, or A2A without changing the operation
 the agent calls.
 
+## Full-page Manage Agent {#agent-page}
+
+When a full application needs a durable place to inspect and configure its
+agent, mount `AgentTabsPage` at `/agent`. Current templates pair that route
+with an app-navigation entry and pass `agentPageHref="/agent"` to
+`AgentSidebar`; the sidebar's Resources and Settings modes can then link to the
+full page without duplicating those flows.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+The shared page currently provides five tabs:
+
+- **Context** shows a scope preview, token budget, ordered system sections
+  grouped by provenance, governance, and source, a list/treemap view, and the
+  latest live-thread snapshot. It is a current snapshot, not per-iteration
+  provenance history.
+- **Files** re-hosts the existing `ResourcesPanel` for personal or
+  organization resources.
+- **Connections** re-hosts MCP server management and the A2A remote-agent list:
+  what this app's agent can call.
+- **Jobs** shows scoped recurring jobs and automations with the existing
+  pause/resume, details, and delete flows. Automations are personal-only today.
+- **Access** shows the app MCP URL, an A2A agent card when available, and shared
+  setup guides for Claude, ChatGPT, Cursor, Claude Code, Codex, and other
+  clients. It links to `/mcp/connect` for the full connect flow and token
+  fallback.
+
+The page-level **Personal / Organization** toggle supplies scope to the tabs.
+Members can inspect organization data while organization management remains
+restricted to owners/admins where the hosted component enforces that boundary.
+The design goal is inspectable, attributable, governable context, with
+capability separated from access: Connections describes what the app can call;
+Access describes how external clients connect to it. The page is a thin shell
+over existing components, actions, and access checks—not a new admin console.
+Grants, scope editing, revocation UI, and per-iteration provenance history are
+not provided by this page yet.
+
 <Diagram id="doc-block-hvdxgh" title="The surface spectrum" summary={"One action surface, four product shapes — each adds UI without changing the operation underneath."}>
 
 ```html
@@ -121,7 +163,7 @@ is no "browse-everything-at-a-glance" view; if users need that, start from
 [Chat](/docs/template-chat) or add a small status page or list view.
 
 When you add the built-in Chat shell, the framework provides five management
-surfaces you don't have to build: **Chat** (the main input), **Workspace**
+surfaces you don't have to build: **Chat** (the main input), **Resources**
 (skills, memory, instructions, sub-agents, connected MCP servers, scheduled
 jobs), **Job history**, **Thread history**, and **Settings**. Those are usually
 enough — talk to it, see what it's done, configure how it behaves. Reach for
@@ -139,8 +181,7 @@ pnpm install
 
 Then define the durable operation:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -385,8 +426,7 @@ export default createAgentNativeEmbeddedPlugin({
 The React sidecar passes page context and host commands:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded
@@ -427,7 +467,7 @@ export function AppShell({ children }) {
   </div>
   <div class="diagram-panel accent-panel">
     <span class="diagram-pill accent">AgentNativeEmbedded</span
-    ><small class="diagram-muted">agent + workspace</small>
+    ><small class="diagram-muted">agent + resources</small>
     <div class="diagram-box" data-rough>
       Agent-Native routes<br /><small class="diagram-muted"
         >mounted by the server plugin</small
@@ -502,14 +542,11 @@ Keep the contract small: define durable operations as actions, return explicit
 widget results when chat needs rich UI, and add full screens only when users
 need to browse, compare, configure, or collaborate over persistent objects.
 
-## Related docs {#related-docs}
+## What's next {#related-docs}
 
-- [Actions](/docs/actions) — define the operation once.
-- [Native Chat UI](/docs/native-chat-ui) — render typed action results in chat.
-- [Generative UI](/docs/generative-ui) — generate transient or persisted sandboxed UI inline in chat.
-- [Drop-in Agent](/docs/drop-in-agent) — mount chat, sidebar, or panel surfaces.
-- [Component API](/docs/components) — lower-level React chat/composer pieces.
-- [Embedding SDK](/docs/embedding-sdk) — add Agent-Native to an existing app.
-- [Automation-First Apps](/docs/pure-agent-apps) — no-browser apps for jobs, queues, scripts, and external agents.
-- [External Agents](/docs/external-agents) — connect MCP-compatible hosts to an app.
-- [A2A Protocol](/docs/a2a-protocol) — call agents from other agents.
+- [**Actions**](/docs/actions) — define the operation once; every surface above calls the same one
+- [**Native Chat UI**](/docs/native-chat-ui) — render typed action results as tables, charts, and cards in chat
+- [**Generative UI**](/docs/generative-ui) — generate transient or persisted sandboxed UI inline in chat
+- [**Automation-First Apps**](/docs/pure-agent-apps) — the full no-browser pattern for jobs, queues, scripts, and external agents
+- [**External Agents**](/docs/external-agents) — connect MCP-compatible hosts to an app
+- [**A2A Protocol**](/docs/a2a-protocol) — call agents from other agent-native apps

@@ -1,30 +1,37 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  CommandMenu,
-  DefaultSpinner,
-  appPath,
-  configureTracking,
   createAgentNativeQueryClient,
+  useDbSync,
+} from "@agent-native/core/client/hooks";
+import {
   getLocaleInitScript,
-  getThemeInitScript,
   type LocaleCode,
   type LocaleMessages,
   type LocalizationPreference,
-  useCommandMenuShortcut,
-  useDbSync,
   useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import {
+  DefaultSpinner,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
   Outlet,
   Scripts,
   ScrollRestoration,
+  useNavigate,
   useLoaderData,
   useLocation,
   useRouteLoaderData,
@@ -167,8 +174,10 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const t = useT();
-  const isDark = resolvedTheme === "dark";
+  const isDark = mounted && resolvedTheme === "dark";
   return (
     <CommandMenu.Item
       onSelect={() => setTheme(isDark ? "light" : "dark")}
@@ -197,6 +206,7 @@ function isPublicBookingPath(pathname: string): boolean {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const navigate = useNavigate();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -211,6 +221,20 @@ function AppContent() {
         <CommandMenu.Group heading={t("root.commandActions")}>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.commandSearch")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={[
+              "agent",
+              "context",
+              "files",
+              "connections",
+              "jobs",
+              "access",
+            ]}
+          >
+            <IconHierarchy2 size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
@@ -230,6 +254,7 @@ export default function Root() {
           // Calendar aggressively refetches on focus because external
           // calendar events can change without a DB sync event (e.g. Google
           // Calendar webhooks with a processing delay).
+          // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: true,
           // Flat retry: calendar data fetches don't need the auth-aware
           // retry function — auth errors surface through the booking flow.
@@ -263,4 +288,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

@@ -163,7 +163,13 @@ export const responseInsights = table("response_insights", {
   />
 </WireframeBlock>
 
-`view-screen` と `navigate` を拡張し、agent が現在の route を理解して `/response-insights` を開けるようにします。結果に `href: "/response-insights"` を含めれば、チャットに "回答インサイトを開く" ボタンを表示できます。
+## 6. agent にナビゲートさせる {#agent-navigation}
+
+Chat テンプレートには `view-screen` と `navigate` action が含まれます。アプリの成長に合わせて拡張してください。
+
+- `view-screen` は application state を読み取り、現在の route、選択中の insight、有効なフィルター、agent が必要とするコンパクトなページコンテキストを返す必要があります。
+- `navigate` は、agent がユーザーに結果を視覚的に確認させるべきと判断したときに、`/response-insights` のような same-origin path を書き込む必要があります。
+- action の結果には `href: "/response-insights"` のようなリンクを含められるため、チャットは明示的な「回答インサイトを開く」ボタンを提示できます。
 
 フルページ chat から app ページを開くときは、[Agent Surfaces](/docs/agent-surfaces#rich-chat) の `AgentChatSurface`、`AgentSidebar`、`useAgentChatHomeHandoff`、`useAgentChatHomeHandoffLinks`、`chatViewTransition` を使い、同じ thread のままチャットをサイドバーへ移動します。
 

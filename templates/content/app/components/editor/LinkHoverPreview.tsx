@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useState, useRef } from "react";
@@ -164,7 +164,7 @@ export function LinkHoverPreview({
         left: Math.max(16, hoveredLink.rect.left),
         zIndex: 50,
       }}
-      className="w-72 rounded-lg border bg-popover text-popover-foreground shadow-md overflow-hidden animate-in fade-in-0 zoom-in-95"
+      className="w-72 rounded-lg border bg-popover text-popover-foreground shadow-md overflow-hidden animate-in fade-in-0 zoom-in-95 origin-top-left"
     >
       {editing ? (
         <div className="flex items-center gap-1 p-1.5">

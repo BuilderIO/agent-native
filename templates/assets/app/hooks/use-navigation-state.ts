@@ -1,8 +1,6 @@
-import {
-  markAgentChatHomeHandoff,
-  useAgentRouteState,
-  getBrowserTabId,
-} from "@agent-native/core/client";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
 
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
@@ -14,7 +12,8 @@ function optionalParam(params: URLSearchParams, key: string) {
 
 function optionalLibraryTab(params: URLSearchParams) {
   const tab = params.get("tab");
-  return tab === "references" ||
+  return tab === "drafts" ||
+    tab === "references" ||
     tab === "generated" ||
     tab === "runs" ||
     tab === "settings"
@@ -44,6 +43,15 @@ function navigationFromPath(pathname: string, search = "") {
       view: "preset",
       libraryId: decodePathParam(preset[1]),
       presetId: decodePathParam(preset[2]),
+    };
+  }
+  const brandKitSettings = pathname.match(/^\/brand-kits\/([^/]+)\/settings/);
+  if (brandKitSettings) {
+    return {
+      view: "library",
+      selection: decodePathParam(brandKitSettings[1]),
+      libraryId: decodePathParam(brandKitSettings[1]),
+      activeTab: "settings",
     };
   }
   // The "library" view is the unified Library workspace. Keep the internal
@@ -114,6 +122,9 @@ function pathFromCommand(command: any): string | null {
   if (!command) return null;
   if (typeof command.path === "string") return command.path;
   if (command.view === "library" && command.libraryId) {
+    if (command.activeTab === "settings") {
+      return `/brand-kits/${encodeURIComponent(command.libraryId)}/settings`;
+    }
     const params = new URLSearchParams();
     if (typeof command.activeTab === "string") {
       params.set("tab", command.activeTab);

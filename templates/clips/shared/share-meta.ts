@@ -47,7 +47,7 @@ export function preferredSocialImage(
   recording: ClipsShareMetaRecording | null,
 ): string | undefined {
   return (
-    recording?.animatedThumbnailUrl || recording?.thumbnailUrl || undefined
+    recording?.thumbnailUrl || recording?.animatedThumbnailUrl || undefined
   );
 }
 

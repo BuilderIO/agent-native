@@ -1,0 +1,54 @@
+---
+title: Ciclo de vida de paquetes
+description: Inspecciona, añade y expulsa paquetes de Agent Native mediante manifiestos seguros.
+---
+
+# Ciclo de vida de paquetes
+
+Los paquetes reutilizables pueden publicar un `agent-native.package.json`
+estático y versionado. La CLI lee únicamente ese JSON y no ejecuta código del
+paquete durante la inspección.
+
+```bash
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Añadir y expulsar solo muestran una vista previa de forma predeterminada.
+`--apply` habilita las escrituras y el gestor de paquetes. La CLI rechaza
+colisiones y diseños desconocidos, y revierte archivos y bloqueos si falla la
+instalación.
+
+## Expulsar una función
+
+Usa la escalera de personalización en este orden: configura la API pública,
+compón primitivas públicas, expulsa la unidad más pequeña y propón un punto de
+extensión compartido cuando la misma necesidad aparezca en varias apps.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+Los comandos son vistas previas de forma predeterminada. Al aplicar, se guarda
+la procedencia versionada en `agent-native.ejections.json`, con versión del
+paquete, digest del manifiesto, hashes de archivos y reescrituras de imports.
+Restore solo funciona si archivos e imports siguen intactos; de lo contrario
+muestra el diff y se niega a borrar cambios locales.
+
+Los manifiestos propios cubren todos los puntos de entrada públicos de Toolkit
+y todos los catálogos de integración propios. Una receta propia ausente es un
+fallo de cobertura del framework; un paquete externo desconocido recibe un
+blueprint de tipo add. Los contratos protegidos de Core no se copian: la CLI
+señala el punto público de configuración, adaptador o extensión.
+
+## Migraciones
+
+Los paquetes publicados incluyen `migration-manifest.json` para rutas y símbolos movidos. No edites imports manualmente primero: `npx @agent-native/core@latest upgrade --codemods` previsualiza el diff; tras revisarlo, aplica con `--yes`. En CI usa `agent-native doctor --only migration-manifest`; no admite opt-out.
+
+Las entradas `planned` pueden publicarse antes que su destino; se muestran como advertencias no bloqueantes y el codemod no las reescribe. Un movimiento activo solo se reescribe si el export de destino está instalado.

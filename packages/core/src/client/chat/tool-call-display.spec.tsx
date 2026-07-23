@@ -7,15 +7,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import {
+  ApprovalContext,
   ChatRunningContext,
   ReconnectStreamMessage,
   ToolCallDisplay,
   ToolCallFallback,
   TOOL_LONG_RUNNING_HINT_DELAY_MS,
+  formatWorkedDuration,
+  ReasoningCell,
+  RanToolsSummary,
+  WorkedForSummary,
+  toolInputPayload,
 } from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
+  registerActionChatRenderer,
   registerToolRenderer,
   type ToolRendererProps,
 } from "./tool-render-registry.js";
@@ -71,6 +78,12 @@ function AppRenderer(_: ToolRendererProps) {
   return <div>App renderer wins</div>;
 }
 
+async function settleLazyRender() {
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+}
+
 const mcpApp: AgentMcpAppPayload = {
   serverId: "server",
   toolName: "tool",
@@ -99,8 +112,8 @@ describe("ToolCallDisplay native renderers", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders explicit data widgets natively", () => {
-    act(() => {
+  it("renders explicit data widgets natively", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -110,13 +123,14 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
   });
 
-  it("renders chart-only data insight payloads without a table", () => {
-    act(() => {
+  it("renders chart-only data insight payloads without a table", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -126,14 +140,15 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).not.toContain("Recent rows");
     expect(container.textContent).not.toContain("Ada");
   });
 
-  it("renders table-only data insight payloads without a chart", () => {
-    act(() => {
+  it("renders table-only data insight payloads without a chart", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -143,10 +158,12 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
     expect(container.textContent).not.toContain("Responses by day");
+    expect(container.querySelector("[data-agent-native-custom-ui]")).toBeNull();
   });
 
   it("falls back for malformed widget payloads", () => {
@@ -197,6 +214,175 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(
+      container.querySelector(".agent-tool-call")?.getAttribute("data-running"),
+    ).toBe("true");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+  });
+
+  it("does not animate a tool row that mounts already resolved", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          result="done"
+          isRunning={false}
+        />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBeNull();
+    expect(row?.className).not.toContain("agent-tool-call--entering");
+  });
+
+  it("animates and shimmers a resolved tool that is the active chat tail", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="read-file"
+          args={{}}
+          result="done"
+          isRunning={false}
+          isActiveTail
+        />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBeNull();
+    expect(row?.getAttribute("data-active-tail")).toBeNull();
+    expect(row?.className).toContain("agent-tool-call--entering");
+    expect(container.querySelector(".agent-running-shimmer")).not.toBeNull();
+  });
+
+  it("animates a tool row that mounts running", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay toolName="read-file" args={{}} isRunning={true} />,
+      );
+    });
+
+    const row = container.querySelector(".agent-tool-call");
+    expect(row?.getAttribute("data-running")).toBe("true");
+    expect(row?.className).toContain("agent-tool-call--entering");
+  });
+
+  it("shimmers only the newest running reconnect tool", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "list-files",
+        argsText: "",
+        args: {},
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "read-file",
+        argsText: "",
+        args: {},
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const shimmer = container.querySelectorAll(".agent-running-shimmer");
+    expect(shimmer).toHaveLength(1);
+    expect(shimmer[0]?.textContent).toBe("read file");
+  });
+
+  it("shows only the richer agent progress row for call-agent delegations", () => {
+    vi.useFakeTimers();
+    try {
+      const content: ContentPart[] = [
+        {
+          type: "tool-call",
+          toolCallId: "call-analytics",
+          toolName: "call-agent",
+          argsText: JSON.stringify({
+            agent: "analytics",
+            message: "Count signups",
+          }),
+          args: { agent: "analytics", message: "Count signups" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "agent-analytics",
+          toolName: "agent:Analytics",
+          argsText: "",
+          args: {},
+          activity: true,
+        },
+      ];
+
+      act(() => {
+        root.render(
+          <ChatRunningContext.Provider value={true}>
+            <ReconnectStreamMessage content={content} />
+          </ChatRunningContext.Provider>,
+        );
+      });
+
+      expect(container.querySelectorAll(".agent-tool-call")).toHaveLength(1);
+      expect(container.querySelectorAll(".animate-spin")).toHaveLength(1);
+      expect(container.textContent).toContain("Asking Analytics...");
+      expect(container.textContent).not.toContain("call agent");
+
+      act(() => {
+        vi.advanceTimersByTime(TOOL_LONG_RUNNING_HINT_DELAY_MS);
+      });
+
+      expect(
+        container.textContent?.match(
+          /Still working\. Large updates can take a minute or two\./g,
+        ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps only the newest resolved reconnect tool active while the chat runs", () => {
+    const content: ContentPart[] = [
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "list-files",
+        argsText: "",
+        args: {},
+        result: "done",
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-2",
+        toolName: "read-file",
+        argsText: "",
+        args: {},
+        result: "done",
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const activeLabels = container.querySelectorAll(".agent-running-shimmer");
+    expect(activeLabels).toHaveLength(1);
+    expect(activeLabels[0]?.textContent).toContain("read file");
+    expect(activeLabels[0]?.closest(".agent-tool-call")).not.toBeNull();
   });
 
   it("shows a subtle long-running hint after a running tool stays active", () => {
@@ -220,6 +406,9 @@ describe("ToolCallDisplay native renderers", () => {
       expect(container.textContent).toContain(
         "Still working. Large updates can take a minute or two.",
       );
+      expect(
+        container.querySelector(".agent-tool-call > div:last-child")?.className,
+      ).toContain("pb-2");
 
       act(() => {
         root.render(
@@ -295,6 +484,9 @@ describe("ToolCallDisplay native renderers", () => {
       });
 
       expect(container.textContent).toContain("App renderer wins");
+      expect(
+        container.querySelector("[data-agent-native-custom-ui]"),
+      ).toBeNull();
       expect(container.textContent).not.toContain(
         "Large updates can take a minute or two.",
       );
@@ -325,6 +517,53 @@ describe("ToolCallDisplay native renderers", () => {
     const row = container.querySelector("button")?.parentElement;
     expect(row?.className).toContain("w-full");
     expect(container.querySelector("button")?.className).toContain("w-full");
+  });
+
+  it("expands inputs inline and opens output in a popover", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="slack_read_thread"
+          args={{ channel_id: "C123", message_ts: "1.2" }}
+          result={JSON.stringify({ messages: "ok" })}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("slack read thread");
+    expect(container.textContent).not.toContain("C123");
+
+    const expandButton = container.querySelector(
+      'button[aria-expanded="false"]',
+    ) as HTMLButtonElement | null;
+    expect(expandButton).not.toBeNull();
+    act(() => {
+      expandButton?.click();
+    });
+
+    expect(container.textContent).toContain("C123");
+    const outputButton = container.querySelector(
+      'button[aria-label="View slack_read_thread output"]',
+    ) as HTMLButtonElement | null;
+    expect(outputButton).not.toBeNull();
+
+    act(() => {
+      outputButton?.click();
+    });
+
+    expect(document.body.textContent).toContain(
+      "Raw slack_read_thread tool call output",
+    );
+    expect(document.body.textContent).toContain("messages");
+  });
+
+  it("syntax highlights run-code source as JavaScript", () => {
+    const payload = toolInputPayload("run-code", {
+      code: "const answer = 42;\nconsole.log(answer);",
+    });
+
+    expect(payload?.lang).toBe("javascript");
   });
 
   it("shows a compact repeat count for coalesced tool rows", () => {
@@ -368,8 +607,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
-  it("renders explicit native widgets ahead of MCP Apps metadata", () => {
-    act(() => {
+  it("renders explicit native widgets ahead of MCP Apps metadata", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -380,6 +619,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
@@ -402,8 +642,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("MCP APP");
   });
 
-  it("renders action-declared native data widgets without relying on widget shape inference", () => {
-    act(() => {
+  it("renders action-declared native data widgets without relying on widget shape inference", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="top-customers"
@@ -420,13 +660,14 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Top customers");
     expect(container.textContent).toContain("Ada");
   });
 
-  it("honors chart action renderers over combined insight payloads", () => {
-    act(() => {
+  it("honors chart action renderers over combined insight payloads", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -437,14 +678,15 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).not.toContain("Recent rows");
     expect(container.textContent).not.toContain("Ada");
   });
 
-  it("honors table action renderers over combined insight payloads", () => {
-    act(() => {
+  it("honors table action renderers over combined insight payloads", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="response-insights"
@@ -455,14 +697,15 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
     expect(container.textContent).not.toContain("Responses by day");
   });
 
-  it("renders action-declared inline extensions natively", () => {
-    act(() => {
+  it("renders action-declared inline extensions natively", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="render-inline-extension"
@@ -482,6 +725,12 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    const loadingSurface = container.querySelector(
+      "[data-agent-native-custom-ui]",
+    );
+    expect(loadingSurface).toBeTruthy();
+    expect(loadingSurface?.querySelector(".border")).toBeNull();
+    await settleLazyRender();
 
     const frame = container.querySelector(
       '[data-testid="inline-extension-frame"]',
@@ -491,6 +740,63 @@ describe("ToolCallDisplay native renderers", () => {
     expect(frame?.getAttribute("data-extension-mode")).toBe("transient");
     expect(container.textContent).toContain("Sensitivity controls");
     expect(container.textContent).not.toContain("render inline extension");
+    expect(container.querySelector('[aria-label="Open extension"]')).toBeNull();
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("my-3");
+    expect(surface?.className).toContain("rounded-lg");
+    expect(surface?.className).toContain("border");
+    expect(surface?.className).not.toContain("p-3");
+  });
+
+  it("pads app action UI inside the shared custom UI card", async () => {
+    registerActionChatRenderer({
+      id: "todo-list-inline",
+      renderer: "todo-demo.todo-list-inline",
+      Component: () => <button type="button">Add todo</button>,
+    });
+
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-todo-list-inline"
+          args={{}}
+          result={'{"ok":true}'}
+          chatUI={{ renderer: "todo-demo.todo-list-inline" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("p-3");
+    expect(container.querySelector("button")?.textContent).toBe("Add todo");
+  });
+
+  it("hides an empty action UI card while its renderer is still running", () => {
+    registerActionChatRenderer({
+      id: "todo-list-loading",
+      renderer: "todo-demo.todo-list-loading",
+      Component: ({ context }) =>
+        context.isRunning ? null : <div>Todo list</div>,
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-todo-list-inline"
+          args={{}}
+          chatUI={{ renderer: "todo-demo.todo-list-loading" }}
+          isRunning
+        />,
+      );
+    });
+
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("empty:hidden");
+    expect(surface?.childElementCount).toBe(0);
   });
 
   it("keeps built-in data widget renderer identities stable across resolves", () => {
@@ -535,8 +841,8 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Responses by day");
   });
 
-  it("renders render-data-widget from input when the echoed result is truncated", () => {
-    act(() => {
+  it("renders render-data-widget from input when the echoed result is truncated", async () => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="render-data-widget"
@@ -546,6 +852,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).toContain("Recent rows");
@@ -574,10 +881,10 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).not.toContain("Recent rows");
   });
 
-  it("renders built-in data widgets even when registry side effects are absent", () => {
+  it("renders built-in data widgets even when registry side effects are absent", async () => {
     clearReservedToolRenderersForTests();
 
-    act(() => {
+    await act(async () => {
       root.render(
         <ToolCallDisplay
           toolName="render-data-widget"
@@ -587,6 +894,7 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    await settleLazyRender();
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).toContain("Recent rows");
@@ -651,5 +959,623 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       textParts.map((part) => part.getAttribute("data-streaming")),
     ).toEqual([null]);
+  });
+
+  it("collapses older reconnect tool calls behind a summary", () => {
+    const content: ContentPart[] = Array.from({ length: 5 }, (_, index) => ({
+      type: "tool-call" as const,
+      toolCallId: `tc_${index}`,
+      toolName: `tool-${index + 1}`,
+      args: {},
+      result: "done",
+    }));
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Ran 2 tools");
+    expect(container.textContent).not.toContain("tool 1");
+    expect(container.textContent).not.toContain("tool 2");
+    expect(container.textContent).toContain("tool 3");
+    expect(container.textContent).toContain("tool 4");
+    expect(container.textContent).toContain("tool 5");
+  });
+
+  it("keeps the latest completed reconnect thought expanded while a tool runs", () => {
+    const content: ContentPart[] = [
+      { type: "reasoning", text: "Completed thought" },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "read-file",
+        args: {},
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const thoughtButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.startsWith("Thought"),
+    );
+    expect(thoughtButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("Completed thought");
+  });
+
+  it("keeps only the active reconnect reasoning segment expanded", () => {
+    const content: ContentPart[] = [
+      { type: "reasoning", text: "First thought" },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "read-file",
+        args: {},
+        result: "done",
+      },
+      { type: "reasoning", text: "Current thought" },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const thoughtButtons = Array.from(
+      container.querySelectorAll("button"),
+    ).filter((button) => /^(Thought|Thinking)/.test(button.textContent ?? ""));
+    expect(
+      thoughtButtons.map((button) => button.getAttribute("aria-expanded")),
+    ).toEqual(["false", "true"]);
+    expect(container.textContent).not.toContain("First thought");
+    expect(container.textContent).not.toContain("Current thought");
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Current thought");
+  });
+});
+
+describe("formatWorkedDuration", () => {
+  it("formats seconds, minutes, and hours", () => {
+    expect(formatWorkedDuration(1_000)).toBe("1s");
+    expect(formatWorkedDuration(45_000)).toBe("45s");
+    expect(formatWorkedDuration(60_000)).toBe("1m");
+    expect(formatWorkedDuration(125_000)).toBe("2m 5s");
+    expect(formatWorkedDuration(3_600_000)).toBe("1h");
+    expect(formatWorkedDuration(3_900_000)).toBe("1h 5m");
+  });
+});
+
+describe("ReasoningCell", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("renders plain-English thinking prose expanded by default and can collapse", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell text="I should verify the join keys first." />,
+      );
+    });
+
+    expect(container.textContent).toContain("Thought");
+    expect(container.textContent).toContain("verify the join keys first.");
+
+    const button = container.querySelector(
+      'button[aria-expanded="true"]',
+    ) as HTMLButtonElement | null;
+    act(() => {
+      button?.click();
+    });
+
+    expect(button?.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("honors an explicitly collapsed default", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="I should verify the join keys first."
+          defaultOpen={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Thought");
+    expect(container.textContent).not.toContain("verify the join keys");
+
+    const button = container.querySelector(
+      'button[aria-expanded="false"]',
+    ) as HTMLButtonElement | null;
+    act(() => {
+      button?.click();
+    });
+
+    expect(button?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.textContent).toContain("verify the join keys first.");
+  });
+
+  it("renders reasoning directly inside the shared work disclosure", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary>
+          <ReasoningCell text="I should verify the join keys first." />
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.textContent).not.toContain("verify the join keys first.");
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.querySelectorAll("button")).toHaveLength(1);
+    expect(container.textContent).toContain("verify the join keys first.");
+    expect(container.textContent).not.toContain("Thought");
+  });
+
+  it('shows a shimmering "Thinking" label while streaming', () => {
+    act(() => {
+      root.render(<ReasoningCell text="Weighing options…" isStreaming />);
+    });
+
+    expect(container.textContent).toContain("Thinking");
+    const shimmer = container.querySelector(".agent-thinking-indicator__text");
+    expect(shimmer?.textContent).toBe("Thinking");
+  });
+
+  it("smoothly reveals reasoning text while streaming and completes it when done", () => {
+    const text = "Weighing options carefully.";
+
+    act(() => {
+      root.render(<ReasoningCell text={text} isStreaming />);
+    });
+
+    expect(container.textContent).not.toContain(text);
+
+    act(() => {
+      root.render(<ReasoningCell text={text} isStreaming={false} />);
+    });
+
+    expect(container.textContent).toContain(text);
+  });
+
+  it('falls back to a plain "Thought" label with no live timing', () => {
+    act(() => {
+      root.render(<ReasoningCell text="Some finished reasoning." />);
+    });
+
+    expect(container.textContent).toContain("Thought");
+    expect(container.querySelector(".agent-thinking-indicator__text")).toBe(
+      null,
+    );
+  });
+
+  it('shows "Thought for Xs" once a duration is known', () => {
+    act(() => {
+      root.render(
+        <ReasoningCell text="Some finished reasoning." durationMs={4200} />,
+      );
+    });
+
+    expect(container.textContent).toContain("Thought for 4s");
+  });
+
+  it("rounds sub-second durations up to a one-second thought label", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell text="Some finished reasoning." durationMs={400} />,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("Thought for 1s");
+  });
+
+  it("animates a live reasoning segment closed when it finishes", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="I should verify the join keys first."
+          isStreaming
+          autoCollapse
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBe(
+      null,
+    );
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="I should verify the join keys first."
+          isStreaming={false}
+          autoCollapse
+          durationMs={1400}
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="false"]')).not.toBe(
+      null,
+    );
+    expect(container.textContent).toContain("Thought for 1s");
+    expect(
+      container
+        .querySelector(".agent-chat-collapse")
+        ?.getAttribute("data-state"),
+    ).toBe("closed");
+  });
+
+  it("keeps a finished reasoning segment open until a newer one replaces it", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="The first thought is complete."
+          isStreaming
+          defaultOpen
+        />,
+      );
+    });
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="The first thought is complete."
+          isStreaming={false}
+          durationMs={1400}
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBe(
+      null,
+    );
+    expect(container.textContent).toContain("The first thought is complete.");
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="The first thought is complete."
+          isStreaming={false}
+          durationMs={1400}
+          collapseWhenReplaced
+        />,
+      );
+    });
+
+    expect(container.querySelector('button[aria-expanded="false"]')).not.toBe(
+      null,
+    );
+    expect(
+      container
+        .querySelector(".agent-chat-collapse")
+        ?.getAttribute("data-state"),
+    ).toBe("closed");
+  });
+
+  it("clamps to a tail view while streaming and open, and unclamps once done", () => {
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="Line one\nLine two\nLine three"
+          isStreaming
+          defaultOpen
+        />,
+      );
+    });
+
+    expect(container.querySelector(".reasoning-cell-tail")).not.toBe(null);
+
+    act(() => {
+      root.render(
+        <ReasoningCell
+          text="Line one\nLine two\nLine three"
+          isStreaming={false}
+          defaultOpen
+        />,
+      );
+    });
+
+    expect(container.querySelector(".reasoning-cell-tail")).toBe(null);
+  });
+});
+
+describe("WorkedForSummary", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not flash open when a completed summary remounts", () => {
+    function Harness({ visible }: { visible: boolean }) {
+      return visible ? (
+        <WorkedForSummary durationMs={11_000} autoCollapse>
+          <ReasoningCell text="The old thought stays collapsed." />
+        </WorkedForSummary>
+      ) : null;
+    }
+
+    act(() => root.render(<Harness visible />));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    act(() => root.render(<Harness visible={false} />));
+    act(() => root.render(<Harness visible />));
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(container.textContent).not.toContain(
+      "The old thought stays collapsed.",
+    );
+  });
+
+  it("shows the completed run duration in the summary label", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={5 * 60_000}>
+          <div>Details</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Worked for 5m");
+  });
+
+  it("starts open when completed work contains interactive UI", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={7_000} defaultOpen>
+          <div>Interactive todo list</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(container.textContent).toContain("Interactive todo list");
+  });
+
+  it("reopens when custom UI metadata arrives after the summary mounts", () => {
+    const renderSummary = (defaultOpen: boolean) => (
+      <WorkedForSummary durationMs={7_000} defaultOpen={defaultOpen}>
+        <div>Late interactive UI</div>
+      </WorkedForSummary>
+    );
+
+    act(() => root.render(renderSummary(false)));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    act(() => root.render(renderSummary(true)));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(container.textContent).toContain("Late interactive UI");
+  });
+});
+
+describe("RanToolsSummary", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("starts collapsed and reveals older tool calls on demand", () => {
+    act(() => {
+      root.render(
+        <RanToolsSummary toolCount={9}>
+          <div>Older tool call</div>
+        </RanToolsSummary>,
+      );
+    });
+
+    expect(container.textContent).toContain("Ran 9 tools");
+    expect(container.textContent).not.toContain("Older tool call");
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+
+    expect(container.textContent).toContain("Older tool call");
+  });
+});
+
+describe("ApprovalAffordance", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps Deny local-only and hides Approve/Always-allow with no ApprovalContext", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="bash"
+          args={{}}
+          approval={{ approvalKey: "approval-1" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Approve to run bash?");
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Deny"]);
+
+    const denyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Deny",
+    ) as HTMLButtonElement;
+    act(() => denyButton.click());
+
+    expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("keeps the default two-button layout when only onApprove is provided", () => {
+    const onApprove = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Approve", "Deny"]);
+
+    const approveButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Approve",
+    ) as HTMLButtonElement;
+    act(() => approveButton.click());
+
+    expect(onApprove).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Approved. Re-running bash...");
+  });
+
+  it("calls onDeny in addition to the local denied state when provided", () => {
+    const onApprove = vi.fn();
+    const onDeny = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove, onDeny }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    const denyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Deny",
+    ) as HTMLButtonElement;
+    act(() => denyButton.click());
+
+    expect(onDeny).toHaveBeenCalledWith("approval-1");
+    expect(container.textContent).toContain("Denied. bash did not run.");
+  });
+
+  it("renders Always allow only when onAlwaysAllow is provided, and it approves on click", () => {
+    const onApprove = vi.fn();
+    const onAlwaysAllow = vi.fn();
+    act(() => {
+      root.render(
+        <ApprovalContext.Provider value={{ onApprove, onAlwaysAllow }}>
+          <ToolCallDisplay
+            toolName="bash"
+            args={{}}
+            approval={{ approvalKey: "approval-1" }}
+            isRunning={false}
+          />
+        </ApprovalContext.Provider>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll("button")).map(
+        (button) => button.textContent,
+      ),
+    ).toEqual(["bash", "Approve", "Always allow", "Deny"]);
+
+    const alwaysAllowButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find(
+      (button) => button.textContent === "Always allow",
+    ) as HTMLButtonElement;
+    act(() => alwaysAllowButton.click());
+
+    expect(onAlwaysAllow).toHaveBeenCalledWith("approval-1");
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Approved. Re-running bash...");
   });
 });

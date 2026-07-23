@@ -1,3 +1,9 @@
+import {
+  restartUploadModeFromResponse,
+  restartUploadResetBody,
+  shouldReconcilePersistedRecording,
+  type OffscreenRecordingState,
+} from "./native-recording-state";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("background");
@@ -162,6 +168,7 @@ type NativeRecording = {
   // fallback so it is never lost; these describe that saved file.
   savedToDisk?: boolean;
   savedFilename?: string;
+  mimeType?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -174,6 +181,8 @@ type OffscreenStatusMessage = {
   storageSetupRequired?: boolean;
   savedToDisk?: boolean;
   savedFilename?: string;
+  recordingStep?: string;
+  mimeType?: string;
 };
 
 type ExtensionErrorMessage = {
@@ -258,9 +267,11 @@ type OverlayPart = "bubble" | "countdown" | "toolbar" | "saving";
 let overlayPhase: OverlayPhase = "idle";
 let overlayBaseElapsedMs = 0;
 let overlayBaseEpochMs = 0;
-// Bubble during the countdown preview (any camera). During recording, the face
-// is composited into the video by the offscreen for screen+camera, so we only
-// show the on-page bubble for camera-only mode (recordingShowsBubble).
+// Bubble during the countdown preview (any camera). The offscreen document does
+// NOT composite the camera into screen recordings — that compositor code path is
+// unreachable because screen mode never acquires a camera stream (see
+// offscreen.ts acquire()). So the on-page bubble is the only place the face shows
+// up, for both camera-only AND screen+camera recording (recordingShowsBubble).
 let overlayShowsBubble = false;
 let recordingShowsBubble = false;
 // Cross-tab follow: when true, the overlay is pushed to whatever tab the user
@@ -1152,6 +1163,7 @@ async function startRecordingFromTab(args: {
   settings: ExtensionSettings;
 }) {
   const { tab, settings } = args;
+  await reconcilePersistedNativeRecording();
   // The persisted value is authoritative (survives a worker suspension during
   // arming); the in-memory var is only a same-tick fast path on top of it.
   // Stale (past-TTL) or legacy-shaped guards are treated as absent — see
@@ -1309,7 +1321,6 @@ async function armRecording(args: {
       hasCamera: cameraInvolved,
       hasAudio:
         settings.includeMicrophone || settings.captureSurface !== "camera",
-      visibility: "public",
       mimeType: "video/webm",
       requestStreaming: true,
     });
@@ -1380,6 +1391,7 @@ async function armRecording(args: {
       hasCamera: cameraInvolved,
       startDelayMs,
       authToken,
+      transcriptUrl: actionUrl(settings, "save-browser-transcript"),
     });
   } catch (err) {
     console.error("[clips-bg] arm: BEGIN failed", err);
@@ -1504,8 +1516,8 @@ async function handleOverlayRestart() {
   // so we must not leave the overlay stuck mid-recording/paused with no
   // recorder behind it — tear the overlay back down and release those streams,
   // matching the re-arm failure handling just below.
-  const chunksReset = await resetRecordingChunks(recording);
-  if (!chunksReset) {
+  const uploadMode = await resetRecordingChunks(recording);
+  if (!uploadMode) {
     recording.status = "error";
     recording.error =
       "Could not clear the previous take before restarting. Stop and start a new recording.";
@@ -1522,6 +1534,7 @@ async function handleOverlayRestart() {
       error: recording.error,
     };
   }
+  recording.uploadMode = uploadMode;
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1546,6 +1559,10 @@ async function handleOverlayRestart() {
       hasCamera: cameraInvolved,
       startDelayMs: cameraInvolved ? 20000 : COUNTDOWN_SECONDS * 1000 + 1000,
       authToken: restartAuthToken,
+      transcriptUrl: actionUrl(
+        settingsFromRecording(recording),
+        "save-browser-transcript",
+      ),
     });
   } catch (err) {
     // Re-arming failed: tear the countdown overlay back down and report the
@@ -1567,18 +1584,25 @@ async function handleOverlayRestart() {
 
 async function resetRecordingChunks(
   recording: NativeRecording,
-): Promise<boolean> {
+): Promise<UploadMode | null> {
   const url = `${recording.clipsBaseUrl}/api/uploads/${encodeURIComponent(
     recording.recordingId,
   )}/reset-chunks`;
-  const headers = await authHeaders(settingsFromRecording(recording));
+  const headers = {
+    ...(await authHeaders(settingsFromRecording(recording))),
+    "Content-Type": "application/json",
+  };
   const response = await fetch(url, {
     method: "POST",
     headers,
     credentials: "include",
     cache: "no-store",
+    body: JSON.stringify(
+      restartUploadResetBody(recording.mimeType ?? "video/webm"),
+    ),
   }).catch(() => undefined);
-  return Boolean(response?.ok);
+  if (!response?.ok) return null;
+  return restartUploadModeFromResponse(await response.json().catch(() => null));
 }
 
 // Finalize a successful save: open the clip and tear down the "Saving…" overlay.
@@ -1719,7 +1743,48 @@ async function clearNativeRecording(): Promise<void> {
   await chrome.action.setBadgeText({ text: "" });
 }
 
+async function reconcilePersistedNativeRecording(): Promise<void> {
+  const recording = activeNativeRecording;
+  if (!recording) return;
+  if (recording.status === "error" || recording.status === "complete") return;
+
+  try {
+    await ensureOffscreenDocument();
+    const state = await sendOffscreenMessage<OffscreenRecordingState>({
+      type: "CLIPS_OFFSCREEN_STATUS",
+    });
+    if (
+      !shouldReconcilePersistedRecording(
+        recording.status,
+        recording.sessionId,
+        state,
+      )
+    ) {
+      return;
+    }
+  } catch {
+    // A transient wake-up failure must not discard a real recording.
+    return;
+  }
+
+  console.warn(
+    "[clips-bg] clearing persisted recording with no live offscreen session",
+    recording.sessionId,
+  );
+  await deleteSession(recording.sessionId).catch((error) => {
+    console.warn(
+      "[clips-bg] stale recording cleanup could not detach tab",
+      error,
+    );
+  });
+  resetOverlay();
+  await broadcastUnmount();
+  broadcastOverlayState();
+  await clearNativeRecording();
+}
+
 async function handlePopupStatus() {
+  await reconcilePersistedNativeRecording();
   return {
     ok: true,
     activeRecording: activeNativeRecording,
@@ -2346,12 +2411,36 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
           activeNativeRecording,
         );
       }
+      if (typeof status.mimeType === "string") {
+        activeNativeRecording.mimeType = status.mimeType;
+      }
       if (status.status === "error") {
         activeNativeRecording.savedToDisk = status.savedToDisk === true;
         activeNativeRecording.savedFilename =
           typeof status.savedFilename === "string"
             ? status.savedFilename
             : undefined;
+      }
+      if (
+        status.status === "error" &&
+        status.recordingStep === "recorder-start"
+      ) {
+        await deleteSession(activeNativeRecording.sessionId).catch((error) => {
+          console.warn(
+            "[clips-bg] failed recorder-start cleanup could not detach tab",
+            error,
+          );
+        });
+        await postAction(
+          settingsFromRecording(activeNativeRecording),
+          "trash-recording",
+          { id: activeNativeRecording.recordingId },
+        ).catch(() => undefined);
+        resetOverlay();
+        await broadcastUnmount();
+        broadcastOverlayState();
+        await clearNativeRecording();
+        return { ok: true };
       }
       await saveActiveNativeRecording();
       // The offscreen recorder finished its pre-roll and actually started —

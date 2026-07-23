@@ -15,6 +15,7 @@ export interface DbAdminColumn {
   pk: boolean;
   defaultValue: string | null;
   autoIncrement?: boolean;
+  largeValuePreview?: boolean;
 }
 
 export interface DbAdminForeignKey {
@@ -74,6 +75,7 @@ export interface DbAdminRowsRequest {
   pageSize: number;
   sort?: DbAdminSort[];
   filters?: DbAdminFilter[];
+  includeLargeCells?: boolean;
 }
 
 export interface DbAdminRowsResult {
@@ -82,6 +84,7 @@ export interface DbAdminRowsResult {
   total: number;
   page: number;
   pageSize: number;
+  truncatedCells?: number;
 }
 
 export interface DbAdminMutation {
@@ -103,4 +106,5 @@ export interface DbAdminQueryResult {
   rows: Record<string, unknown>[];
   rowsAffected: number;
   durationMs: number;
+  truncatedCells?: number;
 }

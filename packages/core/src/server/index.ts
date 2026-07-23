@@ -3,6 +3,13 @@ export {
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
+export {
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  dispatchPathTargetsNetlifyBackgroundFunction,
+  resolveDurableBackgroundDispatchPath,
+} from "../agent/durable-background.js";
 
 export {
   readBody,
@@ -76,6 +83,10 @@ export {
   IDENTITY_SSO_SCOPE,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
+export {
+  assertCurrentRequestUserIsOrgAdmin,
+  currentRequestUserIsOrgAdmin,
+} from "./org-admin.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
   getLocaleInitScript,
@@ -107,9 +118,25 @@ export {
 } from "../agent/index.js";
 export {
   actionsToEngineTools,
+  executeAgentToolCall,
   getOwnerActiveApiKey,
   runAgentLoop,
+  type AgentToolCallExecutionResult,
+  type ExecuteAgentToolCallOptions,
 } from "../agent/production-agent.js";
+export {
+  mountRealtimeVoiceRoutes,
+  realtimeVoiceSafetyIdentifier,
+  REALTIME_VOICE_MAX_SDP_BYTES,
+  REALTIME_VOICE_MAX_TOOL_BODY_BYTES,
+  REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+  REALTIME_VOICE_SESSION_PATH,
+  REALTIME_VOICE_TOOL_PATH,
+  type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceRequestContext,
+  type RealtimeVoiceToolExecutionRequest,
+  type RealtimeVoiceToolExecutionResult,
+} from "./realtime-voice.js";
 export {
   getStoredModelForEngine,
   resolveEngine,
@@ -153,6 +180,7 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
+export { createFeatureFlagsPlugin } from "../feature-flags/plugin.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -218,6 +246,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
+export { resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
   type CreateBrowserSessionActionEntriesOptions,
@@ -258,7 +287,9 @@ export {
 } from "../terminal/terminal-plugin.js";
 export {
   createCollabPlugin,
+  type CollabAccess,
   type CollabPluginOptions,
+  type CollabResourceIdResolver,
 } from "./collab-plugin.js";
 
 export {
@@ -274,11 +305,17 @@ export {
 export { isOAuthConnected, getOAuthAccounts } from "./oauth-helpers.js";
 export {
   hasGoogleSignInCredentials,
+  GOOGLE_LEGACY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS,
+  GOOGLE_PROVIDER_CREDENTIAL_KEY_PAIRS,
   resolveGoogleLegacyProviderCredentials,
+  resolveGoogleProviderCredentialCandidatesWithReader,
   resolveGoogleProviderCredentialCandidates,
   resolveGoogleProviderCredentials,
   resolveGoogleSignInCredentials,
+  type GoogleOAuthCredentialKeyPair,
   type GoogleOAuthCredentials,
+  type ReadGoogleOAuthCredential,
 } from "./google-oauth-credentials.js";
 export { wrapWithAnalytics } from "./analytics.js";
 export {
@@ -288,6 +325,15 @@ export {
   type H3AppShim,
 } from "./framework-request-handler.js";
 export {
+  fireInternalDispatch,
+  resolveSelfDispatchBaseUrl,
+  type FireInternalDispatchOptions,
+} from "./self-dispatch.js";
+export {
+  extractBearerToken as extractInternalBearerToken,
+  verifyInternalToken,
+} from "../integrations/internal-token.js";
+export {
   autoDiscoverActions,
   autoDiscoverScripts,
   loadActionsFromStaticRegistry,
@@ -295,9 +341,22 @@ export {
   registerPackageActions,
 } from "./action-discovery.js";
 export {
+  registerPromptContextProvider,
+  type PromptContextProvider,
+  type PromptContextProviderContext,
+  type PromptContextProviderContribution,
+} from "./agent-chat/prompt-resources.js";
+export {
   mountActionRoutes,
   type MountActionRoutesOptions,
+  type ActionRouteAuthAdapter,
+  type ActionRouteResolvedCaller,
 } from "./action-routes.js";
+export {
+  AGENT_RUN_OWNER_CONTEXT_KEY,
+  seedAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
 export {
   runWithRequestContext,
   hasRequestContext,
@@ -339,12 +398,31 @@ export {
   slackAdapter,
   telegramAdapter,
   whatsappAdapter,
+  discordAdapter,
+  microsoftTeamsAdapter,
   emailAdapter,
+  assertPlatformCapability,
   type PlatformAdapter,
   type IncomingMessage,
   type OutgoingMessage,
+  type PlatformAdapterCapabilities,
+  type ImmediateWebhookResponse,
   type IntegrationStatus,
   type IntegrationsPluginOptions,
+  type IntegrationExecutionContext,
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type BuiltInChannelId,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
 } from "../integrations/index.js";
 
 export {
@@ -366,6 +444,20 @@ export {
   type OAuthOwnerResult,
   type OAuthSessionResult,
 } from "./google-oauth.js";
+
+export {
+  buildWorkspaceProviderAuthorizationUrl,
+  createWorkspaceProviderOAuthHandler,
+  exchangeWorkspaceProviderOAuthCode,
+  handleWorkspaceProviderOAuthCallback,
+  handleWorkspaceProviderOAuthStart,
+  isWorkspaceProviderOAuthFlowValid,
+  mergeWorkspaceOAuthValues,
+  resolveWorkspaceProviderIdentity,
+  workspaceProviderOAuthPath,
+  type GenericWorkspaceOAuthProvider,
+  type WorkspaceProviderOAuthFlow,
+} from "./workspace-provider-oauth.js";
 
 export {
   FeatureNotConfiguredError,
@@ -412,6 +504,7 @@ export {
 export {
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
   resolveIsBuilderBranchingEnabled,
   runBuilderAgent,

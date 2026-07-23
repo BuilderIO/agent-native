@@ -1,0 +1,123 @@
+---
+title: "Workflow Connectors"
+description: "Invoke pre-configured external workflow systems like n8n and Zapier by a stable workflow ID, and accept their authenticated callbacks — without treating them as chat channels or generic provider APIs."
+---
+
+# Workflow Connectors
+
+Reach for workflow connectors when you already have an automation platform — n8n, Zapier, or a similar workflow system — that should run a specific, pre-configured job on request, and hand a result back safely. An action passes a workflow ID and structured input; the workflow runs; the result (or a callback later) comes back through an authenticated, size-bounded path. Neither side ever sees a raw secret or an arbitrary URL.
+
+This is deliberately narrower than a general-purpose HTTP client or a chat integration. Agent Native's automation connector runtime supports exactly two directions:
+
+- Invoke a **configured external workflow** from an action.
+- Receive an **authenticated callback** from a configured workflow.
+
+An app assigns each workflow a stable ID, a connector ID, input/output schemas, response behavior, credentials, timeout/retry limits, idempotency behavior, and capability flags. Agents pass the workflow ID and structured input; they never supply arbitrary target URLs or secret values.
+
+<Callout tone="info">
+
+**Not a messaging channel, not a generic provider API.** For "ask the agent to run a scheduled or event-triggered prompt," see [Automations](/docs/automations) — that's `web-request` calling an ad-hoc URL the agent or a user configured. For "talk to the agent from Slack/email," see [Messaging](/docs/messaging). Workflow connectors are for the third case: a pre-configured, schema-typed connection to an external workflow system your team already runs.
+
+</Callout>
+
+## Worked example: notify Slack via n8n {#worked-example}
+
+An app that wants to hand a "notify sales" job to an n8n workflow defines it once, then invokes it by ID — never by URL:
+
+```ts filename="server/plugins/automation-connectors.ts"
+import {
+  createAutomationRuntime,
+  createInvokeAutomationWorkflowAction,
+} from "@agent-native/core/automation";
+
+const automation = createAutomationRuntime({
+  workflows: [
+    {
+      id: "notify-sales-slack",
+      connectorId: "n8n",
+      name: "Notify #sales on qualified lead",
+      inputSchema: {
+        type: "object",
+        properties: {
+          leadEmail: { type: "string" },
+          company: { type: "string" },
+        },
+        required: ["leadEmail"],
+      },
+      response: { mode: "asynchronous" },
+      capabilities: {
+        invokesExternalWorkflow: true,
+        receivesCallback: false,
+        supportsIdempotency: false,
+        supportsSynchronousResponse: false,
+        supportsAsynchronousResponse: true,
+        mayCauseExternalSideEffects: true,
+      },
+      outbound: {
+        baseUrl: "https://n8n.example.com",
+        path: "/webhook/notify-sales",
+        method: "POST",
+        headers: { Authorization: "Bearer ${keys.N8N_WEBHOOK_TOKEN}" },
+        timeoutMs: 10_000,
+      },
+    },
+  ],
+  resolveSecret: async (ref, context) => {
+    // Resolve a scoped vault/credential reference here. Never return it to UI.
+    return null;
+  },
+  claimInboundEvent: async ({ workflow, eventId }) => {
+    // Insert a unique SQL row and return false on a duplicate event.
+    return true;
+  },
+  enqueueInboundEvent: async ({ workflow, eventId, payload }) => {
+    // Reuse the app's established durable queue; do not run an agent here.
+  },
+});
+
+export default createInvokeAutomationWorkflowAction(automation);
+```
+
+The agent calls this action with `{ workflowId: "notify-sales-slack", input: { leadEmail: "jane@acme.com" } }` — it never sees `https://n8n.example.com/webhook/notify-sales` or the bearer token. `outbound.baseUrl` + `outbound.path` are static, app-owned config; the runtime rejects any attempt to call a different origin.
+
+Mount callback handlers only under `/_agent-native/automations/`; all normal app operations remain actions. Keep the callback route minimal: authenticate, claim idempotency, enqueue, and acknowledge — never run an agent loop inside the webhook request itself.
+
+The client calls a registered action with `invokeConfiguredAutomationWorkflow()` from `@agent-native/core/client`; it does not hand-write a browser `fetch`.
+
+## Safety model {#safety-model}
+
+Outbound workflow definitions use a static HTTPS base URL and static path. The runtime restricts requests to the configured origin, rejects private-network targets and redirects, resolves `${keys.NAME}` server-side, bounds request and response sizes, applies a timeout, retries only transient failures, and redacts resolved values from responses and errors.
+
+Workflow callbacks authenticate with either a shared secret, an HMAC-SHA256 signature, or an app-owned provider verifier. Callbacks that start agent work must provide:
+
+1. A durable, SQL-backed idempotency claim keyed by the provider event ID.
+2. A durable queue handoff that runs in a fresh execution.
+
+The callback returns an acknowledgement quickly. Never run an agent loop inside a webhook request or rely on an in-memory deduplication map. This is the same queue-and-processor pattern [Messaging](/docs/messaging) uses for inbound platform webhooks — link rather than restate if you're already familiar with that page.
+
+## n8n {#n8n}
+
+n8n is runtime-backed through configured Webhook workflows. Agent Native does **not** host or provision n8n.
+
+Configure an n8n Webhook node with an explicit URL and one of n8n's supported authentication modes (Header, Basic, or JWT), then register that static URL/origin and the matching Agent Native secret reference. n8n supports immediate responses, final-node responses, and responses via a Respond to Webhook node; model the selected behavior as asynchronous or synchronous in the workflow definition.
+
+For callbacks from n8n into Agent Native, configure an Agent Native callback URL and a shared-secret or HMAC adapter. Include a stable event ID header whenever n8n can retry delivery.
+
+See the [n8n Webhook documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook/).
+
+## Zapier {#zapier}
+
+Zapier is currently **blueprint-only** in the integration catalog. There is no generic Zapier workflow execution API in this runtime, and Zapier must not be presented as a chat channel or a provider-api preset.
+
+Zapier REST Hook triggers are an app-integration contract: an app implements subscribe and unsubscribe endpoints, stores Zapier's unique target URL, and delivers events to that URL. A static inbound webhook is not a public Zapier REST Hook integration.
+
+Zapier MCP is a separately configured remote MCP connection with a Zapier account and its own authorization flow. It is not interchangeable with an Agent Native workflow callback credential.
+
+See [Zapier REST Hook triggers](https://docs.zapier.com/integrations/build/hook-trigger) and [Zapier MCP](https://docs.zapier.com/mcp/home).
+
+## What's next {#whats-next}
+
+- [**Automations**](/docs/automations#web-request) — the ad-hoc `web-request` tool for one-off outbound HTTP, the lighter-weight sibling to a configured connector
+- [**Messaging**](/docs/messaging) — reaching the agent from Slack, email, Telegram, and WhatsApp, the queue-and-processor pattern this page's callbacks reuse
+- [**Actions**](/docs/actions) — `defineAction`, `needsApproval`, and the action surface `createInvokeAutomationWorkflowAction` builds on
+- [**Security**](/docs/security) — `${keys.NAME}` secret substitution and the credential-scoping model this runtime relies on

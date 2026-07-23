@@ -6,17 +6,19 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { useEffect, useRef, useState } from "react";
 
+import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
   joinProviderLabel,
   meetingNotificationAutoHideMs,
   type MeetingJoinProvider,
 } from "../lib/meeting-notification-timing";
+import { openMeetingJoinUrl } from "../lib/open-meeting-join-url";
 
 interface NotificationData {
   type: "calendar" | "adhoc";
@@ -37,17 +39,33 @@ interface TranscriptionStatusPayload {
 
 const SNOOZE_MS = 5 * 60_000;
 const FALLBACK_AUTO_HIDE_MS = 6 * 60_000;
+// Card is up to 440px wide; the extra width leaves room for the drop shadow
+// (~32px each side) so it isn't clipped by the transparent window edges.
+const NOTIFICATION_WINDOW_WIDTH = 504;
+const NOTIFICATION_COLLAPSED_HEIGHT = 120;
+const NOTIFICATION_MENU_HEIGHT = 224;
 
 /**
- * Open a meeting join URL via the Tauri shell plugin.
+ * Open a meeting join URL via its native desktop app when supported.
  */
 async function openJoinUrl(url: string | null | undefined): Promise<void> {
   if (!url) return;
   try {
-    await openExternal(url);
+    await openMeetingJoinUrl(url);
   } catch (err) {
     console.error("[clips-tray] openJoinUrl failed:", err);
   }
+}
+
+function resizeNotificationWindow(expanded: boolean) {
+  const height = expanded
+    ? NOTIFICATION_MENU_HEIGHT
+    : NOTIFICATION_COLLAPSED_HEIGHT;
+  getCurrentWindow()
+    .setSize(new LogicalSize(NOTIFICATION_WINDOW_WIDTH, height))
+    .catch((err) => {
+      console.warn("[clips-meeting-notif] resize failed", err);
+    });
 }
 
 function ProviderGlyph({ provider }: { provider: MeetingJoinProvider }) {
@@ -110,10 +128,28 @@ export function MeetingNotification() {
   const [pending, setPending] = useState(false);
   const autoHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dataRef = useRef<NotificationData | null>(null);
+  // Real DOM hover only fires while this overlay window is key, which macOS
+  // won't grant it without a click (`show_without_activation` never
+  // activates). `polledHovered` mirrors the Rust-side global cursor poll
+  // (`meetings:notification-hover`, see `start_meeting_notification_hover_tracking`
+  // in notifications.rs) so the X still reveals on hover while another app is
+  // focused — same fallback pattern as the recording pill's `clips:pill-hover`.
+  const [domHovered, setDomHovered] = useState(false);
+  const [polledHovered, setPolledHovered] = useState(false);
+  const hovered = domHovered || polledHovered;
+  const prevHoveredRef = useRef(false);
 
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
+
+  useEffect(() => {
+    resizeNotificationWindow(Boolean(data && menuOpen));
+  }, [data, menuOpen]);
+
+  useEffect(() => {
+    return () => resizeNotificationWindow(false);
+  }, []);
 
   useEffect(() => {
     const win = getCurrentWindow();
@@ -123,6 +159,30 @@ export function MeetingNotification() {
       win.hide().catch(() => {});
     }
   }, [data]);
+
+  useEffect(() => {
+    if (!data) {
+      // Dismissing doesn't guarantee mouseleave/hovered:false fires first
+      // (e.g. dismissed while the cursor is still over the card), so clear
+      // every hover source here — otherwise the next notification can
+      // inherit hovered === true and open with its close button already
+      // showing and auto-hide already cancelled.
+      prevHoveredRef.current = false;
+      setDomHovered(false);
+      setPolledHovered(false);
+      setShowClose(false);
+      return;
+    }
+    if (hovered === prevHoveredRef.current) return;
+    prevHoveredRef.current = hovered;
+    setShowClose(hovered);
+    if (hovered) {
+      clearAutoHide();
+    } else {
+      setMenuOpen(false);
+      resumeAutoHide();
+    }
+  }, [data, hovered]);
 
   function showNotification(
     payload: NotificationData,
@@ -162,6 +222,12 @@ export function MeetingNotification() {
     trackListen(
       listen<NotificationData>("meetings:show-notification", (ev) => {
         showNotification(ev.payload);
+      }),
+    );
+
+    trackListen(
+      listen<{ hovered: boolean }>("meetings:notification-hover", (ev) => {
+        setPolledHovered(ev.payload.hovered);
       }),
     );
 
@@ -243,6 +309,14 @@ export function MeetingNotification() {
     dataRef.current = null;
   }
 
+  function dismissNotification() {
+    const current = dataRef.current;
+    hideNotification();
+    if (current) {
+      void dismissMeetingNotification(current);
+    }
+  }
+
   async function takeNotes() {
     if (!data || pending) return;
     setPending(true);
@@ -300,19 +374,12 @@ export function MeetingNotification() {
   const secondaryLabel = hasJoin ? "& open Clips" : null;
 
   return (
-    <div
-      className="meeting-notification-root"
-      onMouseEnter={() => {
-        setShowClose(true);
-        clearAutoHide();
-      }}
-      onMouseLeave={() => {
-        setShowClose(false);
-        setMenuOpen(false);
-        resumeAutoHide();
-      }}
-    >
-      <div className="meeting-notification">
+    <div className="meeting-notification-root">
+      <div
+        className="meeting-notification"
+        onMouseEnter={() => setDomHovered(true)}
+        onMouseLeave={() => setDomHovered(false)}
+      >
         <div
           className={`meeting-notification-bar ${isCalendar ? "meeting-notification-bar-calendar" : "meeting-notification-bar-adhoc"}`}
         />
@@ -389,7 +456,7 @@ export function MeetingNotification() {
         {showClose ? (
           <button
             className="meeting-notification-close"
-            onClick={hideNotification}
+            onClick={dismissNotification}
             aria-label="Dismiss"
             data-no-drag
           >

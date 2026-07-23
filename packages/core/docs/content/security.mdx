@@ -388,6 +388,8 @@ This was previously a "warn and accept" stance — set the secret you'd otherwis
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` is **not** set unless your org actually shares workspace keys — see [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] In multi-tenant deployments, **users bring their own `ANTHROPIC_API_KEY`** — the framework refuses to fall back to the deploy-level env var
 
+Run `agent-native doctor` (`pnpm doctor` in a scaffolded app) to check the schema, credential, and environment-variable items on this checklist automatically — every finding names the guard, file, and line. See the [Doctor](/docs/doctor) docs.
+
 ---
 
 The sections below cover niche environment flags you only reach for in specific deployments. Most apps never touch them.
@@ -415,3 +417,11 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 Workspace-scope secret writes still require org owner/admin role regardless of this flag.
+
+## What's next
+
+- [**Authentication**](/docs/authentication) — auth modes, cookie realms, and session details this page builds on
+- [**Multi-Tenancy**](/docs/multi-tenancy) — the org-membership model behind `org_id` scoping
+- [**Sharing**](/docs/sharing) — the `ownableColumns()` and access-guard pattern applied to shareable resources
+- [**Messaging**](/docs/messaging#env-vars) — per-integration webhook signing secrets referenced in the checklist above
+- [**Deployment**](/docs/deployment) — the production environment variables this checklist assumes are set

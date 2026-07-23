@@ -4,6 +4,7 @@ const messages = {
     searchForms: "搜尋表單",
     appearance: "外觀",
     toggleTheme: "切換主題",
+    openAgent: "開啟代理",
   },
   header: {
     settings: "設定",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "詢問表單",
     allForms: "所有表單",
     team: "團隊",
+    agent: "代理",
   },
   settings: {
     title: "設定",
@@ -30,10 +32,9 @@ const messages = {
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
   },
   agent: {
     emptyState: "可以問我任何關於表單的問題",
@@ -178,6 +179,12 @@ const messages = {
       successMessage: "成功訊息",
       defaultSuccessMessage: "謝謝！你的回覆已紀錄。",
       redirectUrl: "重新導向 URL（可選）",
+      anonymousResponses: "匿名回覆",
+      anonymousResponsesDescription:
+        "不保留 IP 位址、回覆者身分或來源中繼資料。",
+      emailNewResponses: "有新回覆時寄信通知我",
+      emailNewResponsesDescription:
+        "每當有人提交回覆時，就通知表單擁有者帳戶的電子郵件地址。",
       saveSettings: "儲存設定",
     },
     integrations: {
@@ -235,6 +242,8 @@ const messages = {
     duplicated: "表格重複",
     duplicateFailed: "複製表格失敗",
     movedToArchive: "表格移至存檔",
+    movingToArchive: "正在將表單移至封存…",
+    archiveFailed: "無法將表單移至封存",
     restored: "形態恢復",
     permanentlyDeleted: "表格永久刪除",
     bulkPermanentlyDeleted: "已永久刪除 {{formattedCount}} 份表單",

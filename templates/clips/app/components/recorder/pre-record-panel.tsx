@@ -1,4 +1,5 @@
-import { agentNativePath, useT } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 import {
   IconBrowser,
@@ -705,7 +706,7 @@ export function PreRecordPanel({
               />
             </button>
           </CollapsibleTrigger>
-          <CollapsibleContent>
+          <CollapsibleContent className="clips-collapsible-content">
             <div
               className={cn(
                 "grid gap-2 px-6 pb-5",
@@ -781,7 +782,7 @@ export function PreRecordPanel({
             />
           </button>
         </CollapsibleTrigger>
-        <CollapsibleContent>
+        <CollapsibleContent className="clips-collapsible-content">
           <div className="px-6 pb-5">
             <div className="overflow-visible rounded-xl border border-border bg-background">
               <div className="space-y-2 p-2.5">

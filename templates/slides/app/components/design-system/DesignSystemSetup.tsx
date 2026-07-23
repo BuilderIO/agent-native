@@ -1,11 +1,12 @@
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
   useActionQuery,
   useActionMutation,
-  sendToAgentChat,
-  openAgentSidebar,
-  appApiPath,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { openAgentSidebar } from "@agent-native/core/client/navigation";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import {
   IconWorld,
   IconPalette,
@@ -20,6 +21,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +35,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
 
 import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,
@@ -305,12 +306,9 @@ export function DesignSystemSetup({
         customInstructions,
       });
       onComplete();
-      toast({ title: t("designSystemSetup.updated") });
+      toast.success(t("designSystemSetup.updated"));
     } catch {
-      toast({
-        title: t("designSystemSetup.updateFailed"),
-        variant: "destructive",
-      });
+      toast.error(t("designSystemSetup.updateFailed"));
     } finally {
       setGenerating(false);
     }
@@ -446,8 +444,7 @@ export function DesignSystemSetup({
 
     openAgentSidebar();
     sendToAgentChat({ message: parts.join("\n"), submit: true });
-    toast({
-      title: t("designSystemSetup.generationStarted"),
+    toast(t("designSystemSetup.generationStarted"), {
       description: t("designSystemSetup.generationStartedDescription"),
     });
     onComplete();
@@ -925,7 +922,14 @@ function BuilderIndexPreview({
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
         <Button size="sm" asChild className="cursor-pointer">
-          <a href={result.builderUrl} target="_blank" rel="noreferrer">
+          <a
+            href={withBuilderUtmTrackingParams(result.builderUrl, {
+              campaign: "product",
+              content: "design_system_intelligence",
+            })}
+            target="_blank"
+            rel="noreferrer"
+          >
             <IconExternalLink className="w-3.5 h-3.5" />
             {t("designSystemSetup.openInBuilder")}
           </a>

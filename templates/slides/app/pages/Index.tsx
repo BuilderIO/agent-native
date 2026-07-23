@@ -1,19 +1,23 @@
-import {
-  agentNativePath,
-  askUserQuestion,
-  callAction,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction, useSession } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { extractGoogleDocUrls } from "@shared/google-docs";
-import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconPlus,
+  IconRefresh,
+  IconStack2,
+  IconUserCircle,
+} from "@tabler/icons-react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
@@ -40,7 +44,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
-import { toast } from "@/hooks/use-toast";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -176,6 +179,8 @@ export default function Index() {
     deleteDeck,
     updateDeck,
     loading,
+    loadError,
+    reloadDecks,
   } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
@@ -451,8 +456,7 @@ export default function Index() {
       }
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deck.id);
-      toast({
-        title: t("home.generationStartFailed"),
+      toast.error(t("home.generationStartFailed"), {
         description: t("home.generationStartFailedDescription"),
       });
       setShowNewDeckPrompt(true);
@@ -465,6 +469,7 @@ export default function Index() {
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
+      { newTab: true, openSidebar: true },
     );
     navigate(`/deck/${deck.id}?generating=1`);
   };
@@ -540,6 +545,26 @@ export default function Index() {
             </div>
           </div>
         </>
+      ) : loadError ? (
+        <div className="flex min-h-[360px] items-center justify-center">
+          <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+            <IconAlertTriangle className="size-7 text-destructive/70" />
+            <div>
+              <h2 className="font-medium">{t("home.loadFailed")}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("home.loadFailedDescription")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void reloadDecks()}
+            >
+              <IconRefresh className="size-4" />
+              {t("home.retry")}
+            </Button>
+          </div>
+        </div>
       ) : decks.length === 0 ? (
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (

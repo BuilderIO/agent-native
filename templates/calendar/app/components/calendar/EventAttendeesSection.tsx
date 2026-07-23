@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
 import { IconDots, IconMessageCircle, IconUser } from "@tabler/icons-react";
 import { useEffect, useId, useMemo, useState } from "react";
@@ -194,6 +194,12 @@ function RsvpControls({
     doRsvp(status, undefined, "");
   };
 
+  const savePendingResponse = () => {
+    if (!pendingStatus || mutation.isPending) return;
+    doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
+    closePopover();
+  };
+
   return (
     <Popover
       open={!!pendingStatus}
@@ -255,6 +261,13 @@ function RsvpControls({
         className="w-[22rem] max-w-[calc(100vw-2rem)] overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            savePendingResponse();
+          }
+        }}
       >
         {pendingStatus && (
           <div>
@@ -336,8 +349,7 @@ function RsvpControls({
                 disabled={mutation.isPending}
                 onClick={(e) => {
                   e.stopPropagation();
-                  doRsvp(pendingStatus, isRecurring ? pendingScope : undefined);
-                  closePopover();
+                  savePendingResponse();
                 }}
               >
                 {t("eventForm.saveResponse")}
@@ -416,103 +428,110 @@ function AttendeeRow({
 
   return (
     <div className="group rounded-xl px-1 py-1 transition-colors hover:bg-muted/40">
-      <AttendeeApolloPopover attendee={attendee}>
-        <div className="flex items-center gap-2.5">
-          <div className="relative shrink-0">
-            <AttendeeAvatar attendee={attendee} resolvedPhotoUrl={photoUrl} />
-            <div className="absolute -bottom-0.5 -right-0.5">
-              <RsvpStatusIcon status={displayStatus ?? "needsAction"} />
-            </div>
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-sm text-foreground">
-                {attendee.displayName || attendee.email}
-              </span>
-              {attendee.organizer && (
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {t("eventForm.organizer")}
-                </span>
-              )}
-              {attendee.optional && !attendee.organizer && (
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                  {t("attendees.optionalBadge")}
-                </span>
-              )}
-            </div>
-            {attendee.displayName && (
-              <div className="truncate text-[11px] text-muted-foreground/60">
-                {attendee.email}
-                {localTimeLabel ? (
-                  <span className="ms-1.5 text-muted-foreground/50">
-                    · {localTimeLabel}
+      <div className="flex items-start">
+        <div className="min-w-0 flex-1">
+          <AttendeeApolloPopover attendee={attendee}>
+            <div className="flex items-center gap-2.5">
+              <div className="relative shrink-0">
+                <AttendeeAvatar
+                  attendee={attendee}
+                  resolvedPhotoUrl={photoUrl}
+                />
+                <div className="absolute -bottom-0.5 -right-0.5">
+                  <RsvpStatusIcon status={displayStatus ?? "needsAction"} />
+                </div>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="truncate text-sm text-foreground">
+                    {attendee.displayName || attendee.email}
                   </span>
+                  {attendee.organizer && (
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {t("eventForm.organizer")}
+                    </span>
+                  )}
+                  {attendee.optional && !attendee.organizer && (
+                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      {t("attendees.optionalBadge")}
+                    </span>
+                  )}
+                </div>
+                {attendee.displayName && (
+                  <div className="truncate text-[11px] text-muted-foreground/60">
+                    {attendee.email}
+                    {localTimeLabel ? (
+                      <span className="ms-1.5 text-muted-foreground/50">
+                        · {localTimeLabel}
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+                {!attendee.displayName && localTimeLabel ? (
+                  <div className="truncate text-[11px] text-muted-foreground/50">
+                    {localTimeLabel}
+                  </div>
                 ) : null}
+                <div className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  {inlineRsvp
+                    ? t("eventForm.yourResponse", { status: statusLabel })
+                    : statusLabel}
+                </div>
+              </div>
+            </div>
+            {comment && (
+              <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
+                <IconMessageCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="min-w-0 break-words">{comment}</span>
               </div>
             )}
-            {!attendee.displayName && localTimeLabel ? (
-              <div className="truncate text-[11px] text-muted-foreground/50">
-                {localTimeLabel}
-              </div>
-            ) : null}
-            <div className="mt-0.5 text-[11px] text-muted-foreground/70">
-              {inlineRsvp
-                ? t("eventForm.yourResponse", { status: statusLabel })
-                : statusLabel}
-            </div>
-          </div>
-          {showMenu && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
-                  aria-label={t("attendees.guestOptions", {
-                    email: attendee.email,
-                  })}
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  <IconDots className="h-3.5 w-3.5" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
+          </AttendeeApolloPopover>
+        </div>
+        {showMenu && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="mt-0.5 h-7 w-7 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+                aria-label={t("attendees.guestOptions", {
+                  email: attendee.email,
+                })}
                 onClick={(event) => event.stopPropagation()}
               >
-                {showOptionalMenu && (
-                  <DropdownMenuItem
-                    onSelect={() =>
-                      onToggleOptional(attendee.email, !attendee.optional)
-                    }
-                  >
-                    {attendee.optional
-                      ? t("attendees.markRequired")
-                      : t("attendees.markOptional")}
-                  </DropdownMenuItem>
-                )}
-                {onSetTimezone && (
-                  <DropdownMenuItem
-                    onSelect={(event) => {
-                      event.preventDefault();
-                      setTimezonePickerOpen(true);
-                    }}
-                  >
-                    {t("attendees.setTimezone")}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
-        {comment && (
-          <div className="ml-10 mt-1 flex items-start gap-1.5 rounded-md bg-muted/40 px-2 py-1 text-[11px] leading-relaxed text-muted-foreground">
-            <IconMessageCircle className="mt-0.5 h-3 w-3 shrink-0" />
-            <span className="min-w-0 break-words">{comment}</span>
-          </div>
+                <IconDots className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {showOptionalMenu && (
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onToggleOptional(attendee.email, !attendee.optional)
+                  }
+                >
+                  {attendee.optional
+                    ? t("attendees.markRequired")
+                    : t("attendees.markOptional")}
+                </DropdownMenuItem>
+              )}
+              {onSetTimezone && (
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    setTimezonePickerOpen(true);
+                  }}
+                >
+                  {t("attendees.setTimezone")}
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
-      </AttendeeApolloPopover>
+      </div>
       {onSetTimezone && (
         <Popover open={timezonePickerOpen} onOpenChange={setTimezonePickerOpen}>
           <PopoverTrigger asChild>

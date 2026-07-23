@@ -13,7 +13,7 @@ componentes quando possível e uma camada suspensa quando precisar do produto pe
 Importar navegador UI de subcaminhos de cliente em foco:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -179,8 +179,10 @@ para o uso do conector, o fluxo de eventos normalizado e quando alcançá-lo
 
 ## Campo de bate-papo e compositor {#composer}
 
-Use `@agent-native/core/client/composer` quando precisar colocar o mesmo chat
-campo usado pela barra lateral dentro do UI personalizado.
+Use `@agent-native/core/client/composer` quando precisar do mesmo campo de chat
+usado pela barra lateral em uma UI personalizada. `@agent-native/toolkit/composer` fornece
+a implementação portátil e sem integração de Tiptap e UI; para serviços do framework, envolva-a com
+`ComposerRuntimeAdaptersProvider` e forneça os serviços. Core é a camada já conectada para anexos, menções, habilidades, voz e seleção de modelo.
 
 | API                               | Usar quando                                                                                                                                                                                     |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -476,10 +478,12 @@ ação para que UI e o agente compartilhem a mesma capacidade.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -494,3 +498,11 @@ export default defineAction({
 Use `sendToAgentChat({ background: true, openSidebar: false })` quando
 o trabalho precisa de ferramentas, estado, auditabilidade, orientação do usuário ou várias etapas
 raciocínio.
+
+## O que vem a seguir {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — monte `<AgentSidebar>` e `<AgentPanel>` com um passo a passo voltado ao tutorial
+- [**Native Chat UI**](/docs/native-chat-ui) — o contrato de resultado de ações por trás de widgets de dados e renderizadores personalizados
+- [**Actions**](/docs/actions) — `defineAction()`, esquemas e a superfície de ações chamada por esses componentes
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — detalhes dos hooks de colaboração e componentes de presença
+- [**Sharing**](/docs/sharing) — configuração de `<ShareButton>` e `<ShareDialog>` para recursos com proprietário

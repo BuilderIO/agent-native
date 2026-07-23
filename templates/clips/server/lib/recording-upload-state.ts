@@ -1,11 +1,20 @@
 import { getDbExec, isPostgres } from "@agent-native/core/db";
 
+const STALE_CHUNK_PRUNE_LIMIT = 100;
+const STALE_CHUNK_PRUNE_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_STALE_CHUNK_TTL_MS = 6 * 60 * 60 * 1000;
+const lastPruneByOwner = new Map<string, number>();
+
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 function chunkPrefix(recordingId: string): string {
   return `recording-chunks-${recordingId}-`;
+}
+
+function allChunksPrefix(): string {
+  return "recording-chunks-";
 }
 
 function likePrefix(prefix: string): string {
@@ -89,6 +98,17 @@ export async function listRecordingChunkKeys(
   return rows.map((row) => String(row.key));
 }
 
+export async function deleteRecordingChunks(
+  ownerEmail: string,
+  recordingId: string,
+): Promise<number> {
+  const result = await getDbExec().execute({
+    sql: `DELETE FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!'`,
+    args: [ownerEmail, likePrefix(chunkPrefix(recordingId))],
+  });
+  return result.rowsAffected ?? 0;
+}
+
 export async function sumRecordingChunkBytes(
   ownerEmail: string,
   recordingId: string,
@@ -101,4 +121,47 @@ export async function sumRecordingChunkBytes(
     args: [ownerEmail, likePrefix(chunkPrefix(recordingId))],
   });
   return numberFromRowValue(rows[0]?.bytes);
+}
+
+export async function pruneStaleRecordingChunks(
+  ownerEmail: string,
+  options: {
+    now?: number;
+    ttlMs?: number;
+    minIntervalMs?: number;
+  } = {},
+): Promise<number> {
+  const now = options.now ?? Date.now();
+  const minIntervalMs =
+    options.minIntervalMs ?? STALE_CHUNK_PRUNE_MIN_INTERVAL_MS;
+  const lastPrune = lastPruneByOwner.get(ownerEmail) ?? 0;
+  if (minIntervalMs > 0 && now - lastPrune < minIntervalMs) return 0;
+  lastPruneByOwner.set(ownerEmail, now);
+
+  const ttlMs = options.ttlMs ?? DEFAULT_STALE_CHUNK_TTL_MS;
+  const cutoff = new Date(now - ttlMs).toISOString();
+  const createdAtExpression = isPostgres()
+    ? `value::jsonb ->> 'createdAt'`
+    : `json_extract(value, '$.createdAt')`;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT key FROM application_state WHERE session_id = ? AND key LIKE ? ESCAPE '!' AND ${createdAtExpression} IS NOT NULL AND ${createdAtExpression} < ? LIMIT ?`,
+    args: [
+      ownerEmail,
+      likePrefix(allChunksPrefix()),
+      cutoff,
+      STALE_CHUNK_PRUNE_LIMIT,
+    ],
+  });
+
+  let purged = 0;
+  for (const row of rows) {
+    const key = String(row.key ?? "");
+    if (!key) continue;
+    const result = await getDbExec().execute({
+      sql: `DELETE FROM application_state WHERE session_id = ? AND key = ?`,
+      args: [ownerEmail, key],
+    });
+    purged += result.rowsAffected ?? 0;
+  }
+  return purged;
 }

@@ -11,7 +11,7 @@ vi.mock("../agent-chat.js", () => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("../composer/PromptComposer.js", () => ({
+vi.mock("../composer/index.js", () => ({
   PromptComposer: ({ placeholder }: { placeholder: string }) => (
     <textarea aria-label={placeholder} placeholder={placeholder} />
   ),
@@ -185,6 +185,16 @@ describe("ExtensionsSidebarSection", () => {
     expect(popover?.className).toContain("relative");
     expect(popover?.className).toContain("z-[360]");
     expect(popover?.className).toContain("w-[min(420px,calc(100vw-16px))]");
+    expect(popover?.className).toContain("px-2");
+    expect(popover?.className).toContain("pb-2");
     expect(popover?.dataset.collisionPadding).toBe("8");
+
+    const docsLink = popover?.querySelector(
+      'a[href="https://agent-native.com/docs/extensions"]',
+    ) as HTMLAnchorElement | null;
+    expect(docsLink).not.toBeNull();
+    expect(docsLink?.getAttribute("aria-label")).toBe("Learn more");
+    expect(docsLink?.target).toBe("_blank");
+    expect(docsLink?.rel).toContain("noopener");
   });
 });

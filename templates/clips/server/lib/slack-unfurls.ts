@@ -28,6 +28,7 @@ type SlackUnfurlRecording = {
   id: string;
   title: string;
   description: string;
+  durationMs: number;
   thumbnailUrl: string | null;
   animatedThumbnailUrl: string | null;
   visibility: string | null;
@@ -205,6 +206,19 @@ function isExpired(value: string | null): boolean {
   return Number.isFinite(expires) && expires < Date.now();
 }
 
+function formatSlackDuration(durationMs: number): string | null {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${minutes.toString().padStart(2, "0")}:${seconds
+        .toString()
+        .padStart(2, "0")}`
+    : `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
 export function isSlackPlayableRecording(
   recording: SlackUnfurlRecording,
 ): boolean {
@@ -236,7 +250,11 @@ export function buildSlackVideoBlock(options: {
     origin,
   ).toString();
   const title = displayRecordingTitle(recording.title);
-  const description = clipsShareDescription(recording);
+  const shareDescription = clipsShareDescription(recording);
+  const duration = formatSlackDuration(recording.durationMs);
+  const description = duration
+    ? `${duration} · ${shareDescription}`
+    : shareDescription;
   const thumbnailUrl = absoluteUrl(
     recording.thumbnailUrl || recording.animatedThumbnailUrl,
     origin,
@@ -265,6 +283,7 @@ export async function loadSlackVideoBlockForUrl(
       id: schema.recordings.id,
       title: schema.recordings.title,
       description: schema.recordings.description,
+      durationMs: schema.recordings.durationMs,
       thumbnailUrl: schema.recordings.thumbnailUrl,
       animatedThumbnailUrl: schema.recordings.animatedThumbnailUrl,
       visibility: schema.recordings.visibility,

@@ -33,10 +33,11 @@ export function createDatabaseView(
   values: Partial<Omit<ContentDatabaseView, "id" | "name" | "type">> = {},
   type: ContentDatabaseViewType = "table",
 ): ContentDatabaseView {
+  const normalizedType = type === "sidebar" ? "table" : type;
   return {
     id,
-    name: name.trim() || databaseViewDefaultName(type),
-    type,
+    name: name.trim() || databaseViewDefaultName(normalizedType),
+    type: normalizedType,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeClientDatabaseFilterMode(values.filterMode),
@@ -52,6 +53,7 @@ export function createDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeClientDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeClientDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeClientDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -206,6 +208,7 @@ export function duplicateDatabaseView(
       wrapCells: view.wrapCells,
       rowDensity: view.rowDensity,
       openPagesIn: view.openPagesIn,
+      formQuestions: view.formQuestions,
     },
     view.type,
   );
@@ -291,16 +294,23 @@ function normalizeClientDatabaseView(
   value: Partial<ContentDatabaseView> | null | undefined,
 ) {
   if (!value || typeof value.id !== "string" || !value.id.trim()) return null;
+  const retiredSidebar = value.type === "sidebar";
   const type =
     value.type === "board" ||
     value.type === "list" ||
     value.type === "gallery" ||
     value.type === "calendar" ||
-    value.type === "timeline"
+    value.type === "timeline" ||
+    value.type === "form" ||
+    value.type === "sidebar"
       ? value.type
       : "table";
   return createDatabaseView(
-    typeof value.name === "string" ? value.name : databaseViewDefaultName(type),
+    typeof value.name === "string"
+      ? retiredSidebar && value.name.trim() === "Sidebar"
+        ? "Table"
+        : value.name
+      : databaseViewDefaultName(type),
     value.id,
     {
       sorts: Array.isArray(value.sorts)
@@ -331,9 +341,33 @@ function normalizeClientDatabaseView(
       wrapCells: value.wrapCells === true,
       rowDensity: normalizeClientDatabaseRowDensity(value.rowDensity),
       openPagesIn: normalizeClientDatabaseOpenPagesIn(value.openPagesIn),
+      formQuestions: normalizeClientDatabaseFormQuestions(value.formQuestions),
     },
     type,
   );
+}
+
+export function normalizeClientDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as {
+      key?: unknown;
+      enabled?: unknown;
+      required?: unknown;
+    };
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeClientCalculations(value: unknown) {
@@ -432,6 +466,8 @@ export function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "gallery") return "Gallery";
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
+  if (type === "form") return "Form";
+  if (type === "sidebar") return "Sidebar";
   return "Table";
 }
 

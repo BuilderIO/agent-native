@@ -6,6 +6,35 @@ search: "التطبيق الكامل للدردشة الغنية للوكيل م
 
 # أسطح الوكيل
 
+## مساحة عمل Agent الكاملة {#agent-page}
+
+عندما يحتاج التطبيق الكامل إلى مكان دائم لفحص وكيله وتهيئته، اربط
+`AgentTabsPage` بالمسار `/agent`. أضف المسار إلى تنقل التطبيق ومرر
+`agentPageHref="/agent"` إلى `AgentSidebar` كي تصل وضعيّتا Resources وSettings
+إلى الصفحة الكاملة من دون تكرار التدفقات.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client/agent-chat";
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+تحتوي الصفحة المشتركة حاليًا على خمس علامات تبويب:
+
+- **Context** — معاينة النطاق، وميزانية الرموز، وأقسام النظام المرتبة مع مصدرها وحوكمتها، وعرض القائمة أو الخريطة، وأحدث لقطة للمحادثة الحية.
+- **Files** — يعيد استخدام `ResourcesPanel` للموارد الشخصية أو الخاصة بالمؤسسة.
+- **Connections** — إدارة خوادم MCP وقائمة الوكلاء البعيدين عبر A2A؛ أي ما يستطيع وكيل التطبيق استدعاءه.
+- **Jobs** — الوظائف المتكررة والأتمتة مع تدفقات الإيقاف والاستئناف والتفاصيل والحذف الموجودة. الأتمتة شخصية اليوم.
+- **Access** — عنوان MCP وبطاقة وكيل A2A عند توفرها وتعليمات إعداد العملاء الخارجيين؛ ويربط بالمسار `/mcp/connect` للتدفق الكامل والرمز الاحتياطي.
+
+يحدد مفتاح **Personal / Organization** نطاق علامات التبويب. يمكن للأعضاء فحص
+بيانات المؤسسة، بينما تظل إدارة المؤسسة مقصورة على المالكين/المسؤولين حيث يفرض
+المكوّن المستضاف هذا الحد. الهدف هو جعل
+السياق قابلًا للفحص ونسبته وحوكمته، مع فصل القدرة عما يتعلق بالوصول. الصفحة
+غلاف رقيق للمكونات والإجراءات وفحوصات الوصول الموجودة، وليست لوحة إدارة جديدة.
+ولا توفر حاليًا واجهة لإدارة المنح أو النطاقات أو الإلغاء، ولا سجل مصدر لكل تكرار.
+
 Agent-Native قابل للتأليف بشكل متعمد. يمكنك استخدام الوكيل بدون الكثير من UI،
 استخدم UI بدون وقت تشغيل الوكيل المضمن، أو استخدمهما معًا بشكل كامل
 التطبيق.
@@ -139,8 +168,7 @@ pnpm install
 
 ثم حدد العملية الدائمة:
 
-```ts
-// actions/summarize-week.ts
+```ts filename="actions/summarize-week.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -381,8 +409,7 @@ export default createAgentNativeEmbeddedPlugin({
 يقوم الجانب React بتمرير سياق الصفحة وأوامر المضيف:
 
 ```tsx
-import { AgentNativeEmbedded } from "@agent-native/core/client";
-
+import { AgentNativeEmbedded } from "@agent-native/core/client/host";
 export function AppShell({ children }) {
   return (
     <AgentNativeEmbedded
@@ -494,12 +521,11 @@ export function AppShell({ children }) {
 نتائج الأدوات عندما تحتاج الدردشة إلى UI، وإضافة شاشات كاملة فقط عند المستخدمين
 تحتاج إلى تصفح الكائنات الثابتة أو مقارنتها أو تكوينها أو التعاون عليها.
 
-## المستندات ذات الصلة {#related-docs}
+## الخطوات التالية {#related-docs}
 
-- [Actions](/docs/actions) — حدد عملية مقطوعة الرأس مرة واحدة.
-- [Native واجهة الدردشة](/docs/native-chat-ui) — عرض نتائج الإجراءات المكتوبة في الدردشة.
-- [Drop-in Agent](/docs/drop-in-agent) — قم بتثبيت الدردشة أو الشريط الجانبي أو أسطح اللوحات.
-- [Component API](/docs/components) — مقطوعات الدردشة/الملحن React ذات المستوى الأدنى.
-- [Embedding SDK](/docs/embedding-sdk) — أضف Agent-Native إلى تطبيق موجود.
-- [External Agents](/docs/external-agents) — توصيل الأجهزة المضيفة المتوافقة مع MCP بأحد التطبيقات.
-- [A2A Protocol](/docs/a2a-protocol) — استدعاء الوكلاء من الوكلاء الآخرين.
+- [**Actions**](/docs/actions) — عرّف العملية مرة واحدة؛ كل سطح أعلاه يستدعي العملية نفسها
+- [**Native Chat UI**](/docs/native-chat-ui) — اعرض نتائج actions كجداول ومخططات وبطاقات في الدردشة
+- [**Generative UI**](/docs/generative-ui) — أنشئ واجهة مستخدم مؤقتة أو دائمة ضمن بيئة معزولة داخل الدردشة
+- [**Automation-First Apps**](/docs/pure-agent-apps) — النمط الكامل دون متصفح للوظائف وقوائم الانتظار والبرامج النصية والوكلاء الخارجيين
+- [**External Agents**](/docs/external-agents) — صِل المضيفين المتوافقين مع MCP بتطبيق
+- [**A2A Protocol**](/docs/a2a-protocol) — استدعِ الوكلاء من تطبيقات Agent-Native أخرى

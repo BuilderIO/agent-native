@@ -7,8 +7,17 @@ state.
 Detailed deck, slide-editing, image, design-system, and export workflows live in
 `.agents/skills/`.
 
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Use
+`customizing-agent-native` for the configure → compose → eject → propose seam
+ladder.
+
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for deck lifecycle, slide edits, imports, exports, images, design
   systems, and sharing. Do not write deck/slide rows directly.
@@ -36,6 +45,19 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - Use image-generation and image-selection actions only when the deck genuinely
   needs imagery; keep citations/asset provenance when available.
 - Use framework sharing actions for deck visibility and grants.
+- For a known, read-only sibling-app operation, use `call-agent` with `action`
+  and `input` (or `invokeAgentAction`) instead of starting the sibling agent's
+  model loop. In Analytics, use `gong-native-insights` for provider-synthesized
+  briefs and `gong-calls` for quotes, counts, transcripts, and coverage claims.
+- Before generation, follow the creative-context reuse ladder in
+  `.agents/skills/creative-context/SKILL.md`: explicit request and current deck
+  first, then a pinned/current pack, then narrow library search. Respect
+  `creative-context.contextMode: "off"` without silently restoring a pack.
+- To submit a deck to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it captures one immutable deck version. Reuse
+  only a returned opaque native clone reference through the Slides clone action.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 
 ## Persistence Model
 
@@ -80,3 +102,5 @@ Read the relevant skill before deeper work:
 - `deck-management` for organization, sharing, import/export, and metadata.
 - `slide-images` and `image-generation-via-a2a` for image work.
 - `design-systems`, `frontend-design`, `shadcn-ui`, and `actions` as needed.
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.

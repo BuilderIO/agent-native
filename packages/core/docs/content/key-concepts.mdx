@@ -11,11 +11,9 @@ How agent-native apps work under the hood — the principles and the architectur
 
 Every agent-native app is three things working together:
 
-> **Agent** — Autonomous AI that reads data, writes data, runs actions, and modifies code. Customizable with skills and instructions.
->
-> **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
->
-> **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
+- **Agent** — Autonomous AI that reads data, writes data, runs actions, and modifies code. Customizable with skills and instructions.
+- **Application** — The product surface around the agent. This may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
+- **Computer** — Database, browser, code execution. Agents work directly with SQL and built-in tools; MCP servers are optional add-ons, not the foundation.
 
 <Diagram id="doc-block-t1f7pj" title="Agent, application, and computer" summary="Three layers working together over one shared SQL store. The agent and the application both read and write the same data.">
 
@@ -258,8 +256,7 @@ The UI never calls an LLM directly. When a user clicks "Generate chart" or "Writ
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -278,8 +275,7 @@ Why not call an LLM inline?
 
 When the agent needs to do something complex — call an API, process data, query the database — it runs an **action**. Actions are TypeScript files in `actions/` that export a default `defineAction()`:
 
-```ts
-// actions/fetch-data.ts
+```ts filename="actions/fetch-data.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -311,8 +307,7 @@ Database changes are synced to the UI through `useDbSync()`. Same-process writes
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -379,9 +374,8 @@ A _frame_ is the environment that hosts the agent next to your app — locally t
 
 Agent-native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
 
-> **Embedded Agent Panel** — Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
->
-> **Cloud** — Deploy to any cloud with real-time collaboration, visual editing, roles and permissions. Best for teams.
+- **Embedded Agent Panel** — Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally. Free and open source.
+- **Cloud** — Deploy to any cloud with real-time collaboration, visual editing, roles and permissions. Best for teams.
 
 ## Context awareness {#context-awareness}
 
@@ -422,9 +416,9 @@ Two architectural rules keep apps portable across databases and hosts:
 - **Database-agnostic.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's portable query DSL so the same code runs on any supported provider. Use raw SQL only for additive migrations or one-off maintenance, kept parameterized and dialect-agnostic. See [Database](/docs/database).
 - **Hosting-agnostic.** The server runs on Nitro and compiles to any deployment target. Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes or plugins, and never assume a persistent server process — serverless and edge are stateless, so keep all state in SQL. See [Deployment](/docs/deployment).
 
-## Workspace {#workspace}
+## Agent Resources {#workspace}
 
-Every user gets a personal **workspace** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Workspace](/docs/workspace).
+Every user gets a personal set of **agent resources** — instructions, skills, memory, custom sub-agents, scheduled jobs, and connected MCP servers — all stored in SQL rather than files. That makes Claude-Code-level customization viable inside multi-tenant SaaS without spinning up a container per user. See [Agent Resources](/docs/agent-resources).
 
 ## Related building blocks {#building-blocks}
 
@@ -439,8 +433,8 @@ These sit on top of the same contract and have their own deep dives:
 Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the six rules, you inherit:
 
 - **One action = every surface.** Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation.
-- **A full workspace per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Workspace](/docs/workspace).
-- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + workspace anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
+- **A full set of agent resources per user.** Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, connected MCP servers — all SQL-backed, no dev-box required. See [Agent Resources](/docs/agent-resources).
+- **Drop-in React components.** `<AgentPanel />` and `<AgentSidebar />` render chat + resources anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).
 - **BYO agent chat runtimes.** The same chat UI can sit on top of OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, or your own normalized HTTP stream. See [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).
 - **Live sync between agent and UI.** Same-process writes stream immediately over `/_agent-native/events`; a lightweight poll keeps serverless, cron, and cross-process writes convergent. Mutating actions invalidate action-backed queries automatically, so agent-created records appear without a manual refresh. See [Live Sync](#polling-sync) below.
 - **Auth, orgs, RBAC.** Better Auth with orgs/members/roles is wired in for every template. See [Authentication](/docs/authentication).
@@ -452,14 +446,11 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 
 That's the "and everything else" you'd otherwise be gluing together yourself.
 
-## Deep dives {#deep-dives}
+## What's next {#deep-dives}
 
-For detailed guidance on specific patterns:
-
-- [What Is Agent-Native?](/docs/what-is-agent-native) — the vision and philosophy
-- [Context Awareness](/docs/context-awareness) — navigation state, view-screen, navigate commands
-- [Skills Guide](/docs/skills-guide) — framework skills, domain skills, creating custom skills
-- [Native Chat UI](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
-- [Agent Surfaces](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths
-- [A2A Protocol](/docs/a2a-protocol) — agent-to-agent communication
-- [Multi-App Workspace](/docs/multi-app-workspace) — host many apps in one monorepo with shared auth, skills, components, and credentials
+- [**What Is Agent-Native?**](/docs/what-is-agent-native) — the vision and philosophy behind these rules
+- [**Context Awareness**](/docs/context-awareness) — navigation state, view-screen, and navigate commands in depth
+- [**Skills Guide**](/docs/skills-guide) — framework skills, domain skills, and creating custom skills
+- [**Native Chat UI**](/docs/native-chat-ui) — action-declared tables, charts, and BYO runtime posture
+- [**Agent Surfaces**](/docs/agent-surfaces) — chat, native inline UI, full app pages, embedded sidecar, automation, and external-agent paths
+- [**A2A Protocol**](/docs/a2a-protocol) — agent-to-agent communication

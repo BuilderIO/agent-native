@@ -680,8 +680,19 @@ export function stripBoardSurfaceOffsetFromCoord(value: number): number {
  * coordinate space. This is the pure seam used by
  * `handleOverviewPrimitiveReparent` (DesignEditor.tsx).
  *
- * Both inputs are normalized with `stripBoardSurfaceOffsetFromCoord` first:
- * a source that was persisted in board-iframe viewport coordinates
+ * The flat subtraction below is only correct when both `source` and `target`
+ * are already expressed in the SAME coordinate space — historically that
+ * meant "both are direct children of the screen root", because callers used
+ * to read a node's own inline left/top verbatim (parent-relative, not
+ * root-relative). DesignEditor.tsx's `getAbsolutePositioningForNodeInHtml`
+ * now resolves both inputs with an ancestor walk
+ * (`authoredElementPosition`) up to the screen root before calling this, so
+ * the subtraction is valid regardless of how deeply either node is nested —
+ * dropping a node into a container that's itself nested inside another frame
+ * no longer produces a garbage delta.
+ *
+ * Both inputs are also normalized with `stripBoardSurfaceOffsetFromCoord`
+ * first: a source that was persisted in board-iframe viewport coordinates
  * (boardCoord + 65536 — see BOARD_SURFACE_CONTENT_OFFSET_PX) is rebased to
  * board space before subtracting the target's origin, so the child's new
  * left/top always comes out parent-relative regardless of which upstream

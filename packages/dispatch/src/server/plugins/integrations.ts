@@ -4,7 +4,7 @@ import { dispatchActions } from "../../actions/index.js";
 import { getDispatchConfig } from "../index.js";
 import {
   beforeDispatchProcess,
-  resolveDispatchOwner,
+  resolveDispatchExecutionContext,
 } from "../lib/dispatch-integrations.js";
 
 const dispatchIntegrationActions = {
@@ -24,7 +24,8 @@ Default posture:
 - Treat Slack, Telegram, and email as shared entrypoints into the workspace.
 - Heavily delegate domain work to specialized agents through A2A (call-agent) when another app owns the job. Apps you can delegate to include slides (decks/presentations), analytics (data/dashboards), content (docs/articles), forms (form builder), clips (screen recordings), design (visual designs), and assets (brand libraries plus generated images/videos).
 - Use the available-apps prompt context first, then list-connected-agents when you need fresh details, to see what agents are available before assuming a request must be handled locally.
-- When asked whether workspace apps expose agent cards or A2A endpoints, call list-workspace-apps with includeAgentCards=true. Without that probe, missing agent-card fields mean unchecked, not unavailable.
+- Hosted/connected A2A neighbors such as Analytics and Content come from the available-apps context or list-connected-agents. list-workspace-apps only inventories apps mounted inside this workspace deployment; never use a missing row there to conclude that a connected agent is unavailable.
+- When asked whether a mounted workspace app exposes an agent card or A2A endpoint, call list-workspace-apps with includeAgentCards=true. Without that probe, missing agent-card fields mean unchecked, not unavailable.
 - Treat first-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch as existing hosted/connected neighbors available through links and A2A/default connected agents. Do not create wrapper apps, child apps, nested routes, or cloned template copies just to give a new app access to them; build only the genuinely new workflow and delegate cross-app work to those existing apps.
 - Integration grants are not provider capability limits. For ad hoc provider inspection, querying, reporting, or troubleshooting, call provider-api-catalog/provider-api-docs, then provider-api-request against the provider's real HTTP API. Use connectionId for a specific shared grant and accountId for a specific OAuth account. Never expose secret values or silently widen app access while doing this.
 - Keep durable memory and operating instructions in resources rather than ephemeral chat.
@@ -32,6 +33,9 @@ Default posture:
 
 When a user asks for something:
 - If it belongs to analytics, content, slides, clips, assets, etc., delegate via call-agent — do not re-implement the domain logic in dispatch.
+- Synthetic uptime, health-check, and URL-availability monitors belong to Analytics, even when the monitored target is another app such as Clips. Delegate creation to Analytics and relay its exact monitor URL. Dispatch-native recurring jobs are for reminders, digests, and agent workflows, not HTTP uptime probes.
+- Route by the requested artifact type, not by organization-specific names stored in code. For structured records, databases, tables, queues, boards, and intake forms, resolve the owning app and canonical destination from loaded workspace instructions/resources plus discovered app capabilities; do not assume Content, a database ID, schema, owner, or required fields. Visual designs, mockups, wireframes, screens, and interfaces belong to Design. A trusted Required target agent hint in integration context is authoritative.
+- When delegating structured intake to the resolved owning app, preserve the exact Source thread URL and the workspace instruction context, inspect the destination's current required fields, ask only for missing values, submit once, verify the saved record, and return the exact link.
 - In messaging integrations, use call-agent for cross-app delegation; do not use ask_app.
 - After call-agent returns an answer, RELAY IT DIRECTLY to the user with at most a one-line preface — do not rephrase, summarize, or add commentary. The downstream agent already crafted the answer; your job is delivery, not editing. This minimizes round-trips and keeps the user-visible reply fast.
 - Exception: if the downstream agent reports a missing model/provider credential, do not name exact env vars, Vault keys, tokens, or secrets. Say the target app needs an LLM connection and recommend connecting Builder/managed LLM for that app; keep bring-your-own provider keys as a secondary option only if the user asks.
@@ -62,7 +66,7 @@ const dispatchIntegrationsPlugin = async (nitroApp: any) => {
   const plugin = createIntegrationsPlugin({
     appId: "dispatch",
     actions: dispatchIntegrationActions,
-    resolveOwner: resolveDispatchOwner,
+    resolveExecutionContext: resolveDispatchExecutionContext,
     beforeProcess: beforeDispatchProcess,
     systemPrompt,
     // Inherit the framework default (claude-sonnet-4-6 from

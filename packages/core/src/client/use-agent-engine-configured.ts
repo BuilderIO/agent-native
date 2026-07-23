@@ -6,7 +6,11 @@ import { agentNativePath } from "./api-path.js";
 const PROVIDER_ENV_VAR_SET = new Set(PROVIDER_ENV_VARS);
 
 /** `unknown` until the first check resolves, so callers don't flash the gate. */
-export type AgentEngineConfiguredState = "unknown" | "configured" | "missing";
+export type AgentEngineConfiguredState =
+  | "unknown"
+  | "configured"
+  | "missing"
+  | "unavailable";
 
 export interface UseAgentEngineConfiguredResult {
   /** True once we know nothing can run the agent (no key / Builder / BYOK). */
@@ -107,11 +111,10 @@ export async function fetchAgentEngineConfiguredState(
     fetchStatusJson("/_agent-native/agent-engine/status", timeoutMs),
   ]);
 
-  // All three failed — likely a flaky network; keep the caller in unknown.
-  // Even an explicit missing-key stream event should not pin the composer into
-  // setup without a fresh authoritative status response.
+  // All three failed — surface a retryable unavailable state instead of
+  // leaving the composer in an infinite checking loop.
   if (envKeys == null && builderStatus == null && engineStatus == null) {
-    return "unknown";
+    return "unavailable";
   }
 
   const envKeysKnown = Array.isArray(envKeys);
@@ -129,9 +132,15 @@ export async function fetchAgentEngineConfiguredState(
     (builderStatusKnown && builderStatus.configured) ||
     (engineStatusKnown && engineStatus.configured);
   if (anyConfigured) return "configured";
-  return envKeysKnown && builderStatusKnown && engineStatusKnown
-    ? "missing"
-    : "unknown";
+
+  // The engine status route is the canonical readiness check: it resolves
+  // Builder, scoped BYOK secrets, deployment credentials, and custom engines.
+  // Once it has answered `configured: false`, a slow legacy env/Builder status
+  // request must not leave the composer permissively stuck in `unknown`.
+  if (engineStatusKnown) return "missing";
+
+  // Compatibility fallback for older hosts without the canonical route.
+  return envKeysKnown && builderStatusKnown ? "missing" : "unavailable";
 }
 
 /**
@@ -139,7 +148,8 @@ export async function fetchAgentEngineConfiguredState(
  * composer and app prompt boxes. Checks the env-key / Builder / BYOK status
  * endpoints on mount, re-checks on `agent-engine:configured-changed`, and folds
  * in the adapter's `agent-chat:missing-api-key` signal. Pass `enabled = false`
- * to short-circuit to configured; flaky requests stay `unknown`.
+ * to short-circuit to configured; unavailable checks can be retried by firing
+ * `agent-engine:configured-changed`.
  */
 export function useAgentEngineConfigured(
   enabled = true,
@@ -158,10 +168,7 @@ export function useAgentEngineConfigured(
       const seq = ++requestSeq;
       const nextState = await fetchAgentEngineConfiguredState(enabled, options);
       if (cancelled || seq !== requestSeq) return;
-      if (nextState === "unknown") {
-        return;
-      }
-      setState(nextState);
+      setState(nextState === "unknown" ? "unavailable" : nextState);
     };
     const onConfiguredChanged = () => {
       void check();

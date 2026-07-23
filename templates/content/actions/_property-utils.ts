@@ -42,6 +42,10 @@ import {
   type DocumentPropertyValue,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import {
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
@@ -147,11 +151,16 @@ export async function getDatabaseById(
   return database ?? null;
 }
 
-export function serializeDatabase(database: ContentDatabaseRow) {
+export function serializeDatabase(
+  database: ContentDatabaseRow,
+  description = "",
+) {
   return {
     id: database.id,
     documentId: database.documentId,
     title: database.title,
+    systemRole: database.systemRole,
+    description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,
     updatedAt: database.updatedAt,
@@ -176,8 +185,10 @@ export function serializeDatabaseViewConfig(
   return JSON.stringify(normalizeDatabaseViewConfig(value));
 }
 
-function defaultDatabaseViewConfig(): ContentDatabaseViewConfig {
-  const view = defaultDatabaseView();
+export function defaultDatabaseViewConfig(
+  type: ContentDatabaseView["type"] = "table",
+): ContentDatabaseViewConfig {
+  const view = defaultDatabaseView({}, type);
   return {
     activeViewId: view.id,
     views: [view],
@@ -248,8 +259,10 @@ function defaultDatabaseView(
               ? "Calendar"
               : type === "timeline"
                 ? "Timeline"
-                : "Table",
-    type,
+                : type === "form"
+                  ? "Form"
+                  : "Table",
+    type: type === "sidebar" ? "table" : type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
     filterMode: normalizeDatabaseFilterMode(values.filterMode),
@@ -265,6 +278,7 @@ function defaultDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -272,19 +286,23 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
   if (!value || typeof value !== "object") return null;
   const view = value as Partial<ContentDatabaseView>;
   if (typeof view.id !== "string" || !view.id.trim()) return null;
+  const retiredSidebar = view.type === "sidebar";
   const type =
     view.type === "board" ||
     view.type === "list" ||
     view.type === "gallery" ||
     view.type === "calendar" ||
-    view.type === "timeline"
+    view.type === "timeline" ||
+    view.type === "form"
       ? view.type
       : "table";
   return {
     id: view.id,
     name:
       typeof view.name === "string" && view.name.trim()
-        ? view.name.trim()
+        ? retiredSidebar && view.name.trim() === "Sidebar"
+          ? "Table"
+          : view.name.trim()
         : defaultDatabaseView({}, type).name,
     type,
     sorts: Array.isArray(view.sorts) ? view.sorts.filter(isDatabaseSort) : [],
@@ -313,7 +331,31 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     wrapCells: view.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
+    formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
   };
+}
+
+function normalizeDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as {
+      key?: unknown;
+      enabled?: unknown;
+      required?: unknown;
+    };
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeDatabaseFilterMode(
@@ -466,8 +508,12 @@ export async function listPropertiesForDatabase(
       definition: {
         id: definition.id,
         databaseId: definition.databaseId,
+        systemRole: definition.systemRole as
+          | import("../shared/api.js").DocumentPropertySystemRole
+          | null,
         name: definition.name,
         type,
+        description: definition.description,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,
@@ -488,7 +534,7 @@ export async function listPropertiesForDatabase(
                 blockFieldContent: blockContentByPropertyId.get(definition.id),
               })
             : parsePropertyValue(storedValue?.valueJson),
-      editable: !isComputedPropertyType(type),
+      editable: !definition.systemRole && !isComputedPropertyType(type),
     };
   });
 
@@ -534,8 +580,12 @@ function serializePropertyDefinition(
   return {
     id: definition.id,
     databaseId: definition.databaseId,
+    systemRole: definition.systemRole as
+      | import("../shared/api.js").DocumentPropertySystemRole
+      | null,
     name: definition.name,
     type,
+    description: definition.description,
     visibility: normalizePropertyVisibility(definition.visibility),
     options: parsePropertyOptions(definition.optionsJson),
     position: definition.position,
@@ -657,7 +707,9 @@ export async function listPropertiesForDatabaseDocuments(
                   ),
                 })
               : parsePropertyValue(storedValue?.valueJson),
-        editable: !isComputedPropertyType(propertyDefinition.type),
+        editable:
+          !definition.systemRole &&
+          !isComputedPropertyType(propertyDefinition.type),
       };
     });
 
@@ -1088,27 +1140,34 @@ export async function seedDefaultBlocksField(args: {
   if (database.primaryId) return database.primaryId;
   if (database.blocksSeeded === 1) return null;
 
-  const [maxPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
+  await withPositionLock(
+    propertyDefinitionsPositionScope(args.databaseId),
+    async () => {
+      const [maxPos] = await db
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
+        );
 
-  await db
-    .insert(schema.documentPropertyDefinitions)
-    .values({
-      id,
-      ownerEmail: args.ownerEmail,
-      orgId: args.orgId,
-      databaseId: args.databaseId,
-      name: DEFAULT_BLOCKS_FIELD_NAME,
-      type: "blocks",
-      visibility: "always_show",
-      optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
-      position: (maxPos?.max ?? -1) + 1,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })
-    .onConflictDoNothing();
+      await db
+        .insert(schema.documentPropertyDefinitions)
+        .values({
+          id,
+          ownerEmail: args.ownerEmail,
+          orgId: args.orgId,
+          databaseId: args.databaseId,
+          name: DEFAULT_BLOCKS_FIELD_NAME,
+          type: "blocks",
+          visibility: "always_show",
+          optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
+          position: (maxPos?.max ?? -1) + 1,
+          createdAt: args.now,
+          updatedAt: args.now,
+        })
+        .onConflictDoNothing();
+    },
+  );
 
   const claim = await db
     .update(schema.contentDatabases)

@@ -1,7 +1,7 @@
 [package]
 name = "clips-tray"
 version = "0.1.1"
-description = "Clips — menu-bar tray app (Tauri 2)"
+description = "Clips — cross-platform tray app (Tauri 2)"
 authors = ["Clips"]
 license = "MIT"
 edition = "2021"
@@ -34,6 +34,11 @@ tauri = { version = "2", features = [
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+# Registers the `clips://` custom URL scheme so a web "Open desktop app"
+# click can launch/focus the running tray app. macOS registration is baked
+# into Info.plist at build time from `plugins.deep-link` in tauri.conf.json;
+# Windows/Linux register at runtime via `register_all()`.
+tauri-plugin-deep-link = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2.5.1"
@@ -72,6 +77,11 @@ libc = "0.2"
 core-foundation = "0.10"
 core-graphics = "0.25"
 objc2 = { version = "0.6", features = ["exception"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSEvent",
+  "block2",
+] }
 # Grapheme-cluster-aware chunking for voice-dictation Unicode typing in
 # terminal apps, so a chunk boundary never splits a multi-scalar emoji/
 # combining-mark sequence across two synthetic keyboard events. Already
@@ -124,7 +134,12 @@ screencapturekit = { version = "2.0.0", features = ["macos_15_0"] }
 # AudioBufferList type so we can hand SCK's CMSampleBuffer audio bytes to
 # AVAudioPCMBuffer for the speech recognizer.
 objc2-core-audio-types = "0.3"
-whisper-rs = { version = "0.16.0" }
+# `metal` builds whisper.cpp's ggml-metal backend and links it in (the sys
+# crate's build script embeds the compiled metallib, so no app-bundle/runtime
+# asset changes are needed). Without it, whisper.cpp decode runs CPU-only.
+# `use_gpu` is still set explicitly per-arch in whisper_speech.rs so Intel
+# Macs don't exercise Metal even though the feature is compiled in.
+whisper-rs = { version = "0.16.0", features = ["metal"] }
 # NOTE: We hand-roll the few EventKit selectors we need via raw `objc2`
 # msg_send! in `eventkit.rs` rather than depending on the `objc2-event-kit`
 # crate. Its API surface drifts between minor 0.3.x releases (and not

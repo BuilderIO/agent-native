@@ -1,16 +1,4 @@
-/**
- * Public, unauthenticated uptime status page: `/status/<slug>`.
- *
- * SSR-first: the loader resolves the sanitized, PUBLISHED-only status view on
- * the server so crawlers and first-time visitors get real markup (framework
- * rule: public/SEO pages SSR real content). The client then lightly
- * auto-refreshes via the same `get-public-status-page` action (whitelisted in
- * server/plugins/auth.ts). Unknown or unpublished slugs render a branded 404.
- *
- * This route is rendered without the authenticated app chrome — see the
- * `/status/` public branch in app/root.tsx.
- */
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { data, useLoaderData, useParams } from "react-router";

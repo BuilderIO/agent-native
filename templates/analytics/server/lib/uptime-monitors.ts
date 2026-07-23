@@ -34,6 +34,7 @@ import {
   count,
   desc,
   eq,
+  gt,
   gte,
   isNull,
   lte,
@@ -42,6 +43,10 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+
+declare global {
+  var __AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__: boolean | undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,6 +106,8 @@ export interface MonitorInput {
   severity?: MonitorSeverity;
   channels?: string[];
   emailRecipients?: string[];
+  slackWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   cooldownMinutes?: number;
   enabled?: boolean;
 }
@@ -120,6 +127,8 @@ export interface Monitor {
   severity: MonitorSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   cooldownMinutes: number;
   enabled: boolean;
   lastStatus: MonitorStatus | null;
@@ -153,6 +162,52 @@ export interface MonitorCheckResult {
   latencyMs: number | null;
   error: string | null;
   failedAssertions: string[];
+  diagnostics: MonitorCheckDiagnostics;
+}
+
+export type MonitorCheckSource =
+  | "netlify-scheduled"
+  | "netlify-runtime"
+  | "in-process"
+  | "manual"
+  | "unknown";
+
+export interface MonitorCheckDiagnostics {
+  source: MonitorCheckSource;
+  runtime: {
+    nodeEnv?: string;
+    netlify?: boolean;
+    deployId?: string;
+    deployContext?: string;
+    commitRef?: string;
+    functionName?: string;
+    region?: string;
+  };
+  request: {
+    method: MonitorMethod;
+    timeoutMs: number;
+    followRedirects: boolean;
+    assertionTypes: AssertionType[];
+    bodyReadRequired: boolean;
+    allowPrivateHosts: boolean;
+  };
+  timings: {
+    totalMs?: number;
+    ssrfSetupMs?: number;
+    requestMs?: number;
+    bodyReadMs?: number;
+  };
+  response?: {
+    finalUrl?: string;
+    finalHost?: string;
+    statusCode?: number;
+    headers?: Record<string, string>;
+  };
+  error?: {
+    kind: "config" | "timeout" | "network" | "body-timeout";
+    name?: string;
+    message: string;
+  };
 }
 
 export interface MonitorIncident {
@@ -165,6 +220,7 @@ export interface MonitorIncident {
   cause: string;
   lastError: string | null;
   notificationId: string | null;
+  notificationDelivered: boolean;
   checksFailed: number;
   createdAt: string;
 }
@@ -178,6 +234,7 @@ export interface CheckOutcome {
   latencyMs: number | null;
   error: string | null;
   failedAssertions: string[];
+  diagnostics: MonitorCheckDiagnostics;
 }
 
 export interface AssertionFailure {
@@ -199,6 +256,7 @@ const MAX_REDIRECT_HOPS = 5;
 const MONITOR_RUNNING_STALE_MS = 5 * 60 * 1000;
 const DEFAULT_RESULT_RETENTION_DAYS = 30;
 const DEFAULT_MONITOR_LIMIT_PER_OWNER = 100;
+export const DEFAULT_MONITOR_TIMEOUT_MS = 10_000;
 const MAX_REQUEST_HEADER_COUNT = 20;
 const MAX_REQUEST_HEADER_NAME_LENGTH = 128;
 const MAX_REQUEST_HEADER_VALUE_BYTES = 2048;
@@ -206,11 +264,13 @@ const MAX_REQUEST_BODY_BYTES = 16 * 1024;
 const MAX_ASSERTIONS_PER_MONITOR = 20;
 const MAX_ASSERTION_VALUE_BYTES = 2048;
 const MAX_ASSERTION_HEADER_LENGTH = 128;
+const MAX_MONITOR_DIAGNOSTICS_BYTES = 4096;
 
 const MIN_INTERVAL_SECONDS = 30;
 const MAX_INTERVAL_SECONDS = 24 * 60 * 60;
 const MIN_TIMEOUT_MS = 1000;
 const MAX_TIMEOUT_MS = 120_000;
+const DEFAULT_TRANSIENT_FAILURE_CONFIRMATION_CHECKS = 2;
 
 const ASSERTION_TYPES: AssertionType[] = [
   "body_contains",
@@ -226,6 +286,152 @@ const ASSERTION_TYPES: AssertionType[] = [
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function detectMonitorCheckSource(): MonitorCheckSource {
+  if (globalThis.__AGENT_NATIVE_UPTIME_MONITOR_SCHEDULED_RUNTIME__ === true) {
+    return "netlify-scheduled";
+  }
+  if (process.env.NETLIFY === "true") return "netlify-runtime";
+  if (process.env.NODE_ENV === "production") return "in-process";
+  return "unknown";
+}
+
+function monitorCheckRuntimeDiagnostics(): MonitorCheckDiagnostics["runtime"] {
+  return {
+    nodeEnv: process.env.NODE_ENV,
+    netlify: process.env.NETLIFY === "true" || undefined,
+    deployId: process.env.DEPLOY_ID,
+    deployContext: process.env.CONTEXT,
+    commitRef: process.env.COMMIT_REF,
+    functionName:
+      process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY_FUNCTION_NAME,
+    region: process.env.AWS_REGION,
+  };
+}
+
+function safeResponseHeaders(
+  headers: Record<string, string>,
+): Record<string, string> | undefined {
+  const picked: Record<string, string> = {};
+  for (const key of [
+    "server",
+    "x-nf-request-id",
+    "cache-status",
+    "cdn-cache-control",
+    "content-type",
+  ]) {
+    const value = headers[key];
+    if (value) picked[key] = value.slice(0, 300);
+  }
+  return Object.keys(picked).length ? picked : undefined;
+}
+
+function finalUrlDiagnostics(url: string | undefined): {
+  finalUrl?: string;
+  finalHost?: string;
+} {
+  if (!url) return {};
+  try {
+    const parsed = new URL(url);
+    return {
+      finalHost: parsed.host,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function defaultMonitorCheckDiagnostics(): MonitorCheckDiagnostics {
+  return {
+    source: "unknown",
+    runtime: {},
+    request: {
+      method: "GET",
+      timeoutMs: DEFAULT_MONITOR_TIMEOUT_MS,
+      followRedirects: true,
+      assertionTypes: [],
+      bodyReadRequired: false,
+      allowPrivateHosts: false,
+    },
+    timings: {},
+  };
+}
+
+function normalizeMonitorCheckDiagnostics(
+  raw: unknown,
+): MonitorCheckDiagnostics {
+  const fallback = defaultMonitorCheckDiagnostics();
+  if (!raw || typeof raw !== "object") return fallback;
+  const parsed = raw as Partial<MonitorCheckDiagnostics>;
+  return {
+    ...fallback,
+    ...parsed,
+    runtime:
+      parsed.runtime && typeof parsed.runtime === "object"
+        ? parsed.runtime
+        : fallback.runtime,
+    request:
+      parsed.request && typeof parsed.request === "object"
+        ? { ...fallback.request, ...parsed.request }
+        : fallback.request,
+    timings:
+      parsed.timings && typeof parsed.timings === "object"
+        ? parsed.timings
+        : fallback.timings,
+    response:
+      parsed.response && typeof parsed.response === "object"
+        ? {
+            finalHost: parsed.response.finalHost,
+            statusCode: parsed.response.statusCode,
+            headers: parsed.response.headers,
+          }
+        : undefined,
+    error:
+      parsed.error && typeof parsed.error === "object"
+        ? parsed.error
+        : undefined,
+  };
+}
+
+function compactDiagnostics(
+  diagnostics: MonitorCheckDiagnostics,
+): MonitorCheckDiagnostics {
+  return {
+    ...diagnostics,
+    runtime: Object.fromEntries(
+      Object.entries(diagnostics.runtime).filter(([, value]) => value != null),
+    ) as MonitorCheckDiagnostics["runtime"],
+    response: diagnostics.response
+      ? {
+          ...diagnostics.response,
+          headers: diagnostics.response.headers,
+        }
+      : undefined,
+    error: diagnostics.error
+      ? {
+          ...diagnostics.error,
+          message: diagnostics.error.message.slice(0, 500),
+        }
+      : undefined,
+  };
+}
+
+function serializeMonitorDiagnostics(
+  diagnostics: MonitorCheckDiagnostics,
+): string {
+  const compact = compactDiagnostics(diagnostics);
+  const serialized = JSON.stringify(compact);
+  if (byteLength(serialized) <= MAX_MONITOR_DIAGNOSTICS_BYTES) {
+    return serialized;
+  }
+  return JSON.stringify({
+    ...compact,
+    response: compact.response
+      ? { ...compact.response, headers: undefined }
+      : undefined,
+    truncated: true,
+  });
 }
 
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
@@ -274,6 +480,14 @@ function monitorLimitPerOwner(): number {
   return Number.isFinite(parsed) && parsed > 0
     ? Math.min(parsed, 1000)
     : DEFAULT_MONITOR_LIMIT_PER_OWNER;
+}
+
+function transientFailureConfirmationChecks(): number {
+  const raw = process.env.UPTIME_MONITOR_TRANSIENT_FAILURE_CONFIRMATION_CHECKS;
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.min(parsed, 10)
+    : DEFAULT_TRANSIENT_FAILURE_CONFIRMATION_CHECKS;
 }
 
 export function hostFromUrl(url: string): string {
@@ -462,9 +676,48 @@ function normalizeEmailRecipients(recipients: string[] | undefined): string[] {
   return normalized;
 }
 
+function normalizeOptionalHttpUrl(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  return trimmed;
+}
+
 function ensureInboxChannel(channels: string[]): string[] {
   const normalized = channels.map((c) => c.trim()).filter(Boolean);
   return normalized.includes("inbox") ? normalized : ["inbox", ...normalized];
+}
+
+function monitorNotifyMetadata(monitor: Monitor): Record<string, unknown> {
+  return {
+    kind: "uptime_monitor",
+    monitorId: monitor.id,
+    monitorName: monitor.name,
+    url: monitor.url,
+    emailRecipients: monitor.emailRecipients,
+    requestedChannels: monitor.channels,
+  };
+}
+
+function monitorNotifyDeliveryMetadata(
+  monitor: Monitor,
+): Record<string, string> | undefined {
+  const delivery: Record<string, string> = {};
+  if (monitor.slackWebhookUrl)
+    delivery.slackWebhookUrl = monitor.slackWebhookUrl;
+  if (monitor.webhookUrl) delivery.webhookUrl = monitor.webhookUrl;
+  return Object.keys(delivery).length > 0 ? delivery : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -631,6 +884,40 @@ export function evaluateCheck(params: EvaluateCheckParams): {
 // SSRF-safe fetch + probe
 // ---------------------------------------------------------------------------
 
+// A single SSRF-safe dispatcher (undici Agent) is reused across every probe.
+// Building a fresh Agent per check disabled HTTP keep-alive — each check paid a
+// cold DNS + TCP + TLS handshake, inflating the recorded latency well above the
+// site's real response time (and occasionally spiking near the timeout) — and
+// leaked Agents, which are never closed. The connect-time private-IP guard runs
+// on every new socket, so reuse keeps the exact same SSRF protection.
+// `undefined` = not built yet; the resolved value may be `null` on runtimes
+// without undici / node:dns, in which case callers fall back to plain `fetch`.
+let sharedSsrfDispatcherPromise: Promise<unknown | null> | undefined;
+
+function getSharedSsrfDispatcher(): Promise<unknown | null> {
+  if (!sharedSsrfDispatcherPromise) {
+    sharedSsrfDispatcherPromise = createSsrfSafeDispatcher().catch(() => null);
+  }
+  return sharedSsrfDispatcherPromise;
+}
+
+async function prepareMonitorFetch(
+  url: string,
+  opts: { allowPrivateHosts: boolean },
+): Promise<{ dispatcher: unknown | undefined }> {
+  const dispatcher = opts.allowPrivateHosts
+    ? undefined
+    : ((await getSharedSsrfDispatcher()) ?? undefined);
+
+  if (!opts.allowPrivateHosts && (await isBlockedExtensionUrlWithDns(url))) {
+    throw new Error(
+      `SSRF blocked: refusing to fetch private/internal address (${url})`,
+    );
+  }
+
+  return { dispatcher };
+}
+
 async function safeMonitorFetch(
   url: string,
   init: RequestInit,
@@ -638,17 +925,26 @@ async function safeMonitorFetch(
     followRedirects: boolean;
     maxRedirects: number;
     allowPrivateHosts: boolean;
+    /** Prebuilt outside the abort window so SSRF setup is not billed as site latency. */
+    dispatcher?: unknown;
+    /** When true, the caller already DNS-checked `url` before starting the timer. */
+    initialDnsChecked?: boolean;
   },
 ): Promise<Response> {
-  const dispatcher = opts.allowPrivateHosts
-    ? undefined
-    : ((await createSsrfSafeDispatcher()) ?? undefined);
+  const dispatcher =
+    opts.dispatcher !== undefined
+      ? opts.dispatcher
+      : opts.allowPrivateHosts
+        ? undefined
+        : ((await getSharedSsrfDispatcher()) ?? undefined);
 
   let currentUrl = url;
   const maxHops = opts.followRedirects ? opts.maxRedirects : 0;
 
   for (let hop = 0; hop <= maxHops; hop++) {
+    const skipDns = hop === 0 && opts.initialDnsChecked;
     if (
+      !skipDns &&
       !opts.allowPrivateHosts &&
       (await isBlockedExtensionUrlWithDns(currentUrl))
     ) {
@@ -667,6 +963,7 @@ async function safeMonitorFetch(
     if (opts.followRedirects && isRedirect) {
       const location = response.headers.get("location");
       if (!location) return response;
+      await cancelResponseBody(response);
       currentUrl = new URL(location, currentUrl).href;
       continue;
     }
@@ -677,17 +974,50 @@ async function safeMonitorFetch(
   );
 }
 
-async function readCappedText(res: Response, cap: number): Promise<string> {
+async function cancelResponseBody(res: Response): Promise<void> {
+  try {
+    await res.body?.cancel();
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+async function readCappedText(
+  res: Response,
+  cap: number,
+  timeoutMs?: number,
+): Promise<{ text: string; timedOut: boolean }> {
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   const body = res.body;
   if (!body) {
     try {
-      const text = await res.text();
-      return text.length > cap ? text.slice(0, cap) : text;
+      const text =
+        timeoutMs && timeoutMs > 0
+          ? await Promise.race([
+              res.text(),
+              new Promise<string>((resolve) => {
+                timer = setTimeout(() => {
+                  timedOut = true;
+                  resolve("");
+                }, timeoutMs);
+              }),
+            ])
+          : await res.text();
+      return { text: text.length > cap ? text.slice(0, cap) : text, timedOut };
     } catch {
-      return "";
+      return { text: "", timedOut };
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
   const reader = body.getReader();
+  if (timeoutMs && timeoutMs > 0) {
+    timer = setTimeout(() => {
+      timedOut = true;
+      void reader.cancel().catch(() => {});
+    }, timeoutMs);
+  }
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
@@ -702,6 +1032,7 @@ async function readCappedText(res: Response, cap: number): Promise<string> {
   } catch {
     // Partial body is fine for text assertions.
   } finally {
+    if (timer) clearTimeout(timer);
     try {
       await reader.cancel();
     } catch {
@@ -718,7 +1049,10 @@ async function readCappedText(res: Response, cap: number): Promise<string> {
     merged.set(slice, offset);
     offset += slice.length;
   }
-  return new TextDecoder("utf-8", { fatal: false }).decode(merged);
+  return {
+    text: new TextDecoder("utf-8", { fatal: false }).decode(merged),
+    timedOut,
+  };
 }
 
 function headersToObject(headers: Headers): Record<string, string> {
@@ -729,10 +1063,22 @@ function headersToObject(headers: Headers): Record<string, string> {
   return out;
 }
 
+function needsResponseBody(assertions: Assertion[]): boolean {
+  return assertions.some(
+    (assertion) =>
+      assertion.type === "body_contains" || assertion.type === "body_absent",
+  );
+}
+
 /**
  * Execute one probe for `monitor`. Performs an SSRF-safe fetch with an
  * AbortController timeout, measures latency, caps the response body, and
  * classifies the result. Never throws — failures are captured in the outcome.
+ *
+ * The abort budget covers only the HTTP fetch (headers / redirect chain), not
+ * SSRF dispatcher/DNS setup or optional body reads. Billing setup time against
+ * `timeoutMs` produced false "Timed out after Nms" alerts when the site itself
+ * was fine.
  */
 export async function runMonitorCheck(
   monitor: Pick<
@@ -746,17 +1092,48 @@ export async function runMonitorCheck(
     | "assertions"
     | "followRedirects"
   >,
-  opts: { allowPrivateHosts?: boolean } = {},
+  opts: { allowPrivateHosts?: boolean; source?: MonitorCheckSource } = {},
 ): Promise<CheckOutcome> {
   const checkedAt = nowIso();
   const matcher = monitor.expectedStatus;
   const assertions = monitor.assertions;
   const allowPrivateHosts =
     opts.allowPrivateHosts ?? monitorAllowPrivateHosts();
+  const timeoutMs = clampInt(
+    monitor.timeoutMs,
+    MIN_TIMEOUT_MS,
+    MAX_TIMEOUT_MS,
+    DEFAULT_MONITOR_TIMEOUT_MS,
+  );
+  const method = normalizeMethod(monitor.method);
+  const diagnostics: MonitorCheckDiagnostics = {
+    source: opts.source ?? detectMonitorCheckSource(),
+    runtime: monitorCheckRuntimeDiagnostics(),
+    request: {
+      method,
+      timeoutMs,
+      followRedirects: monitor.followRedirects,
+      assertionTypes: assertions.map((assertion) => assertion.type),
+      bodyReadRequired: method !== "HEAD" && needsResponseBody(assertions),
+      allowPrivateHosts,
+    },
+    timings: {},
+  };
+  const totalStart = Date.now();
+  const finish = <T extends Omit<CheckOutcome, "diagnostics">>(
+    outcome: T,
+  ): T & { diagnostics: MonitorCheckDiagnostics } => {
+    diagnostics.timings.totalMs = Date.now() - totalStart;
+    return { ...outcome, diagnostics };
+  };
 
   // Fast, deterministic pre-flight guard (scheme + literal private hosts).
   if (!allowPrivateHosts && isBlockedExtensionUrl(monitor.url)) {
-    return {
+    diagnostics.error = {
+      kind: "config",
+      message: "SSRF blocked: private/internal or non-http(s) address",
+    };
+    return finish({
       checkedAt,
       statusCode: null,
       latencyMs: null,
@@ -771,21 +1148,57 @@ export async function runMonitorCheck(
         errorKind: "config",
       }),
       error: "SSRF blocked: private/internal or non-http(s) address",
+    });
+  }
+
+  let dispatcher: unknown | undefined;
+  try {
+    const ssrfStart = Date.now();
+    ({ dispatcher } = await prepareMonitorFetch(monitor.url, {
+      allowPrivateHosts,
+    }));
+    diagnostics.timings.ssrfSetupMs = Date.now() - ssrfStart;
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : String(err ?? "check failed");
+    const isConfig = message.startsWith("SSRF blocked");
+    const errorText = message.slice(0, 500);
+    diagnostics.timings.ssrfSetupMs = Date.now() - totalStart;
+    diagnostics.error = {
+      kind: isConfig ? "config" : "network",
+      name: err instanceof Error ? err.name : undefined,
+      message: errorText,
     };
+    const outcome = evaluateCheck({
+      statusCode: null,
+      latencyMs: null,
+      bodyText: "",
+      headers: {},
+      matcher,
+      assertions,
+      fetchError: errorText,
+      errorKind: isConfig ? "config" : "network",
+    });
+    return finish({
+      checkedAt,
+      statusCode: null,
+      latencyMs: null,
+      status: outcome.status,
+      ok: outcome.ok,
+      failedAssertions: outcome.failedAssertions,
+      error: errorText,
+    });
   }
 
   const controller = new AbortController();
-  const timeoutMs = clampInt(
-    monitor.timeoutMs,
-    MIN_TIMEOUT_MS,
-    MAX_TIMEOUT_MS,
-    15000,
-  );
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const start = Date.now();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const requestStart = Date.now();
 
   try {
-    const method = normalizeMethod(monitor.method);
     const hasBody =
       method !== "GET" &&
       method !== "HEAD" &&
@@ -802,15 +1215,44 @@ export async function runMonitorCheck(
       followRedirects: monitor.followRedirects,
       maxRedirects: MAX_REDIRECT_HOPS,
       allowPrivateHosts,
+      dispatcher,
+      initialDnsChecked: Boolean(dispatcher),
     });
+    diagnostics.timings.requestMs = Date.now() - requestStart;
 
-    const bodyText =
-      method === "HEAD"
-        ? ""
-        : await readCappedText(response, MAX_RESPONSE_BODY_BYTES);
-    const latencyMs = Date.now() - start;
+    // Stop the abort timer as soon as headers arrive so a slow/optional body
+    // read cannot be mislabeled as a request timeout with a null status code.
+    clearTimeout(timer);
+
+    const latencyMs = diagnostics.timings.requestMs;
     const statusCode = response.status;
     const headers = headersToObject(response.headers);
+    diagnostics.response = {
+      ...finalUrlDiagnostics(response.url),
+      statusCode,
+      headers: safeResponseHeaders(headers),
+    };
+    let bodyText = "";
+    let bodyReadError: string | null = null;
+    if (method !== "HEAD" && needsResponseBody(assertions)) {
+      const bodyReadStart = Date.now();
+      const body = await readCappedText(
+        response,
+        MAX_RESPONSE_BODY_BYTES,
+        timeoutMs,
+      );
+      diagnostics.timings.bodyReadMs = Date.now() - bodyReadStart;
+      bodyText = body.text;
+      if (body.timedOut) {
+        bodyReadError = `Response body read timed out after ${timeoutMs}ms`;
+        diagnostics.error = {
+          kind: "body-timeout",
+          message: bodyReadError,
+        };
+      }
+    } else {
+      await cancelResponseBody(response);
+    }
 
     const outcome = evaluateCheck({
       statusCode,
@@ -820,31 +1262,39 @@ export async function runMonitorCheck(
       matcher,
       assertions,
     });
+    const failedAssertions = bodyReadError
+      ? [...outcome.failedAssertions, bodyReadError]
+      : outcome.failedAssertions;
+    const status = bodyReadError ? "down" : outcome.status;
 
-    return {
+    return finish({
       checkedAt,
       statusCode,
       latencyMs,
-      status: outcome.status,
-      ok: outcome.ok,
-      failedAssertions: outcome.failedAssertions,
-      error: outcome.failedAssertions.length
-        ? outcome.failedAssertions.join("; ")
-        : null,
-    };
+      status,
+      ok: status === "up" && outcome.ok,
+      failedAssertions,
+      error: failedAssertions.length ? failedAssertions.join("; ") : null,
+    });
   } catch (err) {
-    const isTimeout =
-      (err as { name?: string })?.name === "AbortError" ||
-      controller.signal.aborted;
     const message =
       err instanceof Error ? err.message : String(err ?? "check failed");
     const isConfig = message.startsWith("SSRF blocked");
+    // Only our timer sets `timedOut`. Prefer the real SSRF/config message when
+    // both happened (e.g. abort fired while a redirect DNS check was in flight).
+    const isTimeout = timedOut && !isConfig;
     const errorText = isTimeout
       ? `Timed out after ${timeoutMs}ms`
       : message.slice(0, 500);
+    diagnostics.timings.requestMs = Date.now() - requestStart;
+    diagnostics.error = {
+      kind: isConfig ? "config" : isTimeout ? "timeout" : "network",
+      name: err instanceof Error ? err.name : undefined,
+      message: errorText,
+    };
     const outcome = evaluateCheck({
       statusCode: null,
-      latencyMs: null,
+      latencyMs: isTimeout ? timeoutMs : null,
       bodyText: "",
       headers: {},
       matcher,
@@ -852,15 +1302,15 @@ export async function runMonitorCheck(
       fetchError: errorText,
       errorKind: isConfig ? "config" : "network",
     });
-    return {
+    return finish({
       checkedAt,
       statusCode: null,
-      latencyMs: null,
+      latencyMs: isTimeout ? timeoutMs : null,
       status: outcome.status,
       ok: outcome.ok,
       failedAssertions: outcome.failedAssertions,
       error: errorText,
-    };
+    });
   } finally {
     clearTimeout(timer);
   }
@@ -882,7 +1332,7 @@ function rowToMonitor(row: any): Monitor {
     ),
     requestBody: row.requestBody ?? null,
     intervalSeconds: Number(row.intervalSeconds ?? 300),
-    timeoutMs: Number(row.timeoutMs ?? 15000),
+    timeoutMs: Number(row.timeoutMs ?? DEFAULT_MONITOR_TIMEOUT_MS),
     expectedStatus: normalizeStatusMatcher(
       safeJsonParse<unknown>(row.expectedStatus, null),
     ),
@@ -891,6 +1341,8 @@ function rowToMonitor(row: any): Monitor {
     severity: row.severity === "warning" ? "warning" : "critical",
     channels: safeJsonParse<string[]>(row.channels, ["inbox"]),
     emailRecipients: safeJsonParse<string[]>(row.emailRecipients, []),
+    slackWebhookUrl: row.slackWebhookUrl?.trim() || null,
+    webhookUrl: row.webhookUrl?.trim() || null,
     cooldownMinutes: Number(row.cooldownMinutes ?? 15),
     enabled: row.enabled === true || row.enabled === 1,
     lastStatus: (row.lastStatus ?? null) as MonitorStatus | null,
@@ -918,6 +1370,9 @@ function rowToResult(row: any): MonitorCheckResult {
     latencyMs: row.latencyMs ?? null,
     error: row.error ?? null,
     failedAssertions: safeJsonParse<string[]>(row.failedAssertions, []),
+    diagnostics: normalizeMonitorCheckDiagnostics(
+      safeJsonParse<unknown>(row.diagnostics, {}),
+    ),
   };
 }
 
@@ -932,6 +1387,10 @@ function rowToIncident(row: any): MonitorIncident {
     cause: row.cause ?? "",
     lastError: row.lastError ?? null,
     notificationId: row.notificationId ?? null,
+    notificationDelivered:
+      row.notificationDelivered === true ||
+      row.notificationDelivered === 1 ||
+      Boolean(row.notificationId),
     checksFailed: Number(row.checksFailed ?? 1),
     createdAt: row.createdAt,
   };
@@ -1110,10 +1569,10 @@ export async function saveMonitor(
     300,
   );
   const timeoutMs = clampInt(
-    input.timeoutMs ?? 15000,
+    input.timeoutMs ?? DEFAULT_MONITOR_TIMEOUT_MS,
     MIN_TIMEOUT_MS,
     MAX_TIMEOUT_MS,
-    15000,
+    DEFAULT_MONITOR_TIMEOUT_MS,
   );
   const expectedStatus = normalizeStatusMatcher(input.expectedStatus);
   const assertions = normalizeAssertions(input.assertions);
@@ -1121,6 +1580,11 @@ export async function saveMonitor(
   const severity = input.severity === "warning" ? "warning" : "critical";
   const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
   const channels = normalizeChannels(input.channels, emailRecipients);
+  const slackWebhookUrl = normalizeOptionalHttpUrl(
+    input.slackWebhookUrl,
+    "Slack webhook URL",
+  );
+  const webhookUrl = normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
   const cooldownMinutes = clampInt(input.cooldownMinutes ?? 15, 0, 24 * 60, 15);
   const enabled = input.enabled ?? true;
 
@@ -1138,6 +1602,8 @@ export async function saveMonitor(
     severity,
     channels: JSON.stringify(channels),
     emailRecipients: JSON.stringify(emailRecipients),
+    slackWebhookUrl,
+    webhookUrl,
     cooldownMinutes,
     enabled,
   };
@@ -1337,6 +1803,7 @@ export async function recordMonitorResult(
     latencyMs: outcome.latencyMs,
     error: outcome.error,
     failedAssertions: JSON.stringify(outcome.failedAssertions),
+    diagnostics: serializeMonitorDiagnostics(outcome.diagnostics),
     createdAt: outcome.checkedAt,
     ownerEmail: monitor.ownerEmail,
     orgId: monitor.orgId,
@@ -1379,6 +1846,37 @@ function describeCause(outcome: CheckOutcome): string {
   if (outcome.error) return outcome.error.slice(0, 300);
   if (outcome.statusCode != null) return `HTTP ${outcome.statusCode}`;
   return "Check failed";
+}
+
+function isTransientNoResponseFailure(outcome: CheckOutcome): boolean {
+  return (
+    outcome.status === "down" &&
+    outcome.statusCode == null &&
+    Boolean(outcome.error)
+  );
+}
+
+function isTransientDegradedFailure(outcome: CheckOutcome): boolean {
+  return (
+    outcome.status === "degraded" &&
+    outcome.failedAssertions.some((assertion) =>
+      assertion.startsWith("Response took "),
+    )
+  );
+}
+
+export function shouldOpenMonitorIncident(
+  outcome: CheckOutcome,
+  priorConsecutiveFailures: number,
+  confirmationChecks = transientFailureConfirmationChecks(),
+): boolean {
+  const needsConfirmation =
+    isTransientNoResponseFailure(outcome) ||
+    isTransientDegradedFailure(outcome);
+  const needed = needsConfirmation
+    ? Math.max(1, Math.min(10, Math.floor(confirmationChecks)))
+    : 1;
+  return Math.max(0, Math.floor(priorConsecutiveFailures)) + 1 >= needed;
 }
 
 async function getOpenIncident(
@@ -1425,6 +1923,29 @@ async function recentlyResolvedWithinCooldown(
   return now.getTime() - resolved < monitor.cooldownMinutes * 60 * 1000;
 }
 
+async function getFailureStreakStartedAt(
+  monitor: Monitor,
+  ctx: AccessCtx,
+  fallback: string,
+): Promise<string> {
+  const db = getDb() as any;
+  const table = schema.monitorCheckResults;
+  const clauses: any[] = [
+    resultsOwnerWhere(ctx),
+    eq(table.monitorId, monitor.id),
+    eq(table.ok, false),
+  ];
+  if (monitor.lastSuccessAt)
+    clauses.push(gt(table.checkedAt, monitor.lastSuccessAt));
+  const [row] = await db
+    .select({ checkedAt: table.checkedAt })
+    .from(table)
+    .where(and(...clauses))
+    .orderBy(asc(table.checkedAt))
+    .limit(1);
+  return row?.checkedAt ?? fallback;
+}
+
 async function notifyMonitorDown(monitor: Monitor, outcome: CheckOutcome) {
   const host = hostFromUrl(monitor.url);
   const label = outcome.status === "degraded" ? "degraded" : "down";
@@ -1440,16 +1961,14 @@ async function notifyMonitorDown(monitor: Monitor, outcome: CheckOutcome) {
       body: `${host} is ${label}${detail}.${latency}`,
       channels: ensureInboxChannel(monitor.channels),
       metadata: {
-        kind: "uptime_monitor",
-        monitorId: monitor.id,
-        monitorName: monitor.name,
-        url: monitor.url,
+        ...monitorNotifyMetadata(monitor),
+        ...(monitorNotifyDeliveryMetadata(monitor)
+          ? { delivery: monitorNotifyDeliveryMetadata(monitor) }
+          : {}),
         status: outcome.status,
         statusCode: outcome.statusCode,
         latencyMs: outcome.latencyMs,
         failedAssertions: outcome.failedAssertions,
-        emailRecipients: monitor.emailRecipients,
-        requestedChannels: monitor.channels,
       },
     },
     { owner: monitor.ownerEmail },
@@ -1475,16 +1994,14 @@ async function notifyMonitorRecovered(
       body: `${host} is back up${downFor ? ` after ${downFor} of downtime` : ""}.${latency}`,
       channels: ensureInboxChannel(monitor.channels),
       metadata: {
-        kind: "uptime_monitor",
-        monitorId: monitor.id,
-        monitorName: monitor.name,
-        url: monitor.url,
+        ...monitorNotifyMetadata(monitor),
+        ...(monitorNotifyDeliveryMetadata(monitor)
+          ? { delivery: monitorNotifyDeliveryMetadata(monitor) }
+          : {}),
         status: "up",
         statusCode: outcome.statusCode,
         latencyMs: outcome.latencyMs,
         incidentId: incident.id,
-        emailRecipients: monitor.emailRecipients,
-        requestedChannels: monitor.channels,
       },
     },
     { owner: monitor.ownerEmail },
@@ -1512,8 +2029,8 @@ export interface EvaluateMonitorResult {
 
 /**
  * Open / update / resolve incidents based on the latest outcome and send
- * notifications. On a transition into failure it opens an incident and
- * notifies (respecting an anti-flap cooldown); on recovery it resolves the
+ * notifications. On a transition into confirmed failure it opens an incident
+ * and notifies (respecting an anti-flap cooldown); on recovery it resolves the
  * open incident and sends a recovery notice.
  */
 export async function evaluateAndNotifyMonitor(
@@ -1527,6 +2044,8 @@ export async function evaluateAndNotifyMonitor(
 
   if (!outcome.ok) {
     const cause = describeCause(outcome);
+    const priorConsecutiveFailures = monitor.consecutiveFailures ?? 0;
+    const nextChecksFailed = priorConsecutiveFailures + 1;
     if (open) {
       const nextStatus =
         open.status === "down" ? "down" : (outcome.status as MonitorStatus);
@@ -1542,12 +2061,19 @@ export async function evaluateAndNotifyMonitor(
       return { status: outcome.status, incidentId: open.id, notified: false };
     }
 
+    if (!shouldOpenMonitorIncident(outcome, priorConsecutiveFailures)) {
+      return { status: outcome.status, notified: false };
+    }
+
     const suppressed = await recentlyResolvedWithinCooldown(monitor, ctx, now);
     let notificationId: string | undefined;
+    let notificationDelivered = false;
     if (!suppressed) {
       try {
         const delivery = await notifyMonitorDown(monitor, outcome);
         notificationId = delivery.notification?.id;
+        notificationDelivered =
+          Boolean(notificationId) || delivery.deliveredChannels.length > 0;
       } catch (err) {
         console.error(
           `[uptime-monitors] notify failed for ${monitor.id}:`,
@@ -1556,17 +2082,22 @@ export async function evaluateAndNotifyMonitor(
       }
     }
     const incidentId = randomUUID();
+    const startedAt =
+      nextChecksFailed > 1
+        ? await getFailureStreakStartedAt(monitor, ctx, outcome.checkedAt)
+        : outcome.checkedAt;
     await db.insert(schema.monitorIncidents).values({
       id: incidentId,
       monitorId: monitor.id,
-      startedAt: outcome.checkedAt,
+      startedAt,
       resolvedAt: null,
       status: outcome.status === "degraded" ? "degraded" : "down",
       severity: monitor.severity,
       cause,
       lastError: outcome.error,
       notificationId: notificationId ?? null,
-      checksFailed: 1,
+      notificationDelivered,
+      checksFailed: nextChecksFailed,
       createdAt: outcome.checkedAt,
       ownerEmail: monitor.ownerEmail,
       orgId: monitor.orgId,
@@ -1574,7 +2105,7 @@ export async function evaluateAndNotifyMonitor(
     return {
       status: outcome.status,
       incidentId,
-      notified: Boolean(notificationId),
+      notified: notificationDelivered,
     };
   }
 
@@ -1585,14 +2116,16 @@ export async function evaluateAndNotifyMonitor(
       .set({ resolvedAt: outcome.checkedAt })
       .where(eq(schema.monitorIncidents.id, open.id));
     let notified = false;
-    try {
-      await notifyMonitorRecovered(monitor, outcome, open);
-      notified = true;
-    } catch (err) {
-      console.error(
-        `[uptime-monitors] recovery notify failed for ${monitor.id}:`,
-        err,
-      );
+    if (open.notificationDelivered) {
+      try {
+        await notifyMonitorRecovered(monitor, outcome, open);
+        notified = true;
+      } catch (err) {
+        console.error(
+          `[uptime-monitors] recovery notify failed for ${monitor.id}:`,
+          err,
+        );
+      }
     }
     return { status: "up", incidentId: open.id, notified, recovered: true };
   }
@@ -1607,7 +2140,7 @@ export async function evaluateAndNotifyMonitor(
 export async function runAndProcessMonitor(
   monitor: Monitor,
   ctx: AccessCtx,
-  opts: { allowPrivateHosts?: boolean } = {},
+  opts: { allowPrivateHosts?: boolean; source?: MonitorCheckSource } = {},
 ): Promise<CheckOutcome> {
   const outcome = await runMonitorCheck(monitor, opts);
   // recordMonitorResult() emits the "monitors" change for the UI.
@@ -1638,7 +2171,7 @@ export async function runMonitorNow(
       statusCode: 409,
     });
   }
-  return runAndProcessMonitor(monitor, ctx);
+  return runAndProcessMonitor(monitor, ctx, { source: "manual" });
 }
 
 // ---------------------------------------------------------------------------

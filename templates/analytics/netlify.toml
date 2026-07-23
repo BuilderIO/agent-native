@@ -1,6 +1,10 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs analytics"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter analytics build"
+# The workspace package dist folders are ignored/generated artifacts. Rebuild
+# core explicitly here so a cached Netlify install cannot bundle an older agent
+# loop into Analytics' server functions (including A2A/MCP final-response
+# guards).
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && pnpm --filter @agent-native/core build && NITRO_PRESET=netlify pnpm --filter analytics build"
 publish = "templates/analytics/dist"
 functions = "templates/analytics/.netlify/functions-internal"
 
@@ -9,14 +13,11 @@ GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_PROD_CODE_EXECUTION = "sandboxed"
-AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
 # Hosted agent chat uses a soft timeout before this function timeout so the
 # hidden auto-continuation path can hand off before Netlify kills the function.
 # If AGENT_RUN_SOFT_TIMEOUT_MS is customized, keep it below this timeout.
-# Agent chat runs are dispatched to the emitted Netlify background function;
-# the normal server timeout still protects non-background HTTP handlers.
 [functions."*"]
 timeout = 75
 
@@ -25,4 +26,7 @@ timeout = 300
 memory = "2gb"
 
 [functions.analytics-alert-sweep-background]
+timeout = 120
+
+[functions.uptime-monitor-sweep-background]
 timeout = 120

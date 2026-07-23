@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 
 import {
   WorkspaceStaleVersionError,
@@ -71,6 +71,7 @@ function isVersionConflictError(error: unknown): boolean {
 export interface CreateLocalhostProviderOptions {
   connectionId: string;
   label: string;
+  rootPath?: string;
   /**
    * Whether the current user has editor access to the design. Local files are
    * editable whenever this is true — the write-consent grant is enforced
@@ -91,7 +92,7 @@ export interface CreateLocalhostProviderOptions {
 export function createLocalhostProvider(
   options: CreateLocalhostProviderOptions,
 ): WorkspaceProvider {
-  const { connectionId, label, canEdit, designId } = options;
+  const { connectionId, label, rootPath, canEdit, designId } = options;
   const key = `localhost:${connectionId}`;
 
   const capabilities: WorkspaceCapabilities = {
@@ -169,6 +170,7 @@ export function createLocalhostProvider(
     key,
     kind: "localhost",
     label,
+    rootPath,
     capabilities,
     listFiles,
     readFile,

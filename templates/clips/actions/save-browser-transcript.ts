@@ -3,7 +3,7 @@
  *
  * Called by the web client (Web Speech API) and desktop client (whispher).
  * Native transcripts are available instantly with no API-key requirement
- * and are the primary transcript source. Always replaces the stored transcript with `fullText`. If `segments` are
+ * and are the primary transcript source. A non-empty result replaces the stored transcript with `fullText`. If `segments` are
  * supplied (real timestamps, e.g. from the desktop Whisper engine) they're
  * stored verbatim; otherwise evenly-paced segments are synthesized from the
  * text. Live capture that OWNS the transcript (meeting flushes re-sending the
@@ -20,11 +20,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
-import regenerateTitle from "./regenerate-title.js";
 
 function nativeSegmentsJson(fullText: string): string {
   return JSON.stringify(buildCaptionSegmentsFromText(fullText));
@@ -133,40 +133,23 @@ export default defineAction({
           reason: "Transcript already exists",
         };
       }
+      // An empty native result is only a diagnostic. Never create a terminal
+      // transcript row here: finalization owns creating the pending row that
+      // lets the Builder fallback run against the saved recording.
       if (current) {
-        await db
-          .update(schema.recordingTranscripts)
-          .set({
-            ownerEmail,
-            fullText: "",
-            segmentsJson: "[]",
-            status: "failed",
-            failureReason,
-            updatedAt: now,
-          })
-          .where(eq(schema.recordingTranscripts.recordingId, args.recordingId));
-      } else {
-        await db.insert(schema.recordingTranscripts).values({
+        return {
           recordingId: args.recordingId,
-          ownerEmail,
-          language: "en",
-          segmentsJson: "[]",
-          fullText: "",
-          status: "failed",
-          failureReason,
-          createdAt: now,
-          updatedAt: now,
-        });
+          status: "skipped" as const,
+          reason: "Transcript attempt already exists",
+        };
       }
-      await writeAppState("refresh-signal", { ts: Date.now() });
       console.warn(
-        `[clips] Native transcript failed for ${args.recordingId} via ${args.source ?? "web-speech"}: ${failureReason}`,
+        `[clips] Native transcript unavailable for ${args.recordingId} via ${args.source ?? "web-speech"}; finalization will queue Builder fallback: ${failureReason}`,
       );
       return {
         recordingId: args.recordingId,
-        status: "failed" as const,
-        provider: args.source ?? "web-speech",
-        failureReason,
+        status: "skipped" as const,
+        reason: "Empty native transcript; waiting for recording finalization",
       };
     }
 
@@ -218,6 +201,8 @@ export default defineAction({
       .select({
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
+        status: schema.recordings.status,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -226,15 +211,14 @@ export default defineAction({
     const titleQueued = !!(
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
     );
-    if (titleQueued) {
-      void Promise.resolve(
-        regenerateTitle.run({
-          recordingId: args.recordingId,
-          transcriptText: fullText,
-        }),
-      ).catch((err: unknown) => {
+    const summaryQueued = Boolean(rec && !rec.description?.trim());
+    if (rec?.status === "ready" && (titleQueued || summaryQueued)) {
+      await dispatchPostFinalizeJob({
+        recordingId: args.recordingId,
+        kind: "transcript",
+      }).catch((err: unknown) => {
         console.warn(
-          `[clips] native transcript title generation skipped for ${args.recordingId}:`,
+          `[clips] native transcript metadata dispatch failed for ${args.recordingId}:`,
           (err as Error)?.message ?? String(err),
         );
       });
@@ -246,6 +230,7 @@ export default defineAction({
       provider: args.source ?? "web-speech",
       chars: fullText.length,
       titleQueued,
+      summaryQueued,
     };
   },
 });

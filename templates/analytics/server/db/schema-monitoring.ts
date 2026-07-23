@@ -42,7 +42,7 @@ export const monitors = table("monitors", {
   /** Optional request body (POST/PUT/PATCH). */
   requestBody: text("request_body"),
   intervalSeconds: integer("interval_seconds").notNull().default(300),
-  timeoutMs: integer("timeout_ms").notNull().default(15000),
+  timeoutMs: integer("timeout_ms").notNull().default(10000),
   /**
    * Status matcher as JSON. One of:
    *   { "mode": "class", "classes": ["2xx","3xx"] }
@@ -70,6 +70,10 @@ export const monitors = table("monitors", {
   channels: text("channels").notNull().default('["inbox"]'),
   /** Email recipients as JSON array of addresses. */
   emailRecipients: text("email_recipients").notNull().default("[]"),
+  /** Optional per-monitor Slack incoming webhook URL (overrides workspace env). */
+  slackWebhookUrl: text("slack_webhook_url"),
+  /** Optional per-monitor generic webhook URL (overrides workspace env). */
+  webhookUrl: text("webhook_url"),
   /** Minutes to suppress repeat alerts while an incident is ongoing. */
   cooldownMinutes: integer("cooldown_minutes").notNull().default(15),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
@@ -105,6 +109,8 @@ export const monitorCheckResults = table("monitor_check_results", {
   error: text("error"),
   /** JSON array of human-readable assertion failures. */
   failedAssertions: text("failed_assertions").notNull().default("[]"),
+  /** Compact JSON with phase timings and safe runtime/response metadata. */
+  diagnostics: text("diagnostics").notNull().default("{}"),
   createdAt: text("created_at").notNull().default(now()),
   ...ownableColumns(),
 });
@@ -125,6 +131,9 @@ export const monitorIncidents = table("monitor_incidents", {
   cause: text("cause").notNull().default(""),
   lastError: text("last_error"),
   notificationId: text("notification_id"),
+  notificationDelivered: integer("notification_delivered", { mode: "boolean" })
+    .notNull()
+    .default(false),
   checksFailed: integer("checks_failed").notNull().default(1),
   createdAt: text("created_at").notNull().default(now()),
   ...ownableColumns(),

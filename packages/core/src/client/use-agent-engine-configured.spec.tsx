@@ -150,7 +150,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
   });
 
-  it("keeps setup state unknown when provider status checks are partial", async () => {
+  it("uses the canonical engine status when legacy status checks are partial", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
@@ -167,10 +167,10 @@ describe("useAgentEngineConfigured", () => {
 
     await expect(
       fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
-    ).resolves.toBe("unknown");
+    ).resolves.toBe("missing");
   });
 
-  it("returns unknown when every status check times out", async () => {
+  it("returns unavailable when every status check times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -180,10 +180,10 @@ describe("useAgentEngineConfigured", () => {
     const status = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("unknown");
+    await expect(status).resolves.toBe("unavailable");
   });
 
-  it("does not use missing fallback after timed-out status checks", async () => {
+  it("does not use missing fallback after unavailable status checks", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -196,7 +196,7 @@ describe("useAgentEngineConfigured", () => {
     });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("unknown");
+    await expect(status).resolves.toBe("unavailable");
   });
 
   it("ignores scoped missing-key events for other tabs", async () => {

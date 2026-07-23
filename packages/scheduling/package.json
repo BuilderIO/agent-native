@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/scheduling",
-  "version": "0.1.21",
+  "version": "0.1.32",
   "description": "Scheduling primitives for agent-native apps — event types, availability, bookings, team scheduling, workflows, and routing forms.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -13,11 +13,15 @@
     "directory": "packages/scheduling"
   },
   "files": [
+    "agent-native.package.json",
+    "agent-native.eject.json",
     "dist",
     "docs",
-    "src"
+    "src",
+    "tsconfig.json"
   ],
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./dist/index.js",
     "./schema": "./dist/schema/index.js",
@@ -54,7 +58,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@agent-native/toolkit": "workspace:*",
+    "@agent-native/toolkit": "workspace:^",
     "@date-fns/tz": "^1.2.0",
     "date-fns": "^4.1.0",
     "nanoid": "^5.1.9",
@@ -64,18 +68,17 @@
   "devDependencies": {
     "@agent-native/core": "workspace:*",
     "@libsql/client": "^0.15.8",
-    "@tabler/icons-react": "^3.0.0",
+    "@tabler/icons-react": "catalog:",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "drizzle-orm": "^0.45.2",
     "react": "^19.2.5",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vitest": "^4.1.5"
   },
   "peerDependencies": {
     "@agent-native/core": ">=0.8.0",
-    "@tabler/icons-react": ">=3",
+    "@tabler/icons-react": "^3.41.1",
     "drizzle-orm": ">=0.45",
     "react": ">=18",
     "react-dom": ">=18"
@@ -90,5 +93,7 @@
     "react-dom": {
       "optional": true
     }
-  }
+  },
+  "agentNativeEjectManifest": "agent-native.eject.json",
+  "agentNativeManifest": "agent-native.package.json"
 }

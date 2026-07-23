@@ -1,7 +1,15 @@
-import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
+import {
+  defineEventHandler,
+  setResponseStatus,
+  setResponseHeader,
+  getMethod,
+  getQuery,
+  sendRedirect,
+} from "h3";
 import { getRequestHeader } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
+import { abortRun } from "../agent/run-manager.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -12,6 +20,13 @@ import {
   getH3App,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
+import {
+  decodeOAuthState,
+  encodeOAuthState,
+  oauthCallbackResponse,
+  oauthErrorPage,
+  resolveOAuthRedirectUri,
+} from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -19,25 +34,66 @@ import {
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
+import { mergeIntegrationAdapters } from "./adapter-overrides.js";
+import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
 import { googleDocsAdapter } from "./adapters/google-docs.js";
+import { microsoftTeamsAdapter } from "./adapters/microsoft-teams.js";
 import { slackAdapter } from "./adapters/slack.js";
 import { telegramAdapter } from "./adapters/telegram.js";
 import { whatsappAdapter } from "./adapters/whatsapp.js";
+import {
+  createComputerApprovalRequest,
+  decideComputerApproval,
+  listComputerApprovalsForOwner,
+} from "./computer-supervision-store.js";
+import { ComputerSupervisionError } from "./computer-supervision.js";
 import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
+import { claimIntegrationControl } from "./controls-store.js";
 import {
   startGoogleDocsPoller,
   handlePushNotification,
 } from "./google-docs-poller.js";
-import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
+import {
+  IntegrationIdentityDeclinedError,
+  resolveDefaultIntegrationExecutionContext,
+} from "./identity.js";
+import {
+  disconnectIntegrationInstallation,
+  listIntegrationInstallations,
+  resolveIntegrationTokenBundle,
+  updateIntegrationInstallation,
+  upsertIntegrationInstallation,
+} from "./installations-store.js";
+import {
+  forgetIntegrationMemory,
+  integrationMemoryActions,
+  listIntegrationMemory,
+  rememberForIntegrationScope,
+} from "./integration-memory.js";
+import {
+  extractBearerToken,
+  signInternalToken,
+  verifyInternalToken,
+} from "./internal-token.js";
 import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
+  failTaskDeliveryTransition,
+  getNextPendingTaskIdForThread,
+  insertPendingTask,
+  isDuplicateEventError,
+  MAX_PENDING_TASK_ATTEMPTS,
   markTaskCompleted,
+  markTaskDeliveryRetryable,
   markTaskFailed,
+  markTaskRetryable,
+  stageTaskDeliveryPayload,
 } from "./pending-tasks-store.js";
 import {
+  claimNextComputerCommand,
   claimNextRemoteCommand,
+  enqueueComputerCommand,
   enqueueRemoteCommand as enqueueRemoteCommandRow,
   isRemoteCommandKind,
   listRemoteCommandsForOwner,
@@ -46,6 +102,7 @@ import {
 import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
+  getRemoteComputerCapabilities,
   getRemoteDeviceForOwner,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -53,6 +110,7 @@ import {
   unregisterRemoteDevice,
   updateRemoteDeviceDetails,
 } from "./remote-devices-store.js";
+import { startRemotePushDeliveryJob } from "./remote-push-delivery-job.js";
 import {
   listRemotePushNotificationsForOwner,
   listRemotePushRegistrationsForOwner,
@@ -67,17 +125,40 @@ import {
   listRemoteRunEvents,
 } from "./remote-run-events-store.js";
 import type {
+  ComputerCommandEnvelope,
+  ComputerOperationClass,
   RemoteCommand,
   RemoteCommandKind,
   RemoteDevice,
 } from "./remote-types.js";
+import { listIntegrationScopes, saveIntegrationScope } from "./scope-store.js";
+import { buildSlackAgentManifest } from "./slack-manifest.js";
+import {
+  assertSlackInstallAccess,
+  buildSlackAuthorizeUrl,
+  exchangeSlackOAuthCode,
+  slackOAuthResponseToInstallation,
+  testSlackAuth,
+} from "./slack-oauth.js";
 import { getTaskQueueStats } from "./task-queue-stats.js";
 import type {
   PlatformAdapter,
   IntegrationsPluginOptions,
   IntegrationStatus,
+  IntegrationExecutionContext,
+  IncomingMessage,
+  PlatformDeliveryReceipt,
 } from "./types.js";
-import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
+import {
+  listIntegrationUsageBudgets,
+  saveIntegrationUsageBudget,
+} from "./usage-budget-store.js";
+import {
+  handleWebhook,
+  processIntegrationTask,
+  recordIntegrationResponseDelivery,
+  type IntegrationResponseDeliveryTaskPayload,
+} from "./webhook-handler.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -150,18 +231,28 @@ async function verifyGoogleDocsPushToken(authHeader: string): Promise<void> {
   }
 }
 
-/** Built-in adapters, instantiated lazily */
-function getDefaultAdapters(): PlatformAdapter[] {
-  return [
-    slackAdapter(),
-    telegramAdapter(),
-    whatsappAdapter(),
-    googleDocsAdapter(),
-    emailAdapter(),
-  ];
+export const BUILT_IN_INTEGRATION_ADAPTER_FACTORIES = Object.freeze([
+  { platform: "slack", create: slackAdapter },
+  { platform: "telegram", create: telegramAdapter },
+  { platform: "whatsapp", create: whatsappAdapter },
+  { platform: "microsoft-teams", create: microsoftTeamsAdapter },
+  { platform: "discord", create: discordAdapter },
+  { platform: "google-docs", create: googleDocsAdapter },
+  { platform: "email", create: emailAdapter },
+] as const satisfies ReadonlyArray<{
+  platform: string;
+  create: () => PlatformAdapter;
+}>);
+
+export const BUILT_IN_INTEGRATION_ADAPTER_IDS = Object.freeze(
+  BUILT_IN_INTEGRATION_ADAPTER_FACTORIES.map(({ platform }) => platform),
+);
+
+export function createBuiltInIntegrationAdapters(): PlatformAdapter[] {
+  return BUILT_IN_INTEGRATION_ADAPTER_FACTORIES.map(({ create }) => create());
 }
 
-const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Telegram, WhatsApp, etc.).
+const INTEGRATION_SYSTEM_PROMPT = `You are an AI agent responding via a messaging platform integration (Slack, Microsoft Teams, Discord interactions, Telegram, WhatsApp, etc.).
 
 You have the same capabilities as the web chat agent. Use your tools to help the user.
 
@@ -184,6 +275,28 @@ type IntegrationCredentialContext = {
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
+
+// One decline reply per sender + decline reason per window: during a Slack
+// API outage every message would otherwise get another identical "try again"
+// reply. Short enough that a persistent condition still reminds the sender.
+const DECLINE_NOTICE_DEDUPE_TTL_MS = 5 * 60 * 1_000;
+const SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
+
+type IntegrationSystemNoticeTaskPayload = {
+  kind: "system-notice";
+  incoming: IncomingMessage;
+  text: string;
+  dedupeKey?: string;
+  dedupeTtlMs?: number;
+};
+
+function systemNoticeEventKey(
+  dedupeKey: string,
+  ttlMs: number,
+  now = Date.now(),
+): string {
+  return `system-notice:${dedupeKey}:${Math.floor(now / ttlMs)}`;
+}
 
 export async function enqueueRemoteCommand(
   envelope: RemoteCodeCommandEnvelope,
@@ -476,7 +589,6 @@ function mountedPathParts(event: any, mountSuffix: string): string[] {
 function remoteCommandPushPayload(
   command: RemoteCommand,
 ): Record<string, unknown> {
-  const result = readObject(command.result);
   const status = command.status;
   const title =
     status === "completed"
@@ -484,14 +596,19 @@ function remoteCommandPushPayload(
       : status === "failed"
         ? "Remote run failed"
         : "Remote run updated";
+  const body =
+    status === "completed"
+      ? "Open Agent Native to review the result."
+      : status === "failed"
+        ? "Open Agent Native to review the failure."
+        : "Open Agent Native to review the latest status.";
   return {
     title,
-    body: command.errorMessage ?? readString(result?.message),
+    body,
     commandId: command.id,
     hostId: command.deviceId,
     kind: command.kind,
     status,
-    result: command.result,
     updatedAt: command.updatedAt,
   };
 }
@@ -510,9 +627,22 @@ function remoteCommandPushPayload(
 export function createIntegrationsPlugin(
   options?: IntegrationsPluginOptions,
 ): NitroPluginDef {
+  if (
+    options?.adapters !== undefined &&
+    options.adapterOverrides !== undefined
+  ) {
+    throw new Error(
+      "Choose either adapters for full replacement or adapterOverrides for per-platform customization.",
+    );
+  }
   return async (nitroApp: any) => {
     markDefaultPluginProvided(nitroApp, "integrations");
-    const adapters = options?.adapters ?? getDefaultAdapters();
+    const adapters =
+      options?.adapters ??
+      mergeIntegrationAdapters(
+        createBuiltInIntegrationAdapters(),
+        options?.adapterOverrides,
+      );
     const adapterMap = new Map<string, PlatformAdapter>();
     for (const adapter of adapters) {
       adapterMap.set(adapter.platform, adapter);
@@ -547,12 +677,80 @@ export function createIntegrationsPlugin(
       // call-agent script not available — skip
     }
     const actions = {
+      ...integrationMemoryActions(),
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
+    // Keep the app's own actions visible on the first request to the model;
+    // defer the framework additions merged in above (integration memory,
+    // call-agent) behind the tool-search entry `handleWebhook` /
+    // `startGoogleDocsPoller` attach to `actions`. The run loop's mid-run
+    // tool expansion still lets the model discover and call them after a
+    // search — see `filterInitialEngineTools` / `expandActiveTools`.
+    const initialToolNames = Object.keys(localActions);
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+
+    async function enqueueSystemNotice(
+      event: any,
+      incoming: IncomingMessage,
+      text: string,
+      opts?: { dedupeKey?: string; dedupeTtlMs?: number },
+    ): Promise<void> {
+      if (!text.trim()) return;
+      const taskId = `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const dedupeTtlMs = Math.max(
+        1,
+        opts?.dedupeTtlMs ?? SYSTEM_NOTICE_DEDUPE_TTL_MS,
+      );
+      const noticeThreadId = `system-notice:${taskId}`;
+      const payload: IntegrationSystemNoticeTaskPayload = {
+        kind: "system-notice",
+        incoming,
+        text,
+        ...(opts?.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
+        ...(opts?.dedupeTtlMs ? { dedupeTtlMs: opts.dedupeTtlMs } : {}),
+      };
+      try {
+        await insertPendingTask({
+          id: taskId,
+          platform: incoming.platform,
+          // System notices are auxiliary delivery work, not the user's agent
+          // run. Give each notice its own queue lane so a retrying notice cannot
+          // block the real message task for this Slack/Telegram thread.
+          externalThreadId: noticeThreadId,
+          payload: JSON.stringify(payload),
+          ownerEmail: `integration@${incoming.platform}`,
+          externalEventKey: opts?.dedupeKey
+            ? systemNoticeEventKey(opts.dedupeKey, dedupeTtlMs)
+            : undefined,
+        });
+      } catch (err) {
+        if (isDuplicateEventError(err)) return;
+        throw err;
+      }
+
+      // The SQL row is the durable source of truth. This best-effort self-call
+      // only reduces latency; the recurring pending-task sweep retries a row
+      // if the serverless host freezes this webhook execution immediately.
+      let token: string | undefined;
+      try {
+        token = signInternalToken(taskId);
+      } catch (err) {
+        if (process.env.NODE_ENV === "production") throw err;
+      }
+      void fetch(`${getBaseUrl(event)}${P}/process-task`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ taskId }),
+      }).catch((err) => {
+        console.warn("[integrations] System notice dispatch failed:", err);
+      });
+    }
 
     async function requireSession(event: any): Promise<boolean> {
       const session = await getSession(event).catch(() => null);
@@ -1043,6 +1241,115 @@ export function createIntegrationsPlugin(
     );
 
     h3.use(
+      `${P}/remote/computer/approvals`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const parts = mountedPathParts(event, "remote/computer/approvals");
+        if (method === "GET") {
+          if (parts.length > 0) {
+            setResponseStatus(event, 404);
+            return { error: "not found" };
+          }
+          const query = getQuery(event);
+          const status = readComputerApprovalStatus(query.status);
+          return {
+            approvals: await listComputerApprovalsForOwner({
+              ownerEmail: ctx.ownerEmail,
+              orgId: ctx.orgId,
+              deviceId: readString(query.deviceId),
+              taskId: readString(query.taskId),
+              runId: readString(query.runId),
+              status,
+              limit: Number(query.limit ?? 100) || 100,
+            }),
+          };
+        }
+        const body = (await readBody(event)) as Record<string, unknown>;
+        if (parts[0] && parts[1] === "decision" && parts.length === 2) {
+          const decision =
+            body.decision === "approved" || body.decision === "denied"
+              ? body.decision
+              : null;
+          const actionHash = readString(body.actionHash);
+          if (!decision || !actionHash) {
+            setResponseStatus(event, 400);
+            return { error: "decision and actionHash required" };
+          }
+          const approval = await decideComputerApproval({
+            id: decodeURIComponent(parts[0]),
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+            actionHash,
+            decision,
+            decidedBy: ctx.ownerEmail,
+            result: readObject(body.result),
+          });
+          if (!approval) {
+            setResponseStatus(event, 404);
+            return { error: "approval not found or no longer pending" };
+          }
+          return { approval };
+        }
+        if (parts.length > 0) {
+          setResponseStatus(event, 404);
+          return { error: "not found" };
+        }
+        const deviceId = readString(body.deviceId);
+        if (!deviceId || !body.envelope) {
+          setResponseStatus(event, 400);
+          return { error: "deviceId and envelope required" };
+        }
+        try {
+          const approval = await createComputerApprovalRequest({
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+            deviceId,
+            envelope: body.envelope as ComputerCommandEnvelope,
+          });
+          return { approval };
+        } catch (error) {
+          return computerSupervisionRouteError(event, error);
+        }
+      }),
+    );
+
+    h3.use(
+      `${P}/remote/computer/commands`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const body = (await readBody(event)) as Record<string, unknown>;
+        const deviceId = readString(body.deviceId);
+        if (!deviceId || !body.envelope) {
+          setResponseStatus(event, 400);
+          return { error: "deviceId and envelope required" };
+        }
+        try {
+          const command = await enqueueComputerCommand({
+            deviceId,
+            ownerEmail: ctx.ownerEmail,
+            orgId: ctx.orgId,
+            envelope: body.envelope as ComputerCommandEnvelope,
+            platform: readString(body.platform),
+          });
+          return { command };
+        } catch (error) {
+          return computerSupervisionRouteError(event, error);
+        }
+      }),
+    );
+
+    h3.use(
       `${P}/remote/enqueue`,
       defineEventHandler(async (event) => {
         if (getMethod(event) !== "POST") {
@@ -1129,15 +1436,47 @@ export function createIntegrationsPlugin(
         const query = getQuery(event);
         const body =
           method === "POST"
-            ? ((await readBody(event)) as { waitMs?: unknown })
+            ? ((await readBody(event)) as {
+                waitMs?: unknown;
+                computerCapabilities?: unknown;
+              })
             : {};
+        let pollingDevice = device;
+        if (
+          method === "POST" &&
+          Object.prototype.hasOwnProperty.call(body, "computerCapabilities")
+        ) {
+          const computerCapabilities = readComputerCapabilities(
+            body.computerCapabilities,
+          );
+          const updated = await updateRemoteDeviceDetails({
+            id: device.id,
+            metadata: {
+              ...(device.metadata ?? {}),
+              computerCapabilities,
+            },
+          });
+          if (updated) pollingDevice = updated;
+        }
         const requestedWait =
           Number(body.waitMs ?? query.waitMs ?? query.wait_ms ?? 25_000) || 0;
         const waitMs = Math.max(0, Math.min(25_000, requestedWait));
         const deadline = Date.now() + waitMs;
 
         while (true) {
-          const command = await claimNextRemoteCommand(device.id);
+          const operationClasses =
+            advertisedComputerOperationClasses(pollingDevice);
+          const computerCommand =
+            operationClasses.length > 0
+              ? await claimNextComputerCommand({
+                  deviceId: pollingDevice.id,
+                  ownerEmail: pollingDevice.ownerEmail,
+                  orgId: pollingDevice.orgId,
+                  operationClasses,
+                })
+              : null;
+          const command =
+            computerCommand ?? (await claimNextRemoteCommand(pollingDevice.id));
           if (command) return { command };
           const remaining = deadline - Date.now();
           if (remaining <= 0) return { command: null };
@@ -1312,6 +1651,11 @@ export function createIntegrationsPlugin(
           return { ok: true, skipped: "already-claimed-or-missing" };
         }
 
+        let deliveryRetryTransitionStarted = false;
+        let deliveryRetryRecovery:
+          | { payload: string; errorMessage: string }
+          | undefined;
+        let confirmedDeliveryRetryPayload: string | undefined;
         try {
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
@@ -1319,21 +1663,142 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
-          const resources = await loadResourcesForPrompt(
-            task.ownerEmail,
-            true,
-            options?.appId,
+          const processingResult = await runWithRequestContext(
+            {
+              userEmail: task.ownerEmail,
+              ...(task.orgId ? { orgId: task.orgId } : {}),
+              isIntegrationCaller: true,
+            },
+            async () => {
+              const taskPayload = JSON.parse(task.payload) as
+                | IntegrationSystemNoticeTaskPayload
+                | IntegrationResponseDeliveryTaskPayload
+                | { kind?: undefined };
+              if (taskPayload.kind === "system-notice") {
+                if (!adapter.sendSystemNotice) {
+                  throw new Error(
+                    `Platform ${task.platform} cannot deliver system notices`,
+                  );
+                }
+                const config = await getIntegrationConfig(task.platform);
+                const credentialContext =
+                  await credentialContextForIntegrationConfig(config);
+                await withCredentialContext(credentialContext, () =>
+                  adapter.sendSystemNotice!(
+                    taskPayload.incoming,
+                    taskPayload.text,
+                    {
+                      ...(taskPayload.dedupeKey
+                        ? { dedupeKey: taskPayload.dedupeKey }
+                        : {}),
+                      ...(taskPayload.dedupeTtlMs
+                        ? { dedupeTtlMs: taskPayload.dedupeTtlMs }
+                        : {}),
+                    },
+                  ),
+                );
+                return;
+              }
+              if (taskPayload.kind === "response-delivery") {
+                let receipt: void | PlatformDeliveryReceipt =
+                  taskPayload.deliveryReceipt;
+                if (!receipt) {
+                  receipt = await adapter.sendResponse(
+                    taskPayload.message,
+                    taskPayload.incoming,
+                    {
+                      ...(taskPayload.placeholderRef
+                        ? { placeholderRef: taskPayload.placeholderRef }
+                        : {}),
+                    },
+                  );
+                }
+                if (receipt?.status !== "delivered") {
+                  throw new Error(
+                    `${task.platform} response completed without delivery proof`,
+                  );
+                }
+                const deliveredPayload = taskPayload.deliveryReceipt
+                  ? taskPayload
+                  : {
+                      ...taskPayload,
+                      deliveryReceipt: receipt,
+                      deliveredAt: new Date().toISOString(),
+                    };
+                confirmedDeliveryRetryPayload =
+                  JSON.stringify(deliveredPayload);
+                if (!taskPayload.deliveryReceipt) {
+                  deliveryRetryRecovery = {
+                    payload: confirmedDeliveryRetryPayload,
+                    errorMessage:
+                      "Provider delivery was confirmed but its receipt checkpoint failed",
+                  };
+                  await stageTaskDeliveryPayload(
+                    task.id,
+                    deliveryRetryRecovery.payload,
+                  );
+                  deliveryRetryRecovery = undefined;
+                }
+                await recordIntegrationResponseDelivery(
+                  deliveredPayload,
+                  receipt,
+                );
+                return;
+              }
+              const resources = await loadResourcesForPrompt(
+                task.ownerEmail,
+                true,
+                options?.appId,
+                task.orgId,
+              );
+              const result = await processIntegrationTask(task, {
+                adapter,
+                systemPrompt: baseSystemPrompt + resources,
+                actions,
+                initialToolNames,
+                model,
+                apiKey: getApiKey(),
+                engine: options?.engine,
+                ownerEmail: task.ownerEmail,
+                appId: options?.appId,
+              });
+              if (result?.status === "delivery-pending") {
+                deliveryRetryTransitionStarted = true;
+                await markTaskDeliveryRetryable(
+                  task.id,
+                  JSON.stringify(result.payload),
+                  result.errorMessage,
+                );
+                return "delivery-retry" as const;
+              }
+              return "completed" as const;
+            },
           );
-          await processIntegrationTask(task, {
-            adapter,
-            systemPrompt: baseSystemPrompt + resources,
-            actions,
-            model,
-            apiKey: getApiKey(),
-            engine: options?.engine,
-            ownerEmail: task.ownerEmail,
-          });
+          if (processingResult === "delivery-retry") {
+            setResponseStatus(event, 202);
+            return { ok: true, taskId, retrying: "response-delivery" };
+          }
           await markTaskCompleted(taskId);
+          const nextTaskId = await getNextPendingTaskIdForThread(
+            task.platform,
+            task.externalThreadId,
+          );
+          if (nextTaskId) {
+            const nextToken = signInternalToken(nextTaskId);
+            void fetch(`${getBaseUrl(event)}${P}/process-task`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(nextToken ? { Authorization: `Bearer ${nextToken}` } : {}),
+              },
+              body: JSON.stringify({ taskId: nextTaskId }),
+            }).catch((err) => {
+              console.error(
+                "[integrations] Failed to dispatch queued thread turn:",
+                err,
+              );
+            });
+          }
           await processDueA2AContinuations({
             adapters: adapterMap,
             limit: 2,
@@ -1345,12 +1810,64 @@ export function createIntegrationsPlugin(
           });
           return { ok: true, taskId };
         } catch (err: any) {
-          await markTaskFailed(
-            taskId,
-            err?.message
-              ? String(err.message).slice(0, 1000)
-              : "processor failed",
-          );
+          const errorMessage = err?.message
+            ? String(err.message).slice(0, 1000)
+            : "processor failed";
+          if (deliveryRetryRecovery) {
+            try {
+              await markTaskDeliveryRetryable(
+                taskId,
+                deliveryRetryRecovery.payload,
+                `${deliveryRetryRecovery.errorMessage}: ${errorMessage}`,
+              );
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "response-delivery" };
+            } catch (transitionError) {
+              const transitionMessage =
+                transitionError instanceof Error
+                  ? transitionError.message
+                  : String(transitionError);
+              await failTaskDeliveryTransition(
+                taskId,
+                `Could not safely checkpoint the delivery receipt: ${transitionMessage}`,
+              ).catch((failureTransitionError) => {
+                console.error(
+                  "[integrations] Failed to contain delivery receipt transition failure:",
+                  failureTransitionError,
+                );
+              });
+            }
+          } else if (confirmedDeliveryRetryPayload) {
+            try {
+              await markTaskDeliveryRetryable(
+                taskId,
+                confirmedDeliveryRetryPayload,
+                `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
+              );
+              console.error("[integrations] process-task failure:", err);
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "response-delivery" };
+            } catch (transitionError) {
+              console.error(
+                "[integrations] Failed to requeue confirmed delivery history:",
+                transitionError,
+              );
+            }
+          } else if (deliveryRetryTransitionStarted) {
+            await failTaskDeliveryTransition(
+              taskId,
+              `Could not safely checkpoint the delivery retry: ${errorMessage}`,
+            ).catch((transitionError) => {
+              console.error(
+                "[integrations] Failed to contain delivery retry transition failure:",
+                transitionError,
+              );
+            });
+          } else if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
+            await markTaskFailed(taskId, errorMessage);
+          } else {
+            await markTaskRetryable(taskId, errorMessage);
+          }
           // Log the detail server-side; never return the raw error message
           // to the caller. Raw messages have leaked DB error codes, schema
           // names, and stack hints in the past (L3 in the webhook security
@@ -1421,6 +1938,530 @@ export function createIntegrationsPlugin(
       }),
     );
 
+    // ─── Slack native action controls ─────────────────────────────
+    h3.use(
+      `${P}/slack/interactions`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const adapter = adapterMap.get("slack");
+        if (!adapter) {
+          setResponseStatus(event, 404);
+          return "ok";
+        }
+        // handleVerification caches the exact raw form bytes even though the
+        // body is not JSON; verifyWebhook then validates Slack's HMAC before
+        // any action value is parsed.
+        await adapter.handleVerification(event);
+        if (!(await adapter.verifyWebhook(event))) {
+          setResponseStatus(event, 401);
+          return { error: "Invalid webhook signature" };
+        }
+        try {
+          const raw = String(event.context?.__rawBody ?? "");
+          const encoded = new URLSearchParams(raw).get("payload");
+          const payload = encoded ? JSON.parse(encoded) : null;
+          const action = payload?.actions?.[0];
+          const actionKind =
+            action?.action_id === "agent_native_approve"
+              ? "approve"
+              : action?.action_id === "agent_native_deny"
+                ? "deny"
+                : action?.action_id === "agent_native_cancel"
+                  ? "cancel"
+                  : null;
+          if (!actionKind || typeof action?.value !== "string") return "ok";
+          const requesterId = payload?.user?.id;
+          const teamId = payload?.team?.id ?? payload?.user?.team_id;
+          const channelId =
+            payload?.channel?.id ?? payload?.container?.channel_id;
+          const messageTs = payload?.container?.message_ts;
+          if (!requesterId || !teamId || !channelId || !messageTs) {
+            return "ok";
+          }
+          const control = await claimIntegrationControl({
+            id: action.value,
+            action: actionKind,
+            requesterId,
+            teamId,
+            apiAppId:
+              typeof payload?.api_app_id === "string" ? payload.api_app_id : "",
+            channelId,
+            messageTs,
+          });
+          if (!control) return "ok";
+          if (actionKind === "cancel") {
+            if (control.runId) abortRun(control.runId, "slack_cancel");
+            return "ok";
+          }
+          if (actionKind === "deny") return "ok";
+          if (!control.approvalKey) return "ok";
+
+          const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const incoming = {
+            ...control.incoming,
+            text: "The requester approved the pending action. Continue the task.",
+            approvedToolCalls: [control.approvalKey],
+            timestamp: Date.now(),
+            platformContext: {
+              ...control.incoming.platformContext,
+              eventId: `control:${control.id}`,
+            },
+          };
+          await insertPendingTask({
+            id: taskId,
+            platform: incoming.platform,
+            externalThreadId: incoming.externalThreadId,
+            payload: JSON.stringify({ incoming }),
+            ownerEmail: control.ownerEmail,
+            orgId: control.orgId,
+            externalEventKey: `control:${control.id}`,
+          });
+          const processUrl = `${getBaseUrl(event)}${P}/process-task`;
+          const token = signInternalToken(taskId);
+          void fetch(processUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ taskId }),
+          }).catch((err) => {
+            console.error("[slack] Approval dispatch failed:", err);
+          });
+        } catch (err) {
+          console.error("[slack] Interaction handling failed:", err);
+        }
+        return "ok";
+      }),
+    );
+
+    // ─── Managed integration installations ───────────────────────
+    h3.use(
+      `${P}/installations`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "unauthorized" };
+        }
+        const org = await getOrgContext(event).catch(() => null);
+        const actor = {
+          userEmail: session.email,
+          orgId: org?.orgId ?? session.orgId ?? null,
+          isOrgAdmin: org?.role === "owner" || org?.role === "admin",
+        };
+        if (method === "GET") {
+          const query = getQuery(event);
+          return {
+            installations: await listIntegrationInstallations(
+              actor,
+              typeof query.platform === "string" ? query.platform : undefined,
+            ),
+          };
+        }
+        const body = (await readBody(event)) as {
+          id?: unknown;
+          action?: unknown;
+        };
+        const id = typeof body.id === "string" ? body.id : "";
+        if (!id) {
+          setResponseStatus(event, 400);
+          return { error: "installation id required" };
+        }
+        if (body.action === "disconnect") {
+          return {
+            installation: await disconnectIntegrationInstallation(id, actor),
+          };
+        }
+        if (body.action === "test") {
+          const installation = (
+            await listIntegrationInstallations(actor, "slack")
+          ).find((item) => item.id === id);
+          if (!installation) {
+            setResponseStatus(event, 404);
+            return { error: "installation not found" };
+          }
+          const bundle = await resolveIntegrationTokenBundle(
+            installation.platform,
+            installation.installationKey,
+          );
+          if (!bundle) {
+            const updated = await updateIntegrationInstallation(id, actor, {
+              health: "revoked",
+              status: "revoked",
+              lastError: "token_unavailable",
+              healthCheckedAt: Date.now(),
+            });
+            return { installation: updated };
+          }
+          const health = await testSlackAuth(bundle.accessToken);
+          const updated = await updateIntegrationInstallation(id, actor, {
+            health: health.health,
+            status: health.health === "revoked" ? "revoked" : "connected",
+            lastError: health.error,
+            healthCheckedAt: health.checkedAt,
+            ...(health.ok ? { lastHealthyAt: health.checkedAt } : {}),
+          });
+          return { installation: updated };
+        }
+        setResponseStatus(event, 400);
+        return { error: "unsupported installation action" };
+      }),
+    );
+
+    h3.use(
+      `${P}/scopes`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
+        if (method === "GET") {
+          const query = getQuery(event);
+          return {
+            scopes: await listIntegrationScopes(access, {
+              platform:
+                typeof query.platform === "string" ? query.platform : undefined,
+              tenantId:
+                typeof query.tenantId === "string" ? query.tenantId : undefined,
+            }),
+          };
+        }
+        const admin = await checkOrgAdmin(event);
+        if (!admin.ok) return { error: admin.error };
+        try {
+          const body = (await readBody(event)) as Parameters<
+            typeof saveIntegrationScope
+          >[0];
+          return { scope: await saveIntegrationScope(body, access) };
+        } catch (err) {
+          setResponseStatus(event, 400);
+          return {
+            error: err instanceof Error ? err.message : "invalid scope",
+          };
+        }
+      }),
+    );
+
+    h3.use(
+      `${P}/budgets`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
+        if (method === "GET") {
+          return { budgets: await listIntegrationUsageBudgets(access) };
+        }
+        const admin = await checkOrgAdmin(event);
+        if (!admin.ok) return { error: admin.error };
+        try {
+          const body = (await readBody(event)) as Parameters<
+            typeof saveIntegrationUsageBudget
+          >[0];
+          return {
+            budget: await saveIntegrationUsageBudget(body, access),
+          };
+        } catch (err) {
+          setResponseStatus(event, 400);
+          return {
+            error: err instanceof Error ? err.message : "invalid budget",
+          };
+        }
+      }),
+    );
+
+    h3.use(
+      `${P}/memory`,
+      defineEventHandler(async (event) => {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const access = { ownerEmail: ctx.ownerEmail, orgId: ctx.orgId };
+        const query = getQuery(event);
+        const body =
+          method === "POST"
+            ? ((await readBody(event)) as Record<string, unknown>)
+            : null;
+        const scopeId =
+          typeof query.scopeId === "string"
+            ? query.scopeId
+            : typeof body?.scopeId === "string"
+              ? body.scopeId
+              : "";
+        const scope = (await listIntegrationScopes(access)).find(
+          (item) => item.id === scopeId,
+        );
+        if (!scope) {
+          setResponseStatus(event, 404);
+          return { error: "integration scope not found" };
+        }
+        if (method === "GET") {
+          return { memories: await listIntegrationMemory(scope.id) };
+        }
+        const admin = await checkOrgAdmin(event);
+        if (!admin.ok) return { error: admin.error };
+        if (body?.action === "remember") {
+          return {
+            memory: await rememberForIntegrationScope(
+              {
+                name: String(body.name ?? ""),
+                description: String(body.description ?? ""),
+                content: String(body.content ?? ""),
+              },
+              scope.id,
+            ),
+          };
+        }
+        if (body?.action === "forget") {
+          return {
+            memory: await forgetIntegrationMemory(
+              { name: String(body.name ?? "") },
+              scope.id,
+            ),
+          };
+        }
+        setResponseStatus(event, 400);
+        return { error: "unsupported memory action" };
+      }),
+    );
+
+    // ─── Managed Slack OAuth ──────────────────────────────────────
+    h3.use(
+      `${P}/slack/manifest`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const oauthRedirectUrl = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/oauth/callback`,
+        );
+        const eventsRequestUrl = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/webhook`,
+        );
+        const interactivityRequestUrl = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/interactions`,
+        );
+        if (
+          !oauthRedirectUrl ||
+          !eventsRequestUrl ||
+          !interactivityRequestUrl
+        ) {
+          setResponseStatus(event, 400);
+          return { error: "Slack manifest URLs are not allowed." };
+        }
+        setResponseHeader(
+          event,
+          "content-disposition",
+          'attachment; filename="agent-native-slack-manifest.json"',
+        );
+        return buildSlackAgentManifest({
+          oauthRedirectUrl,
+          eventsRequestUrl,
+          interactivityRequestUrl,
+        });
+      }),
+    );
+
+    h3.use(
+      `${P}/slack/oauth/install`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const session = await getSession(event).catch(() => null);
+        if (!session?.email) {
+          setResponseStatus(event, 401);
+          return { error: "Sign in before connecting Slack." };
+        }
+        const org = await getOrgContext(event).catch(() => null);
+        try {
+          assertSlackInstallAccess({
+            email: session.email,
+            orgId: org?.orgId ?? session.orgId ?? null,
+            orgRole: org?.role ?? null,
+          });
+        } catch (err) {
+          setResponseStatus(event, 403);
+          return {
+            error: err instanceof Error ? err.message : "Slack access denied",
+          };
+        }
+        return await runWithRequestContext(
+          {
+            userEmail: session.email,
+            orgId: org?.orgId ?? session.orgId ?? undefined,
+          },
+          async () => {
+            const clientId = await resolveSecret("SLACK_CLIENT_ID");
+            const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
+            const signingSecret = await resolveSecret("SLACK_SIGNING_SECRET");
+            if (!clientId || !clientSecret || !signingSecret) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Slack OAuth is not configured. Add the Slack client id, client secret, and signing secret first.",
+              };
+            }
+            const redirectUri = resolveOAuthRedirectUri(
+              event,
+              `${P}/slack/oauth/callback`,
+            );
+            if (!redirectUri) {
+              setResponseStatus(event, 400);
+              return { error: "Slack OAuth redirect URL is not allowed." };
+            }
+            const query = getQuery(event);
+            const state = encodeOAuthState({
+              redirectUri,
+              owner: session.email,
+              orgId: org?.orgId ?? session.orgId ?? undefined,
+              app: "agent-native:slack",
+              addAccount: true,
+              returnUrl:
+                typeof query.return === "string" ? query.return : "/messaging",
+            });
+            return sendRedirect(
+              event,
+              buildSlackAuthorizeUrl({ clientId, redirectUri, state }),
+              302,
+            );
+          },
+        );
+      }),
+    );
+
+    h3.use(
+      `${P}/slack/oauth/callback`,
+      defineEventHandler(async (event) => {
+        if (getMethod(event) !== "GET") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        const query = getQuery(event);
+        if (typeof query.error === "string") {
+          return oauthErrorPage("Slack authorization was canceled or denied.");
+        }
+        const fallbackRedirect = resolveOAuthRedirectUri(
+          event,
+          `${P}/slack/oauth/callback`,
+        );
+        if (!fallbackRedirect) {
+          return oauthErrorPage("Slack OAuth redirect URL is not allowed.");
+        }
+        const state = decodeOAuthState(
+          typeof query.state === "string" ? query.state : undefined,
+          fallbackRedirect,
+        );
+        const session = await getSession(event).catch(() => null);
+        const org = await getOrgContext(event).catch(() => null);
+        if (
+          state.app !== "agent-native:slack" ||
+          !session?.email ||
+          !state.owner ||
+          session.email.toLowerCase() !== state.owner.toLowerCase() ||
+          (state.orgId ?? null) !== (org?.orgId ?? session.orgId ?? null)
+        ) {
+          return oauthErrorPage(
+            "Your Slack install session expired or changed. Sign in and start again.",
+          );
+        }
+        const code = typeof query.code === "string" ? query.code : null;
+        if (!code) return oauthErrorPage("Slack did not return an OAuth code.");
+        try {
+          const access = assertSlackInstallAccess({
+            email: session.email,
+            orgId: org?.orgId ?? session.orgId ?? null,
+            orgRole: org?.role ?? null,
+          });
+          return await runWithRequestContext(
+            {
+              userEmail: access.ownerEmail,
+              orgId: access.orgId ?? undefined,
+            },
+            async () => {
+              const clientId = await resolveSecret("SLACK_CLIENT_ID");
+              const clientSecret = await resolveSecret("SLACK_CLIENT_SECRET");
+              if (!clientId || !clientSecret) {
+                return oauthErrorPage("Slack OAuth is not configured.");
+              }
+              const oauth = await exchangeSlackOAuthCode({
+                code,
+                clientId,
+                clientSecret,
+                redirectUri: state.redirectUri,
+              });
+              const health = await testSlackAuth(oauth.access_token || "");
+              if (!health.ok) {
+                return oauthErrorPage(
+                  "Slack connected, but the bot token could not be verified. Please retry.",
+                );
+              }
+              if (
+                oauth.team?.id &&
+                health.teamId &&
+                oauth.team.id !== health.teamId
+              ) {
+                return oauthErrorPage(
+                  "Slack returned inconsistent workspace details. Please retry.",
+                );
+              }
+              const input = slackOAuthResponseToInstallation(oauth, access);
+              const installation = await upsertIntegrationInstallation({
+                ...input,
+                health: health.health,
+                healthCheckedAt: health.checkedAt,
+                lastHealthyAt: health.checkedAt,
+              });
+              await saveIntegrationConfig(
+                "slack",
+                { enabled: true, managedOAuth: true },
+                "default",
+                access.ownerEmail,
+              );
+              return oauthCallbackResponse(
+                event,
+                installation.teamName || installation.enterpriseName || "Slack",
+                {
+                  addAccount: true,
+                  appName: "Agent Native",
+                  returnUrl: state.returnUrl || "/messaging",
+                },
+              );
+            },
+          );
+        } catch (err) {
+          console.error("[slack] OAuth callback failed:", err);
+          return oauthErrorPage("Slack connection failed. Please try again.");
+        }
+      }),
+    );
+
     // ─── Per-platform catch-all ───────────────────────────────────
     // Handles: webhook, status, enable, disable, setup for each platform
     h3.use(
@@ -1441,6 +2482,20 @@ export function createIntegrationsPlugin(
         if (parts[0] === "process-task") return;
         // Already handled by the dedicated /process-a2a-continuation route above
         if (parts[0] === "process-a2a-continuation") return;
+        // These are framework-owned control-plane routes, not integration
+        // platforms. The dedicated handlers above normally return a response
+        // before this catch-all runs, but keeping them reserved here prevents
+        // an unexpected mount fall-through from turning a valid control-plane
+        // request into a misleading "Unknown platform" response.
+        if (
+          parts[0] === "installations" ||
+          parts[0] === "scopes" ||
+          parts[0] === "budgets" ||
+          parts[0] === "memory"
+        ) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
 
         const platform = parts[0];
         const action = parts[1]; // webhook, status, enable, disable, setup
@@ -1534,20 +2589,13 @@ export function createIntegrationsPlugin(
           const credentialContext =
             await credentialContextForIntegrationConfig(config);
 
-          // Handle platform verification challenges (e.g. Slack url_verification)
-          // before checking enable state or parsing the message.
+          // Let the adapter cache the raw request and identify setup
+          // challenges, but never return a challenge response until the
+          // provider signature has been verified.
           const verification = await withCredentialContext(
             credentialContext,
             () => adapter.handleVerification(event),
           );
-          if (verification.handled) {
-            return verification.response ?? "ok";
-          }
-
-          if (!config?.configData?.enabled) {
-            setResponseStatus(event, 404);
-            return { error: `Integration ${platform} is not enabled` };
-          }
 
           // Verify the webhook signature BEFORE parsing. We pre-parse the
           // body here (so handleWebhook can skip its second readBody, which
@@ -1561,40 +2609,222 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 401);
             return { error: "Invalid webhook signature" };
           }
+          if (verification.handled) {
+            setResponseStatus(event, 200);
+            return verification.response ?? "ok";
+          }
 
-          const incoming = await withCredentialContext(credentialContext, () =>
+          if (!config?.configData?.enabled) {
+            setResponseStatus(event, 404);
+            return { error: `Integration ${platform} is not enabled` };
+          }
+
+          let incoming = await withCredentialContext(credentialContext, () =>
             adapter.parseIncomingMessage(event),
           );
           if (!incoming) {
             setResponseStatus(event, 200);
             return "ok";
           }
-          let owner = `integration@${platform}`;
-          if (options?.resolveOwner) {
+          if (adapter.hydrateIncomingIdentity) {
             try {
-              owner = await options.resolveOwner(incoming);
+              incoming = await withCredentialContext(credentialContext, () =>
+                adapter.hydrateIncomingIdentity!(incoming!),
+              );
+            } catch (err) {
+              // Identity hydration is best-effort for platforms that have an
+              // app-specific resolver. Slack's default DM resolver below will
+              // still fail closed when the identity is absent or unverified.
+              console.warn(
+                `[integrations] Could not hydrate ${platform} sender identity:`,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          let defaultExecutionContext: IntegrationExecutionContext | null =
+            null;
+          if (
+            incoming.platform === "slack" &&
+            incoming.conversationType === "dm" &&
+            !options?.resolveExecutionContext
+          ) {
+            try {
+              defaultExecutionContext = await withCredentialContext(
+                credentialContext,
+                () => resolveDefaultIntegrationExecutionContext(incoming!),
+              );
+            } catch (err) {
+              // The legacy owner-only resolver predates org-bound identities
+              // and must not turn a rejected Slack DM into an authenticated
+              // owner run. Custom resolveExecutionContext is checked above and
+              // skips this default ladder entirely so apps can fully own auth
+              // without framework membership checks or identity side effects.
+              const declined =
+                err instanceof IntegrationIdentityDeclinedError ? err : null;
+              if (declined) {
+                console.warn(
+                  `[integrations] default Slack DM identity declined message:`,
+                  declined.message,
+                );
+                if (adapter.sendSystemNotice) {
+                  try {
+                    await enqueueSystemNotice(
+                      event,
+                      incoming!,
+                      declined.userFacingMessage,
+                      {
+                        dedupeKey: `decline:${incoming!.tenantId ?? "unknown"}:${incoming!.senderId ?? "unknown"}:${declined.reason}`,
+                        dedupeTtlMs: DECLINE_NOTICE_DEDUPE_TTL_MS,
+                      },
+                    );
+                  } catch (noticeErr) {
+                    console.warn(
+                      `[integrations] could not persist decline notice:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                    setResponseStatus(event, 500);
+                    return { error: "notice enqueue failed" };
+                  }
+                }
+              } else {
+                console.error(
+                  `[integrations] default Slack DM identity denied message:`,
+                  err,
+                );
+              }
+              setResponseStatus(event, 200);
+              return "ok";
+            }
+          }
+          let executionContext: IntegrationExecutionContext = {
+            ownerEmail: `integration@${platform}`,
+            orgId: null as string | null,
+            principalType: "service" as const,
+          };
+          if (options?.resolveExecutionContext) {
+            try {
+              executionContext = await withCredentialContext(
+                credentialContext,
+                () =>
+                  Promise.resolve(options.resolveExecutionContext!(incoming)),
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] resolveExecutionContext denied message:`,
+                err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
+          } else if (defaultExecutionContext) {
+            executionContext = defaultExecutionContext;
+            if (defaultExecutionContext.anonymousMember) {
+              if (!options?.allowAnonymousOrgScopedSlackDm) {
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `I couldn't match your Slack account to an organization member, so I can't run this request. Ask an organization admin to add ${senderEmail}, then try again.`
+                  : "I couldn't verify your Slack account email, so I can't run this request. Ask an organization admin to reconnect Slack with the users:read.email scope, then try again.";
+                if (adapter.sendSystemNotice) {
+                  try {
+                    await enqueueSystemNotice(event, incoming, noticeText, {
+                      dedupeKey: `anonymous-tier-disabled:${incoming.tenantId ?? "unknown"}:${incoming.senderId ?? "unknown"}`,
+                    });
+                  } catch (noticeErr) {
+                    console.warn(
+                      `[integrations] could not persist unlinked-member notice:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                    setResponseStatus(event, 500);
+                    return { error: "notice enqueue failed" };
+                  }
+                }
+                setResponseStatus(event, 200);
+                return "ok";
+              }
+              // The anonymous tier must never be silent. (1) The agent run
+              // can tell: the note rides the serialized `incoming` into the
+              // queued task and surfaces via <integration-context>.
+              incoming.identityNote =
+                "Caller is an unlinked Slack workspace member running with organization-wide visibility only; personal or privately-shared data is not accessible. They can get personal access by having an admin add their Slack email to the organization (or by reconnecting Slack with the users:read.email scope).";
+              // (2) The sender gets a one-time heads-up through the same
+              // durable SQL queue as agent work. The self-dispatch is only a
+              // latency optimization; the retry sweep guarantees delivery.
+              if (adapter.sendSystemNotice) {
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `Heads up: I couldn't match your Slack account to an organization member, so I can only use org-wide data. Ask an admin to add ${senderEmail} to the organization for personal access.`
+                  : "Heads up: I couldn't verify your Slack account's email, so I can only use org-wide data. Ask an admin to update the Slack connection with the users:read.email scope for personal access.";
+                try {
+                  await enqueueSystemNotice(event, incoming, noticeText, {
+                    dedupeKey: `anonymous-tier:${incoming.tenantId ?? "unknown"}:${incoming.senderId ?? "unknown"}`,
+                  });
+                } catch (noticeErr) {
+                  console.warn(
+                    `[integrations] could not persist anonymous-tier notice:`,
+                    noticeErr instanceof Error ? noticeErr.message : noticeErr,
+                  );
+                  setResponseStatus(event, 500);
+                  return { error: "notice enqueue failed" };
+                }
+              }
+            }
+          } else if (options?.resolveOwner) {
+            try {
+              executionContext.ownerEmail = await withCredentialContext(
+                credentialContext,
+                () => Promise.resolve(options.resolveOwner!(incoming)),
+              );
             } catch (err) {
               console.error(
                 `[integrations] resolveOwner failed, using default:`,
                 err,
               );
             }
+          } else {
+            try {
+              executionContext = await withCredentialContext(
+                credentialContext,
+                () => resolveDefaultIntegrationExecutionContext(incoming!),
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] default execution identity denied message:`,
+                err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
           }
-          const resources = await loadResourcesForPrompt(
-            owner,
-            true,
-            options?.appId,
-          );
-          const systemPrompt = baseSystemPrompt + resources;
+          if (executionContext.scopeId) {
+            incoming.integrationScopeId = executionContext.scopeId;
+          }
           const result = await handleWebhook(event, {
             adapter,
-            systemPrompt,
+            // The processor reloads scoped resources immediately before the
+            // agent run. Avoid doing that work on the acknowledgement path,
+            // where providers such as Discord enforce a 3-second deadline.
+            systemPrompt: baseSystemPrompt,
             actions,
+            initialToolNames,
             model,
             apiKey: getApiKey(),
             engine: options?.engine,
             appId: options?.appId,
-            ownerEmail: owner,
+            ownerEmail: executionContext.ownerEmail,
+            orgId: executionContext.orgId,
+            principalType: executionContext.principalType,
             beforeProcess: options?.beforeProcess,
             incoming,
           });
@@ -1646,11 +2876,15 @@ export function createIntegrationsPlugin(
               toCredentialContext(ctx),
               () => resolveSecret("TELEGRAM_BOT_TOKEN"),
             );
-            if (!token) {
+            const webhookSecret = await withCredentialContext(
+              toCredentialContext(ctx),
+              () => resolveSecret("TELEGRAM_WEBHOOK_SECRET"),
+            );
+            if (!token || !webhookSecret) {
               setResponseStatus(event, 400);
               return {
                 error:
-                  "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
+                  "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
               };
             }
             try {
@@ -1659,7 +2893,10 @@ export function createIntegrationsPlugin(
                 {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ url: webhookUrl }),
+                  body: JSON.stringify({
+                    url: webhookUrl,
+                    secret_token: webhookSecret,
+                  }),
                 },
               );
               const data = await res.json();
@@ -1687,6 +2924,7 @@ export function createIntegrationsPlugin(
     });
     startA2AContinuationRetryJob(adapterMap);
     startRemoteCommandsRetryJob();
+    startRemotePushDeliveryJob();
 
     // ─── Start Google Docs poller/push ────────────────────────────
     if (adapterMap.has("google-docs")) {
@@ -1702,9 +2940,10 @@ export function createIntegrationsPlugin(
           ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
           : undefined;
 
-        startGoogleDocsPoller({
+        void startGoogleDocsPoller({
           systemPrompt: baseSystemPrompt,
           actions,
+          initialToolNames,
           model: model ?? "",
           apiKey: getApiKey(),
           ownerEmail: "integration@google-docs",
@@ -1743,4 +2982,67 @@ function getBaseUrl(event: any): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readComputerCapabilities(value: unknown) {
+  const input = readObject(value);
+  const readSurface = (surface: unknown, desktop = false) => {
+    const record = readObject(surface);
+    if (!record) return undefined;
+    return {
+      observe: record.observe === true,
+      control: record.control === true,
+      ...(desktop
+        ? {
+            accessibility: record.accessibility === true,
+            screenCapture: record.screenCapture === true,
+          }
+        : {}),
+      provider: readString(record.provider) ?? null,
+      version: readString(record.version) ?? null,
+    };
+  };
+  return {
+    browser: readSurface(input?.browser),
+    desktop: readSurface(input?.desktop, true),
+  };
+}
+
+function advertisedComputerOperationClasses(
+  device: Pick<RemoteDevice, "metadata">,
+): ComputerOperationClass[] {
+  const capabilities = getRemoteComputerCapabilities(device);
+  const classes: ComputerOperationClass[] = [];
+  if (capabilities?.browser?.observe) classes.push("browser.observe");
+  if (capabilities?.browser?.control) classes.push("browser.control");
+  if (capabilities?.desktop?.observe) classes.push("desktop.observe");
+  if (capabilities?.desktop?.control) classes.push("desktop.control");
+  return classes;
+}
+
+function readComputerApprovalStatus(value: unknown) {
+  return value === "pending" ||
+    value === "approved" ||
+    value === "denied" ||
+    value === "consumed" ||
+    value === "expired"
+    ? value
+    : undefined;
+}
+
+function computerSupervisionRouteError(event: any, error: unknown) {
+  if (error instanceof ComputerSupervisionError) {
+    const status =
+      error.code === "expired-lease"
+        ? 410
+        : error.code === "replay"
+          ? 409
+          : error.code === "approval-required" ||
+              error.code === "approval-denied"
+            ? 403
+            : 400;
+    setResponseStatus(event, status);
+    return { error: error.message, code: error.code };
+  }
+  throw error;
 }

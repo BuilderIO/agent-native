@@ -90,6 +90,17 @@ describe("isResumableEngineError", () => {
     }
   });
 
+  it("recognizes Anthropic bare 'Connection error.' as resumable", () => {
+    expect(isResumableEngineError(new Error("Connection error."))).toBe(true);
+    expect(
+      isResumableEngineError(
+        new EngineError("Connection error.", {
+          errorCode: "provider_network_error",
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it("recognizes raw transport errors by message", () => {
     const cases = [
       "socket hang up",
@@ -202,12 +213,14 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
 
   it("resumes on builder_gateway_timeout and runs another LLM call", async () => {
     let attempts = 0;
+    const seenRequestTexts: Array<string | undefined> = [];
     const messages: EngineMessage[] = [
       { role: "user", content: [{ type: "text", text: "go" }] },
     ];
 
-    mockRunAgentLoop.mockImplementation(async () => {
+    mockRunAgentLoop.mockImplementation(async (opts) => {
       attempts++;
+      seenRequestTexts.push(opts.finalResponseGuardRequestText);
       if (attempts === 1) {
         throw new EngineError("Builder gateway timed out after 45s", {
           errorCode: "builder_gateway_timeout",
@@ -228,6 +241,7 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     );
 
     expect(attempts).toBe(2);
+    expect(seenRequestTexts).toEqual(["go", "go"]);
     expect(usage.inputTokens).toBe(100);
     expect(usage.outputTokens).toBe(50);
 

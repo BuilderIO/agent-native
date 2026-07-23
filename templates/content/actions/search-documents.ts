@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, sql } from "drizzle-orm";
+import { and, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -8,10 +8,6 @@ import {
   documentDiscoveryFilter,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  isContentLocalFileMode,
-  listLocalFileDocuments,
-} from "./_local-file-documents.js";
 
 function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
@@ -50,34 +46,6 @@ export default defineAction({
   run: async (args) => {
     const query = args.query;
 
-    if (await isContentLocalFileMode()) {
-      const normalizedQuery = query.toLowerCase();
-      const docs = (await listLocalFileDocuments())
-        .filter((doc) => doc.source?.kind !== "folder")
-        .filter((doc) => !doc.hideFromSearch)
-        .filter(
-          (doc) =>
-            !normalizedQuery ||
-            doc.title.toLowerCase().includes(normalizedQuery) ||
-            doc.content.toLowerCase().includes(normalizedQuery),
-        )
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-        .slice(0, args.limit);
-
-      return {
-        documents: docs.map((doc) => ({
-          id: doc.id,
-          parentId: doc.parentId,
-          title: doc.title,
-          icon: doc.icon,
-          snippet: makeSnippet(doc.content, query),
-          contentLength: doc.content.length,
-          hideFromSearch: doc.hideFromSearch,
-          updatedAt: doc.updatedAt,
-        })),
-      };
-    }
-
     const db = getDb();
     const pattern = `%${escapeLike(query)}%`;
 
@@ -95,6 +63,7 @@ export default defineAction({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
         title: schema.documents.title,
+        description: schema.documents.description,
         icon: schema.documents.icon,
         contentPreview: sql<string>`substr(${schema.documents.content}, 1, 5000)`,
         contentLength: sql<number>`length(${schema.documents.content})`,
@@ -105,8 +74,9 @@ export default defineAction({
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
-          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
+          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
       .orderBy(sql`${schema.documents.updatedAt} DESC`)
@@ -117,6 +87,7 @@ export default defineAction({
         id: doc.id,
         parentId: doc.parentId,
         title: doc.title,
+        description: doc.description,
         icon: doc.icon,
         snippet: makeSnippet(doc.contentPreview, query),
         contentLength: Number(doc.contentLength) || 0,

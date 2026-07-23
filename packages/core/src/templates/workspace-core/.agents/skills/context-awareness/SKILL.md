@@ -29,7 +29,7 @@ The UI writes a `navigation` key to application-state on every route change. Thi
 
 ```tsx
 // app/hooks/use-navigation-state.ts
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -64,6 +64,10 @@ const navigation = await readAppState("navigation");
 - Any durable selection — focused item, selected text range, active tab
 
 Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
+
+Keep `application_state` values small. Do not store pasted files, base64 images,
+recording chunks, screenshots, or other large blobs in navigation or app-state
+keys; upload them and store only a URL or storage handle.
 
 ### 2. Current URL (`__url__` key)
 

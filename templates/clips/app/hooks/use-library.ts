@@ -1,4 +1,7 @@
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 
 import { isLiveRecordingUpload } from "@/lib/recording-status";
 
@@ -34,7 +37,7 @@ export interface RecordingSummary {
 }
 
 export interface ListRecordingsArgs {
-  view?: "library" | "space" | "archive" | "trash" | "all";
+  view?: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   tag?: string | null;
@@ -44,24 +47,13 @@ export interface ListRecordingsArgs {
   offset?: number;
 }
 
-function isAwaitingAutoTitle(recording: RecordingSummary): boolean {
-  const title = (recording.title ?? "").trim();
-  const titleIsReplaceable =
-    title === "" ||
-    title === "Untitled recording" ||
-    recording.titleSource === "default" ||
-    recording.titleSource === "context";
-  if (!titleIsReplaceable) return false;
-
-  if (recording.transcriptStatus === "failed") return false;
-  if (recording.transcriptStatus === "ready") {
-    return recording.transcriptHasText === true;
-  }
-
-  return (
-    recording.transcriptStatus === "pending" ||
-    recording.transcriptStatus === "streaming"
-  );
+export function recordingsRefetchInterval(
+  recordings: readonly RecordingSummary[] | undefined,
+): number | false {
+  if (!recordings || recordings.length === 0) return false;
+  return recordings.some((recording) => isLiveRecordingUpload(recording))
+    ? 3000
+    : false;
 }
 
 export function useRecordings(args: ListRecordingsArgs = {}) {
@@ -74,17 +66,15 @@ export function useRecordings(args: ListRecordingsArgs = {}) {
           recordings: Array.isArray(data?.recordings) ? data.recordings : [],
         };
       },
-      // Keep a short poll while uploads/processors are active so the library
-      // card does not get stuck if the global refresh signal is missed.
-      // Also poll for replaceable seed titles so the card upgrades promptly.
+      // Keep a short poll only while uploads/processors are active so the
+      // library card does not get stuck if the global refresh signal is
+      // missed. Generated titles arrive through the shared DB sync transport;
+      // polling completed recordings forever is both redundant and expensive.
       refetchInterval: (q) => {
         const recs = (q.state.data as any)?.recordings as
           | RecordingSummary[]
           | undefined;
-        if (!recs || recs.length === 0) return false;
-        const pendingUpload = recs.some((rec) => isLiveRecordingUpload(rec));
-        const pendingTitle = recs.some(isAwaitingAutoTitle);
-        return pendingUpload || pendingTitle ? 3000 : false;
+        return recordingsRefetchInterval(recs);
       },
     },
   );

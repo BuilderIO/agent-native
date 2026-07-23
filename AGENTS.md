@@ -21,6 +21,11 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- Write few code comments. Only comment a constraint the code cannot show, such
+  as a non-obvious trap a future change would otherwise reintroduce. Never
+  comment what the next line does, why a change is correct, or where it came
+  from. Keep a comment that earns its place to a line or two; prefer clearer
+  names and smaller functions over prose.
 - When changing docs under `packages/core/docs/content`, update the matching
   localized docs under `packages/core/docs/content/locales/*` when the source
   meaning changes. If translations cannot be updated in the same change, call
@@ -71,6 +76,12 @@ step is still pending. Use `🔴` only when blocked on user input.
   have a safe way to call it directly through the provider API substrate. If an
   app stores provider credentials on resource/share rows, add a scoped resolver
   that preserves those access checks before exposing raw provider requests.
+- Treat Clay as a credentialed GTM provider API, not as a messaging channel.
+  Hosted access uses `CLAY_PUBLIC_API_KEY` through the provider API substrate;
+  the optional local Clay CLI/MCP plugin has a separate browser-login session
+  and must not be required, auto-installed, or vendored by default. Its public
+  repository currently declares no license. Use n8n and Zapier as
+  automation/workflow or remote MCP connections rather than provider presets.
 - For composable workspace workflows, prefer many focused headless or small-UI
   mini-apps that discover and call each other over A2A instead of one oversized
   app. Pass artifact ids, URLs, and bounded summaries between apps instead of
@@ -108,6 +119,13 @@ instructions, and application state.
 
 - Schema changes must be additive. Never drop, rename, truncate, or destructively
   alter tables or columns in migrations or startup code.
+- SQL stores structured app state, metadata, references, and searchable text. Do
+  not store large raw payloads — files, images, videos, audio, PDFs, ZIPs,
+  screenshots, session replay chunks, thumbnails, `data:` URLs, or base64 file
+  bodies — in SQL tables, `application_state`, `settings`, or `resources`. Use
+  configured file/blob storage (`uploadFile`, `putPrivateBlob`, provider object
+  storage) and persist only URLs, ids, or opaque handles. In hosted or persistent
+  DB mode, fail closed with setup guidance instead of falling back to SQL blobs.
 - Never use `drizzle-kit push` against production databases.
 - Tables with `ownableColumns()` require scoped reads and writes through
   `accessFilter`, `resolveAccess`, or `assertAccess`. Custom Nitro routes must
@@ -135,13 +153,19 @@ instructions, and application state.
 - Background agents must use the core run-manager / agent-teams infrastructure
   unless working on the existing local Code exception.
 - Logged-in app pages can be CSR. Public/SEO pages must SSR real content.
+- Every SSR HTML and React Router `.data` response is one impersonal, public
+  shell, hard-cached at the CDN for every visitor. Never add `private`,
+  `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
+  path — personalization is client-side after load. Enforced by
+  `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
 - Keep template UX clean and progressively disclosed. Do not solve feedback by
   adding always-visible controls unless that is clearly the main workflow.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
-  `real-time-sync`, and `delegate-to-agent` skills for details.
+  `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
+  details.
 
 ## Packages And Releases
 
@@ -187,6 +211,8 @@ templates/*/         Template apps
 Read the relevant skill before making changes in that area:
 
 - `adding-a-feature` for the four-area checklist.
+- `feature-flags` for default-off production rollouts, shared evaluation,
+  operator targeting, and removing stale flags after rollout.
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `data-programs` for stored, cached data-source scripts bound to app panels.
@@ -199,18 +225,28 @@ Read the relevant skill before making changes in that area:
   budget — one atomic call, never loop many small writes, verify and report
   proof-of-done, fail loud on cutoff.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
+- `native-navigation` for link-first internal navigation that preserves
+  Cmd/Ctrl-click, middle-click, keyboard, and accessibility behavior.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.
 - `agent-native-toolkit` for deciding whether settings, app chrome,
   collaboration, sharing, navigation, organization, comments, or history belong
   in reusable framework/toolkit primitives.
+- `customizing-agent-native` before configuring, composing, or ejecting an
+  installed Toolkit/Core feature into app-owned source.
 - `composable-mini-apps` for many one-job headless apps that discover siblings
   and compose through `invoke` / `call-agent`.
 - `visual-answer` for code/product questions answered as visual Plan artifacts.
 - `harness-agents` for full agent runtimes like Claude Code, Codex, Pi,
   Cursor, or Mastra.
+- `multi-frontier-desktop` for the Desktop-only Codex and Claude Code
+  collaboration workflow, subscription metering, checkpoints, and recovery.
 - `self-modifying-code` for source edits by the agent.
+- `upgrade-agent-native` for bringing an older app/workspace to current
+  `@agent-native/*` packages without patching core/dispatch.
+- `upgrade-agent-native` for bringing an older app/workspace to current
+  `@agent-native/*` packages without patching core/dispatch.
 - `server-plugins` for `/_agent-native/*` routes and plugins.
 - `authentication`, `onboarding`, `secrets` for setup/auth/credentials.
 - `automations`, `recurring-jobs`, `integration-webhooks` for background work.

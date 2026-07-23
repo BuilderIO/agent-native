@@ -36,6 +36,9 @@ function Probe() {
       <a href="/dashboard" data-testid="chrome-link">
         Dashboard
       </a>
+      <a href="/settings/connections" data-testid="settings-link">
+        Settings
+      </a>
       <a href="/api/export.csv" data-testid="api-link">
         API
       </a>
@@ -138,24 +141,39 @@ describe("useAgentChatHomeHandoffLinks", () => {
 
     const event = clickLink(container, "chrome-link");
 
+    expect(event.defaultPrevented).toBe(false);
+    expect(pathname(container)).toBe("/");
+    expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
+    expect(consumeAgentChatHomeHandoff("chat")).toBe(false);
+  });
+
+  it("intercepts app chrome links after chat activity marks a handoff", () => {
+    markAgentChatHomeHandoff("chat");
+    ({ container, root } = renderProbe());
+
+    const event = clickLink(container, "chrome-link");
+
     expect(event.defaultPrevented).toBe(true);
     expect(pathname(container)).toBe("/dashboard");
     expect(window.localStorage.getItem(SIDEBAR_OPEN_KEY)).toBeNull();
     expect(consumeAgentChatHomeHandoff("chat")).toBe(true);
   });
 
-  it.each(["api-link", "framework-link", "asset-link", "chat-content-link"])(
-    "leaves %s alone",
-    (testId) => {
-      ({ container, root } = renderProbe());
+  it.each([
+    "api-link",
+    "framework-link",
+    "asset-link",
+    "settings-link",
+    "chat-content-link",
+  ])("leaves %s alone", (testId) => {
+    ({ container, root } = renderProbe());
 
-      const event = clickLink(container, testId);
+    const event = clickLink(container, testId);
 
-      expect(event.defaultPrevented).toBe(false);
-      expect(pathname(container)).toBe("/");
-      expect(consumeAgentChatHomeHandoff("chat")).toBe(false);
-    },
-  );
+    expect(event.defaultPrevented).toBe(false);
+    expect(pathname(container)).toBe("/");
+    expect(consumeAgentChatHomeHandoff("chat")).toBe(false);
+  });
 
   it("can require a recent chat marker before intercepting chrome links", () => {
     ({ container, root } = renderProbe(<RecentOnlyProbe />));

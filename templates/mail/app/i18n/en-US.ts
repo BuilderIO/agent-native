@@ -438,10 +438,10 @@ const messages = {
     suggestionWidget: "Build me a custom widget for my inbox",
   },
   settings: {
-    openAgentSettings: "Open agent settings",
+    openAgentSettings: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    agentTitle: "Manage agent",
     aliasName: "Alias name",
     aliasNamePlaceholder: "e.g. Design team",
     recipientsOnePerLine: "Recipients (one email per line)",
@@ -513,9 +513,10 @@ const messages = {
     slackUpdateFailed: "Failed to update Slack intake",
     slackConfigured: "Slack credentials are configured.",
     slackNeedsCredentials:
-      "Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET to enable Slack intake.",
-    slackIntake: "Slack Intake",
-    slackDescription: "Let organization members queue email drafts from Slack.",
+      "Legacy custom intake requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET. For new Slack messaging automations, connect a workspace in Settings > Messaging.",
+    slackIntake: "Slack Intake (legacy)",
+    slackDescription:
+      "Legacy custom integration that lets organization members queue email drafts from Slack.",
     enabled: "Enabled",
     disable: "Disable",
     enable: "Enable",

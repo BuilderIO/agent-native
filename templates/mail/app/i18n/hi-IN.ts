@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "मेरे inbox के लिए custom widget बनाएं",
   },
   settings: {
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+    openAgentSettings: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    agentTitle: "एजेंट सेटिंग्स",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    agentTitle: "एजेंट प्रबंधित करें",
     aliasName: "उपनाम नाम",
     aliasNamePlaceholder: "जैसे, डिज़ाइन टीम",
     recipientsOnePerLine: "प्राप्तकर्ता (हर पंक्ति में एक ईमेल)",
@@ -516,10 +516,10 @@ const messages = {
     slackUpdateFailed: "Slack intake update करने में विफल",
     slackConfigured: "Slack credentials configured हैं।",
     slackNeedsCredentials:
-      "Slack intake सक्षम करने के लिए SLACK_BOT_TOKEN और SLACK_SIGNING_SECRET जोड़ें।",
-    slackIntake: "Slack intake",
+      "Legacy custom intake के लिए SLACK_BOT_TOKEN और SLACK_SIGNING_SECRET आवश्यक हैं। नए Slack messaging automations के लिए Settings > Messaging में workspace connect करें।",
+    slackIntake: "Slack intake (legacy)",
     slackDescription:
-      "Organization members को Slack से email drafts queue करने दें।",
+      "Legacy custom integration जो organization members को Slack से email drafts queue करने देता है।",
     enabled: "सक्षम",
     disable: "अक्षम करें",
     enable: "सक्षम करें",

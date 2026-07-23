@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import { injectHiddenLayerExportStyle } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
@@ -36,7 +37,7 @@ export default defineAction({
       title: row.title,
       description: row.description,
       projectType: row.projectType,
-      data: row.data ?? null,
+      data: designDataForAccessRole(row.data ?? null, access.role),
       files: exportFiles.map((f) => ({
         id: f.id,
         filename: f.filename,
@@ -51,7 +52,7 @@ export default defineAction({
       })),
       exportInfo: {
         format: "pdf",
-        note: "Use client-side rendering (e.g. html2canvas + jsPDF) to generate the PDF from the returned design data.",
+        note: "The Design editor renders the active artboard as a single-page raster PDF at its fixed authored size. This preserves visual appearance but does not provide selectable/vector text; export separate screens individually.",
       },
     };
   },

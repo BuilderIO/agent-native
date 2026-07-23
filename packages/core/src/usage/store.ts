@@ -98,12 +98,21 @@ const PRICING: Array<{ match: RegExp; pricing: ModelPricing }> = [
     pricing: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
   },
   // ── OpenAI / Codex ──────────────────────────────────────────────────────────
-  // Published rates as of 2026-06; OpenAI bills cached input at a discount
-  // and has no separate cache-write token charge, so cacheWrite is 0.
-  // /gpt-5\.5/ must precede /gpt-5/ since the latter also matches "gpt-5.5".
+  // Published rates as of 2026-07; OpenAI bills cached input at a discount
+  // and has no separate cache-write token charge, so cacheWrite is 0. Sol and
+  // Terra have higher large-context rates after 272K tokens; this table tracks
+  // the standard rate because usage rows do not preserve request context size.
   {
-    match: /gpt-5\.5/i,
+    match: /gpt-5[.-]6-sol/i,
     pricing: { input: 500, output: 3000, cacheRead: 50, cacheWrite: 0 },
+  },
+  {
+    match: /gpt-5[.-]6-terra/i,
+    pricing: { input: 250, output: 1500, cacheRead: 25, cacheWrite: 0 },
+  },
+  {
+    match: /gpt-5[.-]6-luna/i,
+    pricing: { input: 100, output: 600, cacheRead: 10, cacheWrite: 0 },
   },
   {
     match: /gpt-5/i,
@@ -188,7 +197,18 @@ export interface UsageRecord {
    * provider-reported dollar cost so two surfaces agree exactly.
    */
   costCentsX100?: number;
+  /** Whether cost is provider-reported, estimated, or unavailable. */
+  costSource?: UsageCostSource;
+  orgId?: string;
+  runId?: string;
+  threadId?: string;
+  taskId?: string;
+  integrationScopeId?: string;
+  sourcePlatform?: string;
+  sourceId?: string;
 }
+
+export type UsageCostSource = "reported" | "estimated" | "unavailable";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -205,10 +225,18 @@ async function ensureUsageTable(): Promise<void> {
           cache_read_tokens ${intType()} NOT NULL DEFAULT 0,
           cache_write_tokens ${intType()} NOT NULL DEFAULT 0,
           cost_cents_x100 ${intType()} NOT NULL DEFAULT 0,
+          cost_source TEXT NOT NULL DEFAULT 'estimated',
           model TEXT NOT NULL DEFAULT '',
           label TEXT NOT NULL DEFAULT 'chat',
           app TEXT NOT NULL DEFAULT '',
           ref_id TEXT NOT NULL DEFAULT '',
+          org_id TEXT,
+          run_id TEXT,
+          thread_id TEXT,
+          task_id TEXT,
+          integration_scope_id TEXT,
+          source_platform TEXT,
+          source_id TEXT,
           created_at ${intType()} NOT NULL
         )
       `;
@@ -217,9 +245,17 @@ async function ensureUsageTable(): Promise<void> {
       const additions: Array<[string, string]> = [
         ["cache_read_tokens", `${intType()} NOT NULL DEFAULT 0`],
         ["cache_write_tokens", `${intType()} NOT NULL DEFAULT 0`],
+        ["cost_source", `TEXT NOT NULL DEFAULT 'estimated'`],
         ["label", `TEXT NOT NULL DEFAULT 'chat'`],
         ["app", `TEXT NOT NULL DEFAULT ''`],
         ["ref_id", `TEXT NOT NULL DEFAULT ''`],
+        ["org_id", "TEXT"],
+        ["run_id", "TEXT"],
+        ["thread_id", "TEXT"],
+        ["task_id", "TEXT"],
+        ["integration_scope_id", "TEXT"],
+        ["source_platform", "TEXT"],
+        ["source_id", "TEXT"],
       ];
 
       if (isPostgres()) {
@@ -349,6 +385,14 @@ export async function recordUsage(
     app,
     refId,
     costCentsX100,
+    costSource,
+    orgId,
+    runId,
+    threadId,
+    taskId,
+    integrationScopeId,
+    sourcePlatform,
+    sourceId,
   } = record;
 
   // Skip no-op writes (e.g. a stream aborted before any tokens flowed)
@@ -373,14 +417,24 @@ export async function recordUsage(
 
   // Prefer an explicit precomputed cost (e.g. a provider-reported dollar cost);
   // otherwise derive it from tokens via the pricing table.
+  const resolvedCostSource =
+    costSource ?? (costCentsX100 == null ? "estimated" : "reported");
   const costX100 =
-    costCentsX100 ??
-    calculateCost(inTok, outTok, modelName, cacheReadTokens, cacheWriteTokens);
+    resolvedCostSource === "unavailable"
+      ? 0
+      : (costCentsX100 ??
+        calculateCost(
+          inTok,
+          outTok,
+          modelName,
+          cacheReadTokens,
+          cacheWriteTokens,
+        ));
   const id = Date.now() * 1000 + Math.floor(Math.random() * 1000);
   await client.execute({
     sql: `INSERT INTO token_usage
-      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, model, label, app, ref_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, owner_email, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_cents_x100, cost_source, model, label, app, ref_id, org_id, run_id, thread_id, task_id, integration_scope_id, source_platform, source_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       ownerEmail,
@@ -389,10 +443,18 @@ export async function recordUsage(
       cacheReadTokens,
       cacheWriteTokens,
       costX100,
+      resolvedCostSource,
       modelName,
       resolvedLabel,
       resolvedApp,
       resolvedRef,
+      orgId ?? null,
+      runId ?? null,
+      threadId ?? null,
+      taskId ?? null,
+      integrationScopeId ?? null,
+      sourcePlatform ?? null,
+      sourceId ?? null,
       Date.now(),
     ],
   });
@@ -425,6 +487,7 @@ export interface UsageBucket {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   cents: number;
+  cost: UsageCostAggregate;
   calls: number;
 }
 
@@ -432,8 +495,14 @@ export interface DailyBucket {
   /** YYYY-MM-DD (UTC) */
   date: string;
   cents: number;
+  cost: UsageCostAggregate;
   calls: number;
 }
+
+export type UsageCostAggregate =
+  | { status: "known"; knownCents: number; unavailableCalls: 0 }
+  | { status: "partial"; knownCents: number; unavailableCalls: number }
+  | { status: "unavailable"; knownCents: 0; unavailableCalls: number };
 
 export interface UsageRecentEntry {
   id: number;
@@ -446,11 +515,14 @@ export interface UsageRecentEntry {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   cents: number;
+  costSource: UsageCostSource;
 }
 
 export interface UsageSummary {
   billing?: UsageBillingMode;
+  /** Legacy known-cost subtotal. Use totalCost to preserve unavailable spend. */
   totalCents: number;
+  totalCost: UsageCostAggregate;
   totalCalls: number;
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -479,7 +551,8 @@ export async function getUsageSummary(
 
   const totalRow = await client.execute({
     sql: `SELECT
-      COALESCE(SUM(cost_cents_x100), 0) AS cents,
+      COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 0 ELSE cost_cents_x100 END), 0) AS known_cents,
+      COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unavailable_calls,
       COUNT(*) AS calls,
       COALESCE(SUM(input_tokens), 0) AS in_tok,
       COALESCE(SUM(output_tokens), 0) AS out_tok,
@@ -492,7 +565,8 @@ export async function getUsageSummary(
 
   const bucketSql = (col: string) => ({
     sql: `SELECT ${col} AS k,
-        COALESCE(SUM(cost_cents_x100), 0) AS cents,
+        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 0 ELSE cost_cents_x100 END), 0) AS known_cents,
+        COALESCE(SUM(CASE WHEN cost_source = 'unavailable' THEN 1 ELSE 0 END), 0) AS unavailable_calls,
         COUNT(*) AS calls,
         COALESCE(SUM(input_tokens), 0) AS in_tok,
         COALESCE(SUM(output_tokens), 0) AS out_tok,
@@ -501,16 +575,19 @@ export async function getUsageSummary(
       FROM token_usage
       WHERE owner_email = ? AND created_at >= ?
       GROUP BY ${col}
-      ORDER BY cents DESC`,
+      ORDER BY known_cents DESC`,
     args: [options.ownerEmail, sinceMs],
   });
 
   const mapBuckets = (rows: unknown[]): UsageBucket[] =>
     rows.map((r) => {
       const row = r as Record<string, number | string | null>;
+      const knownCents = Number(row.known_cents ?? 0) / 100;
+      const unavailableCalls = Number(row.unavailable_calls ?? 0);
       return {
         key: String(row.k ?? ""),
-        cents: Number(row.cents ?? 0) / 100,
+        cents: knownCents,
+        cost: buildUsageCostAggregate(knownCents, unavailableCalls),
         calls: Number(row.calls ?? 0),
         inputTokens: Number(row.in_tok ?? 0),
         outputTokens: Number(row.out_tok ?? 0),
@@ -529,30 +606,42 @@ export async function getUsageSummary(
   // date functions (SQLite `strftime`, Postgres `to_char`). Cheap enough
   // for a 30-day window; if this grows, swap for a dialect-aware query.
   const dayRows = await client.execute({
-    sql: `SELECT created_at, cost_cents_x100 FROM token_usage
+    sql: `SELECT created_at, cost_cents_x100, cost_source FROM token_usage
       WHERE owner_email = ? AND created_at >= ?`,
     args: [options.ownerEmail, sinceMs],
   });
-  const dayMap = new Map<string, { cents: number; calls: number }>();
-  for (const row of dayRows.rows as Array<Record<string, number>>) {
+  const dayMap = new Map<
+    string,
+    { knownCentsX100: number; unavailableCalls: number; calls: number }
+  >();
+  for (const row of dayRows.rows as Array<Record<string, number | string>>) {
     const date = new Date(Number(row.created_at)).toISOString().slice(0, 10);
-    const prev = dayMap.get(date) ?? { cents: 0, calls: 0 };
-    prev.cents += Number(row.cost_cents_x100 ?? 0);
+    const prev = dayMap.get(date) ?? {
+      knownCentsX100: 0,
+      unavailableCalls: 0,
+      calls: 0,
+    };
+    if (row.cost_source === "unavailable") prev.unavailableCalls += 1;
+    else prev.knownCentsX100 += Number(row.cost_cents_x100 ?? 0);
     prev.calls += 1;
     dayMap.set(date, prev);
   }
   const byDay: DailyBucket[] = [...dayMap.entries()]
-    .map(([date, v]) => ({
-      date,
-      cents: v.cents / 100,
-      calls: v.calls,
-    }))
+    .map(([date, v]) => {
+      const knownCents = v.knownCentsX100 / 100;
+      return {
+        date,
+        cents: knownCents,
+        cost: buildUsageCostAggregate(knownCents, v.unavailableCalls),
+        calls: v.calls,
+      };
+    })
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const recentRows = await client.execute({
     sql: `SELECT id, created_at, label, app, model,
         input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-        cost_cents_x100
+        cost_cents_x100, cost_source
       FROM token_usage
       WHERE owner_email = ?
       ORDER BY created_at DESC
@@ -572,11 +661,15 @@ export async function getUsageSummary(
     cacheReadTokens: Number(row.cache_read_tokens ?? 0),
     cacheWriteTokens: Number(row.cache_write_tokens ?? 0),
     cents: Number(row.cost_cents_x100 ?? 0) / 100,
+    costSource: String(row.cost_source ?? "estimated") as UsageCostSource,
   }));
 
+  const knownCents = Number(t.known_cents ?? 0) / 100;
+  const unavailableCalls = Number(t.unavailable_calls ?? 0);
   return {
     billing: USD_USAGE_BILLING,
-    totalCents: Number(t.cents ?? 0) / 100,
+    totalCents: knownCents,
+    totalCost: buildUsageCostAggregate(knownCents, unavailableCalls),
     totalCalls: Number(t.calls ?? 0),
     totalInputTokens: Number(t.in_tok ?? 0),
     totalOutputTokens: Number(t.out_tok ?? 0),
@@ -589,4 +682,17 @@ export async function getUsageSummary(
     byDay,
     recent,
   };
+}
+
+function buildUsageCostAggregate(
+  knownCents: number,
+  unavailableCalls: number,
+): UsageCostAggregate {
+  if (unavailableCalls === 0) {
+    return { status: "known", knownCents, unavailableCalls: 0 };
+  }
+  if (knownCents === 0) {
+    return { status: "unavailable", knownCents: 0, unavailableCalls };
+  }
+  return { status: "partial", knownCents, unavailableCalls };
 }

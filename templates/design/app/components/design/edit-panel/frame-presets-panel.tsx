@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconChevronRight } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -80,6 +80,7 @@ const FRAME_PRESET_CATEGORY_LABEL_KEYS: Record<
   watch: "editPanel.framePresets.categories.watch",
   paper: "editPanel.framePresets.categories.paper",
   socialMedia: "editPanel.framePresets.categories.socialMedia",
+  adUnit: "editPanel.framePresets.categories.adUnit",
 };
 
 /**

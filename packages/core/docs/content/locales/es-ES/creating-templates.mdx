@@ -44,7 +44,6 @@ Cada plantilla sigue el mismo diseño general:
 <FileTree
   id="doc-block-1qe28n0"
   title="Estructura del proyecto de plantilla"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ Las cuatro áreas de cada plantilla se conectan a través de una superficie de a
 
 Defina tablas de dominio con los asistentes del marco Drizzle para que los esquemas sigan siendo portátiles en SQLite, Postgres, D1, Turso, Supabase, Neon y otros backends compatibles:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ Los cambios de esquema deben ser aditivos. Agregue tablas y columnas a través d
 
 Para lecturas y escrituras de aplicaciones, utilice el generador de consultas de Drizzle y los operadores portátiles de `drizzle-orm`. No escriba código de producto con SQL sin formato cuando Drizzle pueda expresar la consulta y no importe desde `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core` en plantillas.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -273,8 +270,10 @@ Utilice `http: { method: "GET" }` o `readOnly: true` para actions de solo lectur
 Las rutas se encuentran en `app/routes/` y utilizan el enrutamiento de archivos React Router v8. Consulta datos a través de los controladores actions o API y haz que las mutaciones sean optimistas de forma predeterminada.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +289,7 @@ export default function ProjectsPage() {
 Conecte la sincronización en vivo una vez cerca del shell de la aplicación para que los cachés de consultas React se actualicen cuando el agente, otra pestaña o una acción cambien los datos:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +302,7 @@ export function AppSync() {
 **La promesa nativa del agente: las escrituras del agente aparecen en el UI sin una actualización manual.** `useActionQuery` es el camino fácil: cada gancho se recupera cuando una acción mutante emite `source: "action"`. Si busca `useQuery` sin procesar con una clave personalizada (por ejemplo, un asistente de cliente de bajo nivel que lee el estado de la integración), doble el contador por fuente en queryKey para actualizaciones específicas:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -326,7 +325,7 @@ El estado de la aplicación es cómo el agente sabe lo que está viendo el usuar
 Utilice `useAgentRouteState` para el gancho UI para que las escrituras en el estado de la aplicación, las lecturas de comandos con alcance de tabulación, la eliminación después de la lectura y la protección de comandos duplicados sean consistentes:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -349,8 +348,7 @@ Para la navegación de aplicaciones, prefiera un comando `navigate` que incluya 
 `path` cuando se conoce el URL. No escribas también `__set_url__` para el mismo movimiento;
 Esa clave está reservada para las herramientas del marco URL y los cambios de filtro exclusivos de URL.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

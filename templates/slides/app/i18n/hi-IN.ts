@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["hi-IN"],
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
     searchDecks: "डेक खोजें",
@@ -33,10 +36,10 @@ const messages = {
       "टीम सदस्यों, संगठन पहुंच और साझा कार्यस्थान प्राथमिकताओं को प्रबंधित करें।",
     openTeamSettings: "टीम सेटिंग्स खोलें",
     openResourceSettings: "संसाधन सेटिंग्स खोलें",
-    agentTitle: "एजेंट सेटिंग्स",
+    agentTitle: "एजेंट प्रबंधित करें",
     agentDescription:
-      "मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें।",
-    openAgentSettings: "एजेंट सेटिंग्स खोलें",
+      "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+    openAgentSettings: "एजेंट प्रबंधित करें",
   },
   agent: {
     emptyState: "अपनी प्रस्तुतियों के बारे में मुझसे कुछ भी पूछें",
@@ -103,6 +106,7 @@ const messages = {
     searchImagesPlaceholder: "Buscar imagens...",
     searchForLogosImagesIcons: "Buscar logos, imagens, ícones...",
     search: "खोजें",
+    searchFailed: "खोज विफल",
     logoSearchTitle: "लोगो खोज",
     searchCompanyLogo: "Busque uma empresa para encontrar seu logo",
     searchCompanyPlaceholder: "Buscar nome da empresa (ex.: Intuit)",
@@ -327,6 +331,8 @@ const messages = {
     hideResolved: "हल किए गए छिपाएं",
     showResolved: "{{count}} हल किए गए दिखाएं",
     noCommentsYet: "अभी कोई टिप्पणी नहीं",
+    loadFailed: "टिप्पणियाँ लोड नहीं हो सकीं",
+    retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
   },
@@ -539,6 +545,10 @@ const messages = {
     chooseAnotherFile: "दूसरी फ़ाइल चुनें",
   },
   home: {
+    loadFailed: "आपका कॉन्टेंट लोड नहीं हो सका",
+    loadFailedDescription:
+      "आपका सहेजा गया कॉन्टेंट अभी भी उपलब्ध है। कनेक्शन जाँचें और फिर कोशिश करें।",
+    retry: "फिर कोशिश करें",
     decksTitle: "डेक",
     newDeck: "नया डेक",
     deckLengthQuestion: "यह डेक कितना लंबा होना चाहिए?",

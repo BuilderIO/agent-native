@@ -8,6 +8,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "available-agents",
   "available-jobs",
   "plan-mode-note",
+  "non-analytics-retry",
 ];
 
 export const DATA_QUERY_ACTIONS = new Set([
@@ -15,8 +16,20 @@ export const DATA_QUERY_ACTIONS = new Set([
   "bigquery",
   "content-calendar",
   "content-calendar-schema",
+  // First-party observability reads are grounded data for incident triage,
+  // even though they are not provider queries. Keep the final-response guard
+  // from replacing valid session/error/replay evidence with the generic
+  // "connect a source" fallback.
+  "get-error-issue",
+  "get-session-replay-events",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "list-error-issues",
+  "list-session-recordings",
+  "match-error-issues",
   "gcloud",
   "gong-calls",
+  "gong-native-insights",
   "grafana",
   "hubspot-deals",
   "hubspot-metrics",
@@ -44,6 +57,39 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 ]);
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
+
+// Inspecting or cloning an existing dashboard/extension template is
+// construction progress, not a metric query. These do not satisfy
+// hasDataQueryAttempt, but they should stop the guard from steering a
+// template-clone turn into "connect a missing source". Deliberately limited
+// to read/inspection actions: update-dashboard/mutate-dashboard/
+// compose-dashboard/install-dashboard-template/create-extension/
+// update-extension can all author brand-new SQL or extension content, so
+// calling one of those alone is not proof the turn actually inspected a
+// template rather than inventing it from scratch. If the tool run also
+// includes one of these read actions, the bypass still applies even when an
+// authoring/save action ran alongside it.
+export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "get-sql-dashboard",
+  "list-sql-dashboards",
+  "list-dashboard-templates",
+  "list-extensions",
+  "get-extension",
+]);
+
+// Dashboard authoring/save actions. Unlike the read actions above, running one
+// of these is proof the turn actually edited or built a dashboard/extension —
+// which is a legitimate non-query completion. A saved SQL panel the user runs
+// themselves is not a fabricated metric, so the guard only needs to keep
+// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
+export const DASHBOARD_MUTATION_ACTIONS = new Set([
+  "mutate-dashboard",
+  "update-dashboard",
+  "compose-dashboard",
+  "install-dashboard-template",
+  "create-extension",
+  "update-extension",
+]);
 
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
@@ -83,6 +129,56 @@ function isToolName(name: string, expected: string): boolean {
 
 function isDataQueryActionName(name: string): boolean {
   return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardConstructionActionName(name: string): boolean {
+  return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardMutationActionName(name: string): boolean {
+  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+// "Build/clone/template" language targeting a dashboard/extension/panel is
+// dashboard construction, distinct from an analytics-result question. Turns
+// like this may inspect and clone a template without running a metric query.
+const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
+  /\b(build|create|make|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+
+const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
+  /\b(dashboard|extension|panel|widget)\b/i;
+
+export function looksLikeDashboardConstructionRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const lower = requestText.toLowerCase();
+  if (!lower) return false;
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  const targetsDashboard =
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
+  return wantsBuild && targetsDashboard;
+}
+
+export function hasDashboardConstructionAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardConstructionActionName(String(result.name ?? ""));
+  });
+}
+
+export function hasDashboardMutationAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardMutationActionName(String(result.name ?? ""));
+  });
 }
 
 function isCorpusSourceActionName(name: string): boolean {
@@ -163,13 +259,18 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
 
 const ANALYTICS_INTENT_TERMS =
   /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
 
 const SOURCE_SEARCH_INTENT_TERMS =
   /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
+
+const SETUP_REQUEST_TERMS =
+  /\b(connect|configure|configuration|settings?|setup|set up|credentials?|authenticate|authorization)\b/;
+const SETUP_REQUEST_FRAMING =
+  /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
@@ -187,6 +288,12 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const lower = requestText.toLowerCase();
   if (!lower) return false;
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (
+    SETUP_REQUEST_TERMS.test(lower) &&
+    (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
+  ) {
+    return false;
+  }
   if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
@@ -204,7 +311,8 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   }
   if (
     /\b(integration|connect|configure|settings)\b/.test(lower) &&
-    !ANALYTICS_RESULT_TERMS.test(lower)
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
@@ -229,14 +337,45 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
 }
 
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+
+// Reuse the same broad unsupported-result-claim vocabulary that gates
+// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
+// bypass the no-query fallback just by avoiding the narrower set of units a
+// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return UNSUPPORTED_RESULT_CLAIM.test(String(text ?? "").trim());
+}
+
+export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
+  "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
+
+// The first sentence of the canned fallback, lowercased, with the trailing
+// period dropped. Matching this prefix (rather than the whole message) still
+// catches a model paraphrase that continues differently after "successfully".
+const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
+  GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
+    0,
+    GENERIC_NO_DATA_FALLBACK_MESSAGE.indexOf(". ") + 1,
+  ).toLowerCase();
+
+export function isGenericNoDataFallback(text: string): boolean {
+  return text
+    .trim()
+    .toLowerCase()
+    .startsWith(GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE.slice(0, -1));
+}
 
 const SAFE_NO_DATA_RESPONSE =
-  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
+  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|not connected|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
 
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  // This is the guard's own last-resort fallback. If a model emits it before
+  // attempting a query, it must go through the retry path instead of being
+  // accepted as an explicit unavailable-source or clarification response.
+  if (isGenericNoDataFallback(trimmed)) return false;
   if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
   return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
@@ -660,6 +799,9 @@ function actionEvidenceTextForSourceRecords(result: {
       transcriptSearch: record.transcriptSearch,
       transcripts: record.transcripts,
     });
+  }
+  if (normalizedName === "gong-native-insights") {
+    return "";
   }
   if (normalizedName === "run-code") {
     return content;

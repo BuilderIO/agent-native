@@ -15,7 +15,6 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../localization/shared.js";
-import { AUTH_REDIRECT_QUERY_PARAM } from "../shared/auth-redirect-url.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -2917,22 +2916,8 @@ ${signupLocalModeNoteHtml}
       if (__anIsAuthEntryPath(window.location.pathname)) return __anPath('/');
       return __anCurrentReturnPath();
     }
-    function __anWithAuthCacheBypass(ret) {
-      try {
-        var url = new URL(ret || __anPath('/'), window.location.origin);
-        url.searchParams.set('${AUTH_REDIRECT_QUERY_PARAM}', Date.now().toString(36));
-        return url.pathname + url.search + url.hash;
-      } catch(e) {
-        var fallback = ret || __anPath('/');
-        var hashIndex = fallback.indexOf('#');
-        var beforeHash = hashIndex === -1 ? fallback : fallback.slice(0, hashIndex);
-        var hash = hashIndex === -1 ? '' : fallback.slice(hashIndex);
-        var sep = beforeHash.indexOf('?') === -1 ? '?' : '&';
-        return beforeHash + sep + '${AUTH_REDIRECT_QUERY_PARAM}=' + Date.now().toString(36) + hash;
-      }
-    }
     function __anRedirectToSignedInApp(ret) {
-      window.location.replace(__anWithAuthCacheBypass(ret || __anGetSignedInReturnPath()));
+      window.location.replace(ret || __anGetSignedInReturnPath());
     }
     function __anMaybeRedirectSignedIn(ret) {
       return fetch(__anPath('/_agent-native/auth/session'), {

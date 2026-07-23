@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["de-DE"],
   root: {
     commandPresentations: "Präsentationen",
     searchDecks: "Decks suchen",
@@ -34,10 +37,10 @@ const messages = {
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
     openTeamSettings: "Teameinstellungen öffnen",
     openResourceSettings: "Ressourceneinstellungen öffnen",
-    agentTitle: "Agent-Einstellungen",
+    agentTitle: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    openAgentSettings: "Agent-Einstellungen öffnen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    openAgentSettings: "Agent verwalten",
   },
   agent: {
     emptyState: "Frag mich alles zu deinen Präsentationen",
@@ -106,6 +109,7 @@ const messages = {
     searchImagesPlaceholder: "Nach Bildern suchen...",
     searchForLogosImagesIcons: "Nach Logos, Bildern, Icons suchen...",
     search: "Suchen",
+    searchFailed: "Suche fehlgeschlagen",
     logoSearchTitle: "Logo-Suche",
     searchCompanyLogo: "Suche nach einem Unternehmen, um sein Logo zu finden",
     searchCompanyPlaceholder: "Unternehmensname suchen (z. B. Intuit)",
@@ -334,6 +338,8 @@ const messages = {
     hideResolved: "Gelöste ausblenden",
     showResolved: "{{count}} gelöste anzeigen",
     noCommentsYet: "Noch keine Kommentare",
+    loadFailed: "Kommentare konnten nicht geladen werden",
+    retry: "Erneut versuchen",
     clickToAddComment: "Klicken, um einen Kommentar hinzuzufügen",
     selectSlideToAdd: "Wähle eine Folie aus, um einen hinzuzufügen",
   },
@@ -555,6 +561,10 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    loadFailed: "Inhalte konnten nicht geladen werden",
+    loadFailedDescription:
+      "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
+    retry: "Erneut versuchen",
     decksTitle: "Decks",
     newDeck: "Neues Deck",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",

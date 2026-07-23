@@ -10,6 +10,7 @@ export {
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
   setAgentChatContextItem,
   setContextToAgentChat,
   isEmbedMcpChatBridgeActive,
@@ -99,6 +100,11 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export {
+  normalizeUserProfileName,
+  USER_PROFILE_SETTING_KEY,
+  type UserProfile,
+} from "./user-profile/index.js";
 export {
   ACTION_CHAT_UI_DATA_CHART_RENDERER,
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,

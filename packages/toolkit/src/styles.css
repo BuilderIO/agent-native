@@ -1,9 +1,9 @@
 /*
- * Registers @agent-native/toolkit's compiled components with Tailwind so apps
- * that render toolkit UI (dropdowns, dialogs, popovers, etc.) generate the
- * classes those components use. Without this, classes that appear ONLY inside
- * toolkit components (e.g. the dropdown content's `z-[250]` and enter/exit
- * animations) are never generated, and the components render unstyled/invisible.
+ * Registers @agent-native/toolkit components with Tailwind so apps that render
+ * toolkit UI (dropdowns, dialogs, popovers, etc.) generate the classes those
+ * components use. Without this, classes that appear ONLY inside toolkit
+ * components (e.g. the dropdown content's `z-[250]` and enter/exit animations)
+ * are never generated, and menus/overlays stack under raised app surfaces.
  *
  * Import in an app's `app/global.css` AFTER `@import "tailwindcss";`, alongside
  * the core stylesheet:
@@ -12,8 +12,74 @@
  *   @import "@agent-native/core/styles/agent-native.css";
  *   @import "@agent-native/toolkit/styles.css";
  *
- * The @source path is self-relative to this file's shipped location in `dist/`,
- * so it is robust to install layout — mirroring @agent-native/core's
- * agent-native.css. Do NOT reach into node_modules from app CSS instead.
+ * Paths are self-relative to this file:
+ *   - Monorepo / Vite workspace alias: this file is served from `src/`, so scan
+ *     sibling TypeScript sources (dist/ is gitignored and skipped by Tailwind).
+ *   - Published package: this file ships at `dist/styles.css`, so also scan
+ *     compiled `.js` next to it for consumers that only install `dist/`.
  */
-@source "./**/*.js";
+@source "./**/*.{js,ts,tsx}";
+
+.agent-realtime-voice-glow {
+  --agent-realtime-voice-edge-opacity: 0.52;
+  --agent-realtime-voice-halo-opacity: 0.28;
+  position: absolute;
+  z-index: 0;
+  inset: -4px;
+  border-radius: inherit;
+  pointer-events: none;
+  transform: rotate(0turn);
+  will-change: transform;
+}
+
+.agent-realtime-voice-working {
+  --agent-realtime-voice-edge-opacity: 0.92;
+  --agent-realtime-voice-halo-opacity: 0.58;
+}
+
+.agent-realtime-voice-glow::before,
+.agent-realtime-voice-glow::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  content: "";
+  background: conic-gradient(
+    from -18deg,
+    transparent 0deg 228deg,
+    oklch(0.65 0.2 294 / 0.18) 244deg,
+    oklch(0.7 0.2 265 / 0.7) 274deg,
+    oklch(0.79 0.16 235 / 0.96) 306deg,
+    oklch(0.96 0.035 210) 326deg,
+    oklch(0.88 0.11 202 / 0.72) 340deg,
+    transparent 360deg
+  );
+  opacity: var(--agent-realtime-voice-edge-opacity);
+  padding: 1.5px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  transition: opacity 220ms ease-out;
+}
+
+.agent-realtime-voice-glow::before {
+  inset: -1px;
+  opacity: var(--agent-realtime-voice-halo-opacity);
+  padding: 2px;
+  filter: blur(1px) drop-shadow(0 0 2px oklch(0.9 0.07 215 / 0.95))
+    drop-shadow(0 0 6px oklch(0.78 0.15 236 / 0.82))
+    drop-shadow(0 0 14px oklch(0.67 0.2 258 / 0.48))
+    drop-shadow(0 0 28px oklch(0.62 0.18 276 / 0.26));
+  mix-blend-mode: plus-lighter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-realtime-voice-glow {
+    transform: rotate(35deg);
+  }
+}

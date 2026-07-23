@@ -1,13 +1,15 @@
 // Server (H3/Nitro)
-export { mountA2A } from "./server.js";
+export { mountA2A, verifyA2AToken } from "./server.js";
+export type { A2ATokenPayload } from "./server.js";
 export { generateAgentCard } from "./agent-card.js";
 
 // Client
-export { A2AClient, callAgent, signA2AToken } from "./client.js";
+export { A2AClient, callAction, callAgent, signA2AToken } from "./client.js";
 export {
   AgentInvocationError,
   buildAgentInvocationPrompt,
   invokeAgent,
+  invokeAgentAction,
   looksLikeAgentUrl,
   resolveAgentInvocationTarget,
 } from "./invoke.js";
@@ -18,6 +20,7 @@ export type {
   A2AHandler,
   A2AHandlerContext,
   A2AHandlerResult,
+  A2ASourceContext,
   AgentCard,
   AgentSkill,
   AgentCapabilities,
@@ -32,11 +35,16 @@ export type {
   Artifact,
   JsonRpcRequest,
   JsonRpcResponse,
+  A2ACorrelationMetadata,
+  A2AReadOnlyActionInvocation,
+  A2AReadOnlyActionResult,
 } from "./types.js";
 export type {
   AgentInvocationErrorCode,
+  AgentActionInvocationResult,
   AgentInvocationResult,
   AgentInvocationRuntime,
+  InvokeAgentActionOptions,
   InvokeAgentOptions,
   ResolveAgentInvocationTargetOptions,
   ResolvedAgentInvocationTarget,

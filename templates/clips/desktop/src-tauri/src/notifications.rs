@@ -6,8 +6,13 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindowBuilder};
+use std::time::Duration;
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 use crate::dlog;
 use crate::util::{
@@ -16,10 +21,13 @@ use crate::util::{
 };
 
 const MEETING_NOTIFICATION_LABEL: &str = "meeting-notif";
-const NOTIFICATION_W_LOGICAL: u32 = 440;
+// Window is wider than the 440px card so the card's drop shadow (~32px each
+// side) renders inside the transparent window instead of being clipped. The
+// right margin is pulled in to keep the card near the top-right corner.
+const NOTIFICATION_W_LOGICAL: u32 = 504;
 const NOTIFICATION_H_LOGICAL: u32 = 120;
 const NOTIFICATION_TOP_MARGIN_LOGICAL: u32 = 44;
-const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 24;
+const NOTIFICATION_RIGHT_MARGIN_LOGICAL: u32 = 0;
 
 #[derive(Default)]
 pub struct MeetingNotificationState(pub Mutex<Option<Value>>);
@@ -51,6 +59,75 @@ fn notification_rect(app: &AppHandle) -> (u32, u32, i32, i32) {
     (w, h, x, top.max(0))
 }
 
+static MEETING_NOTIF_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
+
+/// True when the global cursor sits inside the notification window's frame.
+/// Mirrors `cursor_inside_pill_frame` in `recording_indicator.rs`: cursor and
+/// frame both come from Tauri (physical px, desktop top-left origin), so the
+/// test is a plain point-in-rect with no AppKit hop.
+fn cursor_inside_notification_frame(window: &WebviewWindow) -> bool {
+    let (Ok(c), Ok(p), Ok(s)) = (
+        window.cursor_position(),
+        window.outer_position(),
+        window.outer_size(),
+    ) else {
+        return false;
+    };
+    c.x >= p.x as f64
+        && c.x <= (p.x + s.width as i32) as f64
+        && c.y >= p.y as f64
+        && c.y <= (p.y + s.height as i32) as f64
+}
+
+/// Poll the cursor against the notification frame and emit
+/// `meetings:notification-hover` on transitions. The window never becomes key
+/// (`show_without_activation` uses `orderFrontRegardless`, not
+/// `makeKeyAndOrderFront:`), so CSS `:hover`/`onMouseEnter` only fires once
+/// the user's first click makes it key — this poll is the fallback that
+/// reveals the close button on real hover before that click, same pattern as
+/// `start_pill_hover_tracking`. Idempotent — a second call is a no-op while a
+/// loop is already running.
+fn start_meeting_notification_hover_tracking(app: &AppHandle) {
+    if MEETING_NOTIF_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut prev = false;
+        while MEETING_NOTIF_HOVER_TRACKING.load(Ordering::Relaxed) {
+            let Some(win) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) else {
+                break;
+            };
+            // The window is reused across notifications (hidden/shown from
+            // the frontend, never destroyed), so this loop runs for the rest
+            // of the app session. Skip the cursor/frame queries entirely
+            // while hidden — no notification is on screen to hover — and
+            // back off to a slower idle tick until it's shown again.
+            if !win.is_visible().unwrap_or(false) {
+                if prev {
+                    prev = false;
+                    let _ = win.emit(
+                        "meetings:notification-hover",
+                        serde_json::json!({ "hovered": false }),
+                    );
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+            let inside = cursor_inside_notification_frame(&win);
+            if inside != prev {
+                prev = inside;
+                let _ = win.emit(
+                    "meetings:notification-hover",
+                    serde_json::json!({ "hovered": inside }),
+                );
+            }
+            tokio::time::sleep(Duration::from_millis(80)).await;
+        }
+        MEETING_NOTIF_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    });
+}
+
 pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     let (w, h, x, y) = notification_rect(app);
     if let Some(existing) = app.get_webview_window(MEETING_NOTIFICATION_LABEL) {
@@ -58,10 +135,12 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         configure_overlay_behavior(&existing);
         show_without_activation(&existing);
+        start_meeting_notification_hover_tracking(&app);
         return Ok(());
     }
 
-    let win = WebviewWindowBuilder::new(
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(
         app,
         MEETING_NOTIFICATION_LABEL,
         build_overlay_url("meeting-notif"),
@@ -74,9 +153,14 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     .resizable(false)
     .shadow(false)
     .visible(false)
-    .focused(false)
-    .build()
-    .map_err(|e| {
+    .focused(false);
+    // The reminder remains non-activating, but its first click should still
+    // reach the webview instead of only activating the window.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+    let win = builder.build().map_err(|e| {
         eprintln!("[clips-tray] meeting notification build failed: {e}");
         e.to_string()
     })?;
@@ -88,6 +172,7 @@ pub fn show_meeting_notification_window(app: &AppHandle) -> Result<(), String> {
     // own recording chrome is still excluded elsewhere so it won't leak.)
     configure_overlay_behavior(&win);
     show_without_activation(&win);
+    start_meeting_notification_hover_tracking(&app);
     Ok(())
 }
 
@@ -107,6 +192,50 @@ pub fn take_pending_meeting_notification(app: AppHandle) -> Result<Option<Value>
         .lock()
         .map_err(|_| "meeting notification state lock poisoned".to_string())?;
     Ok(pending.take())
+}
+
+fn clear_pending_notification(pending: &mut Option<Value>, meeting_id: &str) -> bool {
+    let matches = pending
+        .as_ref()
+        .and_then(|payload| payload.get("meetingId"))
+        .and_then(Value::as_str)
+        == Some(meeting_id);
+    if matches {
+        *pending = None;
+    }
+    matches
+}
+
+#[tauri::command]
+pub fn dismiss_meeting_notification(
+    app: AppHandle,
+    meeting_id: String,
+    notification_type: String,
+    platform: Option<String>,
+    scheduled_start: Option<String>,
+    scheduled_end: Option<String>,
+) -> Result<(), String> {
+    let state = app.state::<MeetingNotificationState>();
+    let mut pending = state
+        .0
+        .lock()
+        .map_err(|_| "meeting notification state lock poisoned".to_string())?;
+    clear_pending_notification(&mut pending, &meeting_id);
+    drop(pending);
+
+    if let Some(platform) = platform.as_deref() {
+        crate::adhoc_meetings_watcher::refresh_dismissal_suppression(&app, platform)?;
+    }
+
+    dlog!(
+        "[clips-tray] meeting notification dismissed type={} id={} platform={:?} start={:?} end={:?}",
+        notification_type,
+        meeting_id,
+        platform,
+        scheduled_start,
+        scheduled_end
+    );
+    Ok(())
 }
 
 fn format_time_range_subtitle(
@@ -199,4 +328,22 @@ pub async fn notify_meeting_starting(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clears_only_the_matching_pending_notification() {
+        let mut pending = Some(serde_json::json!({
+            "meetingId": "meeting-1",
+            "type": "adhoc"
+        }));
+
+        assert!(!clear_pending_notification(&mut pending, "meeting-2"));
+        assert!(pending.is_some());
+        assert!(clear_pending_notification(&mut pending, "meeting-1"));
+        assert!(pending.is_none());
+    }
 }

@@ -7,8 +7,11 @@ import {
   clearActiveRun,
   getActiveRun,
   getActiveRunActivityTool,
+  clearPendingTurnIfMatches,
+  getPendingTurn,
   resolveReconnectAfterSeq,
   clearActiveRunIfMatches,
+  setPendingTurn,
   setActiveRun,
   updateActiveRunActivity,
   updateActiveRunSeq,
@@ -117,5 +120,21 @@ describe("resolveReconnectAfterSeq", () => {
 
     clearActiveRunIfMatches("thread-1", "run-1");
     expect(getActiveRun()).toBeNull();
+  });
+
+  it("keeps a pending turn addressable until its matching run id arrives", () => {
+    setPendingTurn({ threadId: "thread-1", turnId: "turn-1" });
+
+    expect(getPendingTurn("thread-1")).toEqual({
+      threadId: "thread-1",
+      turnId: "turn-1",
+    });
+    expect(getPendingTurn("thread-2")).toBeNull();
+
+    clearPendingTurnIfMatches("thread-1", "turn-other");
+    expect(getPendingTurn("thread-1")?.turnId).toBe("turn-1");
+
+    clearPendingTurnIfMatches("thread-1", "turn-1");
+    expect(getPendingTurn("thread-1")).toBeNull();
   });
 });

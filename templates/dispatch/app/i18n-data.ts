@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -8,6 +8,7 @@ const enUS = {
     commandSearch: "Search",
     commandAppearance: "Appearance",
     toggleTheme: "Toggle theme",
+    openAgent: "Open Agent",
   },
   routeTitles: {
     chat: "Chat — Dispatch",
@@ -36,10 +37,10 @@ const enUS = {
     deliveryDescription:
       "Manage message destinations and check the outbound delivery queue.",
     openDelivery: "Open delivery",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, voice, and other agent controls. Use the Automations page for scheduled and event-triggered jobs.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, voice, and other controls. Use the Automations page for scheduled and event-triggered jobs.",
+    openAgentSettings: "Manage agent",
   },
   integrations: {
     title: "Integrations",
@@ -214,6 +215,55 @@ const enUS = {
     onboardingDescription:
       "Dispatch owns shared provider accounts. Each app owns how it uses the account.",
   },
+  messaging: {
+    managed: {
+      connectionChecked: "Slack connection checked",
+      workspaceDisconnected: "Slack workspace disconnected",
+      actionFailed: "Slack action failed",
+      channelPolicyUpdated: "Channel policy updated",
+      policyUpdateFailed: "Could not update policy",
+      positiveMonthlyBudget: "Enter a positive monthly budget",
+      channelBudgetSaved: "Channel budget saved",
+      budgetSaveFailed: "Could not save budget",
+      title: "Managed Slack workspaces",
+      description:
+        "OAuth keeps each workspace token isolated and enables native thread context and live task progress.",
+      addToSlack: "Add to Slack",
+      agentManifest: "Agent manifest",
+      agentManifestDescription:
+        "The Agent manifest enables Slack's Agent view and direct messages.",
+      requiredCredentials:
+        "Save the required Slack app credentials below to enable Add to Slack.",
+      workspaceFallback: "Slack workspace",
+      scopesUpdated_one: "{{count}} scope · updated {{date}}",
+      scopesUpdated_other: "{{count}} scopes · updated {{date}}",
+      health: {
+        unknown: "Unknown",
+        healthy: "Healthy",
+        degraded: "Degraded",
+        revoked: "Revoked",
+      },
+      test: "Test",
+      disconnect: "Disconnect",
+      empty:
+        "No managed workspaces connected yet. Manual credentials remain available below for local and legacy setups.",
+      channelAccessTitle: "Channel access and budgets",
+      channelAccessDescription:
+        "Each channel runs as an isolated service identity. Guest, Slack Connect, and no-mention access stay off until an admin enables them here.",
+      isolatedIdentity: "{{trust}} · isolated service identity",
+      trust: {
+        trusted: "Trusted",
+        guest: "Guest",
+        external_shared: "Slack Connect",
+        unknown: "Unknown",
+      },
+      requireMention: "Require mention",
+      allowGuests: "Allow guests",
+      allowSlackConnect: "Allow Slack Connect",
+      monthlyBudgetUsd: "Monthly AI budget (USD)",
+      saveBudget: "Save budget",
+    },
+  },
   dispatch: {
     nav: {
       automations: "Automations",
@@ -222,9 +272,24 @@ const enUS = {
       agents: "Agents",
       vault: "Vault",
       audit: "Audit",
+      operations: "Operations",
+      agent: "Agent",
     },
     pages: {
+      dataLoadFailed: "Couldn't load data",
+      dataLoadFailedDescription: "Dispatch couldn't load this data.",
+      tryAgain: "Try again",
       also: "Also",
+      monitoring: "Monitoring",
+      database: "Database",
+      chatAcrossApps: "Chat across your apps",
+      chatAcrossAppsDescription:
+        "Route work, inspect status, or create something new from one place.",
+      overviewPromptPlaceholder: "Ask Dispatch anything...",
+      chatPromptPlaceholder: "Ask Dispatch...",
+      suggestionWorkspaceHealth: "Summarize the current workspace health",
+      suggestionOnboardingApp: "Create an app for onboarding requests",
+      suggestionAnalyticsAgents: "Check which agents can help with analytics",
       workspaceShortcutsAria: "Workspace shortcuts",
       deliveryQueue: "Delivery queue",
       failedLastHour: "{{count}} failed in the last hour",
@@ -246,7 +311,18 @@ const enUS = {
 
 type Messages = typeof enUS;
 type PartialMessages = {
-  [K in keyof Messages]?: Partial<Messages[K]> & Record<string, unknown>;
+  [K in keyof Messages]?: K extends "messaging"
+    ? {
+        managed?: Partial<Messages["messaging"]["managed"]> &
+          Record<string, unknown>;
+      } & Record<string, unknown>
+    : K extends "dispatch"
+      ? {
+          nav?: Partial<Messages["dispatch"]["nav"]> & Record<string, unknown>;
+          pages?: Partial<Messages["dispatch"]["pages"]> &
+            Record<string, unknown>;
+        } & Record<string, unknown>
+      : Partial<Messages[K]> & Record<string, unknown>;
 };
 
 function mergeMessages(overrides: PartialMessages): Messages {
@@ -272,6 +348,34 @@ function mergeMessages(overrides: PartialMessages): Messages {
       time: {
         ...enUS.integrations.time,
         ...overrides.integrations?.time,
+      },
+    },
+    messaging: {
+      ...enUS.messaging,
+      ...overrides.messaging,
+      managed: {
+        ...enUS.messaging.managed,
+        ...(
+          overrides.messaging as
+            | { managed?: Record<string, unknown> }
+            | undefined
+        )?.managed,
+        health: {
+          ...enUS.messaging.managed.health,
+          ...(
+            overrides.messaging as
+              | { managed?: { health?: Record<string, string> } }
+              | undefined
+          )?.managed?.health,
+        },
+        trust: {
+          ...enUS.messaging.managed.trust,
+          ...(
+            overrides.messaging as
+              | { managed?: { trust?: Record<string, string> } }
+              | undefined
+          )?.managed?.trust,
+        },
       },
     },
     dispatch: {
@@ -308,6 +412,7 @@ export const messagesByLocale = {
       commandSearch: "搜索",
       commandAppearance: "外观",
       toggleTheme: "切换主题",
+      openAgent: "打开代理",
     },
     settings: {
       title: "设置",
@@ -325,10 +430,10 @@ export const messagesByLocale = {
       deliveryTitle: "投递",
       deliveryDescription: "管理消息目的地并查看出站投递队列。",
       openDelivery: "打开投递",
-      agentTitle: "代理设置",
+      agentTitle: "管理代理",
       agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、语音和其他代理控制项。定时与事件触发的任务请使用自动化页面。",
-      openAgentSettings: "打开代理设置",
+        "管理代理的模型、API 密钥、语音和其他控制项。定时与事件触发的任务请使用自动化页面。",
+      openAgentSettings: "管理代理",
     },
     integrations: {
       title: "集成",
@@ -497,6 +602,54 @@ export const messagesByLocale = {
         "Dispatch 管理共享提供商账户。每个应用管理自己如何使用该账户。",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack 连接已检查",
+        workspaceDisconnected: "Slack 工作区已断开连接",
+        actionFailed: "Slack 操作失败",
+        channelPolicyUpdated: "频道策略已更新",
+        policyUpdateFailed: "无法更新策略",
+        positiveMonthlyBudget: "请输入大于零的每月预算",
+        channelBudgetSaved: "频道预算已保存",
+        budgetSaveFailed: "无法保存预算",
+        title: "托管的 Slack 工作区",
+        description:
+          "OAuth 会隔离每个工作区的令牌，并启用原生线程上下文和实时任务进度。",
+        addToSlack: "添加到 Slack",
+        agentManifest: "Agent 清单",
+        agentManifestDescription:
+          "Agent 清单会启用 Slack 的 Agent 视图和私信。",
+        requiredCredentials:
+          "请先在下方保存必需的 Slack 应用凭据，以启用添加到 Slack。",
+        workspaceFallback: "Slack 工作区",
+        scopesUpdated_other: "{{count}} 个范围 · 更新于 {{date}}",
+        health: {
+          unknown: "未知",
+          healthy: "正常",
+          degraded: "降级",
+          revoked: "已撤销",
+        },
+        test: "测试",
+        disconnect: "断开连接",
+        empty: "尚未连接托管工作区。下方仍提供手动凭据，供本地和旧版设置使用。",
+        channelAccessTitle: "频道访问和预算",
+        channelAccessDescription:
+          "每个频道都以隔离的服务身份运行。访客、Slack Connect 和无需提及的访问默认关闭，直到管理员在此启用。",
+        isolatedIdentity: "{{trust}} · 隔离的服务身份",
+        trust: {
+          trusted: "受信任",
+          guest: "访客",
+          external_shared: "外部共享 (Slack Connect)",
+          unknown: "未知",
+        },
+        requireMention: "需要提及",
+        allowGuests: "允许访客",
+        allowSlackConnect: "允许 Slack Connect",
+        monthlyBudgetUsd: "每月 AI 预算（美元）",
+        saveBudget: "保存预算",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "自动化",
@@ -505,9 +658,23 @@ export const messagesByLocale = {
         agents: "代理",
         vault: "保险库",
         audit: "审计",
+        operations: "运营",
+        agent: "代理",
       },
       pages: {
+        dataLoadFailed: "无法加载数据",
+        dataLoadFailedDescription: "Dispatch 无法加载这些数据。",
+        tryAgain: "重试",
         also: "还有",
+        monitoring: "监控",
+        database: "数据库",
+        chatAcrossApps: "跨应用聊天",
+        chatAcrossAppsDescription: "在一个地方分派工作、检查状态或创建新内容。",
+        overviewPromptPlaceholder: "向 Dispatch 提问...",
+        chatPromptPlaceholder: "询问 Dispatch...",
+        suggestionWorkspaceHealth: "总结当前工作区运行状况",
+        suggestionOnboardingApp: "为入职请求创建一个应用",
+        suggestionAnalyticsAgents: "查看哪些代理可以协助分析",
         workspaceShortcutsAria: "工作区快捷入口",
         deliveryQueue: "投递队列",
         failedLastHour: "过去一小时失败 {{count}} 次",
@@ -538,6 +705,7 @@ export const messagesByLocale = {
       commandSearch: "Buscar",
       commandAppearance: "Apariencia",
       toggleTheme: "Cambiar tema",
+      openAgent: "Abrir agente",
     },
     settings: {
       title: "Ajustes",
@@ -560,10 +728,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gestiona destinos de mensajes y revisa la cola de entrega saliente.",
       openDelivery: "Abrir entrega",
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes del agente en la barra lateral para modelos, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, voz y otros controles. Usa la página de Automatizaciones para trabajos programados y activados por eventos.",
+      openAgentSettings: "Gestionar agente",
     },
     integrations: {
       title: "Integraciones",
@@ -752,6 +920,57 @@ export const messagesByLocale = {
         "Dispatch posee las cuentas compartidas de proveedores. Cada app posee cómo usa la cuenta.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Conexión de Slack comprobada",
+        workspaceDisconnected: "Espacio de trabajo de Slack desconectado",
+        actionFailed: "La acción de Slack falló",
+        channelPolicyUpdated: "Política del canal actualizada",
+        policyUpdateFailed: "No se pudo actualizar la política",
+        positiveMonthlyBudget: "Introduce un presupuesto mensual positivo",
+        channelBudgetSaved: "Presupuesto del canal guardado",
+        budgetSaveFailed: "No se pudo guardar el presupuesto",
+        title: "Espacios de trabajo de Slack gestionados",
+        description:
+          "OAuth mantiene aislado el token de cada espacio de trabajo y habilita el contexto nativo de hilos y el progreso de tareas en vivo.",
+        addToSlack: "Añadir a Slack",
+        agentManifest: "Manifiesto del agente",
+        agentManifestDescription:
+          "El manifiesto del agente habilita la vista de agente y los mensajes directos de Slack.",
+        requiredCredentials:
+          "Guarda abajo las credenciales obligatorias de la app de Slack para habilitar Añadir a Slack.",
+        workspaceFallback: "Espacio de trabajo de Slack",
+        scopesUpdated_one: "{{count}} ámbito · actualizado el {{date}}",
+        scopesUpdated_other: "{{count}} ámbitos · actualizados el {{date}}",
+        scopesUpdated_many: "{{count}} ámbitos · actualizados el {{date}}",
+        health: {
+          unknown: "Desconocido",
+          healthy: "Correcto",
+          degraded: "Degradado",
+          revoked: "Revocado",
+        },
+        test: "Probar",
+        disconnect: "Desconectar",
+        empty:
+          "Aún no hay espacios de trabajo gestionados conectados. Las credenciales manuales siguen disponibles abajo para configuraciones locales y antiguas.",
+        channelAccessTitle: "Acceso y presupuestos del canal",
+        channelAccessDescription:
+          "Cada canal se ejecuta con una identidad de servicio aislada. El acceso para invitados, Slack Connect y sin mención permanece desactivado hasta que un administrador lo habilite aquí.",
+        isolatedIdentity: "{{trust}} · identidad de servicio aislada",
+        trust: {
+          trusted: "De confianza",
+          guest: "Invitado",
+          external_shared: "Uso compartido externo (Slack Connect)",
+          unknown: "Desconocido",
+        },
+        requireMention: "Requerir mención",
+        allowGuests: "Permitir invitados",
+        allowSlackConnect: "Permitir Slack Connect",
+        monthlyBudgetUsd: "Presupuesto mensual de IA (USD)",
+        saveBudget: "Guardar presupuesto",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automatizaciones",
@@ -760,9 +979,27 @@ export const messagesByLocale = {
         agents: "Agentes",
         vault: "Bóveda",
         audit: "Auditoría",
+        operations: "Operaciones",
+        agent: "Agente",
       },
       pages: {
+        dataLoadFailed: "No se pudieron cargar los datos",
+        dataLoadFailedDescription: "Dispatch no pudo cargar estos datos.",
+        tryAgain: "Intentar de nuevo",
         also: "También",
+        monitoring: "Monitorización",
+        database: "Base de datos",
+        chatAcrossApps: "Chatea con todas tus aplicaciones",
+        chatAcrossAppsDescription:
+          "Dirige el trabajo, revisa el estado o crea algo nuevo desde un solo lugar.",
+        overviewPromptPlaceholder: "Pregunta lo que quieras a Dispatch...",
+        chatPromptPlaceholder: "Pregunta a Dispatch...",
+        suggestionWorkspaceHealth:
+          "Resume el estado actual del espacio de trabajo",
+        suggestionOnboardingApp:
+          "Crea una app para solicitudes de incorporación",
+        suggestionAnalyticsAgents:
+          "Comprueba qué agentes pueden ayudar con analítica",
         workspaceShortcutsAria: "Accesos directos del espacio de trabajo",
         deliveryQueue: "Cola de entrega",
         failedLastHour: "{{count}} fallos en la última hora",
@@ -794,6 +1031,7 @@ export const messagesByLocale = {
       commandSearch: "Rechercher",
       commandAppearance: "Apparence",
       toggleTheme: "Changer de thème",
+      openAgent: "Ouvrir l’agent",
     },
     settings: {
       title: "Paramètres",
@@ -816,10 +1054,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gérez les destinations de messages et consultez la file d’attente sortante.",
       openDelivery: "Ouvrir la livraison",
-      agentTitle: "Paramètres de l’agent",
+      agentTitle: "Gérer l’agent",
       agentDescription:
-        "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, voix et autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
-      openAgentSettings: "Ouvrir les paramètres de l’agent",
+        "Gérez le modèle de l’agent, les clés API, la voix et les autres contrôles. Utilisez la page Automatisations pour les tâches planifiées et déclenchées par des événements.",
+      openAgentSettings: "Gérer l’agent",
     },
     integrations: {
       title: "Intégrations",
@@ -1008,6 +1246,57 @@ export const messagesByLocale = {
         "Dispatch possède les comptes fournisseurs partagés. Chaque app possède la façon dont elle utilise le compte.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Connexion Slack vérifiée",
+        workspaceDisconnected: "Espace de travail Slack déconnecté",
+        actionFailed: "Échec de l’action Slack",
+        channelPolicyUpdated: "Politique du canal mise à jour",
+        policyUpdateFailed: "Impossible de mettre à jour la politique",
+        positiveMonthlyBudget: "Saisissez un budget mensuel positif",
+        channelBudgetSaved: "Budget du canal enregistré",
+        budgetSaveFailed: "Impossible d’enregistrer le budget",
+        title: "Espaces de travail Slack gérés",
+        description:
+          "OAuth isole le jeton de chaque espace de travail et active le contexte natif des fils ainsi que la progression des tâches en direct.",
+        addToSlack: "Ajouter à Slack",
+        agentManifest: "Manifeste de l’agent",
+        agentManifestDescription:
+          "Le manifeste de l’agent active la vue Agent et les messages directs de Slack.",
+        requiredCredentials:
+          "Enregistrez ci-dessous les identifiants requis de l’app Slack pour activer Ajouter à Slack.",
+        workspaceFallback: "Espace de travail Slack",
+        scopesUpdated_one: "{{count}} portée · mise à jour le {{date}}",
+        scopesUpdated_other: "{{count}} portées · mises à jour le {{date}}",
+        scopesUpdated_many: "{{count}} portées · mises à jour le {{date}}",
+        health: {
+          unknown: "Inconnu",
+          healthy: "Sain",
+          degraded: "Dégradé",
+          revoked: "Révoqué",
+        },
+        test: "Tester",
+        disconnect: "Déconnecter",
+        empty:
+          "Aucun espace de travail géré n’est encore connecté. Les identifiants manuels restent disponibles ci-dessous pour les configurations locales et anciennes.",
+        channelAccessTitle: "Accès au canal et budgets",
+        channelAccessDescription:
+          "Chaque canal s’exécute avec une identité de service isolée. L’accès des invités, de Slack Connect et sans mention reste désactivé jusqu’à ce qu’un administrateur l’active ici.",
+        isolatedIdentity: "{{trust}} · identité de service isolée",
+        trust: {
+          trusted: "Fiable",
+          guest: "Invité",
+          external_shared: "Partage externe (Slack Connect)",
+          unknown: "Inconnu",
+        },
+        requireMention: "Exiger une mention",
+        allowGuests: "Autoriser les invités",
+        allowSlackConnect: "Autoriser Slack Connect",
+        monthlyBudgetUsd: "Budget mensuel d’IA (USD)",
+        saveBudget: "Enregistrer le budget",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automatisations",
@@ -1016,9 +1305,27 @@ export const messagesByLocale = {
         agents: "Agents",
         vault: "Coffre",
         audit: "Audit",
+        operations: "Opérations",
+        agent: "Agent",
       },
       pages: {
+        dataLoadFailed: "Impossible de charger les données",
+        dataLoadFailedDescription: "Dispatch n’a pas pu charger ces données.",
+        tryAgain: "Réessayer",
         also: "Aussi",
+        monitoring: "Surveillance",
+        database: "Base de données",
+        chatAcrossApps: "Discutez avec toutes vos applications",
+        chatAcrossAppsDescription:
+          "Acheminez le travail, vérifiez l’état ou créez du contenu depuis un seul endroit.",
+        overviewPromptPlaceholder: "Demandez n’importe quoi à Dispatch…",
+        chatPromptPlaceholder: "Demandez à Dispatch…",
+        suggestionWorkspaceHealth:
+          "Résumer l’état actuel de l’espace de travail",
+        suggestionOnboardingApp:
+          "Créer une app pour les demandes d’intégration",
+        suggestionAnalyticsAgents:
+          "Vérifier quels agents peuvent aider avec l’analytique",
         workspaceShortcutsAria: "Raccourcis de l’espace de travail",
         deliveryQueue: "File de livraison",
         failedLastHour: "{{count}} échecs au cours de la dernière heure",
@@ -1050,6 +1357,7 @@ export const messagesByLocale = {
       commandSearch: "Suchen",
       commandAppearance: "Darstellung",
       toggleTheme: "Theme wechseln",
+      openAgent: "Agent öffnen",
     },
     settings: {
       title: "Einstellungen",
@@ -1072,10 +1380,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Nachrichtenziele verwalten und die ausgehende Zustellungswarteschlange prüfen.",
       openDelivery: "Zustellung öffnen",
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Sprache und weitere Steuerungen. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Sprache und weitere Steuerungen des Agents. Für geplante und ereignisgesteuerte Jobs die Automatisierungen-Seite verwenden.",
+      openAgentSettings: "Agent verwalten",
     },
     integrations: {
       title: "Integrationen",
@@ -1254,6 +1562,56 @@ export const messagesByLocale = {
         "Dispatch besitzt gemeinsame Anbieter-Konten. Jede App besitzt, wie sie das Konto verwendet.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack-Verbindung geprüft",
+        workspaceDisconnected: "Slack-Workspace getrennt",
+        actionFailed: "Slack-Aktion fehlgeschlagen",
+        channelPolicyUpdated: "Kanalrichtlinie aktualisiert",
+        policyUpdateFailed: "Richtlinie konnte nicht aktualisiert werden",
+        positiveMonthlyBudget: "Gib ein positives Monatsbudget ein",
+        channelBudgetSaved: "Kanalbudget gespeichert",
+        budgetSaveFailed: "Budget konnte nicht gespeichert werden",
+        title: "Verwaltete Slack-Workspaces",
+        description:
+          "OAuth isoliert das Token jedes Workspace und aktiviert nativen Thread-Kontext sowie Live-Fortschritt für Aufgaben.",
+        addToSlack: "Zu Slack hinzufügen",
+        agentManifest: "Agent-Manifest",
+        agentManifestDescription:
+          "Das Agent-Manifest aktiviert die Agent-Ansicht und Direktnachrichten in Slack.",
+        requiredCredentials:
+          "Speichere unten die erforderlichen Slack-App-Anmeldedaten, um Zu Slack hinzufügen zu aktivieren.",
+        workspaceFallback: "Slack-Workspace",
+        scopesUpdated_one: "{{count}} Scope · aktualisiert am {{date}}",
+        scopesUpdated_other: "{{count}} Scopes · aktualisiert am {{date}}",
+        health: {
+          unknown: "Unbekannt",
+          healthy: "Fehlerfrei",
+          degraded: "Beeinträchtigt",
+          revoked: "Widerrufen",
+        },
+        test: "Testen",
+        disconnect: "Trennen",
+        empty:
+          "Noch keine verwalteten Workspaces verbunden. Manuelle Anmeldedaten bleiben unten für lokale und ältere Setups verfügbar.",
+        channelAccessTitle: "Kanalzugriff und Budgets",
+        channelAccessDescription:
+          "Jeder Kanal läuft mit einer isolierten Dienstidentität. Gast-, Slack-Connect- und Zugriff ohne Erwähnung bleiben deaktiviert, bis ein Admin sie hier aktiviert.",
+        isolatedIdentity: "{{trust}} · isolierte Dienstidentität",
+        trust: {
+          trusted: "Vertrauenswürdig",
+          guest: "Gast",
+          external_shared: "Extern geteilt (Slack Connect)",
+          unknown: "Unbekannt",
+        },
+        requireMention: "Erwähnung erforderlich",
+        allowGuests: "Gäste erlauben",
+        allowSlackConnect: "Slack Connect erlauben",
+        monthlyBudgetUsd: "Monatliches KI-Budget (USD)",
+        saveBudget: "Budget speichern",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automatisierungen",
@@ -1262,9 +1620,26 @@ export const messagesByLocale = {
         agents: "Agenten",
         vault: "Tresor",
         audit: "Audit",
+        operations: "Betrieb",
+        agent: "Agent",
       },
       pages: {
+        dataLoadFailed: "Daten konnten nicht geladen werden",
+        dataLoadFailedDescription: "Dispatch konnte diese Daten nicht laden.",
+        tryAgain: "Erneut versuchen",
         also: "Außerdem",
+        monitoring: "Überwachung",
+        database: "Datenbank",
+        chatAcrossApps: "App-übergreifend chatten",
+        chatAcrossAppsDescription:
+          "Leite Arbeit weiter, prüfe den Status oder erstelle Neues an einem Ort.",
+        overviewPromptPlaceholder: "Frage Dispatch alles...",
+        chatPromptPlaceholder: "Dispatch fragen...",
+        suggestionWorkspaceHealth:
+          "Aktuellen Zustand des Workspace zusammenfassen",
+        suggestionOnboardingApp: "Eine App für Onboarding-Anfragen erstellen",
+        suggestionAnalyticsAgents:
+          "Prüfen, welche Agenten bei Analysen helfen können",
         workspaceShortcutsAria: "Workspace-Kurzbefehle",
         deliveryQueue: "Zustellungswarteschlange",
         failedLastHour: "{{count}} fehlgeschlagen in der letzten Stunde",
@@ -1296,6 +1671,7 @@ export const messagesByLocale = {
       commandSearch: "検索",
       commandAppearance: "外観",
       toggleTheme: "テーマを切り替え",
+      openAgent: "エージェントを開く",
     },
     settings: {
       title: "設定",
@@ -1317,10 +1693,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "メッセージの送信先を管理し、送信キューを確認します。",
       openDelivery: "配信を開く",
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "右サイドバーのエージェント設定を開き、モデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、音声などを管理します。スケジュールおよびイベント駆動のジョブは自動化ページを使用してください。",
+      openAgentSettings: "エージェントを管理",
     },
     integrations: {
       title: "連携",
@@ -1498,6 +1874,55 @@ export const messagesByLocale = {
         "Dispatch は共有プロバイダーアカウントを管理します。各アプリはそのアカウントの使い方を管理します。",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack 接続を確認しました",
+        workspaceDisconnected: "Slack ワークスペースを切断しました",
+        actionFailed: "Slack の操作に失敗しました",
+        channelPolicyUpdated: "チャンネルポリシーを更新しました",
+        policyUpdateFailed: "ポリシーを更新できませんでした",
+        positiveMonthlyBudget: "正の月額予算を入力してください",
+        channelBudgetSaved: "チャンネル予算を保存しました",
+        budgetSaveFailed: "予算を保存できませんでした",
+        title: "管理対象の Slack ワークスペース",
+        description:
+          "OAuth はワークスペースごとにトークンを分離し、Slack ネイティブのスレッドコンテキストとリアルタイムのタスク進捗を有効にします。",
+        addToSlack: "Slack に追加",
+        agentManifest: "エージェントマニフェスト",
+        agentManifestDescription:
+          "エージェントマニフェストで Slack のエージェントビューとダイレクトメッセージを有効にします。",
+        requiredCredentials:
+          "下で必須の Slack アプリ認証情報を保存すると、Slack に追加を有効にできます。",
+        workspaceFallback: "Slack ワークスペース",
+        scopesUpdated_other: "{{count}} 件のスコープ · {{date}} 更新",
+        health: {
+          unknown: "不明",
+          healthy: "正常",
+          degraded: "機能低下",
+          revoked: "取り消し済み",
+        },
+        test: "テスト",
+        disconnect: "切断",
+        empty:
+          "管理対象のワークスペースはまだ接続されていません。ローカルおよび従来の設定用に、手動の認証情報を引き続き下で利用できます。",
+        channelAccessTitle: "チャンネルアクセスと予算",
+        channelAccessDescription:
+          "各チャンネルは分離されたサービス ID で実行されます。ゲスト、Slack Connect、メンションなしのアクセスは、管理者がここで有効にするまで無効です。",
+        isolatedIdentity: "{{trust}} · 分離されたサービス ID",
+        trust: {
+          trusted: "信頼済み",
+          guest: "ゲスト",
+          external_shared: "外部共有（Slack Connect）",
+          unknown: "不明",
+        },
+        requireMention: "メンションを必須にする",
+        allowGuests: "ゲストを許可",
+        allowSlackConnect: "Slack Connect を許可",
+        monthlyBudgetUsd: "月額 AI 予算（USD）",
+        saveBudget: "予算を保存",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "自動化",
@@ -1506,9 +1931,25 @@ export const messagesByLocale = {
         agents: "エージェント",
         vault: "ボールト",
         audit: "監査",
+        operations: "運用",
+        agent: "エージェント",
       },
       pages: {
+        dataLoadFailed: "データを読み込めませんでした",
+        dataLoadFailedDescription:
+          "Dispatch はこのデータを読み込めませんでした。",
+        tryAgain: "もう一度試す",
         also: "その他",
+        monitoring: "監視",
+        database: "データベース",
+        chatAcrossApps: "アプリを横断してチャット",
+        chatAcrossAppsDescription:
+          "1 か所から作業を振り分け、状況を確認し、新しいものを作成できます。",
+        overviewPromptPlaceholder: "Dispatch に何でも質問...",
+        chatPromptPlaceholder: "Dispatch に質問...",
+        suggestionWorkspaceHealth: "現在のワークスペース状況を要約",
+        suggestionOnboardingApp: "オンボーディング依頼用のアプリを作成",
+        suggestionAnalyticsAgents: "分析を支援できるエージェントを確認",
         workspaceShortcutsAria: "ワークスペースのショートカット",
         deliveryQueue: "配信キュー",
         failedLastHour: "過去 1 時間で {{count}} 件失敗",
@@ -1540,6 +1981,7 @@ export const messagesByLocale = {
       commandSearch: "검색",
       commandAppearance: "모양",
       toggleTheme: "테마 전환",
+      openAgent: "에이전트 열기",
     },
     settings: {
       title: "설정",
@@ -1561,10 +2003,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "메시지 대상을 관리하고 발신 전달 대기열을 확인합니다.",
       openDelivery: "전달 열기",
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 음성 및 기타 제어를 관리합니다. 예약 및 이벤트 트리거 작업은 자동화 페이지를 사용하세요.",
+      openAgentSettings: "에이전트 관리",
     },
     integrations: {
       title: "통합",
@@ -1739,6 +2181,55 @@ export const messagesByLocale = {
         "Dispatch는 공유 공급자 계정을 소유합니다. 각 앱은 계정 사용 방식을 소유합니다.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack 연결을 확인했습니다",
+        workspaceDisconnected: "Slack 워크스페이스 연결을 해제했습니다",
+        actionFailed: "Slack 작업에 실패했습니다",
+        channelPolicyUpdated: "채널 정책을 업데이트했습니다",
+        policyUpdateFailed: "정책을 업데이트할 수 없습니다",
+        positiveMonthlyBudget: "0보다 큰 월 예산을 입력하세요",
+        channelBudgetSaved: "채널 예산을 저장했습니다",
+        budgetSaveFailed: "예산을 저장할 수 없습니다",
+        title: "관리형 Slack 워크스페이스",
+        description:
+          "OAuth는 각 워크스페이스 토큰을 격리하고 Slack 기본 스레드 컨텍스트와 실시간 작업 진행 상황을 지원합니다.",
+        addToSlack: "Slack에 추가",
+        agentManifest: "에이전트 매니페스트",
+        agentManifestDescription:
+          "에이전트 매니페스트는 Slack의 에이전트 보기와 다이렉트 메시지를 활성화합니다.",
+        requiredCredentials:
+          "아래에서 필수 Slack 앱 자격 증명을 저장하면 Slack에 추가가 활성화됩니다.",
+        workspaceFallback: "Slack 워크스페이스",
+        scopesUpdated_other: "범위 {{count}}개 · {{date}} 업데이트",
+        health: {
+          unknown: "알 수 없음",
+          healthy: "정상",
+          degraded: "성능 저하",
+          revoked: "취소됨",
+        },
+        test: "테스트",
+        disconnect: "연결 해제",
+        empty:
+          "연결된 관리형 워크스페이스가 아직 없습니다. 로컬 및 레거시 설정에는 아래의 수동 자격 증명을 계속 사용할 수 있습니다.",
+        channelAccessTitle: "채널 액세스 및 예산",
+        channelAccessDescription:
+          "각 채널은 격리된 서비스 ID로 실행됩니다. 게스트, Slack Connect, 멘션 없는 액세스는 관리자가 여기에서 허용할 때까지 꺼져 있습니다.",
+        isolatedIdentity: "{{trust}} · 격리된 서비스 ID",
+        trust: {
+          trusted: "신뢰됨",
+          guest: "게스트",
+          external_shared: "외부 공유(Slack Connect)",
+          unknown: "알 수 없음",
+        },
+        requireMention: "멘션 필요",
+        allowGuests: "게스트 허용",
+        allowSlackConnect: "Slack Connect 허용",
+        monthlyBudgetUsd: "월 AI 예산(USD)",
+        saveBudget: "예산 저장",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "자동화",
@@ -1747,9 +2238,25 @@ export const messagesByLocale = {
         agents: "에이전트",
         vault: "볼트",
         audit: "감사",
+        operations: "운영",
+        agent: "에이전트",
       },
       pages: {
+        dataLoadFailed: "데이터를 불러올 수 없습니다",
+        dataLoadFailedDescription:
+          "Dispatch에서 이 데이터를 불러오지 못했습니다.",
+        tryAgain: "다시 시도",
         also: "또한",
+        monitoring: "모니터링",
+        database: "데이터베이스",
+        chatAcrossApps: "앱 전체에서 채팅",
+        chatAcrossAppsDescription:
+          "한곳에서 작업을 전달하고 상태를 확인하거나 새로운 것을 만드세요.",
+        overviewPromptPlaceholder: "Dispatch에 무엇이든 물어보세요...",
+        chatPromptPlaceholder: "Dispatch에 질문...",
+        suggestionWorkspaceHealth: "현재 워크스페이스 상태 요약",
+        suggestionOnboardingApp: "온보딩 요청용 앱 만들기",
+        suggestionAnalyticsAgents: "분석을 지원할 수 있는 에이전트 확인",
         workspaceShortcutsAria: "워크스페이스 바로가기",
         deliveryQueue: "전달 대기열",
         failedLastHour: "지난 1시간 동안 {{count}}건 실패",
@@ -1780,6 +2287,7 @@ export const messagesByLocale = {
       commandSearch: "Buscar",
       commandAppearance: "Aparência",
       toggleTheme: "Alternar tema",
+      openAgent: "Abrir agente",
     },
     settings: {
       title: "Configurações",
@@ -1802,10 +2310,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "Gerencie destinos de mensagens e verifique a fila de entrega de saída.",
       openDelivery: "Abrir entrega",
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações do agente na barra lateral para modelos, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, voz e outros controles. Use a página de Automações para trabalhos agendados e acionados por eventos.",
+      openAgentSettings: "Gerenciar agente",
     },
     integrations: {
       title: "Integrações",
@@ -1990,6 +2498,57 @@ export const messagesByLocale = {
         "Dispatch possui as contas compartilhadas de provedores. Cada app possui como usa a conta.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Conexão do Slack verificada",
+        workspaceDisconnected: "Workspace do Slack desconectado",
+        actionFailed: "Falha na ação do Slack",
+        channelPolicyUpdated: "Política do canal atualizada",
+        policyUpdateFailed: "Não foi possível atualizar a política",
+        positiveMonthlyBudget: "Informe um orçamento mensal positivo",
+        channelBudgetSaved: "Orçamento do canal salvo",
+        budgetSaveFailed: "Não foi possível salvar o orçamento",
+        title: "Workspaces gerenciados do Slack",
+        description:
+          "O OAuth mantém o token de cada workspace isolado e habilita o contexto nativo de threads e o progresso de tarefas em tempo real.",
+        addToSlack: "Adicionar ao Slack",
+        agentManifest: "Manifesto do agente",
+        agentManifestDescription:
+          "O manifesto do agente habilita a visualização de agente e as mensagens diretas no Slack.",
+        requiredCredentials:
+          "Salve abaixo as credenciais obrigatórias do app Slack para habilitar Adicionar ao Slack.",
+        workspaceFallback: "Workspace do Slack",
+        scopesUpdated_one: "{{count}} escopo · atualizado em {{date}}",
+        scopesUpdated_other: "{{count}} escopos · atualizados em {{date}}",
+        scopesUpdated_many: "{{count}} escopos · atualizados em {{date}}",
+        health: {
+          unknown: "Desconhecido",
+          healthy: "Íntegro",
+          degraded: "Degradado",
+          revoked: "Revogado",
+        },
+        test: "Testar",
+        disconnect: "Desconectar",
+        empty:
+          "Ainda não há workspaces gerenciados conectados. As credenciais manuais continuam disponíveis abaixo para configurações locais e antigas.",
+        channelAccessTitle: "Acesso e orçamentos do canal",
+        channelAccessDescription:
+          "Cada canal é executado com uma identidade de serviço isolada. O acesso para convidados, Slack Connect e sem menção permanece desativado até que um administrador o habilite aqui.",
+        isolatedIdentity: "{{trust}} · identidade de serviço isolada",
+        trust: {
+          trusted: "Confiável",
+          guest: "Convidado",
+          external_shared: "Compartilhamento externo (Slack Connect)",
+          unknown: "Desconhecido",
+        },
+        requireMention: "Exigir menção",
+        allowGuests: "Permitir convidados",
+        allowSlackConnect: "Permitir Slack Connect",
+        monthlyBudgetUsd: "Orçamento mensal de IA (USD)",
+        saveBudget: "Salvar orçamento",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "Automações",
@@ -1998,9 +2557,27 @@ export const messagesByLocale = {
         agents: "Agentes",
         vault: "Cofre",
         audit: "Auditoria",
+        operations: "Operações",
+        agent: "Agente",
       },
       pages: {
+        dataLoadFailed: "Não foi possível carregar os dados",
+        dataLoadFailedDescription:
+          "O Dispatch não conseguiu carregar estes dados.",
+        tryAgain: "Tentar novamente",
         also: "Também",
+        monitoring: "Monitoramento",
+        database: "Banco de dados",
+        chatAcrossApps: "Converse entre seus apps",
+        chatAcrossAppsDescription:
+          "Encaminhe trabalhos, verifique o status ou crie algo novo em um só lugar.",
+        overviewPromptPlaceholder: "Pergunte qualquer coisa ao Dispatch...",
+        chatPromptPlaceholder: "Pergunte ao Dispatch...",
+        suggestionWorkspaceHealth:
+          "Resumir a integridade atual do espaço de trabalho",
+        suggestionOnboardingApp: "Criar um app para solicitações de integração",
+        suggestionAnalyticsAgents:
+          "Verificar quais agentes podem ajudar com análises",
         workspaceShortcutsAria: "Atalhos do espaço de trabalho",
         deliveryQueue: "Fila de entrega",
         failedLastHour: "{{count}} falhas na última hora",
@@ -2032,6 +2609,7 @@ export const messagesByLocale = {
       commandSearch: "खोजें",
       commandAppearance: "रूप",
       toggleTheme: "थीम बदलें",
+      openAgent: "एजेंट खोलें",
     },
     settings: {
       title: "सेटिंग्स",
@@ -2051,10 +2629,10 @@ export const messagesByLocale = {
       deliveryTitle: "डिलीवरी",
       deliveryDescription: "संदेश गंतव्य प्रबंधित करें और आउटबाउंड डिलीवरी कतार जांचें।",
       openDelivery: "डिलीवरी खोलें",
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियों, आवाज़ और अन्य एजेंट नियंत्रणों के लिए साइडबार सेटिंग्स खोलें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें। शेड्यूल और इवेंट-ट्रिगर जॉब्स के लिए ऑटोमेशन पेज का उपयोग करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
     },
     integrations: {
       title: "इंटीग्रेशन",
@@ -2225,6 +2803,56 @@ export const messagesByLocale = {
         "Dispatch साझा प्रदाता खातों का स्वामी है। हर ऐप खाते का उपयोग कैसे करता है, यह वही संभालता है।",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "Slack कनेक्शन की जाँच पूरी हुई",
+        workspaceDisconnected: "Slack कार्यस्थान डिस्कनेक्ट किया गया",
+        actionFailed: "Slack कार्रवाई विफल हुई",
+        channelPolicyUpdated: "चैनल नीति अपडेट की गई",
+        policyUpdateFailed: "नीति अपडेट नहीं हो सकी",
+        positiveMonthlyBudget: "शून्य से अधिक मासिक बजट दर्ज करें",
+        channelBudgetSaved: "चैनल बजट सहेजा गया",
+        budgetSaveFailed: "बजट सहेजा नहीं जा सका",
+        title: "प्रबंधित Slack कार्यस्थान",
+        description:
+          "OAuth हर कार्यस्थान टोकन को अलग रखता है और मूल थ्रेड संदर्भ तथा लाइव कार्य प्रगति सक्षम करता है।",
+        addToSlack: "Slack में जोड़ें",
+        agentManifest: "एजेंट मैनिफ़ेस्ट",
+        agentManifestDescription:
+          "एजेंट मैनिफ़ेस्ट Slack का एजेंट व्यू और डायरेक्ट मैसेज सक्षम करता है।",
+        requiredCredentials:
+          "Slack में जोड़ें को सक्षम करने के लिए नीचे आवश्यक Slack ऐप क्रेडेंशियल सहेजें।",
+        workspaceFallback: "Slack कार्यस्थान",
+        scopesUpdated_one: "{{count}} स्कोप · {{date}} को अपडेट किया गया",
+        scopesUpdated_other: "{{count}} स्कोप · {{date}} को अपडेट किए गए",
+        health: {
+          unknown: "अज्ञात",
+          healthy: "स्वस्थ",
+          degraded: "कमज़ोर",
+          revoked: "रद्द",
+        },
+        test: "जाँचें",
+        disconnect: "डिस्कनेक्ट करें",
+        empty:
+          "अभी कोई प्रबंधित कार्यस्थान कनेक्ट नहीं है। स्थानीय और पुराने सेटअप के लिए मैन्युअल क्रेडेंशियल नीचे उपलब्ध हैं।",
+        channelAccessTitle: "चैनल एक्सेस और बजट",
+        channelAccessDescription:
+          "हर चैनल एक अलग सेवा पहचान के रूप में चलता है। अतिथि, Slack Connect और बिना उल्लेख का एक्सेस तब तक बंद रहता है जब तक कोई एडमिन उसे यहाँ सक्षम न करे।",
+        isolatedIdentity: "{{trust}} · अलग सेवा पहचान",
+        trust: {
+          trusted: "विश्वसनीय",
+          guest: "अतिथि",
+          external_shared: "बाहरी साझाकरण (Slack Connect)",
+          unknown: "अज्ञात",
+        },
+        requireMention: "उल्लेख आवश्यक",
+        allowGuests: "अतिथियों को अनुमति दें",
+        allowSlackConnect: "Slack Connect को अनुमति दें",
+        monthlyBudgetUsd: "मासिक AI बजट (USD)",
+        saveBudget: "बजट सहेजें",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "ऑटोमेशन",
@@ -2233,9 +2861,24 @@ export const messagesByLocale = {
         agents: "एजेंट",
         vault: "वॉल्ट",
         audit: "ऑडिट",
+        operations: "संचालन",
+        agent: "एजेंट",
       },
       pages: {
+        dataLoadFailed: "डेटा लोड नहीं हो सका",
+        dataLoadFailedDescription: "Dispatch यह डेटा लोड नहीं कर सका।",
+        tryAgain: "फिर से कोशिश करें",
         also: "और भी",
+        monitoring: "निगरानी",
+        database: "डेटाबेस",
+        chatAcrossApps: "अपने सभी ऐप्स में चैट करें",
+        chatAcrossAppsDescription:
+          "एक ही स्थान से काम भेजें, स्थिति जाँचें या कुछ नया बनाएँ।",
+        overviewPromptPlaceholder: "Dispatch से कुछ भी पूछें...",
+        chatPromptPlaceholder: "Dispatch से पूछें...",
+        suggestionWorkspaceHealth: "वर्तमान कार्यस्थान की स्थिति का सार बताएँ",
+        suggestionOnboardingApp: "ऑनबोर्डिंग अनुरोधों के लिए ऐप बनाएँ",
+        suggestionAnalyticsAgents: "देखें कि कौन से एजेंट विश्लेषण में मदद कर सकते हैं",
         workspaceShortcutsAria: "कार्यस्थान शॉर्टकट",
         deliveryQueue: "डिलीवरी कतार",
         failedLastHour: "पिछले घंटे में {{count}} विफल",
@@ -2266,6 +2909,7 @@ export const messagesByLocale = {
       commandSearch: "بحث",
       commandAppearance: "المظهر",
       toggleTheme: "تبديل السمة",
+      openAgent: "فتح الوكيل",
     },
     settings: {
       title: "الإعدادات",
@@ -2285,10 +2929,10 @@ export const messagesByLocale = {
       deliveryDescription:
         "إدارة وجهات الرسائل وفحص قائمة انتظار التسليم الصادرة.",
       openDelivery: "فتح التسليم",
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والصوت وعناصر التحكم الأخرى. استخدم صفحة الأتمتة للمهام المجدولة والمُشغَّلة بالأحداث.",
+      openAgentSettings: "إدارة الوكيل",
     },
     integrations: {
       title: "عمليات التكامل",
@@ -2494,6 +3138,60 @@ export const messagesByLocale = {
         "يمتلك Dispatch حسابات المزوّدين المشتركة. ويمتلك كل تطبيق طريقة استخدامه للحساب.",
     },
 
+    messaging: {
+      managed: {
+        connectionChecked: "تم التحقق من اتصال Slack",
+        workspaceDisconnected: "تم قطع اتصال مساحة عمل Slack",
+        actionFailed: "فشل إجراء Slack",
+        channelPolicyUpdated: "تم تحديث سياسة القناة",
+        policyUpdateFailed: "تعذر تحديث السياسة",
+        positiveMonthlyBudget: "أدخل ميزانية شهرية موجبة",
+        channelBudgetSaved: "تم حفظ ميزانية القناة",
+        budgetSaveFailed: "تعذر حفظ الميزانية",
+        title: "مساحات عمل Slack المُدارة",
+        description:
+          "يعزل OAuth رمز كل مساحة عمل ويفعّل سياق سلاسل الرسائل الأصلي وتقدم المهام المباشر.",
+        addToSlack: "إضافة إلى Slack",
+        agentManifest: "بيان الوكيل",
+        agentManifestDescription:
+          "يُفعّل بيان الوكيل عرض الوكيل والرسائل المباشرة في Slack.",
+        requiredCredentials:
+          "احفظ بيانات اعتماد تطبيق Slack المطلوبة أدناه لتفعيل الإضافة إلى Slack.",
+        workspaceFallback: "مساحة عمل Slack",
+        scopesUpdated_zero: "{{count}} نطاق · تم التحديث في {{date}}",
+        scopesUpdated_one: "{{count}} نطاق · تم التحديث في {{date}}",
+        scopesUpdated_two: "{{count}} نطاقان · تم التحديث في {{date}}",
+        scopesUpdated_few: "{{count}} نطاقات · تم التحديث في {{date}}",
+        scopesUpdated_many: "{{count}} نطاقًا · تم التحديث في {{date}}",
+        scopesUpdated_other: "{{count}} نطاق · تم التحديث في {{date}}",
+        health: {
+          unknown: "غير معروف",
+          healthy: "سليم",
+          degraded: "متدهور",
+          revoked: "ملغى",
+        },
+        test: "اختبار",
+        disconnect: "قطع الاتصال",
+        empty:
+          "لا توجد مساحات عمل مُدارة متصلة بعد. تظل بيانات الاعتماد اليدوية متاحة أدناه للإعدادات المحلية والقديمة.",
+        channelAccessTitle: "الوصول إلى القناة والميزانيات",
+        channelAccessDescription:
+          "تعمل كل قناة بهوية خدمة معزولة. يظل وصول الضيوف وSlack Connect والوصول دون إشارة معطلاً حتى يفعّله مسؤول هنا.",
+        isolatedIdentity: "{{trust}} · هوية خدمة معزولة",
+        trust: {
+          trusted: "موثوق",
+          guest: "ضيف",
+          external_shared: "مشاركة خارجية (Slack Connect)",
+          unknown: "غير معروف",
+        },
+        requireMention: "طلب الإشارة",
+        allowGuests: "السماح للضيوف",
+        allowSlackConnect: "السماح بـ Slack Connect",
+        monthlyBudgetUsd: "ميزانية الذكاء الاصطناعي الشهرية (USD)",
+        saveBudget: "حفظ الميزانية",
+      },
+    },
+
     dispatch: {
       nav: {
         automations: "الأتمتة",
@@ -2502,9 +3200,25 @@ export const messagesByLocale = {
         agents: "الوكلاء",
         vault: "الخزنة",
         audit: "التدقيق",
+        operations: "التشغيل",
+        agent: "الوكيل",
       },
       pages: {
+        dataLoadFailed: "تعذر تحميل البيانات",
+        dataLoadFailedDescription: "تعذر على Dispatch تحميل هذه البيانات.",
+        tryAgain: "حاول مرة أخرى",
         also: "أيضًا",
+        monitoring: "المراقبة",
+        database: "قاعدة البيانات",
+        chatAcrossApps: "تحدث عبر تطبيقاتك",
+        chatAcrossAppsDescription:
+          "وجّه العمل وتحقق من الحالة أو أنشئ شيئًا جديدًا من مكان واحد.",
+        overviewPromptPlaceholder: "اسأل Dispatch عن أي شيء...",
+        chatPromptPlaceholder: "اسأل Dispatch...",
+        suggestionWorkspaceHealth: "لخّص حالة مساحة العمل الحالية",
+        suggestionOnboardingApp: "أنشئ تطبيقًا لطلبات الإعداد",
+        suggestionAnalyticsAgents:
+          "تحقق من الوكلاء الذين يمكنهم المساعدة في التحليلات",
         workspaceShortcutsAria: "اختصارات مساحة العمل",
         deliveryQueue: "قائمة انتظار التسليم",
         failedLastHour: "{{count}} فشل خلال الساعة الماضية",

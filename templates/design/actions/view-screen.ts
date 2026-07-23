@@ -9,16 +9,52 @@
 
 import { defineAction } from "@agent-native/core";
 import {
+  listAppState,
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
+import {
+  getReviewStatus,
+  queryReviewComments,
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  shouldRedactReviewIdentity,
+  type ReviewComment,
+  type ReviewResourceContext,
+} from "@agent-native/core/review";
+import * as reviewRuntime from "@agent-native/core/review";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
+import {
+  DESIGN_REPROMPT_PENDING_STATE_PREFIX,
+  DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX,
+  designRepromptPendingStateKey,
+  designRepromptProposalStateKey,
+  isNodeRewriteProposal,
+  isPendingDesignReprompt,
+} from "../shared/node-rewrite.js";
+
+interface ReviewThreadSummary {
+  openCount: number;
+  agentQueueCount: number;
+}
+
+const getReviewThreadSummary = (
+  reviewRuntime as unknown as {
+    getReviewThreadSummary?: (input: {
+      resourceType: string;
+      resourceId: string;
+      scope: { userEmail?: string | null; orgId?: string | null };
+      bypassScope?: boolean;
+    }) => Promise<ReviewThreadSummary>;
+  }
+).getReviewThreadSummary;
 
 function stringProp(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -134,12 +170,57 @@ function resolveActiveCodeFile(
   };
 }
 
+function reviewAnchorNodeId(anchor: unknown): string | null {
+  if (!anchor || typeof anchor !== "object") return null;
+  const nodeId = (anchor as Record<string, unknown>).nodeId;
+  return typeof nodeId === "string" && nodeId.trim() ? nodeId : null;
+}
+
+function buildReviewSummary(
+  comments: ReviewComment[],
+  status: Awaited<ReturnType<typeof getReviewStatus>>,
+  activeScreenId: string | undefined,
+  summary?: ReviewThreadSummary,
+) {
+  const openRoots = new Map<string, ReviewComment>();
+  for (const comment of comments) {
+    if (comment.status !== "open") continue;
+    if (!comment.parentCommentId && !openRoots.has(comment.threadId)) {
+      openRoots.set(comment.threadId, comment);
+    }
+  }
+  const agentQueueThreads = new Set(
+    Array.from(openRoots.values())
+      .filter(
+        (comment) =>
+          comment.resolutionTarget !== "human" && !comment.consumedAt,
+      )
+      .map((comment) => comment.threadId),
+  );
+  const activeScreenThreads = Array.from(openRoots.values())
+    .filter((comment) => comment.targetId === activeScreenId)
+    .map((comment) => ({
+      id: comment.id,
+      threadId: comment.threadId,
+      body: comment.body.slice(0, 180),
+      nodeId: reviewAnchorNodeId(comment.anchor),
+      author: comment.authorName ?? comment.authorEmail ?? comment.createdBy,
+    }));
+
+  return {
+    status: status?.status ?? "draft",
+    openCount: summary?.openCount ?? openRoots.size,
+    agentQueueCount: summary?.agentQueueCount ?? agentQueueThreads.size,
+    activeScreenThreads,
+  };
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_, ctx) => {
     const [navigation, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
       readAppStateForCurrentTab("design-selection"),
@@ -161,6 +242,53 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (designSelection) screen.designSelection = designSelection;
+    const templateId = stringProp(navigation, "templateId");
+    if (templateId) {
+      const preset = getDesignTemplatePreset(templateId);
+      if (preset) {
+        screen.template = {
+          id: preset.id,
+          title: preset.title,
+          category: preset.category,
+          width: preset.width,
+          height: preset.height,
+          lockedLayerCount: 2,
+          designSystemId: null,
+          isBuiltIn: true,
+          source: "built-in",
+        };
+      } else {
+        const templateAccess = await resolveAccess(
+          "design-template",
+          templateId,
+        ).catch(() => null);
+        if (templateAccess) {
+          const template = templateAccess.resource;
+          const linkedDesignSystemId =
+            typeof template.designSystemId === "string"
+              ? template.designSystemId
+              : null;
+          const designSystemAccess = linkedDesignSystemId
+            ? await resolveAccess("design-system", linkedDesignSystemId).catch(
+                () => null,
+              )
+            : null;
+          screen.template = {
+            id: templateId,
+            title: template.title ?? null,
+            description: template.description ?? null,
+            category: template.category ?? "other",
+            width: template.width ?? null,
+            height: template.height ?? null,
+            lockedLayerCount: template.lockedLayerCount ?? 0,
+            designSystemId: designSystemAccess ? linkedDesignSystemId : null,
+            visibility: template.visibility ?? "private",
+            isBuiltIn: false,
+            source: "user",
+          };
+        }
+      }
+    }
     if (designId) {
       const access = await resolveAccess("design", designId).catch(() => null);
       if (access) {
@@ -190,14 +318,144 @@ export default defineAction({
             data = {};
           }
         }
+        const activeScreen = resolveActiveScreen(
+          files,
+          navigation,
+          designSelection,
+        );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen: resolveActiveScreen(files, navigation, designSelection),
+          activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
+        const proposalPrefix = `${DESIGN_REPROMPT_PROPOSAL_STATE_PREFIX}${designId}:`;
+        const pendingPrefix = `${DESIGN_REPROMPT_PENDING_STATE_PREFIX}${designId}:`;
+        const [proposalEntries, pendingEntries] = await Promise.all([
+          listAppState(proposalPrefix),
+          listAppState(pendingPrefix),
+        ]);
+        const filesById = new Map(files.map((file) => [file.id, file]));
+        const pendingByFileId = new Map(
+          pendingEntries.flatMap(({ key, value }) => {
+            if (
+              !isPendingDesignReprompt(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !== designRepromptPendingStateKey(designId, value.fileId)
+            ) {
+              return [];
+            }
+            return [[value.fileId, value] as const];
+          }),
+        );
+        const proposalsByReprompt = new Map(
+          proposalEntries.flatMap(({ key, value }) => {
+            if (
+              !isNodeRewriteProposal(value) ||
+              value.designId !== designId ||
+              !filesById.has(value.fileId) ||
+              key !==
+                designRepromptProposalStateKey(
+                  designId,
+                  value.fileId,
+                  value.repromptId,
+                )
+            ) {
+              return [];
+            }
+            return [[`${value.fileId}:${value.repromptId}`, value] as const];
+          }),
+        );
+        const proposalsByFileId = new Map(
+          [...pendingByFileId.entries()].flatMap(([fileId, pending]) => {
+            const current = proposalsByReprompt.get(
+              `${fileId}:${pending.repromptId}`,
+            );
+            const prior = pending.priorRepromptId
+              ? proposalsByReprompt.get(`${fileId}:${pending.priorRepromptId}`)
+              : undefined;
+            const proposal =
+              current ??
+              (prior?.proposalId === pending.priorProposalId
+                ? prior
+                : undefined);
+            return proposal ? [[fileId, proposal] as const] : [];
+          }),
+        );
+        const pendingCandidateReviews = [...proposalsByFileId.values()].map(
+          (proposal) => {
+            const file = filesById.get(proposal.fileId)!;
+            return {
+              proposalId: proposal.proposalId,
+              fileId: proposal.fileId,
+              filename: proposal.filename || file.filename,
+              candidateCount: proposal.variants.length,
+              chosenIndex: proposal.chosenIndex,
+              target: proposal.target,
+              createdAt: proposal.createdAt,
+            };
+          },
+        );
+        if (pendingCandidateReviews.length > 0) {
+          (screen.design as Record<string, unknown>).pendingCandidateReviews =
+            pendingCandidateReviews;
+        }
+        if (activeScreen?.id) {
+          const pendingReprompt = pendingByFileId.get(activeScreen.id);
+          const proposal = proposalsByFileId.get(activeScreen.id);
+          if (pendingReprompt || proposal) {
+            (screen.design as Record<string, unknown>).reprompt = {
+              pending: pendingReprompt ?? null,
+              proposal: proposal ?? null,
+            };
+          }
+        }
+        const reviewContext = ctx as ReviewResourceContext | undefined;
+        const reviewScope = {
+          userEmail: reviewContext?.userEmail ?? null,
+          orgId: reviewContext?.orgId ?? null,
+        };
+        const [reviewComments, reviewStatus, reviewSummary] = await Promise.all(
+          [
+            queryReviewComments({
+              resourceType: "design",
+              resourceId: designId,
+              scope: reviewScope,
+              bypassScope: true,
+              includeResolved: false,
+              includeDeleted: false,
+              limit: 500,
+            }),
+            getReviewStatus("design", designId, reviewScope, {
+              bypassScope: true,
+            }),
+            getReviewThreadSummary
+              ? getReviewThreadSummary({
+                  resourceType: "design",
+                  resourceId: designId,
+                  scope: reviewScope,
+                  bypassScope: true,
+                })
+              : Promise.resolve(undefined),
+          ],
+        );
+        const redactReviewIdentity = shouldRedactReviewIdentity(reviewContext, {
+          role: access.role,
+          visibility: access.resource.visibility,
+        });
+        (screen.design as Record<string, unknown>).review = buildReviewSummary(
+          redactReviewIdentity
+            ? reviewComments.map(redactPublicReviewCommentIdentity)
+            : reviewComments,
+          redactReviewIdentity
+            ? redactPublicReviewStatusIdentity(reviewStatus)
+            : reviewStatus,
+          activeScreen?.id,
+          reviewSummary,
+        );
       }
     }
     if (showQuestions) {

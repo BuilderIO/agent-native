@@ -72,8 +72,7 @@ Prefix a segment with `$` for a dynamic param. Prefix with `_` to make it a path
 
 Create the file and export a default component:
 
-```tsx
-// app/routes/settings.tsx
+```tsx filename="app/routes/settings.tsx"
 export function meta() {
   return [{ title: "Settings" }];
 }
@@ -87,8 +86,7 @@ That's it — React Router picks it up automatically, no registration needed.
 
 ## Dynamic params {#dynamic-params}
 
-```tsx
-// app/routes/inbox/$threadId.tsx
+```tsx filename="app/routes/inbox.$threadId.tsx"
 import { useParams } from "react-router";
 
 export default function ThreadPage() {
@@ -116,3 +114,4 @@ navigate(`/inbox/${threadId}`);
 
 - [**Client**](/docs/client) — the agent-native browser hooks and utilities
 - [**Server**](/docs/server) — file-based server routes and the `/_agent-native/` namespace
+- [**Context Awareness**](/docs/context-awareness) — how the agent learns the current route and selection

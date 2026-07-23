@@ -1,6 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  resolveGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import pLimit from "p-limit";
@@ -23,9 +28,14 @@ import { upsertVariantSlot } from "./variant-slots.js";
 
 const IMAGE_GENERATION_TOOL_TIMEOUT_MS = 12 * 60_000;
 
+const presetReferenceFillSchema = z.object({
+  referenceId: z.string().min(1),
+  assetIds: z.array(z.string().min(1)).min(1).max(4),
+});
+
 export default defineAction({
   description:
-    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
+    "Generate several brand-consistent images in parallel from one brand kit/library. Use @brand-kit mentions as libraryId and @preset mentions as presetId when present. If no preset is tagged, call list-generation-presets first and use a matching preset's presetId; the user may not know presets exist. Generate presetless only when no preset matches the request. This is synchronous for images: one call waits for every slot and returns final image artifacts. Use this for slide decks, landing pages, and multi-slot design work. Do not call get-generation-run or refresh-generation-run after a normal image batch result.",
   schema: z.object({
     libraryId: z
       .string()
@@ -39,6 +49,13 @@ export default defineAction({
       .optional()
       .describe(
         "Generation preset ID (from a @preset mention or list-generation-presets). The preset already defines aspectRatio, imageSize, model, tier, and category. When you set presetId, OMIT each slot's aspectRatio/imageSize and the top-level model/tier so the preset's values are used; only pass one when the user explicitly asks for a value that differs from the preset.",
+      ),
+    presetReferenceFills: z
+      .array(presetReferenceFillSchema)
+      .max(6)
+      .optional()
+      .describe(
+        'Per-run images for the preset\'s reference board (see the tagged preset brief or list-generation-presets settings.presetReferences). Each fill REPLACES the images of one variable entry by id, e.g. [{ referenceId: "guest-speaker", assetIds: ["..."] }]. Required entries without pinned images MUST be filled or the call fails. Only valid when presetId is set. Applies to every slot in the batch.',
       ),
     sessionId: z.string().optional(),
     slots: z
@@ -105,6 +122,18 @@ export default defineAction({
       .describe(
         "Set by A2A callers (e.g. 'slides', 'design') so audit logs can filter by app.",
       ),
+    creativeContextRequestId: z
+      .string()
+      .optional()
+      .describe(
+        "Internal immutable creative-context request ID supplied by the Assets picker.",
+      ),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this batch only without changing the saved preference.",
+      ),
   }),
   parallelSafe: true,
   timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
@@ -122,6 +151,42 @@ export default defineAction({
     await assertAccess("asset-library", base.libraryId, "editor");
     if (base.sessionId) {
       await requireGenerationSessionInLibrary(base.sessionId, base.libraryId);
+    }
+    const creativeContextRequestId =
+      base.creativeContextRequestId ?? (base.sessionId ? undefined : nanoid());
+    if (!base.creativeContextRequestId && creativeContextRequestId) {
+      const creativeContext = await resolveGenerationCreativeContext({
+        query: slots.map((slot) => slot.prompt).join("\n"),
+        role: "assets",
+        contextModeOverride: base.contextModeOverride,
+      });
+      const reuseLabels =
+        creativeContext.reuseLabels as CreativeContextReuseLabel[];
+      await recordGenerationCreativeContext({
+        appId: "assets",
+        artifactType: "generation-request",
+        artifactId: creativeContextRequestId,
+        contextMode: creativeContext.contextMode,
+        contextPackId: creativeContext.contextPackId,
+        reuseLabels,
+        elementProvenance: reuseLabels.length
+          ? reuseLabels.map((label) => ({
+              elementId: creativeContextRequestId,
+              influence: label.influence ?? ("reference-conditioned" as const),
+              ...(label.itemId ? { itemId: label.itemId } : {}),
+              ...(label.itemVersionId
+                ? { itemVersionId: label.itemVersionId }
+                : {}),
+              label: label.label,
+            }))
+          : [
+              {
+                elementId: creativeContextRequestId,
+                influence: "generated",
+                label: "Image batch request",
+              },
+            ],
+      });
     }
     const variantBatchId = nanoid();
     await Promise.all(
@@ -150,6 +215,7 @@ export default defineAction({
               libraryId: base.libraryId,
               collectionId: base.collectionId,
               presetId: base.presetId,
+              presetReferenceFills: base.presetReferenceFills,
               sessionId: base.sessionId,
               prompt: slot.prompt,
               embeddedText: slot.embeddedText,
@@ -172,6 +238,8 @@ export default defineAction({
               subjectAssetId: slot.subjectAssetId,
               source: base.source,
               callerAppId: base.callerAppId,
+              creativeContextRequestId,
+              contextModeOverride: base.contextModeOverride,
               activateSessionAsset: false,
             },
             context,

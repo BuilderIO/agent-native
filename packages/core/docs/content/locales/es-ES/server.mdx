@@ -96,8 +96,7 @@ server/routes/
 
 Cada ruta exporta un `defineEventHandler`:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -129,6 +128,40 @@ Si tanto el UI como el agente necesitan hacer algo, defina una acción en lugar 
 
 Utilice rutas `/api/*` personalizadas solo cuando necesite un protocolo en forma de ruta o un comportamiento binario/de transmisión. Ver [Actions](/docs/actions).
 
+### Aplicaciones solo API {#api-only-apps}
+
+No necesita un servidor Express solo porque la aplicación sea solo API. Una aplicación Agent Native ya incluye un servidor Nitro/H3, y `defineAction()` es la superficie API predeterminada. Defina las operaciones en `actions/`; el marco monta cada action en `/_agent-native/actions/<name>` con validación de esquema y contexto de solicitud.
+
+Use la opción `http` de la action para dar forma al acceso HTTP directo: las actions son `POST` de forma predeterminada, `http: { method: "GET" | "PUT" | "DELETE" }` cambia el verbo, y `http: false` deja una action fuera de HTTP. Use `server/routes/api/*` solo para necesidades con forma de ruta o protocolo: cargas de archivos, streaming/SSE, webhooks, devoluciones de llamada OAuth, páginas públicas o una forma REST externa que no pueda representarse limpiamente como una action. No cree rutas `/api/*` que principalmente envuelvan o reexporten actions.
+
+Para un endpoint de estado de solo lectura, manténgalo como una action:
+
+```ts filename="actions/get-status.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+Llámela directamente por HTTP:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+Para `POST` y otras actions de escritura, envíe un cuerpo JSON al mismo path de la action.
+
 ## Completación de texto de una sola vez {#complete-text}
 
 La mayor parte del trabajo de IA debe realizarse a través del chat del agente para que los usuarios puedan verlo, dirigirlo y auditarlo
@@ -136,8 +169,7 @@ qué pasó. Para transformaciones estrechas del lado del servidor que intenciona
 herramientas, historial de chat o estado de ejecución, use `completeText()` como escape explícito
 escotilla.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -202,8 +234,7 @@ Actions montado por el marco se ejecuta automáticamente con el contexto de soli
 
 Los complementos se encuentran en `server/plugins/` y se ejecutan al inicio. Úselos para migraciones, configuración de proveedores, trabajos recurrentes, adaptadores de integración y configuración de complementos de marco.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -238,7 +269,7 @@ El marco monta sus propias rutas bajo `/_agent-native/`. Trate ese espacio de no
 | `/_agent-native/extensions/*`    | Extensiones de tiempo de ejecución y proxy de extensión (alias heredado: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Integraciones de mensajería/webhook                                                                |
 | `/_agent-native/a2a`             | Agente a agente JSON-RPC                                                                           |
-| `/_agent-native/mcp`             | Punto final MCP                                                                                    |
+| `/mcp`                           | Punto final MCP                                                                                    |
 | `/_agent-native/onboarding/*`    | Lista de verificación de configuración                                                             |
 | `/_agent-native/observability/*` | Seguimientos, comentarios, evaluaciones, experimentos                                              |
 | `/_agent-native/file-upload`     | Punto final del proveedor de carga de archivos                                                     |
@@ -381,8 +412,11 @@ El webhooks entrante debería verificarse, persistir y regresar rápidamente. El
 
 </Diagram>
 
-> [!WARNING]
-> No confíe en promesas no esperadas después de devolver una respuesta: los hosts sin servidor congelan la ejecución. Consulte [Messaging](/docs/messaging) para conocer la cola de integración canónica.
+<Callout tone="warning">
+  No confíe en promesas no esperadas después de devolver una respuesta: los
+  hosts sin servidor congelan la ejecución. Consulte
+  [Messaging](/docs/messaging) para conocer la cola de integración canónica.
+</Callout>
 
 ## Avanzado: trampillas de escape {#advanced-escape-hatches}
 
@@ -424,3 +458,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## Qué sigue
+
+- [**Actions**](/docs/actions) — la superficie de operaciones predeterminada; use una ruta personalizada solo cuando no encaje
+- [**Base de datos**](/docs/database) — el patrón `getDb()`/`schema` que importan tanto las rutas personalizadas como las acciones
+- [**Seguridad**](/docs/security#access-guards) — `accessFilter`/`assertAccess` y el modelo completo de ámbito de datos
+- [**Mensajería**](/docs/messaging) — el patrón canónico de cola de integración para webhooks entrantes
+- [**Protocolo MCP**](/docs/mcp-protocol) — el endpoint `/mcp` que este servidor monta automáticamente

@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-xwc8h5"
   title={"範本專案結構"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 使用框架 Drizzle 幫助程式定義域表，以便架構在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支援的後端之間保持可移植性：
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 對於應用程式讀取和寫入，請使用 Drizzle 的查詢生成器和 `drizzle-orm` 的可移植運算符。當 Drizzle 可以表達查詢時，不要使用原始 SQL 編寫產品程式碼，並且不要在範本中從`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`匯入。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -273,8 +270,10 @@ export default runMigrations(
 路由位於 `app/routes/` 中並使用 React Router v8 檔案路由。透過actions或 API 處理常式查詢資料，並預設使突變樂觀。
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +289,7 @@ export default function ProjectsPage() {
 在應用程式 shell 附近連線一次即時同步，以便在代理、另一個分頁或操作更改資料時重新整理 React 查詢快取：
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +302,7 @@ export function AppSync() {
 **Agent-Native 承諾：代理寫入顯示在 UI 中，無需手動重新整理。** `useActionQuery` 是簡單路徑 - 當變異操作發出 `source: "action"` 時，每個鉤子都會重新取得。如果您使用自訂金鑰（例如，讀取整合狀態的低階用戶端幫助程式）取得原始 `useQuery`，請將每個來源計數器折疊到 queryKey 中以進行有針對性的重新整理：
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -326,7 +325,7 @@ useQuery({
 使用 `useAgentRouteState` 作為 UI 掛鉤，以便應用程式狀態寫入、分頁範圍指令讀取、讀取後刪除和重複指令保護保持一致：
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -349,8 +348,7 @@ export function useNavigationState() {
 `path`（當 URL 已知時）。同一動作不要寫為 `__set_url__`；
 該金鑰是為框架 URL 工具和僅 URL 過濾器更改保留的。
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

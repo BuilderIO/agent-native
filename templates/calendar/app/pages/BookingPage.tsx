@@ -1,10 +1,9 @@
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
   OpenSourceBadge,
   PoweredByBadge,
-  LanguagePicker,
   StarfieldBackground,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/ui";
 import type { Booking } from "@shared/api";
 import { IconAlertTriangle, IconCalendar } from "@tabler/icons-react";
 import {

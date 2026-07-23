@@ -11,7 +11,8 @@
  * regex stays narrow; the gateway may emit URLs containing `(`
  * (e.g. `?ref=Acme%20(staging)`) and we don't want to reject them.
  */
-export const BUILDER_SPACE_SETTINGS_URL = "https://builder.io/account/space";
+export const BUILDER_SPACE_SETTINGS_URL =
+  "https://builder.io/account/space?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=space_settings";
 
 // Pseudo-href used to mark an in-app "Start new chat" CTA inside the markdown
 // error message. The chat renderer intercepts this href and renders a button
@@ -102,6 +103,18 @@ function isProviderAuthenticationError(
   );
 }
 
+function isConnectionError(text: string, errorCode?: string): boolean {
+  const code = normalizeErrorCode(errorCode);
+  return (
+    code === "provider_network_error" ||
+    code === "connection_error" ||
+    code === "network_error" ||
+    /^(?:provider_network_error|connection_error|network_error)$/i.test(
+      text.trim(),
+    )
+  );
+}
+
 export function normalizeChatError(
   errorMessage: string,
   errorCode?: string,
@@ -122,6 +135,18 @@ export function normalizeChatError(
     return {
       message:
         "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      details: text,
+    };
+  }
+
+  if (isConnectionError(text, errorCode)) {
+    const providerNetworkError =
+      normalizeErrorCode(errorCode) === "provider_network_error" ||
+      /provider_network_error/i.test(text);
+    return {
+      message: providerNetworkError
+        ? "The model provider could not be reached. Check your connection and retry."
+        : "The agent connection was interrupted. Check your connection and retry.",
       details: text,
     };
   }

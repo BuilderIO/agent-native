@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandPresentations: "Presentations",
     searchDecks: "Search decks",
@@ -34,10 +37,10 @@ const messages = {
       "Manage team members, organization access, and shared workspace preferences.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
   },
   agent: {
     emptyState: "Ask me anything about your presentations",
@@ -104,6 +107,7 @@ const messages = {
     searchImagesPlaceholder: "Search for images...",
     searchForLogosImagesIcons: "Search for logos, images, icons...",
     search: "Search",
+    searchFailed: "Search failed",
     logoSearchTitle: "Logo Search",
     searchCompanyLogo: "Search for a company to find their logo",
     searchCompanyPlaceholder: "Search company name (e.g. Intuit)",
@@ -329,6 +333,8 @@ const messages = {
     hideResolved: "Hide resolved",
     showResolved: "Show {{count}} resolved",
     noCommentsYet: "No comments yet",
+    loadFailed: "Couldn't load comments",
+    retry: "Retry",
     clickToAddComment: "Click to add a comment",
     selectSlideToAdd: "Select a slide to add one",
   },
@@ -545,6 +551,10 @@ const messages = {
     chooseAnotherFile: "Choose another file",
   },
   home: {
+    loadFailed: "Couldn't load your content",
+    loadFailedDescription:
+      "Your saved content is still available. Check the connection and try again.",
+    retry: "Retry",
     decksTitle: "Decks",
     newDeck: "New Deck",
     deckLengthQuestion: "How long should this deck be?",

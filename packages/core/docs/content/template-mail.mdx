@@ -96,7 +96,11 @@ When you open the app, the keyboard-first inbox and thread view stay focused on 
 
 Live demo: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Google may show a warning:** The hosted demo uses Agent-Native's shared Google app for Gmail access, so Google may ask you to confirm before continuing. Run locally to use your own Google OAuth client.
+<Callout tone="info">
+
+**Google may show a warning:** The hosted demo uses Agent-Native's shared Google app for Gmail access, so Google may ask you to confirm before continuing. Run locally to use your own Google OAuth client.
+
+</Callout>
 
 When you first open the app:
 
@@ -362,3 +366,11 @@ Mail is yours to change. Everything important lives in a handful of places — s
 **Changing keyboard shortcuts.** Keybind handlers live in `templates/mail/app/components/email/` — search for `useHotkeys` or `addEventListener("keydown"` to find where each key is wired.
 
 Ask the agent to make any of these changes for you. The agent can edit its own source — see [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Calendar**](/docs/template-calendar) — a sibling domain template covering scheduling and booking
+- [**Automations**](/docs/automations) — the event-triggered engine mail's auto-triage rules build on
+- [**Actions**](/docs/actions) — the action system chat, shortcuts, and automations all call

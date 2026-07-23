@@ -1,14 +1,15 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  appPath,
+  callAction,
   createAgentNativeQueryClient,
-  getLocaleInitScript,
-  getThemeInitScript,
   useDbSync,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Links,
   Meta,
@@ -24,6 +25,7 @@ import { ProviderCorpusJobNotifier } from "@/components/ProviderCorpusJobNotifie
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { notifyProviderCorpusJobSyncEvent } from "@/lib/provider-corpus-job-sync";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { CommandPalette } from "./components/layout/CommandPalette";
@@ -91,17 +93,46 @@ function DbSyncBridge() {
   // refresh/filter semantics instead of joining the broad action fallback.
   // Screen-refresh is handled automatically inside AgentSidebar.
   const queryClient = useQueryClient();
-  const shouldInvalidateForAction = useCallback(
-    (query: { queryKey: readonly unknown[] }) => {
-      return query.queryKey[0] !== "sql-chart";
-    },
-    [],
-  );
   useDbSync({
     queryClient,
     ignoreSource: TAB_ID,
-    actionInvalidatePredicate: shouldInvalidateForAction,
+    onEvent: notifyProviderCorpusJobSyncEvent,
+    actionInvalidatePredicate: shouldInvalidateAnalyticsQueryForAction,
+    // These boot-time maintenance calls update their own local state and do
+    // not imply that every mounted Analytics query needs to restart.
+    suppressActionInvalidationFor: [
+      "ensure-demo-dashboards",
+      "manage-agent-engine",
+    ],
   });
+  return null;
+}
+
+export function shouldInvalidateAnalyticsQueryForAction(query: {
+  queryKey: readonly unknown[];
+}): boolean {
+  const [scope, name] = query.queryKey;
+  if (
+    scope === "sql-chart" ||
+    scope === "sql-dashboards-sidebar" ||
+    scope === "analyses-sidebar" ||
+    scope === "extensions"
+  ) {
+    return false;
+  }
+  // The notifier refreshes for corpus-job events and only polls while a job is
+  // actively running. Unrelated actions must not restart its idle query.
+  if (scope === "action" && name === "provider-corpus-jobs") return false;
+  return true;
+}
+
+function DemoDashboardInstaller() {
+  useEffect(() => {
+    void callAction("ensure-demo-dashboards", {}).catch((err) => {
+      console.warn("[analytics] demo dashboard install failed", err);
+    });
+  }, []);
+
   return null;
 }
 
@@ -147,6 +178,7 @@ export default function Root() {
         <Toaster />
         <Sonner position="bottom-left" />
         <AuthProvider>
+          <DemoDashboardInstaller />
           <ProviderCorpusJobNotifier />
           <CommandPalette />
           <AppLayout>
@@ -158,4 +190,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

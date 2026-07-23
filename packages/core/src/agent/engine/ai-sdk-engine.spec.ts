@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 async function drain(iterable: AsyncIterable<unknown>) {
   for await (const _ of iterable) {
@@ -82,6 +82,93 @@ describe("AISDKEngine Anthropic thinking-budget headroom", () => {
       .budgetTokens as number;
     expect(budgetTokens).toBeLessThan(32_000);
     expect(32_000 - budgetTokens).toBeGreaterThanOrEqual(8000);
+  });
+
+  it("defaults to adaptive thinking at medium effort for a reasoning-capable Claude model", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({ ...BASE_STREAM_OPTIONS, model: "claude-sonnet-5" }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "adaptive",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toEqual({
+      effort: "medium",
+    });
+  });
+
+  it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-haiku-4-5-20251001",
+        maxOutputTokens: 32_000,
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toEqual({
+      type: "enabled",
+      budgetTokens: 4_096,
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
+  });
+
+  it("does not add an implicit effort beside explicit Anthropic thinking", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-sonnet-5",
+        providerOptions: {
+          anthropic: {
+            thinking: { type: "enabled", budgetTokens: 4_000 },
+          },
+        },
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions.anthropic.thinking).toMatchObject({
+      type: "enabled",
+    });
+    expect(call.providerOptions.anthropic.outputConfig).toBeUndefined();
+  });
+
+  it("does not default thinking for a non-reasoning-capable Claude model", async () => {
+    const { streamText } = mockAiSdk();
+    mockAnthropicProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("anthropic", { apiKey: "key" });
+
+    await drain(
+      engine.stream({
+        ...BASE_STREAM_OPTIONS,
+        model: "claude-3-5-haiku-20241022",
+      }),
+    );
+
+    const call = streamText.mock.calls[0][0];
+    expect(call.providerOptions?.anthropic).toBeUndefined();
   });
 });
 
@@ -172,7 +259,7 @@ describe("AISDKEngine Google Gemini thinking config", () => {
     );
   });
 
-  it("uses thinkingLevel 'high' for Gemini 3.x medium effort", async () => {
+  it("uses thinkingLevel 'medium' for Gemini 3.x medium effort", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -191,14 +278,14 @@ describe("AISDKEngine Google Gemini thinking config", () => {
       expect.objectContaining({
         providerOptions: expect.objectContaining({
           google: expect.objectContaining({
-            thinkingConfig: { thinkingLevel: "high" },
+            thinkingConfig: { thinkingLevel: "medium" },
           }),
         }),
       }),
     );
   });
 
-  it("does not emit thinkingConfig when no reasoningEffort is set for Google", async () => {
+  it("defaults to medium reasoning when no reasoningEffort is set for Google", async () => {
     const { streamText } = mockAiSdk();
     mockGoogleProvider();
 
@@ -212,9 +299,10 @@ describe("AISDKEngine Google Gemini thinking config", () => {
       }),
     );
 
-    // No providerOptions should be emitted when there's no reasoning effort
     const call = streamText.mock.calls[0][0];
-    expect(call.providerOptions?.google?.thinkingConfig).toBeUndefined();
+    expect(call.providerOptions?.google?.thinkingConfig).toEqual({
+      thinkingLevel: "medium",
+    });
   });
 });
 
@@ -313,5 +401,87 @@ describe("AISDKEngine OpenAI model selection", () => {
     expect(streamText).toHaveBeenCalledWith(
       expect.objectContaining({ model: chatModel }),
     );
+    expect(engine.preserveCustomModels).toBe(true);
+  });
+});
+
+describe("AISDKEngine first-event deadline", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("aborts with a retryable network error when the stream produces no parts within 120s", async () => {
+    const streamText = vi.fn((params: any) => ({
+      fullStream: (async function* () {
+        await new Promise((_resolve, reject) => {
+          const signal: AbortSignal | undefined = params.abortSignal;
+          if (signal?.aborted) {
+            reject(signal.reason ?? new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener(
+            "abort",
+            () => reject(signal.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        });
+      })(),
+    }));
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+    vi.useFakeTimers();
+
+    const events: any[] = [];
+    let settledEarly = false;
+    const runPromise = (async () => {
+      for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+    })();
+    void runPromise
+      .catch(() => {})
+      .then(() => {
+        settledEarly = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(119_000);
+    expect(settledEarly).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(runPromise).rejects.toThrow();
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("error");
+    expect(stopEvent?.errorCode).toBe("provider_network_error");
+    expect(stopEvent?.providerRetryable).toBe(true);
+    expect(stopEvent?.error).toContain("120s");
+  });
+
+  it("does not abort once the stream has produced a real part (a synthetic 'start' part alone does not count)", async () => {
+    const streamText = vi.fn().mockReturnValue({
+      fullStream: (async function* () {
+        yield { type: "start" };
+        yield { type: "text-delta", text: "hi" };
+        yield { type: "finish", finishReason: "stop", usage: {} };
+      })(),
+    });
+    vi.doMock("ai", () => ({ streamText, jsonSchema: (s: unknown) => s }));
+    mockOpenAIProvider();
+
+    const { createAISDKEngine } = await import("./ai-sdk-engine.js");
+    const engine = createAISDKEngine("openai", { apiKey: "sk-test" });
+
+    const events: any[] = [];
+    for await (const e of engine.stream(BASE_STREAM_OPTIONS)) events.push(e);
+
+    const stopEvent = events.find((e) => e.type === "stop");
+    expect(stopEvent?.reason).toBe("end_turn");
+    expect(stopEvent?.errorCode).toBeUndefined();
   });
 });

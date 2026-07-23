@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { EmailMessage } from "@shared/types";
 import {
   IconArchive,
@@ -83,6 +83,8 @@ const SWIPE_SLOP = 10;
 const SWIPE_COMMIT_THRESHOLD = 80;
 // Distance past which the action icon "snaps" to filled state.
 const SWIPE_ICON_SNAP = 56;
+// Release velocity (px/ms) past which a swipe commits regardless of distance.
+const SWIPE_COMMIT_VELOCITY = 0.11;
 
 /** Format participant names for thread display, e.g. "Kaitlyn .. Sam, Andrew" */
 function formatParticipants(participants: string[], maxWidth = 3): string {
@@ -196,6 +198,12 @@ export const EmailListItem = memo(function EmailListItem({
     locked: "none" | "h" | "v";
     // Set to true once we commit an action — blocks the trailing click.
     committed: boolean;
+    // Two-sample window for release-velocity calculation (px/ms). Updated on
+    // each touchmove; not an accumulating history.
+    lastX: number;
+    lastT: number;
+    prevX: number;
+    prevT: number;
   } | null>(null);
   const didSwipeRef = useRef(false);
 
@@ -211,11 +219,16 @@ export const EmailListItem = memo(function EmailListItem({
     (e: React.TouchEvent) => {
       if (!canSwipe) return;
       const t = e.touches[0];
+      const now = performance.now();
       gestureRef.current = {
         startX: t.clientX,
         startY: t.clientY,
         locked: "none",
         committed: false,
+        lastX: t.clientX,
+        lastT: now,
+        prevX: t.clientX,
+        prevT: now,
       };
       didSwipeRef.current = false;
     },
@@ -247,6 +260,12 @@ export const EmailListItem = memo(function EmailListItem({
       }
 
       if (g.locked === "h") {
+        // Slide the two-sample window forward for release-velocity math.
+        g.prevX = g.lastX;
+        g.prevT = g.lastT;
+        g.lastX = t.clientX;
+        g.lastT = performance.now();
+
         // Only one side may be active at a time.
         if (dx < 0 && !onSwipeArchive) {
           setDragX(0);
@@ -269,8 +288,18 @@ export const EmailListItem = memo(function EmailListItem({
       return;
     }
 
+    const velocity = (g.lastX - g.prevX) / Math.max(1, g.lastT - g.prevT);
+    const flungLeft =
+      velocity <= -SWIPE_COMMIT_VELOCITY && dragX <= -SWIPE_ICON_SNAP;
+    const flungRight =
+      velocity >= SWIPE_COMMIT_VELOCITY && dragX >= SWIPE_ICON_SNAP;
+
     // Left swipe → archive.
-    if (dragX <= -SWIPE_COMMIT_THRESHOLD && onSwipeArchive && thread) {
+    if (
+      (dragX <= -SWIPE_COMMIT_THRESHOLD || flungLeft) &&
+      onSwipeArchive &&
+      thread
+    ) {
       g.committed = true;
       // Fly the row off-screen, then hand off to the parent to actually
       // remove it from the list. The snap transition makes this feel fluid
@@ -286,7 +315,11 @@ export const EmailListItem = memo(function EmailListItem({
     }
 
     // Right swipe → snooze. We don't remove the row — the modal takes over.
-    if (dragX >= SWIPE_COMMIT_THRESHOLD && onSwipeSnooze && thread) {
+    if (
+      (dragX >= SWIPE_COMMIT_THRESHOLD || flungRight) &&
+      onSwipeSnooze &&
+      thread
+    ) {
       g.committed = true;
       onSwipeSnooze(thread);
       // Snap back so the row is in place when the modal closes.

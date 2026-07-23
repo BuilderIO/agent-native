@@ -19,10 +19,14 @@ export default defineAction({
   schema: z.object({
     message: z
       .string()
+      .trim()
+      .max(500)
       .optional()
       .describe("Optional custom error message for the sample error."),
     type: z
       .string()
+      .trim()
+      .regex(/^[A-Za-z_$][\w$.]{0,79}$/)
       .optional()
       .describe("Optional error type/name, e.g. TypeError. Defaults to Error."),
   }),

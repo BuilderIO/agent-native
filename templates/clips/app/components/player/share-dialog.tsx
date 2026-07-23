@@ -1,13 +1,12 @@
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  appPath,
   useActionMutation,
   useActionQuery,
   useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCode,
-  IconChevronDown,
   IconExternalLink,
   IconLink,
   IconMail,
@@ -33,13 +32,7 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
-import { SlackShareHint } from "@/components/sharing/slack-share-hint";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,6 +55,8 @@ function absoluteAppUrl(path: string): string {
 export interface ShareRecordingPopoverProps {
   recordingId: string;
   recordingTitle?: string;
+  initialVisibility?: Visibility | null;
+  initialRole?: "owner" | "admin" | "editor" | "viewer";
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
@@ -90,6 +85,8 @@ type ShareRecordingDialogProps = Omit<
 export function ShareRecordingPopover({
   recordingId,
   recordingTitle,
+  initialVisibility,
+  initialRole,
   videoUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
@@ -108,6 +105,8 @@ export function ShareRecordingPopover({
         <ShareRecordingContent
           recordingId={recordingId}
           recordingTitle={recordingTitle}
+          initialVisibility={initialVisibility}
+          initialRole={initialRole}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
@@ -125,6 +124,8 @@ export function ShareRecordingPopover({
 export function ShareRecordingDialog({
   recordingId,
   recordingTitle,
+  initialVisibility,
+  initialRole,
   videoUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
@@ -143,6 +144,8 @@ export function ShareRecordingDialog({
         <ShareRecordingContent
           recordingId={recordingId}
           recordingTitle={recordingTitle}
+          initialVisibility={initialVisibility}
+          initialRole={initialRole}
           videoUrl={videoUrl}
           animatedThumbnailUrl={animatedThumbnailUrl}
           isLoomRecording={isLoomRecording}
@@ -156,6 +159,8 @@ export function ShareRecordingDialog({
 function ShareRecordingContent({
   recordingId,
   recordingTitle,
+  initialVisibility,
+  initialRole,
   videoUrl,
   animatedThumbnailUrl,
   isLoomRecording = false,
@@ -163,6 +168,8 @@ function ShareRecordingContent({
 }: {
   recordingId: string;
   recordingTitle?: string;
+  initialVisibility?: Visibility | null;
+  initialRole?: "owner" | "admin" | "editor" | "viewer";
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
   isLoomRecording?: boolean;
@@ -175,7 +182,12 @@ function ShareRecordingContent({
   });
 
   const data = sharesQuery.data;
-  const canManage = data?.role === "owner" || data?.role === "admin";
+  const role = data?.role ?? initialRole;
+  const canManage = role === "owner" || role === "admin";
+  const visibility =
+    (data?.visibility as Visibility | null | undefined) ??
+    initialVisibility ??
+    null;
 
   // Attribution `via` must be a stable non-PII id, never an email. The only
   // owner id available client-side is the *current* session's userId, which is
@@ -226,6 +238,7 @@ function ShareRecordingContent({
             recordingId={recordingId}
             shareUrl={shareUrl}
             sharesQuery={sharesQuery}
+            visibility={visibility}
             canManage={canManage}
             videoUrl={videoUrl}
             animatedThumbnailUrl={animatedThumbnailUrl}
@@ -247,6 +260,7 @@ function ShareRecordingContent({
           <ClipsEmbedConfigurator
             recordingId={recordingId}
             sharesQuery={sharesQuery}
+            visibility={visibility}
             canManage={canManage}
             ownerViaId={ownerViaId}
           />
@@ -264,6 +278,7 @@ function LinkTab({
   recordingId,
   shareUrl,
   sharesQuery,
+  visibility,
   canManage,
   videoUrl,
   animatedThumbnailUrl,
@@ -272,6 +287,7 @@ function LinkTab({
   recordingId: string;
   shareUrl: string;
   sharesQuery: SharesQuery;
+  visibility: Visibility | null;
   canManage: boolean;
   videoUrl?: string | null;
   animatedThumbnailUrl?: string | null;
@@ -283,11 +299,9 @@ function LinkTab({
     recordingId,
     sharesQuery,
   );
-  const data = sharesQuery.data;
-  const visibility: Visibility =
-    (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const sharesLoaded = data !== undefined;
+  const sharesLoaded = visibility !== null;
+  const visibilityPending = isPending || sharesQuery.isLoading;
   const isLoomRecording = isLoomRecordingProp || isLoomEmbedUrl(videoUrl);
   const createAgentLink = useActionMutation(
     "create-recording-agent-link" as any,
@@ -296,7 +310,6 @@ function LinkTab({
   const agentLinkRequestIdRef = useRef(0);
   const [agentContextUrl, setAgentContextUrl] = useState("");
   const [agentLinkError, setAgentLinkError] = useState(false);
-  const [agentShareOpen, setAgentShareOpen] = useState(false);
 
   useEffect(() => {
     createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
@@ -331,81 +344,65 @@ function LinkTab({
     setAgentLinkError(false);
     if (!sharesLoaded) return;
 
-    if (!isPublic && agentShareOpen) {
+    if (!isPublic) {
       void loadAgentContextUrl();
     }
 
     return () => {
       agentLinkRequestIdRef.current += 1;
     };
-  }, [
-    agentShareOpen,
-    isPublic,
-    loadAgentContextUrl,
-    recordingId,
-    sharesLoaded,
-    visibility,
-  ]);
+  }, [isPublic, loadAgentContextUrl, recordingId, sharesLoaded, visibility]);
 
+  const agentLink = isPublic ? shareUrl : agentContextUrl;
   const agentShareDisabled =
-    isPending || createAgentLink.isPending || !agentContextUrl;
-  const agentPrompt = agentContextUrl
-    ? t("shareDialog.agentPrompt", { agentContextUrl })
+    visibilityPending ||
+    !sharesLoaded ||
+    (!isPublic && (isPending || createAgentLink.isPending || !agentContextUrl));
+  const agentPrompt = agentLink
+    ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
 
   return (
     <div className="space-y-4">
-      <GeneralAccessSelect
-        visibility={visibility}
-        canManage={canManage}
-        isPending={isPending}
-        onChange={(next) => setResourceVisibility(next)}
-        publicDescription={t("shareDialog.publicDescription")}
-      />
+      {visibility ? (
+        <GeneralAccessSelect
+          visibility={visibility}
+          canManage={canManage}
+          isPending={visibilityPending}
+          onChange={(next) => setResourceVisibility(next)}
+          publicDescription={t("shareDialog.publicDescription")}
+        />
+      ) : (
+        <div className="space-y-2" aria-hidden>
+          <div className="h-3 w-24 animate-pulse rounded bg-muted" />
+          <div className="h-12 w-full animate-pulse rounded bg-muted" />
+        </div>
+      )}
 
       <CopyField
-        label={t("shareDialog.shareLink")}
+        label={
+          isPublic
+            ? t("shareDialog.shareLink")
+            : t("shareDialog.shareWithHumans")
+        }
         value={shareUrl}
-        disabled={isPending || (!isPublic && canManage)}
+        disabled={visibilityPending || !sharesLoaded}
       />
 
-      {/* Public links unfurl into a playable video in Slack; surface that here
-          (and a connect link) instead of leaving it buried in Settings. */}
-      {isPublic ? <SlackShareHint canManage={canManage} /> : null}
-
       {!isPublic ? (
-        <Collapsible open={agentShareOpen} onOpenChange={setAgentShareOpen}>
-          <CollapsibleTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto w-full justify-between px-0 py-1 text-left hover:bg-transparent"
-            >
-              <span className="min-w-0">
-                <span className="block text-xs font-medium text-foreground">
-                  {t("shareDialog.shareWithAgents")}
-                </span>
-                <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                  {t("shareDialog.agentTokenDescription")}
-                </span>
-              </span>
-              <IconChevronDown
-                className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
-                  agentShareOpen ? "rotate-180" : ""
-                }`}
-                aria-hidden
-              />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-              <CopyField
-                label={t("shareDialog.shareWithAgents")}
-                value={agentContextUrl}
-                disabled={agentShareDisabled}
-              />
+        <div className="space-y-2">
+          <CopyField
+            label={t("shareDialog.shareWithAgents")}
+            value={agentLink}
+            disabled={agentShareDisabled}
+          />
+          {sharesLoaded ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {t("shareDialog.agentTokenDescription")}
+              </p>
               {agentLinkError ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2">
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
                   <p className="text-xs text-muted-foreground">
                     {t("shareDialog.agentLinkUnavailable")}
                   </p>
@@ -426,12 +423,12 @@ function LinkTab({
                 value={agentPrompt}
                 disabled={agentShareDisabled}
               />
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
+            </>
+          ) : null}
+        </div>
       ) : null}
 
-      {!isPublic && canManage ? (
+      {sharesLoaded && !isPublic && canManage ? (
         <MakePublicCard
           isPending={isPending}
           onMakePublic={() =>
@@ -468,7 +465,7 @@ function LinkTab({
                   {t("shareDialog.openPlayer")}
                 </>
               ) : (
-                t("shareDialog.downloadMp4")
+                t("recordRoute.downloadRecording")
               )}
             </Button>
           ) : null}
@@ -485,11 +482,13 @@ function LinkTab({
 function ClipsEmbedConfigurator({
   recordingId,
   sharesQuery,
+  visibility,
   canManage,
   ownerViaId,
 }: {
   recordingId: string;
   sharesQuery: SharesQuery;
+  visibility: Visibility | null;
   canManage: boolean;
   ownerViaId?: string;
 }) {
@@ -500,11 +499,10 @@ function ClipsEmbedConfigurator({
   const [width, setWidth] = useState(640);
   const [height, setHeight] = useState(360);
 
-  const data = sharesQuery.data;
-  const visibility: Visibility =
-    (data?.visibility as Visibility | null) ?? "private";
   const isPublic = visibility === "public";
-  const visibilityLabel = t(`shareUi.visibility.${visibility}.label`);
+  const visibilityLabel = visibility
+    ? t(`shareUi.visibility.${visibility}.label`)
+    : "";
   const { setResourceVisibility, isPending } = useResourceVisibilityMutation(
     "recording",
     recordingId,
@@ -528,6 +526,15 @@ function ClipsEmbedConfigurator({
     mode === "responsive"
       ? `<div style="position:relative;padding-bottom:56.25%;height:0;background:#000;overflow:hidden"><iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%;border:0;background:#000;overflow:hidden"></iframe></div>`
       : `<iframe src="${src}" title="${t("shareDialog.embedIframeTitle")}" width="${width}" height="${height}" frameborder="0" scrolling="no" allowfullscreen allow="autoplay; fullscreen; picture-in-picture" style="display:block;max-width:100%;border:0;background:#000;overflow:hidden"></iframe>`;
+
+  if (!visibility) {
+    return (
+      <div className="space-y-2" aria-hidden>
+        <div className="h-16 w-full animate-pulse rounded bg-muted" />
+        <div className="h-24 w-full animate-pulse rounded bg-muted" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">

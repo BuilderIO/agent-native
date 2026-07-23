@@ -440,10 +440,10 @@ const messages = {
     suggestionWidget: "내 받은편지함용 맞춤 위젯 만들기",
   },
   settings: {
-    openAgentSettings: "에이전트 설정 열기",
+    openAgentSettings: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    agentTitle: "에이전트 설정",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    agentTitle: "에이전트 관리",
     aliasName: "별칭 이름",
     aliasNamePlaceholder: "예: 디자인 팀",
     recipientsOnePerLine: "수신자(한 줄에 이메일 하나)",
@@ -517,10 +517,10 @@ const messages = {
     slackUpdateFailed: "Slack 수신 설정을 업데이트하지 못했습니다",
     slackConfigured: "Slack 자격 증명이 구성되었습니다.",
     slackNeedsCredentials:
-      "Slack 수신을 활성화하려면 SLACK_BOT_TOKEN 및 SLACK_SIGNING_SECRET을 추가하세요.",
-    slackIntake: "Slack 수신",
+      "레거시 사용자 지정 수신에는 SLACK_BOT_TOKEN 및 SLACK_SIGNING_SECRET이 필요합니다. 새 Slack 메시징 자동화는 설정 > 메시징에서 워크스페이스를 연결하세요.",
+    slackIntake: "Slack 수신(레거시)",
     slackDescription:
-      "조직 구성원이 Slack에서 이메일 초안을 대기열에 추가할 수 있습니다.",
+      "조직 구성원이 Slack에서 이메일 초안을 대기열에 추가할 수 있는 레거시 사용자 지정 통합입니다.",
     enabled: "활성화됨",
     disable: "비활성화",
     enable: "활성화",

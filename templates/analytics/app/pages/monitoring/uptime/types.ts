@@ -61,6 +61,8 @@ export interface MonitorSummary {
   severity: MonitorSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   cooldownMinutes: number;
   enabled: boolean;
   lastStatus: MonitorStatus | null;
@@ -89,6 +91,50 @@ export interface MonitorCheckResult {
   latencyMs: number | null;
   error: string | null;
   failedAssertions: string[];
+  diagnostics: MonitorCheckDiagnostics;
+}
+
+export interface MonitorCheckDiagnostics {
+  source:
+    | "netlify-scheduled"
+    | "netlify-runtime"
+    | "in-process"
+    | "manual"
+    | "unknown";
+  runtime: {
+    nodeEnv?: string;
+    netlify?: boolean;
+    deployId?: string;
+    deployContext?: string;
+    commitRef?: string;
+    functionName?: string;
+    region?: string;
+  };
+  request: {
+    method: MonitorMethod;
+    timeoutMs: number;
+    followRedirects: boolean;
+    assertionTypes: AssertionType[];
+    bodyReadRequired: boolean;
+    allowPrivateHosts: boolean;
+  };
+  timings: {
+    totalMs?: number;
+    ssrfSetupMs?: number;
+    requestMs?: number;
+    bodyReadMs?: number;
+  };
+  response?: {
+    finalUrl?: string;
+    finalHost?: string;
+    statusCode?: number;
+    headers?: Record<string, string>;
+  };
+  error?: {
+    kind: "config" | "timeout" | "network" | "body-timeout";
+    name?: string;
+    message: string;
+  };
 }
 
 export interface MonitorIncident {
@@ -156,6 +202,8 @@ export interface SaveMonitorInput {
   severity?: MonitorSeverity;
   channels?: string[];
   emailRecipients?: string[];
+  slackWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   cooldownMinutes?: number;
   enabled?: boolean;
 }

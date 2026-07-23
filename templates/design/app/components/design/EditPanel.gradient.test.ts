@@ -43,4 +43,43 @@ describe("EditPanel gradient layer serialization", () => {
     expect(parsed?.stops[0]?.color).toBe("oklch(70% 0.1 200)");
     expect(parsed?.stops[1]?.color).toBe("color-mix(in srgb, red 40%, blue)");
   });
+
+  it("parses bare CSS named colors as gradient stops instead of dropping them", () => {
+    // Regression: readLeadingColor only recognized hex/transparent/function
+    // colors, so a plain named-color stop like "red" (extremely common in
+    // hand-authored or generated CSS) was misread as a gradient *prefix* —
+    // silently dropping that stop and corrupting an otherwise-valid 2-stop
+    // gradient into a broken 1-stop one with a garbage "red" prefix.
+    const parsed = parseGradientLayer("linear-gradient(red, blue)");
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.prefix).toBeUndefined();
+    expect(parsed?.stops).toHaveLength(2);
+    expect(parsed?.stops[0]?.color).toBe("#ff0000");
+    expect(parsed?.stops[1]?.color).toBe("#0000ff");
+  });
+
+  it("still treats direction/shape keywords as a prefix, not a color", () => {
+    const linear = parseGradientLayer(
+      "linear-gradient(to right, red 0%, blue 100%)",
+    );
+    expect(linear?.prefix).toBe("to right");
+    expect(linear?.stops).toHaveLength(2);
+
+    const radial = parseGradientLayer(
+      "radial-gradient(circle at 50% 50%, red 0%, blue 100%)",
+    );
+    expect(radial?.prefix).toBe("circle at 50% 50%");
+    expect(radial?.stops).toHaveLength(2);
+  });
+
+  it("preserves a named-color angle prefix round-trip through buildGradientLayer", () => {
+    const parsed = parseGradientLayer(
+      "linear-gradient(135deg, red 0%, blue 100%)",
+    );
+    expect(parsed).not.toBeNull();
+    expect(
+      buildGradientLayer(parsed!.type, parsed!.stops, parsed!.prefix),
+    ).toBe("linear-gradient(135deg, #ff0000 0%, #0000ff 100%)");
+  });
 });

@@ -1,8 +1,6 @@
-import {
-  PromptComposer,
-  sendToAgentChat,
-  useChangeVersions,
-} from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 import { IconPlus, IconSettingsAutomation } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -62,7 +60,6 @@ function useAutomations() {
     queryKey: [...AUTOMATIONS_QUERY_KEY, version],
     queryFn: listDispatchAutomations,
     placeholderData: (prev) => prev,
-    refetchInterval: 15_000,
     staleTime: 5_000,
   });
 }

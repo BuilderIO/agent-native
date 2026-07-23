@@ -390,6 +390,8 @@ Il s'agissait auparavant d'une position « avertir et accepter » : définiss
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` n'est **pas** défini, sauf si votre organisation partage réellement des clés d'espace de travail – voir [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] Dans les déploiements multi-locataires, **les utilisateurs apportent leur propre `ANTHROPIC_API_KEY`** — le framework refuse de recourir à la variable d'environnement au niveau du déploiement
 
+Exécutez `agent-native doctor` (`pnpm doctor` dans une application générée) pour vérifier automatiquement les éléments de schéma, d'identifiants et de variables d'environnement de cette liste de contrôle — chaque résultat indique le guard, le fichier et la ligne. Consultez la documentation [Doctor](/docs/doctor).
+
 ---
 
 Les sections ci-dessous couvrent les indicateurs d'environnement de niche que vous n'utilisez que dans des déploiements spécifiques. La plupart des applications n'y touchent jamais.
@@ -417,3 +419,11 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 Les écritures secrètes à l’échelle de l’espace de travail nécessitent toujours le rôle de propriétaire/administrateur de l’organisation, quel que soit cet indicateur.
+
+## Suite
+
+- [**Authentication**](/docs/authentication) — modes d'auth, cookie realms et détails de session sur lesquels cette page s'appuie
+- [**Multi-Tenancy**](/docs/multi-tenancy) — le modèle d'appartenance à l'organisation derrière le scoping par `org_id`
+- [**Sharing**](/docs/sharing) — le pattern `ownableColumns()` et le garde d'accès appliqués aux ressources partageables
+- [**Messaging**](/docs/messaging#env-vars) — les secrets de signature de webhook par intégration référencés dans la liste de contrôle ci-dessus
+- [**Deployment**](/docs/deployment) — les variables d'environnement de production que cette liste de contrôle suppose définies

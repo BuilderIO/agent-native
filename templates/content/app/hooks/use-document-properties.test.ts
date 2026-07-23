@@ -4,8 +4,7 @@ const useActionMutation = vi.hoisted(() => vi.fn());
 const useActionQuery = vi.hoisted(() => vi.fn());
 const useQueryClient = vi.hoisted(() => vi.fn());
 
-vi.mock("@agent-native/core/client", () => ({
-  getBrowserTabId: () => "content-tab-1",
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation,
   useActionQuery,
 }));
@@ -23,7 +22,7 @@ describe("useSetDocumentProperty", () => {
     useQueryClient.mockReset();
   });
 
-  it("uses origin-tab tagging and only the existing narrow cache reconciliation", () => {
+  it("uses only the existing narrow cache reconciliation", () => {
     const queryClient = {
       cancelQueries: vi.fn(),
       getQueriesData: vi.fn(() => []),
@@ -39,7 +38,6 @@ describe("useSetDocumentProperty", () => {
     expect(useActionMutation).toHaveBeenCalledWith(
       "set-document-property",
       expect.objectContaining({
-        requestSource: "content-tab-1",
         skipActionQueryInvalidation: true,
       }),
     );

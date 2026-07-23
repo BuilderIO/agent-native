@@ -1,17 +1,18 @@
+import { captureClientException } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
   appBasePath,
-  callAction,
-  captureClientException,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {
   isStoredButUnservableFinalizeError,
-  waitForReadyRecordingAfterFinalizeError,
+  waitForAcceptedRecordingAfterFinalizeError,
 } from "@shared/finalize-recovery";
 import {
+  chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
   type UploadMode,
@@ -66,9 +67,9 @@ import {
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
 import {
-  captureVideoThumbnailBlob,
-  uploadRecordingThumbnail,
-} from "@/lib/thumbnail-capture";
+  decideRecordingVisibilityAction,
+  isMobileRecorderRuntime,
+} from "@/lib/recording-visibility";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -530,76 +531,6 @@ function userFacingActionErrorMessage(error: string): string {
   return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
 }
 
-function captureThumbnailFromPreview(
-  video: HTMLVideoElement | null,
-  recordingId: string,
-): void {
-  void captureVideoThumbnailBlob(video)
-    .then((blob) => (blob ? uploadRecordingThumbnail(recordingId, blob) : null))
-    .catch(() => {
-      // best effort — the player has a backfill path if this misses.
-    });
-}
-
-/** Resolve once the off-screen video has a decoded frame, or after a timeout. */
-function waitForVideoFrame(
-  video: HTMLVideoElement,
-  timeoutMs: number,
-): Promise<void> {
-  if (video.videoWidth > 0 && video.readyState >= 2) return Promise.resolve();
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      video.removeEventListener("loadeddata", onReady);
-      video.removeEventListener("canplay", onReady);
-      clearTimeout(timer);
-      resolve();
-    };
-    const onReady = () => {
-      if (video.videoWidth > 0 && video.readyState >= 2) finish();
-    };
-    video.addEventListener("loadeddata", onReady);
-    video.addEventListener("canplay", onReady);
-    const timer = setTimeout(finish, timeoutMs);
-    onReady();
-  });
-}
-
-/**
- * Capture a thumbnail from a MediaStream that isn't bound to a visible element
- * — used for the screen+camera composite so the thumbnail includes the camera
- * bubble. Best effort: if it misses, the player's backfill path (which reads
- * the recorded file, also composited) still produces a face thumbnail.
- */
-function captureThumbnailFromStream(
-  stream: MediaStream,
-  recordingId: string,
-): void {
-  const video = document.createElement("video");
-  video.srcObject = stream;
-  video.muted = true;
-  video.playsInline = true;
-  void (async () => {
-    try {
-      await video.play().catch(() => {});
-      await waitForVideoFrame(video, 1500);
-      const blob = await captureVideoThumbnailBlob(video);
-      if (blob) await uploadRecordingThumbnail(recordingId, blob);
-    } catch {
-      // best effort — the player has a backfill path if this misses.
-    } finally {
-      try {
-        video.pause();
-      } catch {
-        // ignore
-      }
-      video.srcObject = null;
-    }
-  })();
-}
-
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -665,6 +596,7 @@ function DesktopRecorderCallout() {
       <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        downloadedChildren={t("captureInstall.openDesktopApp")}
       >
         {t("recordRoute.downloadDesktopApp")}
       </CaptureInstallButton>
@@ -837,7 +769,7 @@ export default function RecordRoute() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const visibilityAutoPausedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
     () => loadRecorderPreferences().cameraSize ?? "md",
@@ -979,35 +911,15 @@ export default function RecordRoute() {
     micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
   } | null>(null);
-  const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
 
-  // -------------------------------------------------------------------------
-  // Timer
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (uiState !== "recording") {
-      if (tickRef.current !== null) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-      return;
-    }
-    tickRef.current = window.setInterval(() => {
-      const e = engineRef.current?.getElapsedMs() ?? 0;
-      setElapsedMs(e);
-    }, 250);
-    return () => {
-      if (tickRef.current !== null) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-    };
-  }, [uiState]);
+  // Elapsed-time display now ticks inside RecordingToolbar itself (via
+  // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
+  // whole route — see the `active`/`getElapsedMs` props passed below.
 
   // -------------------------------------------------------------------------
   // Wire preview stream into its video element.
@@ -1173,8 +1085,8 @@ export default function RecordRoute() {
             }).catch(() => {});
           },
           // When the user clicks the browser's native "Stop sharing" button,
-          // delegate to doStop() so the UI runs its full stop flow: thumbnail
-          // capture, transcription flush, state updates, and navigation.
+          // delegate to doStop() so the UI runs its full stop flow:
+          // transcription flush, state updates, and navigation.
           // Using a ref so we always call the latest version of doStop even
           // though startFlow itself has empty deps.
           onDisplayTrackEnded: () => {
@@ -1253,7 +1165,7 @@ export default function RecordRoute() {
               sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
-              visibility: reportContext ? "org" : "public",
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: pickMimeType() || undefined,
@@ -1580,7 +1492,7 @@ export default function RecordRoute() {
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
               mimeType: uploadMimeType,
-              requestStreaming: false,
+              requestStreaming: true,
             }),
           },
         );
@@ -1596,10 +1508,16 @@ export default function RecordRoute() {
           );
         }
         const created = (await res.json()) as {
-          result?: { id: string; uploadChunkUrl: string; abortUrl?: string };
+          result?: {
+            id: string;
+            uploadChunkUrl: string;
+            abortUrl?: string;
+            uploadMode?: UploadMode;
+          };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          uploadMode?: UploadMode;
         };
         const info =
           created.result ??
@@ -1607,6 +1525,7 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl?: string;
+            uploadMode?: UploadMode;
           });
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
@@ -1707,7 +1626,12 @@ export default function RecordRoute() {
 
         await Promise.all(
           Array.from(
-            { length: Math.min(UPLOAD_PARALLELISM, parallelChunks.length) },
+            {
+              length: Math.min(
+                chunkUploadParallelism(info.uploadMode, UPLOAD_PARALLELISM),
+                parallelChunks.length,
+              ),
+            },
             worker,
           ),
         );
@@ -1735,7 +1659,7 @@ export default function RecordRoute() {
             createdId &&
             (err as { name?: string } | null)?.name !== "AbortError"
           ) {
-            const recovered = await waitForReadyRecordingAfterFinalizeError({
+            const recovered = await waitForAcceptedRecordingAfterFinalizeError({
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
@@ -1766,7 +1690,7 @@ export default function RecordRoute() {
             chunkRes.status !== 413 &&
             !isUploadSizeError(error.message)
           ) {
-            const recovered = await waitForReadyRecordingAfterFinalizeError({
+            const recovered = await waitForAcceptedRecordingAfterFinalizeError({
               uploadUrl: uploadBase,
               recordingId: createdId,
               preferAuthenticated: true,
@@ -2081,18 +2005,6 @@ export default function RecordRoute() {
     }
     setUiState("uploading");
     try {
-      // Capture a still-frame thumbnail while the stream is still live —
-      // otherwise the library would show a blank card until the owner opens the
-      // recording and triggers the player's backfill path. In screen+camera
-      // mode the visible preview is screen-only, so grab the composited stream
-      // (screen + camera bubble) to keep the presenter's face in the thumbnail.
-      const compositeStream = engine.getCompositeStream();
-      if (compositeStream) {
-        captureThumbnailFromStream(compositeStream, pending.id);
-      } else {
-        captureThumbnailFromPreview(previewVideoRef.current, pending.id);
-      }
-
       // Stop live transcription and save the native web transcript before the
       // engine finalizes. This gives the recording an instant transcript
       // (from Web Speech API) with no API key required.
@@ -2120,6 +2032,27 @@ export default function RecordRoute() {
             transcriptRes.status,
           );
         }
+      } else {
+        await fetch(
+          agentNativePath("/_agent-native/actions/save-browser-transcript"),
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recordingId: pending.id,
+              fullText: "",
+              source: "web-speech",
+              failureReason: liveTranscription.supported
+                ? "Browser native transcription returned no speech before recording stopped."
+                : "Browser Web Speech recognition is unavailable in this browser.",
+            }),
+          },
+        ).catch((err) => {
+          console.warn(
+            "[recorder] native transcript failure save failed:",
+            err,
+          );
+        });
       }
 
       const stopResult = await engine.stop();
@@ -2278,6 +2211,10 @@ export default function RecordRoute() {
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
     if (!engine) return;
+    // A direct user gesture owns the paused state from this point forward.
+    // In particular, returning to the foreground must not auto-resume a clip
+    // that the user deliberately left paused.
+    visibilityAutoPausedRef.current = false;
     if (engine.getState() === "paused") {
       engine.resume();
       liveTranscription.resume();
@@ -2288,6 +2225,59 @@ export default function RecordRoute() {
       setIsPaused(true);
     }
   }, [liveTranscription]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    if (!isMobileRecorderRuntime(navigator)) return;
+    if (recordingMode !== "camera" || !cameraStream) {
+      visibilityAutoPausedRef.current = false;
+      return;
+    }
+
+    const videoTracks = cameraStream.getVideoTracks();
+    const syncCaptureSuspension = () => {
+      const engine = engineRef.current;
+      if (!engine) {
+        visibilityAutoPausedRef.current = false;
+        return;
+      }
+
+      const decision = decideRecordingVisibilityAction({
+        mode: recordingMode,
+        mobileRuntime: true,
+        documentHidden: document.hidden,
+        cameraTrackMuted: videoTracks.some((track) => track.muted),
+        recorderState: engine.getState(),
+        autoPaused: visibilityAutoPausedRef.current,
+      });
+      visibilityAutoPausedRef.current = decision.autoPaused;
+
+      if (decision.action === "pause") {
+        engine.pause();
+        liveTranscription.pause();
+        setIsPaused(true);
+      } else if (decision.action === "resume") {
+        engine.resume();
+        liveTranscription.resume();
+        setIsPaused(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", syncCaptureSuspension);
+    for (const track of videoTracks) {
+      track.addEventListener("mute", syncCaptureSuspension);
+      track.addEventListener("unmute", syncCaptureSuspension);
+    }
+    syncCaptureSuspension();
+
+    return () => {
+      document.removeEventListener("visibilitychange", syncCaptureSuspension);
+      for (const track of videoTracks) {
+        track.removeEventListener("mute", syncCaptureSuspension);
+        track.removeEventListener("unmute", syncCaptureSuspension);
+      }
+    };
+  }, [cameraStream, liveTranscription, recordingMode]);
 
   const restart = useCallback(async () => {
     await doCancel();
@@ -2596,7 +2586,8 @@ export default function RecordRoute() {
       {/* Floating toolbar */}
       {showRecordingUi && (
         <RecordingToolbar
-          elapsedMs={elapsedMs}
+          active={uiState === "recording"}
+          getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}

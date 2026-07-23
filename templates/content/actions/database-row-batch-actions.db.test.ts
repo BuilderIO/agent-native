@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -15,7 +15,11 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
+let duplicateDatabaseItemAction: typeof import("./duplicate-database-item.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let addDatabaseItemAction: typeof import("./add-database-item.js").default;
+let restoreDocumentAction: typeof import("./restore-document.js").default;
+let spaceId: string;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -27,10 +31,38 @@ beforeAll(async () => {
   schema = dbModule.schema;
   duplicateDatabaseItemsAction = (await import("./duplicate-database-items.js"))
     .default;
+  duplicateDatabaseItemAction = (await import("./duplicate-database-item.js"))
+    .default;
   deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
     .default;
+  addDatabaseItemAction = (await import("./add-database-item.js")).default;
+  restoreDocumentAction = (await import("./restore-document.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  const { systemIdsForContentSpace } = await import("./_content-spaces.js");
+  spaceId = `batch_space_${Date.now()}`;
+  const filesIds = systemIdsForContentSpace(spaceId, "files");
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: filesIds.documentId,
+    spaceId,
+    ownerEmail: OWNER,
+    title: "Files",
+    content: "",
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: filesIds.databaseId,
+    spaceId,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesIds.documentId,
+    title: "Files",
+    createdAt: now,
+    updatedAt: now,
+  });
 }, 60000);
 
 afterAll(() => {
@@ -59,6 +91,7 @@ async function createDocument(args: {
   const id = args.id ?? nextId("doc");
   await db.insert(schema.documents).values({
     id,
+    spaceId,
     ownerEmail: args.ownerEmail ?? OWNER,
     parentId: args.parentId ?? null,
     title: args.title ?? "Untitled",
@@ -80,6 +113,7 @@ async function createDatabaseWithRows(rowCount: number) {
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId,
     ownerEmail: OWNER,
     documentId: databaseDocumentId,
     title: "Database",
@@ -128,7 +162,12 @@ async function orderedRows(databaseId: string) {
       schema.documents,
       eq(schema.documents.id, schema.contentDatabaseItems.documentId),
     )
-    .where(eq(schema.contentDatabaseItems.databaseId, databaseId))
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.databaseId, databaseId),
+        isNull(schema.documents.trashedAt),
+      ),
+    )
     .orderBy(asc(schema.contentDatabaseItems.position));
 }
 
@@ -190,6 +229,14 @@ describe("database row batch actions", () => {
 
     expect(result.duplicatedItemIds).toHaveLength(2);
     expect(result.duplicatedDocumentIds).toHaveLength(2);
+    await expect(
+      db
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(
+          inArray(schema.documents.id, result.duplicatedDocumentIds ?? []),
+        ),
+    ).resolves.toEqual([{ spaceId }, { spaceId }]);
     expect(result.duplicatedItemId).toBe(result.duplicatedItemIds?.[0]);
     expect(result.duplicatedDocumentId).toBe(result.duplicatedDocumentIds?.[0]);
     expect(result.sourceItemIds).toEqual([rows[1].itemId, rows[2].itemId]);
@@ -318,7 +365,10 @@ describe("database row batch actions", () => {
     expect(remainingRows.map((row) => row.itemPosition)).toEqual([0, 1]);
 
     const deletedDocs = await db
-      .select({ id: schema.documents.id })
+      .select({
+        id: schema.documents.id,
+        trashedAt: schema.documents.trashedAt,
+      })
       .from(schema.documents)
       .where(
         inArray(schema.documents.id, [
@@ -327,12 +377,44 @@ describe("database row batch actions", () => {
           childDocumentId,
         ]),
       );
-    expect(deletedDocs).toEqual([]);
-    const deletedValues = await db
+    expect(deletedDocs).toHaveLength(3);
+    expect(deletedDocs.every((document) => document.trashedAt)).toBe(true);
+    const preservedValues = await db
       .select()
       .from(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.documentId, rows[1].documentId));
-    expect(deletedValues).toEqual([]);
+    expect(preservedValues).toHaveLength(1);
+  });
+
+  it("rejects duplicating trashed rows and restores unique ordering", async () => {
+    const { databaseId, rows } = await createDatabaseWithRows(2);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDatabaseItemsAction.run({
+        databaseId,
+        itemIds: [rows[0].itemId],
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemAction.run({ itemId: rows[0].itemId }),
+      ),
+    ).rejects.toThrow("Database row not found");
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        duplicateDatabaseItemsAction.run({
+          databaseId,
+          itemIds: [rows[0].itemId],
+        }),
+      ),
+    ).rejects.toThrow("All requested rows must exist in the target database");
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      restoreDocumentAction.run({ id: rows[0].documentId }),
+    );
+    const restoredRows = await orderedRows(databaseId);
+    expect(restoredRows.map((row) => row.itemPosition)).toEqual([0, 1]);
+    expect(restoredRows.map((row) => row.documentPosition)).toEqual([0, 1]);
   });
 
   it("rejects unauthorized delete batches before writing", async () => {
@@ -376,5 +458,50 @@ describe("database row batch actions", () => {
     ).rejects.toThrow("Database row batch is limited to 100 rows.");
 
     expect(await orderedRows(databaseId)).toHaveLength(1);
+  });
+
+  it("assigns distinct positions when items are added to the same database concurrently", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabaseWithRows(0);
+
+    const concurrentAdds = 6;
+    const results = await Promise.all(
+      Array.from({ length: concurrentAdds }, (_, index) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          addDatabaseItemAction.run({
+            databaseId,
+            title: `Concurrent ${index}`,
+          }),
+        ),
+      ),
+    );
+
+    expect(results).toHaveLength(concurrentAdds);
+    const createdItemIds = results.map((result) => result.createdItemId);
+    expect(new Set(createdItemIds).size).toBe(concurrentAdds);
+
+    const rows = await orderedRows(databaseId);
+    expect(rows).toHaveLength(concurrentAdds);
+    // Every row's database-item position and backing document position must
+    // be unique — two concurrent adds reading the same MAX(position) would
+    // otherwise collide on the same value.
+    expect(new Set(rows.map((row) => row.itemPosition)).size).toBe(
+      concurrentAdds,
+    );
+    expect(new Set(rows.map((row) => row.documentPosition)).size).toBe(
+      concurrentAdds,
+    );
+    expect(rows.map((row) => row.itemPosition).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: concurrentAdds }, (_, index) => index),
+    );
+
+    const siblingDocPositions = await getDb()
+      .select({ position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, databaseDocumentId));
+    expect(
+      siblingDocPositions
+        .map((row: { position: number }) => row.position)
+        .sort((a: number, b: number) => a - b),
+    ).toEqual(Array.from({ length: concurrentAdds }, (_, index) => index));
   });
 });

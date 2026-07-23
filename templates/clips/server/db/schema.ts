@@ -6,6 +6,7 @@ import {
   now,
   ownableColumns,
   createSharesTable,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 // -----------------------------------------------------------------------------
@@ -36,7 +37,7 @@ export const organizationSettings = table("organization_settings", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -51,7 +52,7 @@ export const workspaces = table("workspaces", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -332,23 +333,34 @@ export const recordingReactions = table("recording_reactions", {
 // Analytics: viewers + granular events
 // -----------------------------------------------------------------------------
 
-export const recordingViewers = table("recording_viewers", {
-  id: text("id").primaryKey(),
-  recordingId: text("recording_id").notNull(),
-  viewerEmail: text("viewer_email"), // null = anonymous
-  viewerName: text("viewer_name"),
-  firstViewedAt: text("first_viewed_at").notNull().default(now()),
-  lastViewedAt: text("last_viewed_at").notNull().default(now()),
-  totalWatchMs: integer("total_watch_ms").notNull().default(0),
-  completedPct: integer("completed_pct").notNull().default(0),
-  // True once they meet the 5s / 75% / end-scrub rule.
-  countedView: integer("counted_view", { mode: "boolean" })
-    .notNull()
-    .default(false),
-  ctaClicked: integer("cta_clicked", { mode: "boolean" })
-    .notNull()
-    .default(false),
-});
+export const recordingViewers = table(
+  "recording_viewers",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    // Stable canonical identity for new viewers. Nullable so existing rows can
+    // be migrated additively and claimed on their next event.
+    viewerKey: text("viewer_key"),
+    viewerEmail: text("viewer_email"), // null = anonymous
+    viewerName: text("viewer_name"),
+    firstViewedAt: text("first_viewed_at").notNull().default(now()),
+    lastViewedAt: text("last_viewed_at").notNull().default(now()),
+    totalWatchMs: integer("total_watch_ms").notNull().default(0),
+    completedPct: integer("completed_pct").notNull().default(0),
+    // True once they meet the 5s / 75% / end-scrub rule.
+    countedView: integer("counted_view", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    ctaClicked: integer("cta_clicked", { mode: "boolean" })
+      .notNull()
+      .default(false),
+  },
+  (viewer) => ({
+    recordingViewerKeyUnique: uniqueIndex(
+      "recording_viewers_recording_viewer_key_unique_idx",
+    ).on(viewer.recordingId, viewer.viewerKey),
+  }),
+);
 
 // Per-view records — one row per distinct counted view, so the owner can see
 // *who viewed and when* (not just an aggregate count or a single
@@ -413,6 +425,9 @@ export const meetings = table("clips_meetings", {
   })
     .notNull()
     .default("idle"),
+  shareTranscript: integer("share_transcript", { mode: "boolean" })
+    .notNull()
+    .default(false),
   summaryMd: text("summary_md").notNull().default(""),
   // JSON array of `{ text }` bullets.
   bulletsJson: text("bullets_json").notNull().default("[]"),
@@ -574,7 +589,15 @@ export const dictations = table("clips_dictations", {
   // are text-only since native recognition runs on-device.
   audioUrl: text("audio_url"),
   source: text("source", {
-    enum: ["fn-hold", "cmd-shift-space", "manual", "other", "fn", "custom"],
+    enum: [
+      "fn-hold",
+      "cmd-shift-space",
+      "manual",
+      "mobile",
+      "other",
+      "fn",
+      "custom",
+    ],
   })
     .notNull()
     .default("fn-hold"),

@@ -10,6 +10,7 @@
     "test": "vitest --run",
     "typecheck": "agent-native typecheck && pnpm exec tsc --noEmit -p app/components/design/bridge/tsconfig.json",
     "codegen:bridge": "tsx app/components/design/bridge/codegen.ts",
+    "qa:figma-stress-import": "tsx scripts/qa-figma-stress-import.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "e2e": "playwright test",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
+    "@agent-native/creative-context": "workspace:*",
     "@agent-native/pinpoint": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@fontsource-variable/inter": "^5.2.8",
@@ -25,8 +27,9 @@
     "@paper-design/shaders-react": "0.0.76",
     "@tabler/icons-react": "catalog:",
     "drizzle-orm": "^0.45.2",
+    "entities": "8.0.0",
     "fzstd": "^0.1.1",
-    "h3": "^2.0.1-rc.20",
+    "h3": "catalog:",
     "html2canvas": "^1.4.1",
     "isbot": "^5",
     "jspdf": "^4.2.1",
@@ -37,7 +40,7 @@
     "pako": "^3.0.0",
     "pdf-parse": "^2.4.5",
     "prettier": "^3.9.4",
-    "yjs": "^13.6.31",
+    "yjs": "catalog:",
     "zod": "^4.3.6"
   },
   "devDependencies": {

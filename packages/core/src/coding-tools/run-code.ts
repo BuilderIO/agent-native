@@ -139,7 +139,7 @@ export function createRunCodeEntry(
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
         "Print results with `console.log()`; only stdout+stderr are returned.",
         "Timeout defaults to 120 s (max 600 s). Output is truncated to 50 000 chars by default (max 200 000).",
-        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll by calling run-code again with just `{ executionId }` to get status and, once finished, the output. Keep quick scripts in the default foreground mode.',
+        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll with `get-code-execution` when that dedicated tool is available; legacy hosts can call run-code again with just `{ executionId }`. Keep quick scripts in the default foreground mode.',
       ].join(" "),
       parameters: {
         type: "object",
@@ -160,12 +160,12 @@ export function createRunCodeEntry(
           background: {
             type: "boolean",
             description:
-              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with executionId for the result.',
+              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with get-code-execution when available.',
           },
           executionId: {
             type: "string",
             description:
-              "Poll a background execution started earlier: pass the executionId alone (no code) to get its status and, once finished, its output.",
+              "Legacy polling fallback for hosts without get-code-execution: pass the executionId alone (no code) to get status and output.",
           },
         },
         required: [],
@@ -582,12 +582,18 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
 /**
  * Standalone, access-scoped poll tool for background executions. Behaviorally
  * identical to calling `run-code` with only `executionId`; hosts that register
- * it as `get-code-execution` give the model a dedicated read tool (and the
- * enqueue guidance automatically points at it when present in the registry).
+ * it as `get-code-execution` give the model a dedicated volatile read tool (and
+ * the enqueue guidance automatically points at it when present in the
+ * registry). Keep the opt-out here rather than on `run-code`: repeated normal
+ * run-code calls may execute writes or outbound requests and must retain the
+ * agent loop's default duplicate-call protection.
  */
 export function createGetCodeExecutionEntry(): ActionEntry {
   return {
     readOnly: true,
+    // Polling with an identical executionId is the intended usage — the
+    // status changes over time, so this must not be deduped.
+    dedupe: false,
     tool: {
       description:
         "Check a background run-code execution: returns its status (queued | running | succeeded | failed | timed_out) and, once finished, its stdout/stderr output. Executions are scoped to the user who started them. While one is queued or running, continue other useful work and poll every ~15-30 seconds instead of busy-waiting.",
@@ -734,8 +740,18 @@ function handleBridgeRequest(
 
   // Enforce allowlist.
   const entry = actions[toolName];
+  // Unknown/mistyped tool: report "not registered" (404) before the
+  // access-control branch below. Otherwise an undefined `entry` falls into the
+  // allowlist 403 and returns a misleading access error for a tool that simply
+  // does not exist. (Bridge-allowlisted tools always have an entry, so this
+  // cannot mask a legitimate allowlisted call.)
+  if (!entry) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
+    return;
+  }
   const isReadOnlyAction =
-    entry?.readOnly === true &&
+    entry.readOnly === true &&
     entry.agentTool !== false &&
     entry.toolCallable !== false;
   if (
@@ -743,18 +759,21 @@ function handleBridgeRequest(
     !extraTools.has(toolName) &&
     !isReadOnlyAction
   ) {
+    // A registered, agent-exposed action that isn't read-only is a mutation.
+    // (Unknown tools already returned 404 above, so `entry` is defined here.)
+    // Point the caller at the native tool path instead of leaving them to guess
+    // (the common trap: retrying create-extension/update-extension through
+    // appAction, which cannot work).
+    const isMutatingAction =
+      entry.agentTool !== false && entry.readOnly !== true;
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
-        error: `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
+        error: isMutatingAction
+          ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
+          : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
       }),
     );
-    return;
-  }
-
-  if (!entry) {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
     return;
   }
 
@@ -1528,12 +1547,52 @@ async function webRead(url, init = {}) {
 /**
  * Read a Resources-backed workspace file by path. Returns the file content as
  * a string, or null if not found.
- * Supports optional offset and maxChars for paging large files.
+ *
+ * By default this returns the WHOLE file: the underlying store caps a single
+ * read at 100k chars, so this auto-pages across chunks and concatenates them,
+ * so callers never get a silently truncated body. Pass an explicit \`offset\`
+ * or \`maxChars\` to take manual control of a single page instead.
  */
 async function workspaceRead(path, opts = {}) {
-  const parsed = await workspaceReadMeta(path, opts);
-  if (parsed && parsed.ok === false) return null;
-  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  // Explicit paging requested → single read, caller owns the window.
+  if (opts.offset !== undefined || opts.maxChars !== undefined) {
+    const parsed = await workspaceReadMeta(path, opts);
+    if (parsed && parsed.ok === false) return null;
+    return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  }
+  // Default → assemble the full file by paging until the store reports no more.
+  let offset = 0;
+  let out = "";
+  let found = false;
+  let complete = false;
+  // Bounded loop (files cap at 2 MB / 100k-char reads) so a misbehaving store
+  // can never spin forever.
+  for (let i = 0; i < 512; i++) {
+    const parsed = await workspaceReadMeta(path, { offset, maxChars: 100000 });
+    // A failed/missing page aborts. If it failed before the first page we never
+    // found the file (return null below); if it failed part-way through a
+    // truncated read, complete stays false and we return null rather than a
+    // silently truncated body.
+    if (!parsed || parsed.ok === false) break;
+    found = true;
+    const chunk = typeof parsed.content === "string" ? parsed.content : "";
+    out += chunk;
+    if (!parsed.truncated) {
+      complete = true;
+      break;
+    }
+    const next =
+      typeof parsed.nextOffset === "number"
+        ? parsed.nextOffset
+        : offset + chunk.length;
+    if (next <= offset) break; // no forward progress; stop rather than loop
+    offset = next;
+  }
+  if (!found) return null;
+  // Only hand back a body we know is whole. A truncated read followed by a
+  // failed/stalled page would otherwise corrupt a large clone with a partial
+  // prefix and no error signal.
+  return complete ? out : null;
 }
 
 /**

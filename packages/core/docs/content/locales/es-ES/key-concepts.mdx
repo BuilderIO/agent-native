@@ -11,11 +11,9 @@ Cómo funcionan internamente las aplicaciones nativas del agente: los principios
 
 Cada aplicación nativa del agente consta de tres cosas que funcionan juntas:
 
-> **Agente**: IA autónoma que lee y escribe datos, ejecuta actions y modifica código. Personalizable con skills e instrucciones.
->
-> **Aplicación**: la superficie del producto alrededor del agente. Esto puede ser solo acción al principio, chat enriquecido, un pequeño plano de control o un UI React completo con paneles, flujos y visualizaciones.
->
-> **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan directamente con SQL y herramientas integradas; Los servidores MCP son complementos opcionales, no la base.
+- **Agente**: IA autónoma que lee y escribe datos, ejecuta actions y modifica código. Personalizable con skills e instrucciones.
+- **Aplicación**: la superficie del producto alrededor del agente. Esto puede ser solo acción al principio, chat enriquecido, un pequeño plano de control o un UI React completo con paneles, flujos y visualizaciones.
+- **Computadora**: base de datos, navegador, ejecución de código. Los agentes trabajan directamente con SQL y herramientas integradas; Los servidores MCP son complementos opcionales, no la base.
 
 <Diagram id="doc-block-b13lfv" title={"Agente, aplicación y computadora."} summary={"Tres capas trabajando juntas en una tienda SQL compartida. Tanto el agente como la aplicación leen y escriben los mismos datos."}>
 
@@ -258,8 +256,7 @@ El UI nunca llama directamente a un LLM. Cuando un usuario hace clic en "Generar
 
 ```ts
 // In a React component — delegate AI work to the agent
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 sendToAgentChat({
   message: "Generate a chart showing signups by source",
   context: "Dashboard ID: main, date range: last 30 days",
@@ -278,8 +275,7 @@ sendToAgentChat({
 
 Cuando el agente necesita hacer algo complejo (llamar a un API, procesar datos, consultar la base de datos), ejecuta una **acción**. Actions son archivos TypeScript en `actions/` que exportan un `defineAction()` predeterminado:
 
-```ts
-// actions/fetch-data.ts
+```ts filename="actions/fetch-data.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -311,8 +307,7 @@ Los cambios en la base de datos se sincronizan con el UI a través del `useDbSyn
 
 ```ts
 // Client: subscribe to agent/UI data changes once near the app shell
-import { useDbSync } from "@agent-native/core/client";
-
+import { useDbSync } from "@agent-native/core/client/hooks";
 useDbSync({ queryClient });
 ```
 
@@ -381,9 +376,8 @@ Un _frame_ es el entorno que aloja el agente junto a su aplicación; localmente,
 
 Las aplicaciones nativas del agente incluyen un panel de agente integrado que proporciona el agente de IA junto con la aplicación UI. Esto es lo que hace que la arquitectura funcione: el agente necesita una computadora (base de datos, navegador, ejecución de código) y la aplicación necesita al agente para que funcione la IA.
 
-> **Panel de agente integrado**: chat y terminal CLI opcional integrados en cada aplicación. Admite código Claude, Codex, Gemini, OpenCode y Builder.io. Se ejecuta localmente. Gratis y de código abierto.
->
-> **Nube**: implemente en cualquier nube con colaboración, edición visual, roles y permisos en tiempo real. Lo mejor para equipos.
+- **Panel de agente integrado**: chat y terminal CLI opcional integrados en cada aplicación. Admite código Claude, Codex, Gemini, OpenCode y Builder.io. Se ejecuta localmente. Gratis y de código abierto.
+- **Nube**: implemente en cualquier nube con colaboración, edición visual, roles y permisos en tiempo real. Lo mejor para equipos.
 
 ## Conciencia del contexto {#context-awareness}
 
@@ -426,7 +420,7 @@ Dos reglas arquitectónicas mantienen las aplicaciones portátiles entre bases d
 
 ## Espacio de trabajo {#workspace}
 
-Cada usuario obtiene un **espacio de trabajo** personal: instrucciones, skills, memoria, subagentes personalizados, trabajos programados y servidores MCP conectados, todo almacenado en SQL en lugar de archivos. Eso hace que la personalización a nivel de código Claude sea viable dentro de SaaS multiinquilino sin necesidad de activar un contenedor por usuario. Ver [Workspace](/docs/workspace).
+Cada usuario obtiene un **espacio de trabajo** personal: instrucciones, skills, memoria, subagentes personalizados, trabajos programados y servidores MCP conectados, todo almacenado en SQL en lugar de archivos. Eso hace que la personalización a nivel de código Claude sea viable dentro de SaaS multiinquilino sin necesidad de activar un contenedor por usuario. Ver [Recursos del Agente](/docs/agent-resources).
 
 ## Bloques de construcción relacionados {#building-blocks}
 
@@ -442,7 +436,7 @@ Estos se encuentran en la parte superior del mismo contrato y tienen sus propios
 Adoptar el marco es valioso principalmente por lo que deja de tener que construir. En el momento en que tu aplicación sigue las seis reglas, heredas:
 
 - **Una acción = cada superficie.** Cada acción definida con `defineAction()` es simultáneamente una herramienta de agente, un enlace frontal con seguridad de tipos (`useActionQuery` / `useActionMutation`), un transporte HTTP propiedad del marco, un comando CLI, una herramienta MCP para clientes externos y una herramienta A2A para otras aplicaciones nativas del agente. Los metadatos opcionales de `link` y `mcpApp` agregan enlaces profundos y aplicaciones MCP UI sin una segunda implementación.
-- **Un espacio de trabajo completo por usuario.** Skills, `LEARNINGS.md` compartido, `memory/MEMORY.md` personal, `AGENTS.md`, subagentes personalizados, trabajos programados, servidores MCP conectados: todo respaldado por SQL, no se requiere dev-box. Ver [Workspace](/docs/workspace).
+- **Un espacio de trabajo completo por usuario.** Skills, `LEARNINGS.md` compartido, `memory/MEMORY.md` personal, `AGENTS.md`, subagentes personalizados, trabajos programados, servidores MCP conectados: todo respaldado por SQL, no se requiere dev-box. Ver [Recursos del Agente](/docs/agent-resources).
 - **Componentes React integrados.** `<AgentPanel />` y `<AgentSidebar />` representan el chat y el espacio de trabajo en cualquier lugar de su aplicación. Ver [Drop-in Agent](/docs/drop-in-agent).
 - **Tiempos de ejecución del chat del agente BYO.** El mismo chat UI puede ubicarse encima de los agentes OpenAI, las respuestas de OpenAI, el agente Claude SDK, Vercel AI SDK, AG-UI o su propio flujo normalizado de HTTP. Ver [Native Interfaz de chat](/docs/native-chat-ui#byo-agent-runtimes).
 - **Sincronización en vivo entre el agente y UI.** Las escrituras del mismo proceso se transmiten inmediatamente sobre `/_agent-native/events`; una encuesta ligera mantiene convergentes las escrituras sin servidor, cron y entre procesos. La mutación de actions invalida automáticamente las consultas respaldadas por acciones, por lo que los registros creados por el agente aparecen sin una actualización manual. Consulte [Live Sync](#polling-sync) a continuación.
@@ -455,14 +449,11 @@ Adoptar el marco es valioso principalmente por lo que deja de tener que construi
 
 Ese es el "y todo lo demás" que de otro modo estarías pegando tú mismo.
 
-## Inmersiones profundas {#deep-dives}
+## Qué sigue {#deep-dives}
 
-Para obtener orientación detallada sobre patrones específicos:
-
-- [What Is Agent-Native?](/docs/what-is-agent-native): la visión y la filosofía
-- [Context Awareness](/docs/context-awareness): estado de navegación, visualización de pantalla, comandos de navegación
-- [Skills Guide](/docs/skills-guide): marco skills, dominio skills, creación de skills personalizado
-- [Native Interfaz de chat](/docs/native-chat-ui): tablas de acciones declaradas, gráficos y postura en tiempo de ejecución de BYO
-- [Agent Surfaces](/docs/agent-surfaces): chat enriquecido y sin cabeza, sidecar integrado y rutas de aplicación completa
-- [A2A Protocol](/docs/a2a-protocol): comunicación de agente a agente
-- [Multi-App Workspace](/docs/multi-app-workspace): aloja muchas aplicaciones en un monorepo con autenticación compartida, skills, componentes y credenciales
+- [**What Is Agent-Native?**](/docs/what-is-agent-native) — la visión y la filosofía que sustentan estas reglas
+- [**Context Awareness**](/docs/context-awareness) — estado de navegación y comandos view-screen y navigate en detalle
+- [**Skills Guide**](/docs/skills-guide) — skills del framework, skills de dominio y creación de skills personalizadas
+- [**Native Chat UI**](/docs/native-chat-ui) — tablas y gráficos declarados por actions y compatibilidad con tiempos de ejecución propios
+- [**Agent Surfaces**](/docs/agent-surfaces) — chat, UI nativa integrada, páginas completas de aplicación, sidecar integrado, automatización y rutas de agentes externos
+- [**A2A Protocol**](/docs/a2a-protocol) — comunicación entre agentes

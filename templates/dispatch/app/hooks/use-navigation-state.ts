@@ -1,10 +1,10 @@
 import {
-  appBasePath,
-  appPath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import type {
   DispatchExtensionConfig,
   DispatchNavItem,
@@ -20,6 +20,7 @@ export interface NavigationState {
   dreamId?: string;
   sourceId?: string;
   query?: string;
+  operationsView?: "monitoring" | "database";
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -53,7 +54,9 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
         routerPath(location.pathname) === "/chat" &&
         pathnameFromPath(path) !== "/chat"
       ) {
-        markAgentChatHomeHandoff("dispatch");
+        if (isAgentChatHomeHandoffActive("dispatch")) {
+          markAgentChatHomeHandoff("dispatch");
+        }
       }
     },
   });
@@ -90,6 +93,12 @@ export function buildDispatchNavigationState(
     if (dreamId) state.dreamId = dreamId;
     if (sourceId) state.sourceId = sourceId;
     if (query) state.query = query;
+  }
+
+  if (state.view === "operations") {
+    const params = new URLSearchParams(search);
+    state.operationsView =
+      params.get("view") === "database" ? "database" : "monitoring";
   }
 
   return state;
@@ -153,6 +162,7 @@ function resolveView(
   }
   if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
+  if (pathname.startsWith("/operations")) return "operations";
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
@@ -183,6 +193,11 @@ function resolvePath(
       return "/overview";
     case "apps":
       return "/apps";
+    case "operations":
+    case "monitoring":
+    case "observability":
+    case "database":
+      return view === "database" ? "/operations?view=database" : "/operations";
     case "metrics":
     case "usage":
       return "/metrics";
@@ -216,7 +231,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

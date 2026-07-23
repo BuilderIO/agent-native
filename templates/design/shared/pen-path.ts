@@ -115,13 +115,22 @@ export function snapPenAnchorPoint(
   path: PenPath | null,
   options: { hitRadius: number; zoom: number },
 ): PenPoint {
-  const existingAnchor = path?.nodes.find(
-    (node) =>
-      Math.hypot(node.point.x - point.x, node.point.y - point.y) <=
-      options.hitRadius,
-  );
-  if (existingAnchor) {
-    return { ...existingAnchor.point };
+  // Nearest anchor within radius wins (matching hitTestPenAnchor), not the
+  // first one found in node order — two anchors can easily both sit within
+  // the hit radius (e.g. a tightly drawn shape), and a "first match" scan
+  // would snap to whichever happens to have the lower node index rather than
+  // the one actually closest to the cursor.
+  let nearestAnchor: PenPoint | null = null;
+  let nearestDistance = Infinity;
+  for (const node of path?.nodes ?? []) {
+    const distance = Math.hypot(node.point.x - point.x, node.point.y - point.y);
+    if (distance <= options.hitRadius && distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestAnchor = node.point;
+    }
+  }
+  if (nearestAnchor) {
+    return { ...nearestAnchor };
   }
 
   if (options.zoom >= 100) {

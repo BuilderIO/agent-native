@@ -4,6 +4,10 @@ export {
   type SettingsPanelProps,
 } from "./SettingsPanel.js";
 export {
+  getAgentSettingsSearchTabs,
+  type AgentSettingsSearchTab,
+} from "./agent-settings-search.js";
+export {
   SettingsTabsPage,
   type SettingsSearchEntry,
   type SettingsTabItem,
@@ -21,3 +25,10 @@ export {
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
+export {
+  normalizeSettingsSection,
+  settingsSectionDomId,
+  useSettingsPanelController,
+  type SettingsPanelController,
+  type SettingsPanelControllerOptions,
+} from "./useSettingsPanelController.js";

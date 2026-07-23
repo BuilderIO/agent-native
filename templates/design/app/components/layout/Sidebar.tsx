@@ -1,14 +1,14 @@
-import {
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
-  useT,
-} from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
 import {
   IconPencil,
+  IconTemplate,
   IconPalette,
+  IconHierarchy2,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -26,11 +26,13 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { icon: IconPencil, labelKey: "navigation.designs", href: "/" },
+  { icon: IconTemplate, labelKey: "navigation.templates", href: "/templates" },
   {
     icon: IconPalette,
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+  { icon: IconHierarchy2, labelKey: "navigation.agent", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -166,7 +168,7 @@ export function Sidebar() {
 
             <div className="px-3 py-2">
               <DevDatabaseLink />
-              <div className="flex items-center gap-1">
+              <div className="flex items-center justify-end gap-1">
                 <FeedbackButton className="min-w-0 flex-1" />
                 <ThemeToggle className="h-8 w-8 shrink-0" />
               </div>

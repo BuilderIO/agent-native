@@ -102,13 +102,13 @@ explizit jederzeit:
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-Dadurch wird der `visual-plan`-Skill installiert (der den `visual-recap`-Skill enthält, den die Aktion ausführt) und `.github/workflows/pr-visual-recap.yml` in Ihr Repo schreiben. Der Workflow ruft **veröffentlichte CLI-Unterbefehle** über `npx @agent-native/core@latest recap <subcommand>` auf – einschließlich `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check` und `usage` – sodass nichts in Ihr kopiert wird repo als Hilfsskripte. `setup` und `doctor` sind die interaktiven Helfer, die Sie lokal ausführen; `gate` ist der Sicherheits-Gate-Schritt, den der Workflow vor jeder Zusammenfassung ausführt.
+Dadurch wird der `visual-plan`-Skill installiert (der den `visual-recap`-Skill enthält, den die Aktion ausführt) und `.github/workflows/pr-visual-recap.yml` in Ihr Repo schreiben. Der Workflow ruft **veröffentlichte CLI-Unterbefehle** über `npx @agent-native/recap-cli@latest recap <subcommand>` auf – einschließlich `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check` und `usage` – sodass nichts in Ihr kopiert wird repo als Hilfsskripte. `setup` und `doctor` sind die interaktiven Helfer, die Sie lokal ausführen; `gate` ist der Sicherheits-Gate-Schritt, den der Workflow vor jeder Zusammenfassung ausführt.
 
 Führen Sie dann den geführten Einrichtungshelfer aus:
 
 ```bash
-npx @agent-native/core@latest recap setup
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 `recap setup` aktualisiert den Workflow und verwendet `gh` zum Festlegen von GitHub Actions
@@ -118,10 +118,32 @@ gesetzt. Geheime Werte werden über stdin an `gh` gesendet, nicht über Befehlsa
 die generierte Workflow-Datei und öffnen Sie eine PR, um ihre Ausführung zu sehen.
 
 Standardmäßig erstellt der Workflow seine Agentenaufforderung aus dem neuesten Paket
-`visual-recap`-Anleitung in `@agent-native/core@latest`, einschließlich aller Geschwister
+`visual-recap`-Anleitung in `@agent-native/recap-cli@latest`, einschließlich aller Geschwister
 Referenzdateien, mit denen der Skill geliefert wird. Wenn Ihr Repo absichtlich angepasst wird und
 pinnen den festgeschriebenen `visual-recap`-Ordner an und legen die Repository-Variable fest
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
+
+## Runner-Auswahl
+
+Standardmäßig wird der Workflow auf von GitHub gehosteten `ubuntu-latest`-Runnern ausgeführt. Um einen anderen gehosteten Runner oder einen eigenen selbst gehosteten Runner zu verwenden, setzen Sie die Repository- oder Organisationsvariable `VISUAL_RECAP_RUNS_ON` auf eine gültige JSON-Zeichenfolge oder ein JSON-Array mit Runner-Labels:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+Die JSON-Anführungszeichen sind erforderlich. Dieser Wert wählt den Runner für den vollständigen `recap`-Job. Übergeben Sie zur Konfiguration während der geführten Einrichtung denselben JSON-Wert an `--runs-on` und prüfen Sie anschließend den Workflow und die Verfügbarkeit des Runners mit `doctor`:
+
+```bash
+npx @agent-native/recap-cli@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/recap-cli@latest recap doctor
+```
+
+Das einfache Gate verwendet separat `ubuntu-latest`. Repositorys ohne von GitHub gehostete Runner können `VISUAL_RECAP_GATE_RUNS_ON` auf ein einzelnes Klartext-Label ohne JSON setzen oder `--gate-runs-on visual-recap-gate` verwenden. Das benutzerdefinierte Label gilt nur für `OWNER`-, `MEMBER`- oder `COLLABORATOR`-Autoren desselben Repositorys; Forks und andere Autoren werden auf `ubuntu-latest` gezwungen und können ohne GitHub-gehostete Runner ungeplant bleiben. Nutzen Sie einen dedizierten, möglichst kurzlebigen Runner: Das Standard-Gate checkt den PR-Baum nicht aus und wertet Workflow-Logik sowie PR-Metadaten aus.
+
+`recap doctor` lehnt fehlerhaftes oder nicht unterstütztes JSON ab und meldet, wenn GitHub keinen Online-Runner bereitstellt, der alle konfigurierten Labels erfüllt. Registrierung, Installation, Upgrades, Kapazität und Wartung des Runners liegen weiterhin in Ihrer Verantwortung; Agent Native wählt die Labels aus, stellt oder betreibt den Runner jedoch nicht.
+
+**Sicherheit:** Bevorzugen Sie kurzlebige selbst gehostete Runner. Persistente selbst gehostete Runner sollten nur privaten Repositorys mit vertrauenswürdigen Mitwirkenden dienen. Der Workflow bricht ab, bevor selbst gehostete Arbeit für nicht vertrauenswürdige Autoren öffentlicher oder Fork-PRs eingeplant wird, doch eine persistente Maschine behält zwischen Jobs weiterhin Arbeitsbereichs- und Prozesszustand. Schwächen Sie dieses Gate nicht ab und leiten Sie keine nicht vertrauenswürdigen Beiträge an einen persistenten Runner weiter.
 
 ## Backend-Auswahl
 
@@ -138,11 +160,29 @@ Wenn die Variable nicht gesetzt ist, verwendet die Aktion `claude`.
 
 Über das Backend hinaus optimieren zwei Repository-Variablen, _wie_ der Agent ausgeführt wird:
 
-- **`VISUAL_RECAP_MODEL`** pinnt das an CLI (`--model`) übergebene Modell – zum Beispiel `gpt-5.5` für Codex oder eine Claude-Modell-ID. Lassen Sie es deaktiviert, um das eigene Standardmodell des CLI zu verwenden.
+- **`VISUAL_RECAP_MODEL`** pinnt das an CLI (`--model`) übergebene Modell – zum Beispiel `gpt-5.6-luna` für Codex, eine Claude-Modell-ID oder `deepseek-chat` für DeepSeek. Für `openai-compatible` ist sie erforderlich. Für das **Claude**-Backend führt ein nicht gesetzter Wert jetzt standardmäßig zu `claude-sonnet-5`; setzen Sie die Variable explizit, um ein anderes Claude-Modell zu verwenden, etwa das günstigere `claude-haiku-4-5`. Für das **Codex**-Backend verwendet ein nicht gesetzter Wert das eigene Standardmodell des Codex CLI.
 - **`VISUAL_RECAP_REASONING`** legt die Argumentationstiefe fest: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Es gilt für das Codex-Backend; Die Argumentation von Claude ist modellgesteuert, daher wird diese Variable dort ignoriert.
 - **`VISUAL_RECAP_SKILL_SOURCE`** steuert die Aktualität der Eingabeaufforderung: `auto`/unset verwendet die neueste gebündelte Skill-Anleitung, während `repo` an den festgeschriebenen Repository-lokalen `visual-recap`-Skill-Ordner angeheftet wird.
 
-Um beispielsweise die Zusammenfassung auf Codex mit GPT-5.5 bei hoher Argumentation auszuführen, legen Sie die Repository-Variablen `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.5` und `VISUAL_RECAP_REASONING=high` fest.
+Um beispielsweise die Zusammenfassung auf Codex mit GPT-5.6 Sol bei hoher Argumentation auszuführen, legen Sie die Repository-Variablen `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` und `VISUAL_RECAP_REASONING=high` fest.
+
+## Kosten
+
+Jeder Zusammenfassungslauf ist eine vollständige agentische Coding-Agent-Sitzung, die einen echten Diff liest, keine günstige, vorlagenbasierte Zusammenfassung – die Kosten hängen daher von der Modellwahl und davon ab, wie oft der Lauf ausgeführt wird:
+
+- **Eine vollständige Sitzung pro PR-Push.** Der Standard-Trigger reagiert auf `synchronize`, sodass ein PR, der zehnmal gepusht wird, den Agenten zehnmal ausführt.
+- **Jedes Mal der gesamte PR**, nicht nur die Commits seit dem letzten Lauf – die Kosten skalieren mit der Gesamtgröße des PR, nicht mit der inkrementellen Diff-Größe.
+- **Diff-Eingabe auf ~600KB begrenzt.** Dies begrenzt den ungünstigsten Fall pro Lauf, aber große Diffs kosten weiterhin spürbar mehr als kleine.
+- **Ein automatischer Wiederholungsversuch bei einem Fehler**, der die Kosten eines vorübergehend fehlgeschlagenen Laufs etwa verdoppeln kann.
+
+So senken Sie die Kosten:
+
+- **Pinnen Sie ein günstigeres Modell.** Setzen Sie für Claude `VISUAL_RECAP_MODEL=claude-haiku-4-5` bei einfachen oder kleinen Repositorys – das ist die günstigste Claude-Stufe; `claude-sonnet-5` (die Standardeinstellung) ist die ausgewogene Stufe.
+- **Wechseln Sie zu Codex mit einem günstigeren Modell.** Setzen Sie `VISUAL_RECAP_AGENT=codex` zusammen mit `VISUAL_RECAP_MODEL=gpt-5.6-luna` (die günstigste GPT-5.6-Stufe) oder `gpt-5.6-terra` (mittlere Stufe), und setzen Sie `VISUAL_RECAP_REASONING=low`, um die Ausgaben für Argumentations-Token weiter zu senken. Die Argumentationstiefe gilt nur für Codex.
+- **Nutzen Sie einen günstigeren OpenAI-kompatiblen Anbieter.** Setzen Sie `VISUAL_RECAP_AGENT=openai-compatible` zusammen mit `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`, die auf DeepSeek, Kimi oder einen anderen OpenAI-kompatiblen Endpunkt verweisen.
+- **Fassen Sie seltener zusammen.** Bearbeiten Sie `on.pull_request.types` des installierten Workflows von `[opened, synchronize, reopened, ready_for_review, labeled, closed]` zu `[opened, ready_for_review, closed]`, sodass nur beim Öffnen und beim Mergen eines PR zusammengefasst wird, statt bei jedem Push.
+
+Jeder Lauf zeichnet auf, was er tatsächlich gekostet hat: Der `recap usage`-Schritt des Workflows fügt dem veröffentlichten Plan Token- und Kostennutzung hinzu, sodass Sie die tatsächlichen Ausgaben pro Lauf einsehen können, statt zu raten.
 
 ## Geheimnisse und Variablen
 
@@ -174,11 +214,11 @@ Pläne-App.
 
 **Solo: Ein persönlicher Token funktioniert weiterhin.** Prägen Sie ihn mit `npx @agent-native/core@latest connect`
 gegen Ihre Pläne-App. Für die gehostete App schreibt dies auch eine lokale
-Publish-Token-Datei, die `npx @agent-native/core@latest recap setup` lesen kann:
+Publish-Token-Datei, die `npx @agent-native/recap-cli@latest recap setup` lesen kann:
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
-npx @agent-native/core@latest recap setup
+npx @agent-native/recap-cli@latest recap setup
 ```
 
 Wenn Sie die manuelle Einrichtung bevorzugen, fügen Sie das Token in das GitHub-Geheimnis ein. Verwenden Sie ein
@@ -187,16 +227,16 @@ echtes Token.
 
 ### Optional (nur wenn Sie die Standardeinstellungen ändern)
 
-| Geheimnis/Variable       | Standard                          | Wenn Sie es brauchen                                                                                                                                        |
-| ------------------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                                 | Geheimnis. Zusammen mit `VISUAL_RECAP_AGENT=codex` einstellen, um die Zusammenfassung stattdessen mit Codex auszuführen.                                    |
-| `VISUAL_RECAP_AGENT`     | `claude`                          | Variable. Wählt das Coding-Agent-Backend (`claude` oder `codex`) aus.                                                                                       |
-| `VISUAL_RECAP_MODEL`     | die Standardeinstellung jedes CLI | Variable. Steckt das Modell fest – z.B. `gpt-5.5` für Codex oder eine Claude-Modell-ID. Unset verwendet die eigene Standardeinstellung von CLI.             |
-| `VISUAL_RECAP_REASONING` | Standardeinstellung jedes Modells | Variable. Argumentationstiefe: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Gilt für das Codex-Backend.                                         |
-| `RECAP_CLI_VERSION`      | `latest`                          | Variable. Pinnt die `@agent-native/core` CLI-Version, die der Workflow installiert – z. B. `1.5.0`. Siehe [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`   | Geheimnis. Nur beim Selbsthosten der Plans-App an einem anderen Ursprung.                                                                                   |
+| Geheimnis/Variable       | Standard                                                              | Wenn Sie es brauchen                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                                     | Geheimnis. Zusammen mit `VISUAL_RECAP_AGENT=codex` einstellen, um die Zusammenfassung stattdessen mit Codex auszuführen.                                                                                                                                                                                                                                    |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                              | Variable. Wählt das Coding-Agent-Backend (`claude` oder `codex`) aus.                                                                                                                                                                                                                                                                                       |
+| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` für Claude; für das kompatible Backend erforderlich | Variable. Anbieter-Modell-ID für OpenAI-kompatible Backends (dort erforderlich). Für Claude führt ein nicht gesetzter Wert jetzt standardmäßig zu `claude-sonnet-5` – setzen Sie ihn, um es zu überschreiben, z. B. `claude-haiku-4-5` für die günstigste Stufe. Für Codex verwendet ein nicht gesetzter Wert die eigene Standardeinstellung des Codex CLI. |
+| `VISUAL_RECAP_REASONING` | Standardeinstellung jedes Modells                                     | Variable. Argumentationstiefe: `none`, `minimal`, `low`, `medium`, `high` oder `xhigh`. Gilt für das Codex-Backend.                                                                                                                                                                                                                                         |
+| `RECAP_CLI_VERSION`      | `latest`                                                              | Variable. Pinnt die `@agent-native/recap-cli` CLI-Version, die der Workflow installiert – z. B. `1.5.0`. Siehe [Version pinning](#version-pinning-copy-variant).                                                                                                                                                                                            |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                                       | Geheimnis. Nur beim Selbsthosten der Plans-App an einem anderen Ursprung.                                                                                                                                                                                                                                                                                   |
 
-Der Workflow erkennt automatisch, wie sein Hilfsprogramm CLI (lokale Quelle in diesem Monorepo, das an anderer Stelle veröffentlichte `@agent-native/core`) aufgerufen wird, sodass keine `RECAP_CLI`-Variable festgelegt werden muss.
+Der Workflow erkennt automatisch, wie sein Hilfsprogramm CLI (lokale Quelle in diesem Monorepo, das an anderer Stelle veröffentlichte `@agent-native/recap-cli`) aufgerufen wird, sodass keine `RECAP_CLI`-Variable festgelegt werden muss.
 
 ## Inline-Screenshot im Kommentar
 
@@ -337,9 +377,9 @@ Rekapitulieren, ohne Rekapitulationsinhalte an die Agent-Native-Plandatenbank zu
 gleicher Hilfsablauf lokal im Modus „Lokale Dateien“ stattdessen:
 
 ```bash
-npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
-npx @agent-native/core@latest recap scan --diff recap.diff
-npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+npx @agent-native/recap-cli@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/recap-cli@latest recap scan --diff recap.diff
+npx @agent-native/recap-cli@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
 Geben Sie das generierte `recap-prompt.md` an Ihren Codierungsagenten. Im lokalen Dateimodus
@@ -369,7 +409,7 @@ Die Zusammenfassung ist eine Überprüfungshilfe, die über dem normalen PR-Abla
 
 ## Versionspinning (Kopiervariante) {#version-pinning-copy-variant}
 
-Standardmäßig installiert der Kopiervarianten-Workflow `@agent-native/core@latest` zur Laufzeit, sodass bei jedem Wiederholungslauf automatisch das neueste CLI übernommen wird. Wenn Ihr CI reproduzierbare Tools benötigt, legen Sie die Repository-Variable **`RECAP_CLI_VERSION`** fest, um die installierte Version anzuheften:
+Standardmäßig installiert der Kopiervarianten-Workflow `@agent-native/recap-cli@latest` zur Laufzeit, sodass bei jedem Wiederholungslauf automatisch das neueste CLI übernommen wird. Wenn Ihr CI reproduzierbare Tools benötigt, legen Sie die Repository-Variable **`RECAP_CLI_VERSION`** fest, um die installierte Version anzuheften:
 
 1. Gehen Sie zu **Einstellungen → Geheimnisse und Variablen → Actions → Variablen** Ihres Repos.
 2. Erstellen Sie eine Variable namens `RECAP_CLI_VERSION` mit einem Wert wie `1.5.0`.
@@ -380,7 +420,7 @@ Verwenden Sie für die wiederverwendbare Caller-Variante stattdessen die Eingabe
 
 ## Zulassungsliste für geheime Scans
 
-Vor der Veröffentlichung einer Zusammenfassung führt der Workflow `npx @agent-native/core@latest recap scan` aus, um wahrscheinliche Geheimnisse im Diff zu erkennen. Jeder PR, dessen Diff mit einem bekannten geheimen Muster übereinstimmt, wird mit einem erläuternden Kommentar blockiert – die Zusammenfassung wird nicht veröffentlicht und es werden keine Diff-Inhalte an den Codierungsagenten gesendet.
+Vor der Veröffentlichung einer Zusammenfassung führt der Workflow `npx @agent-native/recap-cli@latest recap scan` aus, um wahrscheinliche Geheimnisse im Diff zu erkennen. Jeder PR, dessen Diff mit einem bekannten geheimen Muster übereinstimmt, wird mit einem erläuternden Kommentar blockiert – die Zusammenfassung wird nicht veröffentlicht und es werden keine Diff-Inhalte an den Codierungsagenten gesendet.
 
 In seltenen Fällen verfügt ein Repo über absichtliche Test-Fixtures oder nicht geheime Zeichenfolgen, die oberflächlich betrachtet geheimen Mustern ähneln (z. B. ein Fixture-Schlüssel in einer Testdatei). Um ein falsch positives Ergebnis zu unterdrücken, erstellen Sie `.github/recap-scan-allowlist` im Stammverzeichnis Ihres Repositorys.
 
@@ -414,7 +454,7 @@ Die Zulassungsliste wird nur vom Secret-Scan-Gate konsultiert. Es hat keinen Ein
 
 ### Warum die wiederverwendbare Variante verwenden?
 
-Das Standardinstallationsprogramm kopiert den vollständigen ~360-Zeilen-Workflow YAML in Ihr Repo (die Option **Kopieren**). Dies ist die richtige Wahl für Air-Gap-Repos oder Repos, die jede Zeile ihrer Ausführung prüfen müssen. Der Nachteil ist, dass Fehlerkorrekturen und Verbesserungen Sie nie erreichen – Sie müssen `npx @agent-native/core@latest recap setup` nach jeder Veröffentlichung manuell erneut ausführen.
+Das Standardinstallationsprogramm kopiert den vollständigen ~360-Zeilen-Workflow YAML in Ihr Repo (die Option **Kopieren**). Dies ist die richtige Wahl für Air-Gap-Repos oder Repos, die jede Zeile ihrer Ausführung prüfen müssen. Der Nachteil ist, dass Fehlerkorrekturen und Verbesserungen Sie nie erreichen – Sie müssen `npx @agent-native/recap-cli@latest recap setup` nach jeder Veröffentlichung manuell erneut ausführen.
 
 Die Option **wiederverwendbar** schreibt stattdessen einen dünnen Aufrufer mit ca. 20 Leitungen. Es wird über `uses:` an `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` delegiert. Jeder Aufrufer ruft automatisch die neueste Logik ab, wenn der Workflow ausgeführt wird, ohne dass eine lokale Aktualisierung erforderlich ist.
 
@@ -427,7 +467,7 @@ Die Option **wiederverwendbar** schreibt stattdessen einen dünnen Aufrufer mit 
 
 ### Anrufer-Snippet
 
-Das schreibt `npx @agent-native/core@latest recap setup --reusable` (oder Sie können es manuell einfügen):
+Das schreibt `npx @agent-native/recap-cli@latest recap setup --reusable` (oder Sie können es manuell einfügen):
 
 ```yaml
 name: PR Visual Recap
@@ -439,10 +479,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -460,24 +501,27 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
-      # cli-version: "latest"  # pin to a specific @agent-native/core version
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
+      # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
-Es gelten die gleichen Geheimnisse und Variablen wie in [Secrets and variables](#secrets-and-variables) beschrieben – legen Sie sie in Ihren Repo-Einstellungen auf die gleiche Weise fest wie für die Kopiervariante.
+Es gelten dieselben Geheimnisse und Variablen wie unter [Secrets and variables](#secrets-and-variables). Der wiederverwendbare Aufrufer leitet `VISUAL_RECAP_RUNS_ON` als `runs-on` für den vollständigen Job und `VISUAL_RECAP_GATE_RUNS_ON` als einfaches `gate-runs-on`-Label für das Gate weiter. Ohne Eingabe verwenden beide `ubuntu-latest`.
 
 ### Installation über CLI
 
 ```bash
 # Schreiben Sie den Thin Caller anstelle der vollständigen Kopie:
-npx @agent-native/core@latest recap setup --reusable
+npx @agent-native/recap-cli@latest recap setup --reusable
 
 # Oder mit einer angehefteten Referenz zur Reproduzierbarkeit:
-npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+npx @agent-native/recap-cli@latest recap setup --reusable --ref v1.2.3
 ```
 
 Beide Varianten schreiben den Workflow nach `.github/workflows/pr-visual-recap.yml`. Wenn bereits ein vorhandener Workflow vorhanden ist und dieser abweicht, lehnt der Befehl ab und fordert Sie auf, `--force` zum Überschreiben zu übergeben.
 
-Führen Sie nach dem Schreiben wie gewohnt `npx @agent-native/core@latest recap doctor` aus, um zu bestätigen, dass die Geheimnisse konfiguriert sind.
+Führen Sie nach dem Schreiben wie gewohnt `npx @agent-native/recap-cli@latest recap doctor` aus, um zu bestätigen, dass die Geheimnisse konfiguriert sind.
 
 ### Versionsfixierung
 
@@ -487,7 +531,7 @@ Standardmäßig verweist der Aufrufer auf `@main`, das immer die neueste veröff
 uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
 ```
 
-Die `cli-version`-Eingabe steuert, welche `@agent-native/core` CLI-Version im Workflow ausgeführt wird – belassen Sie sie bei `"latest"`, um die neueste Version zu verfolgen, oder heften Sie sie für eine vollständige Reproduzierbarkeit an eine Versionszeichenfolge (z. B. `"1.5.0"`).
+Die `cli-version`-Eingabe steuert, welche `@agent-native/recap-cli` CLI-Version im Workflow ausgeführt wird – belassen Sie sie bei `"latest"`, um die neueste Version zu verfolgen, oder heften Sie sie für eine vollständige Reproduzierbarkeit an eine Versionszeichenfolge (z. B. `"1.5.0"`).
 
 ### workflow_call-Ereigniskontext
 

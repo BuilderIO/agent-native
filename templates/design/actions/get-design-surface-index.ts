@@ -25,7 +25,7 @@ import type {
   DesignBreakpoint,
   DesignStateKind,
 } from "../shared/design-surface-index.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -449,24 +449,8 @@ export default defineAction({
     const db = getDb();
 
     // ── Resolve source type ──────────────────────────────────────────────────
-    let rawSourceType: unknown = "inline";
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          !Array.isArray(parsed) &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Stale/invalid JSON — default to "inline".
-      }
-    }
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
+    const sourceType = designSourceTypeFromData(rawData);
     const capabilities = resolveSourceCapabilities(sourceType);
     const availableCapabilities = Object.entries(capabilities)
       .filter(([, entry]) => entry.status === "available")

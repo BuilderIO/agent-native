@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-a0ipml"
   title={"テンプレートプロジェクトの構成"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 フレームワーク Drizzle ヘルパーを使用してドメイン テーブルを定義し、SQLite、Postgres、D1、Turso、Supabase、Neon、およびその他のサポートされているバックエンド間でスキーマの移植性を維持します。
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 アプリの読み取りと書き込みには、Drizzle のクエリ ビルダーと `drizzle-orm` のポータブル オペレーターを使用します。 Drizzle でクエリを表現できる場合は、生の SQL を使用して製品コードを記述しないでください。また、テンプレートで `drizzle-orm/sqlite-core` または `drizzle-orm/pg-core` からインポートしないでください。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -273,8 +270,10 @@ export default runMigrations(
 ルートは `app/routes/` に存在し、React Router v8 ファイル ルーティングを使用します。 actions または API ハンドラーを通じてデータをクエリし、デフォルトでミューテーションを楽観的にします。
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +289,7 @@ export default function ProjectsPage() {
 ライブ同期をアプリ シェルの近くに 1 回接続して、エージェント、別のタブ、またはアクションがデータを変更したときに React クエリ キャッシュが更新されるようにします。
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +302,7 @@ export function AppSync() {
 **エージェント ネイティブの約束: エージェントの書き込みは手動更新なしで UI に表示されます。** `useActionQuery` が簡単なパスです。変更アクションが `source: "action"` を発行すると、すべてのフックが再フェッチされます。カスタム キー (統合ステータスを読み取る低レベルのクライアント ヘルパーなど) を使用して生の `useQuery` に到達する場合は、ターゲットを絞った更新のためにソースごとのカウンターを queryKey に組み込みます。
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -326,7 +325,7 @@ useQuery({
 アプリケーション状態の書き込み、タブスコープのコマンド読み取り、読み取り後の削除、および重複コマンド保護の一貫性を維持するには、UI フックに `useAgentRouteState` を使用します。
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -349,8 +348,7 @@ URL クエリ パラメータで共有可能なフィルターを保持します
 `path` (URL が既知の場合)。同じ動きに対して `__set_url__` も書き込まないでください。
 そのキーは、フレームワーク URL ツールおよび URL のみのフィルター変更用に予約されています。
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

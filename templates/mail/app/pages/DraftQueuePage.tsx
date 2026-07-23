@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconClock,
@@ -10,7 +10,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -732,13 +732,8 @@ export function DraftQueuePage() {
             <p className="text-sm font-medium text-foreground">
               {t("mail.draftQueue.needsOrg")}
             </p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-3"
-              onClick={() => navigate("/settings")}
-            >
-              {t("mail.draftQueue.openSettings")}
+            <Button asChild variant="outline" size="sm" className="mt-3">
+              <Link to="/settings">{t("mail.draftQueue.openSettings")}</Link>
             </Button>
           </div>
         </div>

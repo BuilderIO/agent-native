@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import { buildDesignSnapshot } from "../server/lib/design-snapshot.js";
+import { lockedLayerSnapshots } from "../shared/locked-layers.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 /** Editor deep link so external agents can surface "Open design". */
@@ -108,6 +109,14 @@ export default defineAction({
       tweaks: snapshot.tweaks,
       appliedTweaks: snapshot.appliedTweaks,
       resolvedCssVars: snapshot.resolvedCssVars,
+      lockedLayers: files.flatMap((file) =>
+        lockedLayerSnapshots(file.content).map((layer) => ({
+          fileId: file.id,
+          filename: file.filename,
+          nodeId: layer.id,
+          layerName: layer.label,
+        })),
+      ),
       deepLink: designDeepLink(designId),
       ...(boundedFile
         ? {

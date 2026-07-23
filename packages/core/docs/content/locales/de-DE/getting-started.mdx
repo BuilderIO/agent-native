@@ -163,7 +163,13 @@ Fügen Sie eine Route `/response-insights` mit `useActionQuery("list-response-in
   />
 </WireframeBlock>
 
-Erweitern Sie `view-screen` und `navigate`, damit der Agent die aktuelle Route kennt und `/response-insights` öffnen kann. Ergebnisse können außerdem `href: "/response-insights"` enthalten, um im Chat einen Button "Antwort-Insights öffnen" zu zeigen.
+## 6. Agent navigieren lassen {#agent-navigation}
+
+Die Chat-Vorlage enthält die actions `view-screen` und `navigate`. Erweitern Sie sie, wenn Ihre App wächst:
+
+- `view-screen` sollte den application state lesen und die aktuelle Route, das ausgewählte Insight, aktive Filter und jeden knappen Seitenkontext zurückgeben, den der Agent braucht.
+- `navigate` sollte einen same-origin Pfad wie `/response-insights` schreiben, wenn der Agent entscheidet, dass der Nutzer das Ergebnis visuell prüfen soll.
+- Action-Ergebnisse können Links wie `href: "/response-insights"` enthalten, damit der Chat einen expliziten Button „Antwort-Insights öffnen“ anbieten kann.
 
 Wenn der Vollseiten-Chat eine App-Seite öffnet, verwenden Sie `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks` und `chatViewTransition` aus [Agent Surfaces](/docs/agent-surfaces#rich-chat), damit der Chat in die Seitenleiste gleitet und derselbe Thread erhalten bleibt.
 

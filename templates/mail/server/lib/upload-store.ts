@@ -8,7 +8,8 @@ export interface StoredUpload {
   mimeType: string;
   size: number;
   url?: string;
-  dataBase64: string;
+  /** Legacy SQL fallback used by older uploads. New uploads store provider URLs. */
+  dataBase64?: string;
   createdAt: number;
 }
 

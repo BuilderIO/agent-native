@@ -18,8 +18,8 @@
  * to open.
  *
  * Navigation is written via `writeAppState("navigate", ...)` — the same
- * mechanism used by the `navigate` action — so the caller can trigger UI
- * navigation without a round-trip.
+ * mechanism used by the `navigate` action. Because this writes transient
+ * application state, the action uses the default POST mutation transport.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1 (jump-to-source) and §7 (action surface).
  */
@@ -41,7 +41,7 @@ import {
   componentNodeIdMatches,
 } from "../shared/component-model.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,8 +80,6 @@ export default defineAction({
       .optional()
       .describe("Design file id; defaults to index.html"),
   }),
-  readOnly: true,
-  http: { method: "GET" },
   run: async ({ designId, nodeId, fileId }) => {
     const db = getDb();
 
@@ -90,24 +88,8 @@ export default defineAction({
     if (!access) throw new Error("Design not found");
 
     // ── Source type + capabilities ───────────────────────────────────────────
-    let rawSourceType: unknown = "inline";
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Default to inline.
-      }
-    }
-
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
+    const sourceType = designSourceTypeFromData(rawData);
     const caps = resolveSourceCapabilities(sourceType);
     const canResolveToFile = hasCapability(caps, "resolveNodeToFile");
 

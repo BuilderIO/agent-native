@@ -22,7 +22,7 @@ MCP 是用于将 AI 工具连接到外部功能的标准协议。当您部署代
 
 关键概念：
 
-- **自动安装** — 每个应用都免费获得 `/_agent-native/mcp`，无需设置
+- **自动安装** — 每个应用都免费获得 `/mcp`，无需设置
 - **Streamable HTTP** — 在标准 HTTP (POST + SSE) 上使用现代 MCP 传输
 - **相同的 actions** — 为代理聊天和 A2A 提供支持的完全相同的操作注册表
 - **`ask-agent` 工具** — 一种元工具，可委托给完整代理循环来执行复杂任务
@@ -41,7 +41,7 @@ MCP 是用于将 AI 工具连接到外部功能的标准协议。当您部署代
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel">
-    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    <span class="diagram-pill accent">POST /mcp</span
     ><small class="diagram-muted">Streamable HTTP</small
     ><small class="diagram-muted"
       >initialize &rarr; tools/list &rarr; tools/call</small
@@ -94,7 +94,7 @@ MCP 是用于将 AI 工具连接到外部功能的标准协议。当您部署代
 | **最适合**   | 调用您的应用的外部工具                                              | 代理间通信                             |
 | **协议**     | MCP 可流式传输 HTTP                                                 | JSON-RPC 2.0                           |
 | **工具发现** | `tools/list`                                                        | `/.well-known/agent-card.json`的代理卡 |
-| **端点**     | `/_agent-native/mcp`                                                | `/_agent-native/a2a`                   |
+| **端点**     | `/mcp`                                                              | `/_agent-native/a2a`                   |
 | **支持**     | Claude、ChatGPT、Claude Code、Cursor、Codex、Cowork 和其他 MCP 主机 | 其他代理本机应用                       |
 | **执行**     | 直接工具调用（无需额外的LLM）                                       | 完整代理循环（LLM 推理）               |
 
@@ -105,7 +105,7 @@ MCP 是用于将 AI 工具连接到外部功能的标准协议。当您部署代
 对于建议的单命令设置，请使用 [External Agents](/docs/external-agents)。如果您为支持 OAuth 的客户端手写 MCP 配置，请将您的应用添加为不带静态标头的远程 MCP 服务器：
 
 ```bash
-claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+claude mcp add --transport http mail https://mail.example.com/mcp
 ```
 
 或者在 `.mcp.json`（项目范围）或 `~/.claude.json`（用户范围）中手动写入条目：
@@ -116,7 +116,7 @@ claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.example.com/_agent-native/mcp",
+      "url": "https://mail.example.com/mcp",
     },
   },
 }
@@ -135,12 +135,12 @@ Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", bod
 任何支持 Streamable HTTP 传输的 MCP 客户端都可以连接。端点是：
 
 ```
-POST https://your-app.example.com/_agent-native/mcp
+POST https://your-app.example.com/mcp
 ```
 
 服务器支持标准MCP握手：`initialize`→`initialized`→`tools/list`→`tools/call`。
 
-<Endpoint id="doc-block-1mrk9b2" title={"MCP端点"} summary={"每个代理本机应用程序都会公开自动安装的 Streamable HTTP 端点。"} method="POST" path="/_agent-native/mcp" summary={"MCP 可流式 HTTP 端点"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-1mrk9b2" title={"MCP端点"} summary={"每个代理本机应用程序都会公开自动安装的 Streamable HTTP 端点。"} method="POST" path="/mcp" summary={"MCP 可流式 HTTP 端点"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -204,18 +204,38 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 除了单独的操作工具外，每个 MCP 服务器还包含一个 `ask-agent` 元工具。这会向应用程序的 AI 代理发送一条自然语言消息并返回响应。
 
+托管 MCP 请求使用有限时长的内联等待，这样一次较长的代理循环就不会让某个 `tools/call` 一直保持打开状态，直到客户端或网关超时。可选参数 `async` 会启动持久任务并立即返回；如果不传该参数，服务器会短暂等待以争取快速完成，若仍有工作未完成，则返回一个任务句柄。托管等待的上限为 25 秒。
+
 使用 `ask-agent` 执行复杂任务，受益于代理的推理和上下文：
 
 ```json
 {
   "name": "ask-agent",
   "arguments": {
-    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed",
+    "async": true
   }
 }
 ```
 
-代理运行与交互式聊天相同的循环 - 它可以调用多个工具、推理上下文并生成深思熟虑的响应。
+代理运行与交互式聊天相同的循环 - 它可以调用多个工具、推理上下文并生成深思熟虑的响应。尚未完成的任务会返回包含 `taskId`、`status`、`pollAfterMs` 的 JSON，以及：
+
+```json
+{
+  "poll": {
+    "tool": "ask_app_status",
+    "arguments": { "app": "mail", "taskId": "task_123" }
+  }
+}
+```
+
+使用这些参数调用 `ask_app_status` 进行轮询，直到任务达到终态。Dispatch 中应用自持的 `ask_app` 使用相同的持久任务和状态约定，在提交和轮询时都会检查所选应用的授权。
+
+当有界的暂态状态读取不可用时，`ask_app_status` 可以返回
+`status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、原始的
+`app` 和 `taskId`，以及 `pollAfterMs` / `poll`。这表示状态读取不可用，并不表示
+持久任务失败。请使用完全相同的 `app` 和 `taskId` 重试 `ask_app_status`；切勿为恢复而
+重新提交 `ask_app`，因为提交可能会重复工作。永久性的身份验证、未找到和协议错误仍然是错误。
 
 ## 身份验证 {#authentication}
 
@@ -233,14 +253,14 @@ MCP 端点支持标准远程 MCP OAuth 以及现有的不记名令牌后备：
 对于支持 OAuth 的 MCP 主机，配置不带静态标头的远程服务器 URL：
 
 ```bash
-claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/mcp
 ```
 
 第一个未经身份验证的 MCP 请求收到：
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps offline_access"
 ```
 
 发现端点：
@@ -249,9 +269,9 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | ----------------------------------------- | ------------------------- |
 | `/.well-known/oauth-protected-resource`   | RFC 9728 受保护资源元数据 |
 | `/.well-known/oauth-authorization-server` | OAuth 授权服务器元数据    |
-| `/_agent-native/mcp/oauth/register`       | 动态公共客户端注册        |
-| `/_agent-native/mcp/oauth/authorize`      | 浏览器授权+同意           |
-| `/_agent-native/mcp/oauth/token`          | 授权代码和刷新令牌授予    |
+| `/mcp/oauth/register`                     | 动态公共客户端注册        |
+| `/mcp/oauth/authorize`                    | 浏览器授权+同意           |
+| `/mcp/oauth/token`                        | 授权代码和刷新令牌授予    |
 
 <Diagram id="doc-block-bp55uo" title={"OAuth 发现流程"} summary={"401 启动发现、注册和 PKCE 授权 → 令牌交换。不记名令牌是受受众限制和范围的。"}>
 
@@ -351,7 +371,7 @@ export default defineNitroPlugin(async (nitro) => {
 您在 `analytics.example.com` 部署了分析应用程序。来自Claude代码：
 
 ```bash
-claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+claude mcp add --transport http analytics https://analytics.example.com/mcp
 ```
 
 或者在`.mcp.json`中手动添加：
@@ -362,7 +382,7 @@ claude mcp add --transport http analytics https://analytics.example.com/_agent-n
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.example.com/_agent-native/mcp",
+      "url": "https://analytics.example.com/mcp",
     },
   },
 }

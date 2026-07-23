@@ -11,8 +11,11 @@ import addSourceFieldProperty, {
 import attachSource, {
   builderCmsAttachReadMetadata,
   readInitialBuilderCmsAttachEntries,
+  readInitialBuilderCmsAttachSource,
 } from "./attach-content-database-source";
-import changeSourceRole from "./change-content-database-source-role";
+import changeSourceRole, {
+  readBuilderCmsEntriesForRoleChange,
+} from "./change-content-database-source-role";
 import disconnectSource from "./disconnect-content-database-source";
 import executeBatch from "./execute-builder-source-batch";
 import executeExecution from "./execute-builder-source-execution";
@@ -23,6 +26,7 @@ import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
+import previewReview from "./preview-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -37,6 +41,22 @@ describe("content database source actions", () => {
     });
     expect(getSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("bounds Builder review previews to an explicit selected scope", () => {
+    expect(
+      previewReview.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        scope: "selected",
+        documentIds: ["document-1"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      scope: "selected",
+      documentIds: ["document-1"],
     });
   });
 
@@ -132,12 +152,48 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts a bounded read-only Notion database details source", () => {
+    expect(
+      attachSource.schema.parse({
+        documentId: "database-page",
+        sourceType: "notion-database",
+        sourceName: "Projects",
+        sourceTable: "notion-data-source-id",
+        relationshipMode: "details",
+        join: {
+          canonicalKey: { label: "Project", type: "text" },
+          primary: {
+            keyField: "title",
+            normalizationFormula: "lower(trim(value))",
+          },
+          secondary: {
+            keyField: "title-id",
+            normalizationFormula: "lower(trim(value))",
+          },
+        },
+      }),
+    ).toMatchObject({
+      sourceType: "notion-database",
+      relationshipMode: "details",
+      limit: 100,
+      offset: 0,
+    });
+  });
+
   it("bounds initial Builder source attachment to a single continuation page", async () => {
-    const calls: Array<{ model: string; maxPages?: number }> = [];
+    const calls: Array<{
+      model: string;
+      maxPages?: number;
+      fieldPaths?: readonly string[];
+    }> = [];
     const result = await readInitialBuilderCmsAttachEntries(
       "blog-article",
       async (args) => {
-        calls.push({ model: args.model, maxPages: args.maxPages });
+        calls.push({
+          model: args.model,
+          maxPages: args.maxPages,
+          fieldPaths: args.fieldPaths,
+        });
         return {
           state: "live",
           entries: [],
@@ -155,10 +211,91 @@ describe("content database source actions", () => {
           },
         };
       },
+      ["topics", "tags"],
     );
 
     expect(result.state).toBe("live");
-    expect(calls).toEqual([{ model: "blog-article", maxPages: 1 }]);
+    expect(calls).toEqual([
+      {
+        model: "blog-article",
+        maxPages: 1,
+        fieldPaths: ["topics", "tags"],
+      },
+    ]);
+  });
+
+  it("fails Builder attachment preparation before durable source mutation when model discovery fails", async () => {
+    const calls: string[] = [];
+    await expect(
+      readInitialBuilderCmsAttachSource("blog-article", {
+        readModelFields: async () => {
+          calls.push("model-fields");
+          throw new Error("model discovery unavailable");
+        },
+        readEntries: async () => {
+          calls.push("entries");
+          return {
+            state: "live",
+            entries: [],
+            fetchedAt: "2026-01-01T00:00:00.000Z",
+            message: null,
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset: 0,
+              nextOffset: 0,
+              fetchedEntryCount: 0,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        },
+      }),
+    ).rejects.toThrow("model discovery unavailable");
+    expect(calls).toEqual(["model-fields", "entries"]);
+  });
+
+  it("fails role-change preparation before mappings can be rewritten when model discovery fails", async () => {
+    const calls: string[] = [];
+    const existingMappings = ["data.topics", "data.tags"];
+
+    await expect(
+      readBuilderCmsEntriesForRoleChange(
+        {
+          model: "blog-article",
+          existingFieldPaths: existingMappings,
+        },
+        {
+          readModelFields: async () => {
+            calls.push("model-fields");
+            throw new Error("model discovery unavailable");
+          },
+          readEntries: async (args) => {
+            calls.push("entries");
+            expect(args.fieldPaths).toEqual(existingMappings);
+            return {
+              state: "live",
+              entries: [],
+              fetchedAt: "2026-01-01T00:00:00.000Z",
+              message: null,
+              progress: {
+                requestedLimit: 500,
+                pageSize: 100,
+                startOffset: 0,
+                nextOffset: 0,
+                fetchedEntryCount: 0,
+                hasMore: false,
+                partial: false,
+                readMode: "builder-api",
+              },
+            };
+          },
+        },
+      ),
+    ).rejects.toThrow("model discovery unavailable");
+    expect(calls).toEqual(["model-fields", "entries"]);
+    expect(existingMappings).toEqual(["data.topics", "data.tags"]);
   });
 
   it("marks partial Builder source attachment reads as continuing work", () => {
@@ -438,17 +575,27 @@ describe("content database source actions", () => {
     expect(
       prepareReview.schema.parse({
         documentId: "database-page",
+        documentIds: ["document-1"],
         changeSetIds: ["change-set"],
-        pushModeConfirmation: "autosave",
-        publicationTransition: "unpublish",
-        confirmUnpublish: true,
+        pushModeConfirmation: "publish",
+        transitions: {
+          "change-set": {
+            publicationTransition: "unpublish",
+            confirmUnpublish: true,
+          },
+        },
       }),
     ).toEqual({
       documentId: "database-page",
+      documentIds: ["document-1"],
       changeSetIds: ["change-set"],
-      pushModeConfirmation: "autosave",
-      publicationTransition: "unpublish",
-      confirmUnpublish: true,
+      pushModeConfirmation: "publish",
+      transitions: {
+        "change-set": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: true,
+        },
+      },
     });
   });
 
@@ -615,6 +762,7 @@ describe("content database source actions", () => {
 
     expect(review.summary).toBe("1 Builder row has changes ready to review.");
     expect(review.rows[0]?.title).toBe("New title");
+    expect(review.rows[0]?.targetEntryId).toBe("builder-row");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
     expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);

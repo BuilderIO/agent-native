@@ -465,6 +465,18 @@ type CodeAgentHostMetadata = {
     configuredProviders?: string[];
     missingEnvVars?: string[];
   };
+  computerControl?: {
+    available: boolean;
+    desktop: {
+      accessibility: boolean;
+      screenRecording: string;
+    };
+    browser: {
+      nativeHostInstalled: boolean;
+      extensionBundled: boolean;
+      connected: boolean;
+    };
+  };
   capabilities: {
     fileBackedRuns: boolean;
     nativeTaskRunner: boolean;
@@ -475,6 +487,22 @@ type CodeAgentHostMetadata = {
     openTerminal: boolean;
     controlCommands: CodeAgentHostControlCommand[];
   };
+  error?: string;
+};
+
+type CodeAgentComputerSetupAction =
+  | "request-accessibility"
+  | "request-screen-recording"
+  | "open-accessibility-settings"
+  | "open-screen-recording-settings"
+  | "open-chrome-setup"
+  | "restart";
+
+type CodeAgentComputerSetupResult = {
+  ok: boolean;
+  action: CodeAgentComputerSetupAction;
+  message: string;
+  restartRecommended?: boolean;
   error?: string;
 };
 
@@ -558,6 +586,57 @@ type LocalAppFolderSelectResult = {
   error?: string;
 };
 
+type DesktopAppCreationSettings = {
+  appsRoot: string;
+};
+
+type DesktopCreateAppRequest = {
+  prompt: string;
+  appsRoot?: string;
+};
+
+type DesktopCreateAppResult = {
+  ok: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+  app?: import("@agent-native/shared-app-config").AppConfig;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
+type DesktopAppContextAction = "edit" | "remove" | "move-up" | "move-down";
+
+type DesktopAppRuntimeStatus = {
+  appId: string;
+  state: "waiting" | "starting" | "running" | "stopped" | "error";
+  message?: string;
+};
+
+type MultiFrontierSettings = {
+  autoContinueAfterAgreement: boolean;
+};
+
+type MultiFrontierCreateIntent = {
+  prompt: string;
+  cwd?: string;
+  autoContinueAfterAgreement: boolean;
+};
+
+type MultiFrontierReReviewIntent = {
+  reviewArtifactId: string;
+  instruction?: string;
+};
+
+type MultiFrontierActionResult = {
+  snapshot?: import("../../shared/multi-frontier-ipc.js").MultiFrontierRendererState;
+  error?: { message: string };
+};
+
+type MultiFrontierSubscriptionResult = {
+  status?: import("../../shared/subscription-status.js").SubscriptionStatus;
+  error?: { message: string };
+};
+
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
@@ -596,7 +675,12 @@ interface ElectronAPI {
   };
 
   setActiveApp(appId: string): void;
-  setActiveWebview(target: { appId: string; webContentsId?: number }): void;
+  setActiveWebview(target: {
+    appId: string;
+    webContentsId?: number;
+    active?: boolean;
+    hostBounds?: { x: number; y: number; width: number; height: number };
+  }): void;
 
   clipboard: {
     writeText(text: string): Promise<boolean>;
@@ -665,6 +749,9 @@ interface ElectronAPI {
       permissionMode?: CodeAgentPermissionMode,
     ): Promise<CodeAgentControlResult>;
     getHostMetadata(): Promise<CodeAgentHostMetadata>;
+    runComputerSetupAction(
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult>;
     listCodePacks(cwd?: string): Promise<CodeAgentCodePackResult>;
     listProjects(): Promise<CodeAgentProjectListResult>;
     selectProject(cwd: string): Promise<CodeAgentProjectSelectResult>;
@@ -673,6 +760,7 @@ interface ElectronAPI {
     openTerminal(
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult>;
+    openCodexLogin(): Promise<CodeAgentTerminalResult>;
     getRemoteConnectorStatus(): Promise<CodeAgentRemoteConnectorStatus>;
     setRemoteConnectorEnabled(
       enabled: boolean,
@@ -688,6 +776,55 @@ interface ElectronAPI {
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
   };
 
+  multiFrontier?: {
+    getSettings(): Promise<MultiFrontierSettings>;
+    updateSettings(
+      settings: Partial<MultiFrontierSettings>,
+    ): Promise<MultiFrontierSettings>;
+    getProviderStatus(
+      providerId: import("../../shared/multi-frontier-ipc.js").MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult>;
+    beginProviderLogin(
+      providerId: import("../../shared/multi-frontier-ipc.js").MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult>;
+    refreshProviderStatus(
+      providerId: import("../../shared/multi-frontier-ipc.js").MultiFrontierProviderId,
+    ): Promise<MultiFrontierSubscriptionResult>;
+    list(): Promise<
+      import("../../shared/multi-frontier-ipc.js").MultiFrontierRendererState[]
+    >;
+    create(
+      input: MultiFrontierCreateIntent,
+    ): Promise<MultiFrontierActionResult>;
+    start(collaborationId: string): Promise<MultiFrontierActionResult>;
+    go(collaborationId: string): Promise<MultiFrontierActionResult>;
+    pause(collaborationId: string): Promise<MultiFrontierActionResult>;
+    resume(
+      collaborationId: string,
+      prompt?: string,
+    ): Promise<MultiFrontierActionResult>;
+    cancel(collaborationId: string): Promise<MultiFrontierActionResult>;
+    reReview(
+      collaborationId: string,
+      input: MultiFrontierReReviewIntent,
+    ): Promise<MultiFrontierActionResult>;
+    roleSwap(
+      collaborationId: string,
+      nextDriverParticipantId: string,
+    ): Promise<MultiFrontierActionResult>;
+    subscribe(
+      collaborationId: string,
+      callback: (
+        event: import("../../shared/multi-frontier-ipc.js").MultiFrontierIpcEvent,
+      ) => void,
+    ): () => void;
+    subscribeProviderStatus(
+      callback: (
+        event: import("../../shared/multi-frontier-channels.js").MultiFrontierProviderStatusEvent,
+      ) => void,
+    ): () => void;
+  };
+
   appConfig: {
     load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     add(
@@ -700,8 +837,21 @@ interface ElectronAPI {
       id: string,
       updates: Partial<import("@agent-native/shared-app-config").AppConfig>,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    reorder(
+      id: string,
+      direction: "up" | "down",
+    ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     reset(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
     chooseLocalFolder(): Promise<LocalAppFolderSelectResult>;
+    getCreationSettings(): Promise<DesktopAppCreationSettings>;
+    updateCreationSettings(
+      settings: Partial<DesktopAppCreationSettings>,
+    ): Promise<DesktopAppCreationSettings>;
+    createFromPrompt(
+      request: DesktopCreateAppRequest,
+    ): Promise<DesktopCreateAppResult>;
+    showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
+    onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
 }
 

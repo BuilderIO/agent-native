@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import {

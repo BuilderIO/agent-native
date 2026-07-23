@@ -1,4 +1,4 @@
-import type { LocaleCode } from "@agent-native/core/client";
+import { type LocaleCode } from "@agent-native/core/client/i18n";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -10,6 +10,8 @@ const enUS = {
     clipboardUnavailable: "Clipboard access is unavailable",
     disconnect: "Disconnect",
     notConnected: "Not connected",
+    loadFailed: "Could not load this data.",
+    retry: "Retry",
     saving: "Saving...",
   },
   root: {
@@ -223,10 +225,10 @@ const enUS = {
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Calendar.",
     languageLabel: "Interface language",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
     googleCalendar: "Google Calendar",
     googleDescription: "Connect your Google Calendar to sync events.",
     googleFailed: "Google sign-in failed",
@@ -701,6 +703,7 @@ const enUS = {
     addCalendar: "Add Calendar",
     addCalendarFailed: "Failed to add calendar",
     addCalendarFromUrl: "Add calendar from URL",
+    addGuest: "Add guest",
     addGuests: "Add guests",
     addNote: "Add note",
     addLocation: "Add location",
@@ -710,6 +713,7 @@ const enUS = {
     addingMeetingLink: "Adding {{provider}} link",
     alerts: "Alerts",
     allDay: "All day",
+    allDays: "All days",
     allEvents: "All events",
     applyChangesTo: "Apply changes to",
     applyTo: "Apply to",
@@ -763,6 +767,7 @@ const enUS = {
     eventTitlePlaceholder: "Event title",
     events: "Events",
     everyWeekday: "Every weekday",
+    everyTwoWeeks: "Every 2 weeks",
     findTime: "Find a time",
     focusTime: "Focus time",
     focusTimeTimedOnly:
@@ -794,6 +799,7 @@ const enUS = {
     notifyGuestsQuestion: "Notify guests?",
     none: "None",
     office: "Office",
+    other: "Other",
     openInSidebar: "Open in sidebar",
     openInGoogleCalendar: "Open in Google Calendar",
     optionalDescription: "Optional description",
@@ -817,6 +823,7 @@ const enUS = {
     quickCreate: "Quick create",
     recurringResponseScope: "Recurring response scope",
     repeats: "Repeats",
+    repeat: "Repeat",
     reviewInvite: "Review Invite",
     responseAwaitingCount: "{{count}} awaiting",
     responseMaybeCount: "{{count}} maybe",
@@ -847,6 +854,7 @@ const enUS = {
     start: "Start",
     startDate: "Start date",
     subscribedFeeds: "Subscribed feeds",
+    thisDayOnly: "This day only",
     thisEvent: "This event",
     timeSelected: "Time selected",
     timezone: "Timezone",
@@ -867,9 +875,16 @@ const enUS = {
     viewingOwnerCalendar: "Viewing {{owner}}'s calendar",
     yourResponse: "Your response: {{status}}",
     visibility: "Visibility",
+    onDate: "on {{date}}",
+    onDay: "on {{day}}",
+    onMonthDay: "on the {{day}}",
+    weekdaysShort: "Mon–Fri",
     weekly: "Weekly",
     workingFrom: "Working from",
     workingLocation: "Working location",
+    workingLocationDesk: "Desk {{desk}}",
+    workingLocationFloor: "Floor {{floor}}",
+    workingLocationTitle: "Working location: {{location}}",
     yearly: "Yearly",
     zoom: "Zoom",
     zoomAdded: "Zoom added",
@@ -1140,6 +1155,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "添加 {{provider}} 链接",
       alerts: "警报",
       allDay: "全天",
+      allDays: "所有日期",
       allEvents: "所有活动",
       applyTo: "适用于",
       askAi: "询问人工智能",
@@ -1202,6 +1218,7 @@ const calendarSurfaceTranslations = {
       noVideo: "没有视频",
       none: "无",
       office: "办公室",
+      other: "其他",
       openInSidebar: "在侧边栏中打开",
       optionalDescription: "可选描述",
       optionalLocation: "可选位置",
@@ -1220,6 +1237,7 @@ const calendarSurfaceTranslations = {
       showAs: "显示为",
       start: "开始",
       startDate: "开始日期",
+      thisDayOnly: "仅当天",
       thisEvent: "本次活动",
       timeSelected: "选定时间",
       timezone: "时区",
@@ -1233,6 +1251,9 @@ const calendarSurfaceTranslations = {
       weekly: "每周",
       workingFrom: "工作自",
       workingLocation: "工作地点",
+      workingLocationDesk: "工位 {{desk}}",
+      workingLocationFloor: "楼层 {{floor}}",
+      workingLocationTitle: "工作地点：{{location}}",
       yearly: "每年",
       zoom: "Zoom",
       zoomAdded: "添加Zoom",
@@ -1433,6 +1454,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "Añadiendo enlace {{provider}}",
       alerts: "Alertas",
       allDay: "Todo el día",
+      allDays: "Todos los días",
       allEvents: "Todos los eventos",
       applyTo: "Referirse a",
       askAi: "Pregúntale a la IA",
@@ -1498,6 +1520,7 @@ const calendarSurfaceTranslations = {
       noVideo: "Sin vídeo",
       none: "Ninguno",
       office: "Oficina",
+      other: "Otro",
       openInSidebar: "Abrir en la barra lateral",
       optionalDescription: "Descripción opcional",
       optionalLocation: "Ubicación opcional",
@@ -1517,6 +1540,7 @@ const calendarSurfaceTranslations = {
       showAs: "Mostrar como",
       start: "Comenzar",
       startDate: "Fecha de inicio",
+      thisDayOnly: "Solo este día",
       thisEvent: "este evento",
       timeSelected: "Hora seleccionada",
       timezone: "Zona horaria",
@@ -1530,6 +1554,9 @@ const calendarSurfaceTranslations = {
       weekly: "Semanalmente",
       workingFrom: "Trabajando desde",
       workingLocation: "Lugar de trabajo",
+      workingLocationDesk: "Escritorio {{desk}}",
+      workingLocationFloor: "Piso {{floor}}",
+      workingLocationTitle: "Lugar de trabajo: {{location}}",
       yearly: "Anual",
       zoom: "Zoom",
       zoomAdded: "Zoom añadido",
@@ -1736,6 +1763,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "Ajout du lien {{provider}}",
       alerts: "Alertes",
       allDay: "Toute la journée",
+      allDays: "Tous les jours",
       allEvents: "Tous les événements",
       applyTo: "Postuler à",
       askAi: "Demandez à l'IA",
@@ -1802,6 +1830,7 @@ const calendarSurfaceTranslations = {
       noVideo: "Pas de vidéo",
       none: "Aucun",
       office: "Bureau",
+      other: "Autre",
       openInSidebar: "Ouvrir dans la barre latérale",
       optionalDescription: "Description facultative",
       optionalLocation: "Emplacement facultatif",
@@ -1821,6 +1850,7 @@ const calendarSurfaceTranslations = {
       showAs: "Afficher comme",
       start: "Commencer",
       startDate: "Date de début",
+      thisDayOnly: "Ce jour uniquement",
       thisEvent: "Cet événement",
       timeSelected: "Heure sélectionnée",
       timezone: "Fuseau horaire",
@@ -1834,6 +1864,9 @@ const calendarSurfaceTranslations = {
       weekly: "Hebdomadaire",
       workingFrom: "Travailler à partir de",
       workingLocation: "Lieu de travail",
+      workingLocationDesk: "Bureau {{desk}}",
+      workingLocationFloor: "Étage {{floor}}",
+      workingLocationTitle: "Lieu de travail : {{location}}",
       yearly: "Annuel",
       zoom: "Zoom",
       zoomAdded: "Zoom ajouté",
@@ -2039,6 +2072,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "{{provider}}-Link hinzufügen",
       alerts: "Warnungen",
       allDay: "Den ganzen Tag",
+      allDays: "Alle Tage",
       allEvents: "Alle Veranstaltungen",
       applyTo: "Bewerben Sie sich bei",
       askAi: "Fragen Sie die KI",
@@ -2106,6 +2140,7 @@ const calendarSurfaceTranslations = {
       noVideo: "Kein Video",
       none: "Keine",
       office: "Büro",
+      other: "Andere",
       openInSidebar: "In der Seitenleiste öffnen",
       optionalDescription: "Optionale Beschreibung",
       optionalLocation: "Optionaler Standort",
@@ -2125,6 +2160,7 @@ const calendarSurfaceTranslations = {
       showAs: "Anzeigen als",
       start: "Starten",
       startDate: "Startdatum",
+      thisDayOnly: "Nur dieser Tag",
       thisEvent: "Dieses Ereignis",
       timeSelected: "Zeit ausgewählt",
       timezone: "Zeitzone",
@@ -2138,6 +2174,9 @@ const calendarSurfaceTranslations = {
       weekly: "Wöchentlich",
       workingFrom: "Arbeiten von",
       workingLocation: "Arbeitsort",
+      workingLocationDesk: "Schreibtisch {{desk}}",
+      workingLocationFloor: "Etage {{floor}}",
+      workingLocationTitle: "Arbeitsort: {{location}}",
       yearly: "Jährlich",
       zoom: "Zoom",
       zoomAdded: "Zoom hinzugefügt",
@@ -2337,6 +2376,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "{{provider}}リンクの追加",
       alerts: "アラート",
       allDay: "一日中",
+      allDays: "すべての日",
       allEvents: "すべてのイベント",
       applyTo: "申請先",
       askAi: "AIに聞く",
@@ -2403,6 +2443,7 @@ const calendarSurfaceTranslations = {
       noVideo: "ビデオなし",
       none: "なし",
       office: "オフィス",
+      other: "その他",
       openInSidebar: "サイドバーで開く",
       optionalDescription: "オプションの説明",
       optionalLocation: "オプションの場所",
@@ -2422,6 +2463,7 @@ const calendarSurfaceTranslations = {
       showAs: "として表示",
       start: "スタート",
       startDate: "開始日",
+      thisDayOnly: "この日のみ",
       thisEvent: "このイベント",
       timeSelected: "選択された時間",
       timezone: "タイムゾーン",
@@ -2435,6 +2477,9 @@ const calendarSurfaceTranslations = {
       weekly: "毎週",
       workingFrom: "から働く",
       workingLocation: "勤務地",
+      workingLocationDesk: "デスク {{desk}}",
+      workingLocationFloor: "{{floor}}階",
+      workingLocationTitle: "勤務地: {{location}}",
       yearly: "毎年",
       zoom: "Zoom",
       zoomAdded: "Zoom追加",
@@ -2634,6 +2679,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "{{provider}} 링크 추가",
       alerts: "경고",
       allDay: "하루 종일",
+      allDays: "모든 날",
       allEvents: "모든 이벤트",
       applyTo: "신청 대상",
       askAi: "AI에게 물어보세요",
@@ -2697,6 +2743,7 @@ const calendarSurfaceTranslations = {
       noVideo: "영상 없음",
       none: "없음",
       office: "사무실",
+      other: "기타",
       openInSidebar: "사이드바에서 열기",
       optionalDescription: "선택적 설명",
       optionalLocation: "선택적 위치",
@@ -2716,6 +2763,7 @@ const calendarSurfaceTranslations = {
       showAs: "다음으로 표시",
       start: "시작",
       startDate: "시작일",
+      thisDayOnly: "이 날만",
       thisEvent: "이번 이벤트",
       timeSelected: "선택한 시간",
       timezone: "시간대",
@@ -2729,6 +2777,9 @@ const calendarSurfaceTranslations = {
       weekly: "주간",
       workingFrom: "근무처:",
       workingLocation: "근무 위치",
+      workingLocationDesk: "좌석 {{desk}}",
+      workingLocationFloor: "{{floor}}층",
+      workingLocationTitle: "근무 위치: {{location}}",
       yearly: "매년",
       zoom: "Zoom",
       zoomAdded: "Zoom 추가됨",
@@ -2931,6 +2982,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "Adicionando link {{provider}}",
       alerts: "Alertas",
       allDay: "O dia todo",
+      allDays: "Todos os dias",
       allEvents: "Todos os eventos",
       applyTo: "Candidatar-se a",
       askAi: "Pergunte à IA",
@@ -2996,6 +3048,7 @@ const calendarSurfaceTranslations = {
       noVideo: "Nenhum vídeo",
       none: "Nenhum",
       office: "Escritório",
+      other: "Outro",
       openInSidebar: "Abrir na barra lateral",
       optionalDescription: "Descrição opcional",
       optionalLocation: "Localização opcional",
@@ -3015,6 +3068,7 @@ const calendarSurfaceTranslations = {
       showAs: "Mostrar como",
       start: "Começar",
       startDate: "Data de início",
+      thisDayOnly: "Somente este dia",
       thisEvent: "Este evento",
       timeSelected: "Hora selecionada",
       timezone: "Fuso horário",
@@ -3028,6 +3082,9 @@ const calendarSurfaceTranslations = {
       weekly: "Semanalmente",
       workingFrom: "Trabalhando de",
       workingLocation: "Local de trabalho",
+      workingLocationDesk: "Mesa {{desk}}",
+      workingLocationFloor: "Andar {{floor}}",
+      workingLocationTitle: "Local de trabalho: {{location}}",
       yearly: "Anualmente",
       zoom: "Zoom",
       zoomAdded: "Zoom adicionado",
@@ -3225,6 +3282,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "{{provider}} लिंक जोड़ा जा रहा है",
       alerts: "अलर्ट",
       allDay: "सारा दिन",
+      allDays: "सभी दिन",
       allEvents: "सभी घटनाएँ",
       applyTo: "के लिए आवेदन करें",
       askAi: "एआई से पूछें",
@@ -3288,6 +3346,7 @@ const calendarSurfaceTranslations = {
       noVideo: "कोई वीडियो नहीं",
       none: "कोई नहीं",
       office: "कार्यालय",
+      other: "अन्य",
       openInSidebar: "साइडबार में खोलें",
       optionalDescription: "वैकल्पिक विवरण",
       optionalLocation: "वैकल्पिक स्थान",
@@ -3307,6 +3366,7 @@ const calendarSurfaceTranslations = {
       showAs: "के रूप में दिखाएँ",
       start: "प्रारंभ करें",
       startDate: "आरंभ तिथि",
+      thisDayOnly: "केवल यह दिन",
       thisEvent: "यह घटना",
       timeSelected: "समय चयनित",
       timezone: "समयक्षेत्र",
@@ -3320,6 +3380,9 @@ const calendarSurfaceTranslations = {
       weekly: "साप्ताहिक",
       workingFrom: "से काम कर रहे हैं",
       workingLocation: "कार्य स्थान",
+      workingLocationDesk: "डेस्क {{desk}}",
+      workingLocationFloor: "मंज़िल {{floor}}",
+      workingLocationTitle: "कार्य स्थान: {{location}}",
       yearly: "वार्षिक",
       zoom: "Zoom",
       zoomAdded: "Zoom जोड़ा गया",
@@ -3517,6 +3580,7 @@ const calendarSurfaceTranslations = {
       addingMeetingLink: "إضافة رابط {{provider}}",
       alerts: "التنبيهات",
       allDay: "طوال اليوم",
+      allDays: "كل الأيام",
       allEvents: "جميع الأحداث",
       applyTo: "تنطبق على",
       askAi: "اسأل الذكاء الاصطناعي",
@@ -3581,6 +3645,7 @@ const calendarSurfaceTranslations = {
       noVideo: "لا يوجد فيديو",
       none: "لا شيء",
       office: "مكتب",
+      other: "أخرى",
       openInSidebar: "فتح في الشريط الجانبي",
       optionalDescription: "وصف اختياري",
       optionalLocation: "الموقع الاختياري",
@@ -3600,6 +3665,7 @@ const calendarSurfaceTranslations = {
       showAs: "إظهار كـ",
       start: "ابدأ",
       startDate: "تاريخ البدء",
+      thisDayOnly: "هذا اليوم فقط",
       thisEvent: "هذا الحدث",
       timeSelected: "الوقت المحدد",
       timezone: "المنطقة الزمنية",
@@ -3613,6 +3679,9 @@ const calendarSurfaceTranslations = {
       weekly: "أسبوعيا",
       workingFrom: "العمل من",
       workingLocation: "موقع العمل",
+      workingLocationDesk: "المكتب {{desk}}",
+      workingLocationFloor: "الطابق {{floor}}",
+      workingLocationTitle: "موقع العمل: {{location}}",
       yearly: "سنويا",
       zoom: "Zoom",
       zoomAdded: "تمت إضافة Zoom",
@@ -3650,6 +3719,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "无法访问剪贴板",
       disconnect: "断开连接",
       notConnected: "未连接",
+      loadFailed: "无法加载此数据。",
+      retry: "重试",
       saving: "正在保存...",
     },
     root: {
@@ -3706,6 +3777,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "El acceso al portapapeles no está disponible",
       disconnect: "Desconectar",
       notConnected: "No conectado",
+      loadFailed: "No se pudieron cargar estos datos.",
+      retry: "Reintentar",
       saving: "Guardando...",
     },
     root: {
@@ -3763,6 +3836,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "L’accès au presse-papiers n’est pas disponible",
       disconnect: "Déconnecter",
       notConnected: "Non connecté",
+      loadFailed: "Impossible de charger ces données.",
+      retry: "Réessayer",
       saving: "Enregistrement...",
     },
     root: {
@@ -3822,6 +3897,8 @@ export const messagesByLocale = {
         "Zugriff auf die Zwischenablage ist nicht verfügbar",
       disconnect: "Trennen",
       notConnected: "Nicht verbunden",
+      loadFailed: "Diese Daten konnten nicht geladen werden.",
+      retry: "Erneut versuchen",
       saving: "Speichern...",
     },
     root: {
@@ -3880,6 +3957,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "クリップボードへのアクセスは利用できません",
       disconnect: "切断",
       notConnected: "未接続",
+      loadFailed: "このデータを読み込めませんでした。",
+      retry: "再試行",
       saving: "保存中...",
     },
     root: {
@@ -3936,6 +4015,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "클립보드 접근을 사용할 수 없습니다",
       disconnect: "연결 해제",
       notConnected: "연결되지 않음",
+      loadFailed: "이 데이터를 불러올 수 없습니다.",
+      retry: "다시 시도",
       saving: "저장 중...",
     },
     root: {
@@ -3993,6 +4074,8 @@ export const messagesByLocale = {
         "O acesso à área de transferência não está disponível",
       disconnect: "Desconectar",
       notConnected: "Não conectado",
+      loadFailed: "Não foi possível carregar estes dados.",
+      retry: "Tentar novamente",
       saving: "Salvando...",
     },
     root: {
@@ -4050,6 +4133,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "क्लिपबोर्ड एक्सेस उपलब्ध नहीं है",
       disconnect: "डिस्कनेक्ट करें",
       notConnected: "कनेक्टेड नहीं",
+      loadFailed: "यह डेटा लोड नहीं किया जा सका।",
+      retry: "फिर से प्रयास करें",
       saving: "सहेज रहे हैं...",
     },
     root: {
@@ -4105,6 +4190,8 @@ export const messagesByLocale = {
       clipboardUnavailable: "الوصول إلى الحافظة غير متاح",
       disconnect: "قطع الاتصال",
       notConnected: "غير متصل",
+      loadFailed: "تعذر تحميل هذه البيانات.",
+      retry: "إعادة المحاولة",
       saving: "جارٍ الحفظ...",
     },
     root: {
@@ -4156,10 +4243,9 @@ export const messagesByLocale = {
 const translatedCalendarExtras = {
   "zh-CN": {
     settings: {
-      agentTitle: "代理设置",
-      agentDescription:
-        "打开代理侧边栏设置，管理模型、API 密钥、自动化、语音和其他代理控制项。",
-      openAgentSettings: "打开代理设置",
+      agentTitle: "管理代理",
+      agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
+      openAgentSettings: "管理代理",
       zoomDescription: "连接 Zoom，为日历事件和预约创建会议链接。",
       zoomNotConfigured: "未配置",
       zoomCredentialsPrompt: "添加 Zoom OAuth 凭据以启用连接。",
@@ -4221,10 +4307,10 @@ const translatedCalendarExtras = {
   },
   "es-ES": {
     settings: {
-      agentTitle: "Ajustes del agente",
+      agentTitle: "Gestionar agente",
       agentDescription:
-        "Abre los ajustes de la barra lateral del agente para modelo, claves API, automatizaciones, voz y otros controles.",
-      openAgentSettings: "Abrir ajustes del agente",
+        "Gestiona el modelo del agente, claves API, automatizaciones, voz y otros controles.",
+      openAgentSettings: "Gestionar agente",
       zoomDescription:
         "Conecta Zoom para crear enlaces de reunión para eventos y reservas.",
       zoomNotConfigured: "No configurado",
@@ -4291,10 +4377,10 @@ const translatedCalendarExtras = {
   },
   "fr-FR": {
     settings: {
-      agentTitle: "Paramètres de l'agent",
+      agentTitle: "Gérer l'agent",
       agentDescription:
-        "Ouvrez les paramètres de la barre latérale de l'agent pour le modèle, les clés API, les automatisations, la voix et les autres contrôles.",
-      openAgentSettings: "Ouvrir les paramètres de l'agent",
+        "Gérez le modèle de l'agent, les clés API, les automatisations, la voix et les autres contrôles.",
+      openAgentSettings: "Gérer l'agent",
       zoomDescription:
         "Connectez Zoom pour créer des liens de réunion pour les événements et les réservations.",
       zoomNotConfigured: "Non configuré",
@@ -4362,10 +4448,10 @@ const translatedCalendarExtras = {
   },
   "de-DE": {
     settings: {
-      agentTitle: "Agent-Einstellungen",
+      agentTitle: "Agent verwalten",
       agentDescription:
-        "Öffnet die Agent-Seitenleisten-Einstellungen für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Agent-Steuerungen.",
-      openAgentSettings: "Agent-Einstellungen öffnen",
+        "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+      openAgentSettings: "Agent verwalten",
       zoomDescription:
         "Verbinde Zoom, um Meeting-Links für Kalenderereignisse und Buchungen zu erstellen.",
       zoomNotConfigured: "Nicht konfiguriert",
@@ -4431,10 +4517,10 @@ const translatedCalendarExtras = {
   },
   "ja-JP": {
     settings: {
-      agentTitle: "エージェント設定",
+      agentTitle: "エージェントを管理",
       agentDescription:
-        "モデル、API キー、自動化、音声、その他のエージェント制御を管理するサイドバー設定を開きます。",
-      openAgentSettings: "エージェント設定を開く",
+        "エージェントのモデル、API キー、自動化、音声などを管理します。",
+      openAgentSettings: "エージェントを管理",
       zoomDescription:
         "Zoom を接続して、カレンダーイベントと予約用の会議リンクを作成します。",
       zoomNotConfigured: "未設定",
@@ -4499,10 +4585,10 @@ const translatedCalendarExtras = {
   },
   "ko-KR": {
     settings: {
-      agentTitle: "에이전트 설정",
+      agentTitle: "에이전트 관리",
       agentDescription:
-        "모델, API 키, 자동화, 음성 및 기타 에이전트 제어를 위한 에이전트 사이드바 설정을 엽니다.",
-      openAgentSettings: "에이전트 설정 열기",
+        "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+      openAgentSettings: "에이전트 관리",
       zoomDescription:
         "Zoom을 연결해 캘린더 이벤트와 예약용 회의 링크를 만듭니다.",
       zoomNotConfigured: "구성되지 않음",
@@ -4565,10 +4651,10 @@ const translatedCalendarExtras = {
   },
   "pt-BR": {
     settings: {
-      agentTitle: "Configurações do agente",
+      agentTitle: "Gerenciar agente",
       agentDescription:
-        "Abra as configurações da barra lateral do agente para modelo, chaves de API, automações, voz e outros controles.",
-      openAgentSettings: "Abrir configurações do agente",
+        "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+      openAgentSettings: "Gerenciar agente",
       zoomDescription:
         "Conecte o Zoom para criar links de reunião para eventos e reservas.",
       zoomNotConfigured: "Não configurado",
@@ -4636,10 +4722,10 @@ const translatedCalendarExtras = {
   },
   "hi-IN": {
     settings: {
-      agentTitle: "एजेंट सेटिंग्स",
+      agentTitle: "एजेंट प्रबंधित करें",
       agentDescription:
-        "मॉडल, API कुंजियां, ऑटोमेशन, आवाज़ और दूसरे एजेंट नियंत्रणों के लिए एजेंट साइडबार सेटिंग्स खोलें।",
-      openAgentSettings: "एजेंट सेटिंग्स खोलें",
+        "एजेंट के मॉडल, API कुंजियों, ऑटोमेशन, आवाज़ और अन्य नियंत्रणों को प्रबंधित करें।",
+      openAgentSettings: "एजेंट प्रबंधित करें",
       zoomDescription: "कैलेंडर इवेंट और बुकिंग के लिए मीटिंग लिंक बनाने हेतु Zoom कनेक्ट करें।",
       zoomNotConfigured: "कॉन्फ़िगर नहीं है",
       zoomCredentialsPrompt: "कनेक्शन सक्षम करने के लिए Zoom OAuth क्रेडेंशियल जोड़ें।",
@@ -4702,10 +4788,10 @@ const translatedCalendarExtras = {
   },
   "ar-SA": {
     settings: {
-      agentTitle: "إعدادات الوكيل",
+      agentTitle: "إدارة الوكيل",
       agentDescription:
-        "افتح إعدادات الشريط الجانبي للوكيل للنموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-      openAgentSettings: "فتح إعدادات الوكيل",
+        "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+      openAgentSettings: "إدارة الوكيل",
       zoomDescription:
         "اربط Zoom لإنشاء روابط اجتماعات لأحداث التقويم والحجوزات.",
       zoomNotConfigured: "غير مكوّن",
@@ -6039,6 +6125,108 @@ const translatedCalendarDebtTranslations = {
             'انقر على "Download JSON" في صفحة بيانات الاعتماد، ثم قم بتحميله هنا.',
         },
       },
+    },
+  },
+} satisfies Partial<Record<LocaleCode, PartialMessages>>;
+
+const translatedCalendarInlineEditorLabels = {
+  "zh-CN": {
+    eventForm: {
+      addGuest: "添加客人",
+      everyTwoWeeks: "每两周",
+      repeat: "重复",
+      onDate: "于 {{date}}",
+      onDay: "于 {{day}}",
+      onMonthDay: "于 {{day}}日",
+      weekdaysShort: "周一至周五",
+    },
+  },
+  "es-ES": {
+    eventForm: {
+      addGuest: "Añadir invitado",
+      everyTwoWeeks: "Cada 2 semanas",
+      repeat: "Repetir",
+      onDate: "el {{date}}",
+      onDay: "el {{day}}",
+      onMonthDay: "el día {{day}}",
+      weekdaysShort: "lun–vie",
+    },
+  },
+  "fr-FR": {
+    eventForm: {
+      addGuest: "Ajouter un invité",
+      everyTwoWeeks: "Toutes les 2 semaines",
+      repeat: "Répéter",
+      onDate: "le {{date}}",
+      onDay: "le {{day}}",
+      onMonthDay: "le {{day}}",
+      weekdaysShort: "lun–ven",
+    },
+  },
+  "de-DE": {
+    eventForm: {
+      addGuest: "Gast hinzufügen",
+      everyTwoWeeks: "Alle 2 Wochen",
+      repeat: "Wiederholen",
+      onDate: "am {{date}}",
+      onDay: "am {{day}}",
+      onMonthDay: "am {{day}}.",
+      weekdaysShort: "Mo–Fr",
+    },
+  },
+  "ja-JP": {
+    eventForm: {
+      addGuest: "ゲストを追加",
+      everyTwoWeeks: "2週間ごと",
+      repeat: "繰り返し",
+      onDate: "{{date}}",
+      onDay: "{{day}}に",
+      onMonthDay: "{{day}}日",
+      weekdaysShort: "月〜金",
+    },
+  },
+  "ko-KR": {
+    eventForm: {
+      addGuest: "게스트 추가",
+      everyTwoWeeks: "2주마다",
+      repeat: "반복",
+      onDate: "{{date}}",
+      onDay: "{{day}}에",
+      onMonthDay: "{{day}}일",
+      weekdaysShort: "월–금",
+    },
+  },
+  "pt-BR": {
+    eventForm: {
+      addGuest: "Adicionar convidado",
+      everyTwoWeeks: "A cada 2 semanas",
+      repeat: "Repetir",
+      onDate: "em {{date}}",
+      onDay: "em {{day}}",
+      onMonthDay: "no dia {{day}}",
+      weekdaysShort: "seg–sex",
+    },
+  },
+  "hi-IN": {
+    eventForm: {
+      addGuest: "अतिथि जोड़ें",
+      everyTwoWeeks: "हर 2 सप्ताह",
+      repeat: "दोहराएं",
+      onDate: "{{date}} को",
+      onDay: "{{day}} को",
+      onMonthDay: "{{day}} को",
+      weekdaysShort: "सोम–शुक्र",
+    },
+  },
+  "ar-SA": {
+    eventForm: {
+      addGuest: "إضافة ضيف",
+      everyTwoWeeks: "كل أسبوعين",
+      repeat: "تكرار",
+      onDate: "في {{date}}",
+      onDay: "في {{day}}",
+      onMonthDay: "في اليوم {{day}}",
+      weekdaysShort: "الإثنين–الجمعة",
     },
   },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
@@ -9476,6 +9664,7 @@ function applyTranslatedCalendarOverrides(
 
 applyTranslatedCalendarOverrides(translatedCalendarExtras);
 applyTranslatedCalendarOverrides(translatedCalendarDebtTranslations);
+applyTranslatedCalendarOverrides(translatedCalendarInlineEditorLabels);
 applyTranslatedCalendarOverrides(translatedCalendarRemainingRaw);
 applyTranslatedCalendarOverrides(translatedCalendarRawBurnDown);
 applyTranslatedCalendarOverrides(translatedCalendarExactCleanup);

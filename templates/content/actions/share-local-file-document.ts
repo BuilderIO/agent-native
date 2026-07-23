@@ -5,7 +5,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -13,12 +13,20 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { setFavoriteMembership } from "./_content-favorites.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  organizationContentSpaceId,
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
   isLocalFileDocumentId,
   localDocumentPathFromId,
 } from "./_local-file-documents.js";
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -85,6 +93,15 @@ export default defineAction({
     const now = new Date().toISOString();
     const orgId = getRequestOrgId() ?? null;
     const db = getDb();
+    const provisioned = await provisionContentSpaces(db, userEmail);
+    const targetSpaceId = orgId
+      ? organizationContentSpaceId(orgId)
+      : personalContentSpaceId(userEmail);
+    if (!provisioned.spaceIds.includes(targetSpaceId)) {
+      throw new Error(
+        "The active organization does not have a writable Content space.",
+      );
+    }
 
     const [existing] = await db
       .select()
@@ -95,6 +112,10 @@ export default defineAction({
           eq(schema.documents.sourceMode, "database"),
           eq(schema.documents.sourceKind, "local-file-copy"),
           eq(schema.documents.sourcePath, sourcePath),
+          or(
+            eq(schema.documents.spaceId, targetSpaceId),
+            isNull(schema.documents.spaceId),
+          ),
         ),
       )
       .limit(1);
@@ -103,6 +124,7 @@ export default defineAction({
       await db
         .update(schema.documents)
         .set({
+          spaceId: existing.spaceId ?? targetSpaceId,
           title: localDocument.title,
           content: localDocument.content,
           icon: localDocument.icon,
@@ -114,6 +136,15 @@ export default defineAction({
         })
         .where(eq(schema.documents.id, existing.id));
 
+      await ensureDocumentFilesMembership(db, existing.id, now);
+      await setFavoriteMembership({
+        db,
+        userEmail,
+        documentId: existing.id,
+        favorite: localDocument.isFavorite,
+        now,
+      });
+
       const [row] = await db
         .select()
         .from(schema.documents)
@@ -123,34 +154,51 @@ export default defineAction({
       return serializeDocument(row);
     }
 
-    const [{ max: maxPosition } = { max: -1 }] = await db
-      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-      .from(schema.documents)
-      .where(
-        and(eq(schema.documents.ownerEmail, userEmail), sql`parent_id IS NULL`),
-      );
-
     const documentId = nanoid();
-    await db.insert(schema.documents).values({
-      id: documentId,
-      ownerEmail: userEmail,
-      orgId,
-      parentId: null,
-      title: localDocument.title,
-      content: localDocument.content,
-      icon: localDocument.icon,
-      position: (maxPosition ?? -1) + 1,
-      isFavorite: localDocument.isFavorite ? 1 : 0,
-      hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
-      visibility: "private",
-      sourceMode: "database",
-      sourceKind: "local-file-copy",
-      sourcePath,
-      sourceRootPath: localDocument.source?.rootPath ?? null,
-      sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    await withPositionLock(
+      documentsPositionScope(userEmail, null),
+      async () => {
+        const [{ max: maxPosition } = { max: -1 }] = await db
+          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+          .from(schema.documents)
+          .where(
+            and(
+              eq(schema.documents.ownerEmail, userEmail),
+              sql`parent_id IS NULL`,
+            ),
+          );
+
+        await db.insert(schema.documents).values({
+          id: documentId,
+          spaceId: targetSpaceId,
+          ownerEmail: userEmail,
+          orgId,
+          parentId: null,
+          title: localDocument.title,
+          content: localDocument.content,
+          icon: localDocument.icon,
+          position: (maxPosition ?? -1) + 1,
+          isFavorite: localDocument.isFavorite ? 1 : 0,
+          hideFromSearch: localDocument.hideFromSearch ? 1 : 0,
+          visibility: "private",
+          sourceMode: "database",
+          sourceKind: "local-file-copy",
+          sourcePath,
+          sourceRootPath: localDocument.source?.rootPath ?? null,
+          sourceUpdatedAt: localDocument.source?.updatedAt ?? now,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await ensureDocumentFilesMembership(db, documentId, now);
+        await setFavoriteMembership({
+          db,
+          userEmail,
+          documentId,
+          favorite: localDocument.isFavorite,
+          now,
+        });
+      },
+    );
 
     const [row] = await db
       .select()

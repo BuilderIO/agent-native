@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 import type { PendingTask } from "./pending-tasks-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -9,21 +10,41 @@ const createThreadMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
 const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
+const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const getOwnerActiveApiKeyMock = vi.hoisted(() => vi.fn());
 const getOwnerApiKeyMock = vi.hoisted(() => vi.fn());
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn());
 const resolveEngineMock = vi.hoisted(() => vi.fn());
+const getConfiguredEngineNameForRequestMock = vi.hoisted(() => vi.fn());
 const getStoredModelForEngineMock = vi.hoisted(() => vi.fn());
 const isLocalDatabaseMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
+const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
+const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
+const startRunMock = vi.hoisted(() => vi.fn());
+const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const originalNodeEnv = process.env.NODE_ENV;
 
 vi.mock("./thread-mapping-store.js", () => ({
   getThreadMapping: getThreadMappingMock,
   saveThreadMapping: saveThreadMappingMock,
 }));
+
+vi.mock("./pending-tasks-store.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("./pending-tasks-store.js")
+  >("./pending-tasks-store.js");
+  return {
+    ...actual,
+    stageTaskDeliveryPayload: stageTaskDeliveryPayloadMock,
+  };
+});
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
@@ -32,8 +53,35 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 vi.mock("../org/context.js", () => ({
+  getOrgA2ASecret: getOrgA2ASecretMock,
   resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
+
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) and conflict with the narrower engine
+// mock below. This only needs to prove webhook-handler.ts WIRES the filter
+// with the right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
 
 vi.mock("../agent/production-agent.js", () => ({
   getOwnerActiveApiKey: getOwnerActiveApiKeyMock,
@@ -44,9 +92,11 @@ vi.mock("../agent/production-agent.js", () => ({
       : engineName,
   actionsToEngineTools: actionsToEngineToolsMock,
   runAgentLoop: runAgentLoopMock,
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
 }));
 
 vi.mock("../agent/engine/index.js", () => ({
+  getConfiguredEngineNameForRequest: getConfiguredEngineNameForRequestMock,
   getStoredModelForEngine: getStoredModelForEngineMock,
   normalizeModelForEngine: (
     engine: { defaultModel?: string },
@@ -70,41 +120,71 @@ vi.mock("../server/credential-provider.js", () => ({
   readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
+vi.mock("./usage-budget-store.js", () => ({
+  integrationScopeSubjectKey: (scope: {
+    platform: string;
+    tenantId: string;
+    conversationId: string;
+  }) => JSON.stringify([scope.platform, scope.tenantId, scope.conversationId]),
+  listIntegrationUsageBudgets: listIntegrationUsageBudgetsMock,
+  reserveIntegrationUsageBudget: reserveIntegrationUsageBudgetMock,
+  releaseIntegrationUsageBudget: releaseIntegrationUsageBudgetMock,
+  settleIntegrationUsageBudget: settleIntegrationUsageBudgetMock,
+}));
+
+vi.mock("./awaiting-input-store.js", () => ({
+  setIntegrationAwaitingInput: setIntegrationAwaitingInputMock,
+  clearIntegrationAwaitingInput: clearIntegrationAwaitingInputMock,
+}));
+
+vi.mock("../usage/store.js", () => ({
+  calculateCost: vi.fn(() => 25),
+  recordUsage: vi.fn(),
+}));
+
 vi.mock("../agent/run-manager.js", () => ({
-  startRun: vi.fn((runId, threadId, runFn, onComplete) => {
-    const events: any[] = [];
-    const send = (event: any) => {
-      events.push({
-        id: `event-${events.length + 1}`,
-        runId,
-        event,
-        createdAt: Date.now(),
-      });
-    };
-    Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
-      onComplete?.({
+  startRun: startRunMock.mockImplementation(
+    (runId, threadId, runFn, onComplete) => {
+      const events: any[] = [];
+      const send = (event: any) => {
+        events.push({
+          id: `event-${events.length + 1}`,
+          runId,
+          event,
+          createdAt: Date.now(),
+        });
+      };
+      Promise.resolve(runFn(send, new AbortController().signal)).then(() =>
+        onComplete?.({
+          runId,
+          threadId,
+          events,
+          status: "completed",
+          subscribers: new Set(),
+          abort: new AbortController(),
+          startedAt: Date.now(),
+        }),
+      );
+      return {
         runId,
         threadId,
         events,
-        status: "completed",
+        status: "running",
         subscribers: new Set(),
         abort: new AbortController(),
         startedAt: Date.now(),
-      }),
-    );
-    return {
-      runId,
-      threadId,
-      events,
-      status: "running",
-      subscribers: new Set(),
-      abort: new AbortController(),
-      startedAt: Date.now(),
-    };
-  }),
+      };
+    },
+  ),
 }));
 
-function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
+function createAdapter(
+  sendResponse = vi.fn(async () => ({ status: "delivered" as const })),
+  formatAgentResponse: PlatformAdapter["formatAgentResponse"] = (text) => ({
+    text,
+    platformContext: {},
+  }),
+): PlatformAdapter {
   return {
     platform: "fake",
     label: "Fake",
@@ -113,7 +193,7 @@ function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
     verifyWebhook: async () => true,
     parseIncomingMessage: async () => null,
     sendResponse,
-    formatAgentResponse: (text) => ({ text, platformContext: {} }),
+    formatAgentResponse,
     getStatus: async () => ({
       platform: "fake",
       label: "Fake",
@@ -165,13 +245,28 @@ describe("integration webhook handler engine resolution", () => {
     getThreadMock.mockResolvedValue({ threadData: "{}" });
     updateThreadDataMock.mockResolvedValue(undefined);
     resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    getOrgA2ASecretMock.mockResolvedValue(null);
     getOwnerActiveApiKeyMock.mockResolvedValue(undefined);
     getOwnerApiKeyMock.mockResolvedValue(undefined);
     isLocalDatabaseMock.mockReturnValue(true);
     readDeployCredentialEnvMock.mockReturnValue(undefined);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(true);
     actionsToEngineToolsMock.mockReturnValue([]);
+    listIntegrationUsageBudgetsMock.mockResolvedValue([]);
+    reserveIntegrationUsageBudgetMock.mockResolvedValue({
+      allowed: true,
+      status: "reserved",
+    });
+    releaseIntegrationUsageBudgetMock.mockResolvedValue({
+      status: "released",
+    });
+    settleIntegrationUsageBudgetMock.mockResolvedValue({
+      status: "settled",
+    });
+    setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
+    clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
+    getConfiguredEngineNameForRequestMock.mockResolvedValue(undefined);
     resolveEngineMock.mockResolvedValue({
       name: "builder",
       defaultModel: "builder-default-model",
@@ -186,6 +281,7 @@ describe("integration webhook handler engine resolution", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     if (originalNodeEnv === undefined) {
       delete process.env.NODE_ENV;
     } else {
@@ -199,11 +295,99 @@ describe("integration webhook handler engine resolution", () => {
   // mock-heavy run-loop tests to 15s avoids flake without masking real perf
   // regressions: the test bodies still finish in well under a second locally.
   it(
+    "releases reserved budgets when thread setup fails",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      createThreadMock.mockRejectedValueOnce(new Error("thread setup failed"));
+
+      await expect(
+        processIntegrationTask(pendingTask(), {
+          adapter: createAdapter(),
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "dispatch+qa@integration.local",
+          orgId: "org-qa",
+          principalType: "service",
+        }),
+      ).rejects.toThrow("thread setup failed");
+
+      expect(reserveIntegrationUsageBudgetMock).toHaveBeenCalledOnce();
+      expect(releaseIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({ budgetId: "budget-org" }),
+        expect.objectContaining({ orgId: "org-qa" }),
+      );
+      expect(settleIntegrationUsageBudgetMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "settles the full actual cost above the reservation estimate",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      vi.stubEnv("INTEGRATION_RUN_RESERVATION_MICROS", "100");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "done" });
+        return {
+          inputTokens: 1,
+          outputTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        { useHostedSoftTimeoutDefault: true },
+      );
+      expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetId: "budget-org",
+          actualCostMicros: 2_500,
+        }),
+        expect.anything(),
+      );
+    },
+  );
+
+  it(
     "uses the shared engine resolver instead of forcing Anthropic",
     { timeout: 15000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
-      const sendResponse = vi.fn();
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
       const task: PendingTask = {
         id: "task-qa",
         platform: "fake",
@@ -215,6 +399,12 @@ describe("integration webhook handler engine resolution", () => {
             externalThreadId: "thread-1",
             text: "hello from slack",
             senderName: "QA User",
+            sourceUrl:
+              "https://example-workspace.slack.com/archives/C123/p1001",
+            routingHint: {
+              targetAgent: "content",
+              instruction: "Delegate structured intake to Content.",
+            },
             platformContext: { channel: "C123" },
             timestamp: 1001,
           },
@@ -248,8 +438,19 @@ describe("integration webhook handler engine resolution", () => {
         expect.objectContaining({
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
+          maxOutputTokens: 32_000,
+          reasoningEffort: "medium",
           systemPrompt: expect.stringContaining("<runtime-context>"),
         }),
+      );
+      const engineUserText =
+        runAgentLoopMock.mock.calls[0]?.[0]?.messages?.[0]?.content?.[0]?.text;
+      expect(engineUserText).toContain(
+        "Source thread: https://example-workspace.slack.com/archives/C123/p1001",
+      );
+      expect(engineUserText).toContain("Required target agent: content");
+      expect(engineUserText).toContain(
+        "Routing instruction: Delegate structured intake to Content.",
       );
       expect(sendResponse).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -262,11 +463,582 @@ describe("integration webhook handler engine resolution", () => {
   );
 
   it(
+    "replays what participants saw with stable artifact identity on a follow-up",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      vi.stubEnv("APP_URL", "https://content.agent.test");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["provider-message-123"],
+      }));
+      const adapter = {
+        ...createAdapter(sendResponse),
+        formatAgentResponse: (text: string) => ({
+          text: `[fake-rendered] ${text}`,
+          platformContext: {},
+        }),
+      } satisfies PlatformAdapter;
+
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "tool_start",
+          id: "form-call",
+          tool: "submit-content-database-form",
+          input: { databaseId: "design-asks" },
+        });
+        send({
+          type: "tool_done",
+          id: "form-call",
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Is this thing on",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+            privateNoise: "do not replay this raw payload",
+          }),
+        });
+        send({ type: "text", text: "Filed the design ask." });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const persistedData = updateThreadDataMock.mock.calls.at(-1)?.[1];
+      expect(typeof persistedData).toBe("string");
+      const persisted = JSON.parse(persistedData as string);
+      const assistant = persisted.messages.at(-1);
+      expect(assistant.metadata.integrationDelivery).toMatchObject({
+        platform: "fake",
+        status: "delivered",
+        text: expect.stringContaining("[fake-rendered] Filed the design ask."),
+        messageRefs: ["provider-message-123"],
+      });
+      expect(assistant.metadata.integrationDelivery.text).toContain(
+        "https://content.agent.test/page/request_123",
+      );
+      expect(assistant.metadata.integrationArtifacts).toEqual([
+        {
+          resourceType: "document",
+          id: "request_123",
+          sourceAction: "submit-content-database-form",
+          titleAtAction: "Is this thing on",
+          url: "/page/request_123",
+        },
+      ]);
+      expect(JSON.stringify(assistant.metadata)).not.toContain("privateNoise");
+
+      getThreadMappingMock.mockResolvedValue({
+        platform: "fake",
+        externalThreadId: "thread-qa",
+        internalThreadId: "thread-qa",
+        platformContext: { channel: "C123" },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      getThreadMock.mockResolvedValue({
+        id: "thread-qa",
+        threadData: persistedData,
+      });
+      let followUpMessages: any[] = [];
+      runAgentLoopMock.mockImplementationOnce(async ({ messages, send }) => {
+        followUpMessages = messages;
+        send({ type: "text", text: "Updated the existing ask." });
+      });
+
+      await processIntegrationTask(
+        pendingTask({
+          id: "task-follow-up",
+          externalEventKey: "fake:task-follow-up:1002",
+          payload: JSON.stringify({
+            incoming: {
+              platform: "fake",
+              externalThreadId: "thread-qa",
+              text: "I meant assign it to Apoorva.",
+              senderName: "QA User",
+              senderEmail: "qa@example.test",
+              platformContext: { channel: "C123" },
+              timestamp: 1002,
+            },
+          }),
+        }),
+        {
+          adapter,
+          systemPrompt: "system",
+          actions: {},
+          apiKey: "test-key",
+          ownerEmail: "dispatch+qa@integration.local",
+          orgId: "org-qa",
+          principalType: "service",
+        },
+      );
+
+      const priorAssistantText = followUpMessages
+        .find((message) => message.role === "assistant")
+        ?.content?.find((part: any) => part.type === "text")?.text;
+      expect(priorAssistantText).toContain("[fake-rendered]");
+      expect(priorAssistantText).toContain("request_123");
+      expect(priorAssistantText).toContain("IDs remain stable");
+      expect(priorAssistantText).not.toContain(
+        "do not replay this raw payload",
+      );
+    },
+  );
+
+  it("retains organization-signed artifact identity in delivery and thread checkpoints", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const orgSecret = "org-only-a2a-secret-for-webhook-artifacts";
+    vi.stubEnv("A2A_SECRET", "");
+    getOrgA2ASecretMock.mockResolvedValue(orgSecret);
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_org_123",
+            urlPath: "/page/request_org_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "tool_start", id: "delegate", tool: "call-agent" });
+      send({
+        type: "tool_done",
+        id: "delegate",
+        tool: "call-agent",
+        result: downstream,
+      });
+      send({ type: "text", text: "The Content agent filed the ask." });
+    });
+
+    await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(
+        vi.fn(async () => ({ status: "delivered" as const })),
+      ),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    const staged = JSON.parse(stageTaskDeliveryPayloadMock.mock.calls[0][1]);
+    expect(staged.artifacts).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.at(-1).metadata.integrationArtifacts).toEqual([
+      expect.objectContaining({
+        id: "request_org_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
+  it(
+    "preserves a successful mutation and returns a delivery-only checkpoint when receipt proof is missing",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "tool_done",
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "hidden_request",
+            createdDocumentTitle: "Hidden request",
+            urlPath: "/page/hidden_request",
+            verification: { found: true },
+          }),
+        });
+        send({ type: "text", text: "Created, but delivery failed." });
+      });
+      const sendResponse = vi.fn(async () => undefined);
+
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          kind: "response-delivery",
+          incoming: { externalThreadId: "thread-qa" },
+          message: { text: expect.stringContaining("delivery failed") },
+          internalThreadId: "thread-qa",
+          assistantMessageId: expect.any(String),
+        },
+      });
+      expect(stageTaskDeliveryPayloadMock).toHaveBeenCalledWith(
+        "task-qa",
+        expect.stringContaining('"kind":"response-delivery"'),
+      );
+      expect(
+        stageTaskDeliveryPayloadMock.mock.invocationCallOrder[0],
+      ).toBeLessThan(sendResponse.mock.invocationCallOrder[0]);
+      expect(updateThreadDataMock).toHaveBeenCalledOnce();
+      const persisted = JSON.parse(updateThreadDataMock.mock.calls[0][1]);
+      const assistant = persisted.messages.at(-1);
+      expect(assistant.metadata.integrationDeliveryAttempted).toBe(true);
+      expect(assistant.metadata.integrationDelivery).toBeUndefined();
+      expect(assistant.metadata.integrationArtifacts).toEqual([
+        expect.objectContaining({
+          id: "hidden_request",
+          url: "/page/hidden_request",
+        }),
+      ]);
+    },
+  );
+
+  it(
+    "retries history only when receipt checkpointing fails after provider delivery",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "Updated /page/request_123" });
+      });
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["provider-reply-1"],
+      }));
+      stageTaskDeliveryPayloadMock
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error("checkpoint database unavailable"));
+
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          kind: "response-delivery",
+          userMessageId: expect.any(String),
+          assistantMessageId: expect.any(String),
+          deliveryReceipt: {
+            status: "delivered",
+            messageRefs: ["provider-reply-1"],
+          },
+        },
+        errorMessage: "checkpoint database unavailable",
+      });
+      expect(sendResponse).toHaveBeenCalledOnce();
+      expect(updateThreadDataMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "retains stable history identity when a confirmed delivery history write fails",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({ type: "text", text: "Updated /page/request_123" });
+      });
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+        messageRefs: ["provider-reply-history"],
+      }));
+      updateThreadDataMock.mockRejectedValueOnce(
+        new Error("history database response lost"),
+      );
+
+      const result = await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(result).toMatchObject({
+        status: "delivery-pending",
+        payload: {
+          deliveryReceipt: {
+            status: "delivered",
+            messageRefs: ["provider-reply-history"],
+          },
+          userMessageId: expect.stringContaining("integration-fake:thread-qa"),
+          assistantMessageId: expect.stringContaining(
+            "integration-fake:thread-qa",
+          ),
+        },
+        errorMessage: "Integration response history checkpoint failed",
+      });
+      expect(sendResponse).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retains a confirmed budget-limit receipt when checkpointing fails", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    listIntegrationUsageBudgetsMock.mockResolvedValue([
+      { id: "budget-org", subjectType: "org", subjectId: "org-qa" },
+    ]);
+    reserveIntegrationUsageBudgetMock.mockResolvedValueOnce({
+      allowed: false,
+      status: "exhausted",
+    });
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["budget-limit-reply"],
+    }));
+    stageTaskDeliveryPayloadMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("budget receipt checkpoint failed"));
+
+    const result = await processIntegrationTask(pendingTask(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(result).toMatchObject({
+      status: "delivery-pending",
+      payload: {
+        deliveryReceipt: {
+          status: "delivered",
+          messageRefs: ["budget-limit-reply"],
+        },
+      },
+      errorMessage: "budget receipt checkpoint failed",
+    });
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(runAgentLoopMock).not.toHaveBeenCalled();
+  });
+
+  it("records a confirmed delivery retry as participant-visible context", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            id: "assistant-checkpoint",
+            role: "assistant",
+            content: [{ type: "text", text: "Updated /page/request_123" }],
+            metadata: { integrationDeliveryAttempted: true },
+          },
+        ],
+      }),
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update it",
+          platformContext: {},
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        assistantMessageId: "assistant-checkpoint",
+        deliveredAt: "2026-07-17T15:00:00.000Z",
+      },
+      { status: "delivered", messageRefs: ["slack-reply-1"] },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages[0].metadata.integrationDelivery).toEqual({
+      platform: "slack",
+      status: "delivered",
+      text: "Updated /page/request_123",
+      deliveredAt: "2026-07-17T15:00:00.000Z",
+      messageRefs: ["slack-reply-1"],
+    });
+  });
+
+  it("reconstructs delivered conversation context after a pre-send crash", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update the same Design Ask",
+          platformContext: {},
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        artifacts: [
+          {
+            resourceType: "document",
+            id: "request_123",
+            sourceAction: "set-document-property",
+            url: "/page/request_123",
+          },
+        ],
+      },
+      { status: "delivered", messageRefs: ["slack-reply-2"] },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.map((message: any) => message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(persisted.messages[1].metadata.integrationArtifacts[0].id).toBe(
+      "request_123",
+    );
+    expect(persisted.messages[1].metadata.integrationDelivery.status).toBe(
+      "delivered",
+    );
+  });
+
+  it("reuses deterministic reconstructed history IDs across delivery retries", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    const payload = {
+      kind: "response-delivery" as const,
+      incoming: {
+        platform: "slack",
+        externalThreadId: "slack-thread",
+        text: "Update the same Design Ask",
+        platformContext: { messageTs: "1001.0001" },
+        timestamp: 1001,
+      },
+      message: {
+        text: "Updated /page/request_123",
+        platformContext: {},
+      },
+      internalThreadId: "thread-qa",
+    };
+    const receipt = {
+      status: "delivered" as const,
+      messageRefs: ["slack-reply-stable"],
+    };
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(payload, receipt);
+    const firstPersisted = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1],
+    );
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: JSON.stringify(firstPersisted),
+    });
+
+    await recordIntegrationResponseDelivery(payload, receipt);
+    const secondPersisted = JSON.parse(
+      updateThreadDataMock.mock.calls.at(-1)?.[1],
+    );
+
+    expect(secondPersisted.messages).toHaveLength(2);
+    expect(secondPersisted.messages.map((message: any) => message.id)).toEqual(
+      firstPersisted.messages.map((message: any) => message.id),
+    );
+  });
+
+  it("reconstructs the exact staged history IDs when the original write did not commit", async () => {
+    const { recordIntegrationResponseDelivery } =
+      await import("./webhook-handler.js");
+    getThreadMock.mockResolvedValueOnce({
+      title: "Slack thread",
+      preview: "",
+      threadData: "{}",
+    });
+
+    await recordIntegrationResponseDelivery(
+      {
+        kind: "response-delivery",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "slack-thread",
+          text: "Update the same Design Ask",
+          platformContext: { messageTs: "1001.0001" },
+          timestamp: 1001,
+        },
+        message: {
+          text: "Updated /page/request_123",
+          platformContext: {},
+        },
+        internalThreadId: "thread-qa",
+        userMessageId: "staged-user-id",
+        assistantMessageId: "staged-assistant-id",
+      },
+      {
+        status: "delivered",
+        messageRefs: ["slack-reply-staged"],
+      },
+    );
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls.at(-1)?.[1]);
+    expect(persisted.messages.map((message: any) => message.id)).toEqual([
+      "staged-user-id",
+      "staged-assistant-id",
+    ]);
+  });
+
+  it(
     "uses the explicit engine provider when resolving owner API keys",
     { timeout: 15000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
-      const sendResponse = vi.fn();
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
       getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
       const task: PendingTask = {
         id: "task-openai",
@@ -316,9 +1088,71 @@ describe("integration webhook handler engine resolution", () => {
     },
   );
 
+  it(
+    "prefers the org's configured engine over the integration plugin default",
+    { timeout: 15000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const { getRequestOrgId, getRequestUserEmail } =
+        await import("../server/request-context.js");
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
+      getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
+        expect(getRequestUserEmail()).toBe("dispatch+qa@integration.local");
+        expect(getRequestOrgId()).toBe("org-qa");
+        return "anthropic";
+      });
+      getOwnerApiKeyMock.mockResolvedValue("anthropic-org-key");
+      getStoredModelForEngineMock.mockResolvedValueOnce("claude-sonnet-4-6");
+      resolveEngineMock.mockResolvedValueOnce({
+        name: "anthropic",
+        defaultModel: "claude-sonnet-4-6",
+        stream: vi.fn(),
+      });
+
+      const task = pendingTask({
+        id: "task-org-engine",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+      });
+
+      await processIntegrationTask(task, {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "builder-default-model",
+        apiKey: "",
+        engine: "builder",
+        appId: "dispatch",
+        ownerEmail: task.ownerEmail,
+      });
+
+      expect(getConfiguredEngineNameForRequestMock).toHaveBeenCalledWith({
+        appId: "dispatch",
+      });
+      expect(getOwnerApiKeyMock).toHaveBeenCalledWith(
+        "anthropic",
+        task.ownerEmail,
+      );
+      expect(resolveEngineMock).toHaveBeenCalledWith({
+        engineOption: "anthropic",
+        apiKey: "anthropic-org-key",
+        model: "builder-default-model",
+        appId: "dispatch",
+      });
+      expect(runAgentLoopMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          engine: expect.objectContaining({ name: "anthropic" }),
+          model: "claude-sonnet-4-6",
+        }),
+      );
+    },
+  );
+
   it("sanitizes missing LLM credential text before sending platform replies", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({ type: "text", text: "ANTHROPIC_API_KEY is not set" });
     });
@@ -357,13 +1191,13 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     const sentText = vi.mocked(sendResponse).mock.calls[0]?.[0].text ?? "";
-    expect(sentText).toContain("Agent settings > LLM");
+    expect(sentText).toContain("Manage agent > LLM");
     expect(sentText).not.toContain("ANTHROPIC_API_KEY");
   });
 
   it("uses the explicit provider env key when no owner key exists in single-tenant mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     readDeployCredentialEnvMock.mockImplementation((key: string) =>
       key === "OPENAI_API_KEY" ? "openai-env-key" : undefined,
     );
@@ -413,7 +1247,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("does not fall back to deployment LLM keys in production shared mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     process.env.NODE_ENV = "production";
     isLocalDatabaseMock.mockReturnValue(false);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
@@ -468,7 +1302,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("prefers stored model settings over the integration plugin default", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     getStoredModelForEngineMock.mockResolvedValue("stored-builder-model");
     const task: PendingTask = {
       id: "task-model",
@@ -515,7 +1349,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { getIntegrationRequestContext } =
       await import("../server/request-context.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     let captured: ReturnType<typeof getIntegrationRequestContext>;
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       captured = getIntegrationRequestContext();
@@ -528,6 +1362,7 @@ describe("integration webhook handler engine resolution", () => {
       externalThreadId: "thread-4",
       payload: JSON.stringify({
         placeholderRef: "placeholder-qa",
+        principalType: "service",
         incoming: {
           platform: "fake",
           externalThreadId: "thread-4",
@@ -561,6 +1396,7 @@ describe("integration webhook handler engine resolution", () => {
         taskId: "task-context",
         attempts: 2,
         placeholderRef: "placeholder-qa",
+        principalType: "service",
         incoming: expect.objectContaining({
           platform: "fake",
           externalThreadId: "thread-4",
@@ -569,11 +1405,67 @@ describe("integration webhook handler engine resolution", () => {
     );
   });
 
+  it("aliases legacy external thread mappings to the canonical id", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const task = pendingTask({
+      id: "task-legacy-thread",
+      platform: "telegram",
+      externalThreadId: "chat:555:thread:99",
+      payload: JSON.stringify({
+        incoming: {
+          platform: "telegram",
+          externalThreadId: "chat:555:thread:99",
+          text: "continue this conversation",
+          senderId: "777",
+          threadRef: "99",
+          platformContext: { chatId: 555, messageThreadId: 99 },
+          timestamp: 1008,
+        },
+      }),
+    });
+    getThreadMappingMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      platform: "telegram",
+      externalThreadId: "555",
+      internalThreadId: "thread-existing",
+      platformContext: { chatId: 555 },
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    const adapter = {
+      ...createAdapter(),
+      platform: "telegram",
+      getLegacyExternalThreadIds: () => ["555"],
+    };
+
+    await processIntegrationTask(task, {
+      adapter,
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(getThreadMappingMock).toHaveBeenNthCalledWith(
+      1,
+      "telegram",
+      "chat:555:thread:99",
+    );
+    expect(getThreadMappingMock).toHaveBeenNthCalledWith(2, "telegram", "555");
+    expect(saveThreadMappingMock).toHaveBeenCalledWith(
+      "telegram",
+      "chat:555:thread:99",
+      "thread-existing",
+      expect.objectContaining({ chatId: 555, messageThreadId: 99 }),
+    );
+    expect(createThreadMock).not.toHaveBeenCalled();
+  });
+
   it("reruns the agent loop when a previously queued continuation task is retried", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const task = pendingTask({ id: "task-retry-existing-continuation" });
     runAgentLoopMock
       .mockImplementationOnce(async ({ send }) => {
@@ -625,7 +1517,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -656,11 +1548,333 @@ describe("integration webhook handler engine resolution", () => {
     expect(updateThreadDataMock).toHaveBeenCalled();
   });
 
+  it("keeps a resumable native progress stream open for a queued A2A continuation", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+        onEvent,
+        complete,
+      }),
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "agent_call", agent: "Design", status: "start" });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Design agent is still working.`,
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-stream-continuation" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call_progress",
+        agent: "Design",
+        state: "working",
+      }),
+    );
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("suppresses an unverified artifact rejection while a queued continuation owns the final reply", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000004" },
+        onEvent,
+        complete,
+      }),
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "agent_call", agent: "Content", status: "start" });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Content agent is still working.`,
+      });
+      send({
+        type: "text",
+        text: "Created it: https://content.agent-native.com/page/provisional",
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-continuation-unverified-artifact" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call_progress",
+        agent: "Content",
+        state: "working",
+      }),
+    );
+  });
+
+  it("preserves a verified parent mutation while a queued continuation owns an unverified artifact", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000005" },
+        onEvent: vi.fn(async () => undefined),
+        complete,
+      }),
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "set-document-property",
+        completedSideEffect: true,
+        result: JSON.stringify({
+          documentId: "request_456",
+          properties: [{ propertyId: "priority", value: "P1 High" }],
+        }),
+      });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Content agent is still working.`,
+      });
+      send({
+        type: "text",
+        text: "The priority was updated. Created the delegated document: https://content.agent-native.com/page/provisional",
+      });
+    });
+
+    try {
+      await processIntegrationTask(
+        pendingTask({ id: "task-continuation-parent-mutation" }),
+        {
+          adapter,
+          systemPrompt: "system",
+          actions: {},
+          model: "claude-sonnet-4-6",
+          apiKey: "",
+          ownerEmail: "dispatch+qa@integration.local",
+        },
+      );
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    expect(complete).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledOnce();
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain("A verified change was saved");
+    expect(deliveredText).toContain(
+      "https://content.agent.test/page/request_456",
+    );
+    expect(deliveredText).toContain("ID: request_456");
+    expect(deliveredText).not.toContain("provisional");
+  });
+
+  it("does not falsely fail a queued resumable stream when parent bookkeeping throws", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const fail = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
+        onEvent: vi.fn(async () => undefined),
+        complete: vi.fn(async () => undefined),
+        fail,
+      }),
+    };
+    updateThreadDataMock.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Design agent is still working.`,
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-stream-continuation-bookkeeping" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(fail).not.toHaveBeenCalled();
+    expect(sendResponse).not.toHaveBeenCalled();
+  });
+
+  it("projects a successful Slack ask-question call into a reply window", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "Create a launch design task",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.222",
+      },
+      timestamp: 1,
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "ask-question",
+        input: {
+          header: "Audience",
+          question: "Who is the launch page for?",
+          options: JSON.stringify([
+            {
+              label: "Existing customers",
+              description: "Focus on adoption and expansion",
+              recommended: true,
+            },
+            {
+              label: "New prospects",
+              description: "Focus on discovery and conversion",
+            },
+          ]),
+          allowFreeText: "true",
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "ask-question",
+        result:
+          "Asked the user a clarifying question and rendered it in the chat. Stop here and wait for their answer — do not proceed or assume an answer.",
+      });
+    });
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("Who is the launch page for?"),
+      }),
+      expect.objectContaining({
+        externalThreadId: slackIncoming.externalThreadId,
+      }),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+    expect(sendResponse.mock.calls[0]?.[0].text).toContain(
+      "1. Existing customers — Focus on adoption and expansion",
+    );
+    expect(setIntegrationAwaitingInputMock).toHaveBeenCalledWith({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      requesterId: "U123",
+    });
+    expect(clearIntegrationAwaitingInputMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a Slack reply window after a terminal response", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.222",
+      text: "Use existing customers",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.222",
+      },
+      timestamp: 1,
+    };
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {},
+      model: "claude-sonnet-4-6",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    expect(clearIntegrationAwaitingInputMock).toHaveBeenCalledWith(
+      "slack",
+      slackIncoming.externalThreadId,
+    );
+  });
+
   it("suppresses alternate A2A continuation deferral wording", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const deferrals = [
       "",
       A2A_CONTINUATION_QUEUED_MARKER,
@@ -706,11 +1920,21 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
-  it("still sends real final text after an A2A continuation marker", async () => {
+  it("sends real parent text without closing a queued continuation's native progress stream", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000002" },
+        onEvent,
+        complete,
+      }),
+    };
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -729,7 +1953,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     await processIntegrationTask(pendingTask({ id: "task-final" }), {
-      adapter: createAdapter(sendResponse),
+      adapter,
       systemPrompt: "system",
       actions: {},
       model: "claude-sonnet-4-6",
@@ -737,6 +1961,7 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
+    expect(complete).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "371 pageview events were recorded in the requested window.",
@@ -744,13 +1969,82 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
+    expect(
+      onEvent.mock.calls.some(
+        ([event]) => event.type === "agent_call_progress",
+      ),
+    ).toBe(false);
   });
 
-  it("sends substantive partial answers even when one A2A continuation will post separately", async () => {
+  it("preserves a queued parent reply receipt when checkpointing fails", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["queued-parent-reply"],
+    }));
+    const fail = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000003" },
+        onEvent: vi.fn(async () => undefined),
+        complete: vi.fn(async () => undefined),
+        fail,
+      }),
+    };
+    stageTaskDeliveryPayloadMock
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("checkpoint database unavailable"));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Analytics agent is still working.`,
+      });
+      send({ type: "text", text: "371 pageview events were recorded." });
+    });
+
+    const result = await processIntegrationTask(
+      pendingTask({ id: "task-queued-parent-checkpoint-failure" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(result).toMatchObject({
+      status: "delivery-pending",
+      payload: {
+        deliveryReceipt: {
+          status: "delivered",
+          messageRefs: ["queued-parent-reply"],
+        },
+      },
+    });
+    expect(sendResponse).toHaveBeenCalledOnce();
+    expect(fail).not.toHaveBeenCalled();
+  });
+
+  it("sends substantive partial answers without closing a queued continuation stream", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000003" },
+        onEvent: vi.fn(async () => undefined),
+        complete,
+      }),
+    };
     const partialAnswer =
       "Analytics completed: 259,850 page views and 9,337 unique visitors from BigQuery. " +
       "Content page was created successfully with document id abc123. " +
@@ -773,7 +2067,7 @@ describe("integration webhook handler engine resolution", () => {
     });
 
     await processIntegrationTask(pendingTask({ id: "task-partial-final" }), {
-      adapter: createAdapter(sendResponse),
+      adapter,
       systemPrompt: "system",
       actions: {},
       model: "claude-sonnet-4-6",
@@ -781,6 +2075,7 @@ describe("integration webhook handler engine resolution", () => {
       ownerEmail: "dispatch+qa@integration.local",
     });
 
+    expect(complete).not.toHaveBeenCalled();
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({ text: partialAnswer }),
       expect.any(Object),
@@ -790,7 +2085,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("sends verified recoverable A2A artifact tool results when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -831,7 +2126,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -878,9 +2173,9 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse.mock.calls[0][0].text).not.toContain("design-empty");
   });
 
-  it("does not fall back to unmarked A2A tool URLs when no final text is emitted", async () => {
+  it("surfaces a useful fallback when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -905,7 +2200,9 @@ describe("integration webhook handler engine resolution", () => {
 
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "(No response)",
+        text: expect.stringContaining(
+          "The model finished without a visible answer",
+        ),
       }),
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
@@ -913,11 +2210,152 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse.mock.calls[0][0].text).not.toContain("deck-guessed");
   });
 
+  it("does not append an artifact link from a failed or incomplete write", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_done",
+        tool: "update-document",
+        isError: true,
+        completedSideEffect: false,
+        result: JSON.stringify({
+          id: "request_failed",
+          urlPath: "/page/request_failed",
+        }),
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-failed-write" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain(
+      "The model finished without a visible answer",
+    );
+    expect(deliveredText).not.toContain("request_failed");
+  });
+
+  it("surfaces a verified mutation receipt when a sparse correction finishes without final text", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    process.env.APP_URL = "https://content.agent.test";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "set-document-property",
+        input: {
+          documentId: "request_456",
+          propertyId: "priority",
+          value: "P1 High",
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "set-document-property",
+        completedSideEffect: true,
+        result: JSON.stringify({
+          documentId: "request_456",
+          properties: [{ propertyId: "priority", value: "P1 High" }],
+        }),
+      });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-written-empty" }), {
+        adapter: createAdapter(sendResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previousAppUrl;
+    }
+
+    const deliveredText = sendResponse.mock.calls[0][0].text;
+    expect(deliveredText).toContain("A verified change was saved");
+    expect(deliveredText).toContain(
+      "https://content.agent.test/page/request_456",
+    );
+    expect(deliveredText).toContain("ID: request_456");
+    expect(deliveredText).not.toContain(
+      "The model finished without a visible answer",
+    );
+    expect(deliveredText).not.toContain("P1 High");
+  });
+
+  it("links Slack-style replies directly to the Dispatch chat thread", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    const previousAppBasePath = process.env.APP_BASE_PATH;
+    process.env.APP_URL = "https://agent-workspace.builder.io";
+    process.env.APP_BASE_PATH = "/dispatch";
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const formatAgentResponse = vi.fn(
+      (text: string, opts?: { threadDeepLinkUrl?: string }) => ({
+        text,
+        platformContext: opts ?? {},
+      }),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "I found the issue." });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-direct-thread" }), {
+        adapter: createAdapter(sendResponse, formatAgentResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) {
+        delete process.env.APP_URL;
+      } else {
+        process.env.APP_URL = previousAppUrl;
+      }
+      if (previousAppBasePath === undefined) {
+        delete process.env.APP_BASE_PATH;
+      } else {
+        process.env.APP_BASE_PATH = previousAppBasePath;
+      }
+    }
+
+    expect(formatAgentResponse).toHaveBeenCalledWith("I found the issue.", {
+      threadDeepLinkUrl:
+        "https://agent-workspace.builder.io/dispatch/chat/thread-qa",
+    });
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "I found the issue." }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
+  });
+
   it("does not send hallucinated local design URLs to Slack-style integrations", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://design.agent.test";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "text",
@@ -958,7 +2396,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "text",
@@ -1006,7 +2444,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://design.agent.test";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_done",
@@ -1051,5 +2489,81 @@ describe("integration webhook handler engine resolution", () => {
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
+  });
+
+  it("defers framework-added tools behind tool-search on the first engine request while keeping template actions and initial defaults", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    // Only this test needs a real-shaped action->tool conversion — every
+    // other test in this file relies on the `[]` stub set in `beforeEach`
+    // and doesn't inspect `tools`/`availableTools`.
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "ok" });
+    });
+
+    const noopTool = (description: string) => ({
+      tool: {
+        description,
+        parameters: { type: "object" as const, properties: {} },
+      },
+      run: async () => "ok",
+    });
+
+    await processIntegrationTask(pendingTask({ id: "task-tool-filter" }), {
+      adapter: createAdapter(),
+      systemPrompt: "system",
+      actions: {
+        "template-action": noopTool("A template/app action"),
+        "call-agent": noopTool("Delegate to another A2A agent"),
+        "list-integration-memory": noopTool("List integration memory"),
+      },
+      // Mirrors what `createIntegrationsPlugin` passes: the app's own
+      // action names, not the framework additions merged into `actions`.
+      initialToolNames: ["template-action"],
+      apiKey: "test-key",
+      ownerEmail: "dispatch+qa@integration.local",
+      orgId: "org-qa",
+      principalType: "service",
+    });
+
+    expect(runAgentLoopMock).toHaveBeenCalledOnce();
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames: string[] = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames: string[] = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    // Deferred framework additions never reach the first request...
+    expect(firstRequestToolNames).not.toContain("call-agent");
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    // ...but the template action, and tool-search itself, do.
+    expect(firstRequestToolNames).toEqual(["template-action", "tool-search"]);
+    // ...while the full registry (used for mid-run tool-search expansion)
+    // still contains everything, so the model can discover and call the
+    // deferred tools after a tool-search hit.
+    expect(availableToolNames).toEqual([
+      "call-agent",
+      "list-integration-memory",
+      "template-action",
+      "tool-search",
+    ]);
+    // The executable registry passed through for real tool dispatch must
+    // also include tool-search so a model-issued call to it can run.
+    expect(Object.keys(call.actions).sort()).toEqual([
+      "call-agent",
+      "list-integration-memory",
+      "template-action",
+      "tool-search",
+    ]);
   });
 });

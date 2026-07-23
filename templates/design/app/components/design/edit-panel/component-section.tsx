@@ -1,18 +1,31 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared";
 import { propNameToDataAttribute } from "@shared/component-model";
 import {
   IconArrowRight,
+  IconArrowsLeftRight,
   IconCode,
+  IconComponents,
   IconExternalLink,
   IconLoader2,
+  IconUnlink,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -91,6 +104,7 @@ function MakeItRealCard({
    */
   featureLabel: string;
 }) {
+  const t = useT();
   const { data, isLoading } = useActionQuery<ConnectBuilderAppResult>(
     "connect-builder-app",
     { designId },
@@ -155,12 +169,15 @@ function MakeItRealCard({
             `Generating ${migrateResult.branchName ?? "React app"}.`}
         </p>
         <a
-          href={migrateResult.url}
+          href={withBuilderUtmTrackingParams(migrateResult.url, {
+            campaign: "product",
+            content: "design_migration",
+          })}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[10px] font-semibold text-[var(--design-editor-accent-color)] hover:bg-[var(--design-editor-panel-raised-bg)]"
         >
-          {"Open" /* i18n-ignore make-it-real card */}
+          {t("designEditor.makeItRealCard.open")}
           <IconExternalLink className="size-2.5" />
         </a>
       </div>
@@ -173,8 +190,8 @@ function MakeItRealCard({
       : `Connect Builder to enable ${featureLabel}.`;
   const primaryLabel =
     cta.kind === "configure-project"
-      ? "Choose" /* i18n-ignore make-it-real card */
-      : "Connect"; /* i18n-ignore make-it-real card */
+      ? t("designEditor.makeItRealCard.choose")
+      : t("designEditor.makeItRealCard.connect");
 
   return (
     <div className="space-y-1">
@@ -213,10 +230,10 @@ function MakeItRealCard({
             {isPending ? (
               <>
                 <IconLoader2 className="size-2.5 animate-spin" />
-                {"Generating" /* i18n-ignore make-it-real card */}
+                {t("designEditor.makeItRealCard.generating")}
               </>
             ) : (
-              <>{"Generate" /* i18n-ignore make-it-real card */}</>
+              <>{t("designEditor.makeItRealCard.generate")}</>
             )}
           </Button>
         )}
@@ -225,7 +242,7 @@ function MakeItRealCard({
         <p className="px-2 text-[10px] text-destructive">
           {migrateError instanceof Error
             ? migrateError.message
-            : /* i18n-ignore make-it-real card */ "Migration failed. Please try again."}
+            : t("designEditor.makeItRealCard.migrationFailed")}
         </p>
       ) : null}
     </div>
@@ -260,6 +277,150 @@ interface ComponentDetailsResult {
   };
 }
 
+/** Shape returned by `go-to-main-component`. */
+interface GoToMainComponentResult {
+  isMain?: boolean;
+  ctaRequired?: boolean;
+  ctaMessage?: string;
+  note?: string;
+}
+
+/** Shape returned by `swap-component-instance`. */
+interface SwapComponentInstanceResult {
+  swapped?: boolean;
+  conflict?: boolean;
+  ctaRequired?: boolean;
+  ctaMessage?: string;
+  error?: string;
+  note?: string;
+  fromComponent?: string;
+  toComponent?: string;
+  fileId?: string;
+  content?: string;
+  updatedAt?: string;
+}
+
+/** Shape returned by `detach-component-instance`. */
+interface DetachComponentInstanceResult {
+  detached?: boolean;
+  conflict?: boolean;
+  ctaRequired?: boolean;
+  ctaMessage?: string;
+  error?: string;
+  note?: string;
+  fileId?: string;
+  content?: string;
+  updatedAt?: string;
+}
+
+/** Each editable row: name + current value + how it persists + its options. */
+export type PropRow = {
+  name: string;
+  value: string;
+  /** Variant/enum options when the prop is a known group. */
+  options?: string[];
+  /** Persist surface for this prop. */
+  surface: "alpineData" | "attribute";
+};
+
+/**
+ * Build the editable prop rows for a component instance from
+ * `get-component-details`'s response: Alpine `x-data` keys first (they drive
+ * the live variant/state), then observed `data-agent-native-prop-*`
+ * attributes not already covered by x-data, then any persisted variant group
+ * that has never been observed on this instance at all (seeded to its first
+ * option).
+ *
+ * Pure — exported for tests.
+ */
+export function buildComponentPropRows(data: {
+  instance?: { alpineData?: string | null } | null;
+  observedProps: Array<{ name: string; value: string }>;
+  persistedVariants: Record<string, string[]>;
+}): PropRow[] {
+  const { observedProps, persistedVariants, instance } = data;
+  const alpineData = parseAlpineDataObject(instance?.alpineData);
+
+  const rows: PropRow[] = [];
+  const seen = new Set<string>();
+
+  // 1) Alpine x-data keys come first — they drive the live variant/state.
+  if (alpineData) {
+    for (const [key, value] of Object.entries(alpineData)) {
+      rows.push({
+        name: key,
+        value,
+        options: persistedVariants[key],
+        surface: "alpineData",
+      });
+      seen.add(key);
+    }
+  }
+
+  // 2) data-agent-native-prop-* attributes not already covered by x-data.
+  for (const prop of observedProps) {
+    if (seen.has(prop.name)) continue;
+    rows.push({
+      name: prop.name,
+      value: prop.value,
+      options: persistedVariants[prop.name],
+      surface: "attribute",
+    });
+    seen.add(prop.name);
+  }
+
+  // 3) persistedVariant groups with no observed value yet (default to first).
+  // Surface is always "attribute" here, NOT "alpineData" even when this
+  // instance's x-data happens to be non-empty for other keys: x-data blocks
+  // for a real component instance are written with every prop the component
+  // declares initialized up front (e.g. `{ variant: 'solid', size: 'md' }`),
+  // so a group that never showed up in step 1 was never a x-data key on this
+  // instance in the first place — it is attribute-driven. Guessing
+  // "alpineData" from unrelated sibling keys used to route the very first
+  // edit of such a prop into a surgical/rebuild x-data write that either
+  // silently wrote a key nothing in the template reads, or hit the "can't
+  // safely edit this prop inline" bail-out when the sibling x-data content
+  // was too complex to rebuild — even though the plain attribute write would
+  // have worked fine.
+  for (const [group, options] of Object.entries(persistedVariants)) {
+    if (seen.has(group)) continue;
+    rows.push({
+      name: group,
+      value: options[0] ?? "",
+      options,
+      surface: "attribute",
+    });
+    seen.add(group);
+  }
+
+  return rows;
+}
+
+/**
+ * True when a "message" event's source window matches one of this document's
+ * own embedded design-preview iframes.
+ *
+ * `postMessage` has no origin/source check built in, so without this any
+ * window — including a spoofed one from a compromised/unrelated frame — could
+ * post `{ type: "element-select" }` at the parent and force this section to
+ * refetch. Mirrors the DOM-identity check DesignCanvas's
+ * `isTrustedCanvasBridgeMessage` and MultiScreenCanvas's cross-screen-drag
+ * handler use: trust comes from matching `iframe.contentWindow` against
+ * `event.source`, not from anything in the message payload.
+ *
+ * Exported for tests.
+ */
+export function isMessageFromOwnPreviewIframe(
+  source: MessageEventSource | null,
+): boolean {
+  if (typeof document === "undefined" || !source) return false;
+  return Array.from(
+    document.querySelectorAll<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    ),
+  ).some((iframe) => iframe.contentWindow === source);
+}
+
 /**
  * Contextual COMPONENT section rendered inside the Design tab when the
  * selected element is a component instance (carries
@@ -279,6 +440,7 @@ export function ComponentSection({
   activeContent,
   activeFileUpdatedAt,
   nodeId,
+  swapPickerRequest = 0,
   onComponentPropApplied,
   sourceCapabilities = [],
 }: {
@@ -287,6 +449,8 @@ export function ComponentSection({
   activeContent?: string;
   activeFileUpdatedAt?: string | null;
   nodeId: string;
+  /** Increment to open the Swap instance picker from another UI entry point. */
+  swapPickerRequest?: number;
   onComponentPropApplied?: (
     fileId: string,
     content: string,
@@ -295,6 +459,7 @@ export function ComponentSection({
   /** Capability names advertised by the current source. */
   sourceCapabilities?: string[];
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const detailsParams = { designId, nodeId, ...(fileId ? { fileId } : {}) };
   const detailsKey = ["action", "get-component-details", detailsParams];
@@ -322,6 +487,153 @@ export function ComponentSection({
 
   const openSourceMutation = useActionMutation("open-component-source");
   const applyPropMutation = useActionMutation("apply-component-prop-edit");
+  const goToMainMutation = useActionMutation("go-to-main-component");
+  const detachMutation = useActionMutation("detach-component-instance");
+  const swapMutation = useActionMutation("swap-component-instance");
+
+  // ── Swap instance picker (searchable popover) ─────────────────────────────
+  const [swapPickerOpen, setSwapPickerOpen] = useState(false);
+  const [swapQuery, setSwapQuery] = useState("");
+  useEffect(() => {
+    if (swapPickerRequest > 0) setSwapPickerOpen(true);
+  }, [swapPickerRequest]);
+  const componentName = data?.name;
+  const { data: swapCatalog, isLoading: swapCatalogLoading } = useActionQuery(
+    "list-design-components",
+    { designId, excludeName: componentName },
+    { enabled: swapPickerOpen && Boolean(componentName) },
+  );
+  const swapCandidates = (swapCatalog?.components ?? []).filter((c) =>
+    c.name.toLowerCase().includes(swapQuery.trim().toLowerCase()),
+  );
+
+  // Refresh the component section + design canvas after a detach/swap
+  // mutates the design file, mirroring persistPropEdit's onSettled below.
+  // Plain function (not memoized) — matches this file's existing
+  // persistPropEdit/commitProp convention of re-creating handlers per render
+  // rather than threading useCallback dependency arrays through them.
+  const refreshAfterInstanceMutation = (result: {
+    fileId?: string;
+    content?: string;
+    updatedAt?: string;
+  }) => {
+    if (
+      typeof result.fileId === "string" &&
+      typeof result.content === "string"
+    ) {
+      latestSourceRef.current = {
+        content: result.content,
+        revision: result.updatedAt ?? latestSourceRef.current.revision,
+      };
+      onComponentPropApplied?.(result.fileId, result.content, result.updatedAt);
+    }
+    void queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+    void queryClient.invalidateQueries({ queryKey: detailsKey });
+    void refetch();
+  };
+
+  const sourceForMutation = () => {
+    const latestSource = latestSourceRef.current;
+    return latestSource.content
+      ? {
+          currentContent: latestSource.content,
+          ...(latestSource.revision ? { revision: latestSource.revision } : {}),
+        }
+      : undefined;
+  };
+
+  const handleGoToMainComponent = () => {
+    goToMainMutation.mutate(
+      { designId, nodeId, ...(fileId ? { fileId } : {}) },
+      {
+        onSuccess: (result: GoToMainComponentResult) => {
+          if (result.ctaRequired) {
+            toast.error(
+              result.ctaMessage ??
+                t("designEditor.componentInstances.goToMainUnavailable"),
+            );
+            return;
+          }
+          if (result.isMain) {
+            toast(
+              result.note ??
+                t("designEditor.componentInstances.onlyKnownInstance"),
+            );
+          }
+        },
+        onError: () =>
+          toast.error(t("designEditor.componentInstances.resolveMainFailed")),
+      },
+    );
+  };
+
+  const handleDetachInstance = () => {
+    const source = sourceForMutation();
+    detachMutation.mutate(
+      {
+        designId,
+        nodeId,
+        ...(fileId ? { fileId } : {}),
+        ...(source ? { source } : {}),
+      },
+      {
+        onSuccess: (result: DetachComponentInstanceResult) => {
+          if (result.conflict || result.ctaRequired) {
+            toast.error(
+              result.error ??
+                result.ctaMessage ??
+                t("designEditor.componentInstances.detachFailed"),
+            );
+            return;
+          }
+          if (result.detached) {
+            toast(result.note ?? t("designEditor.componentInstances.detached"));
+            refreshAfterInstanceMutation(result);
+          }
+        },
+        onError: () =>
+          toast.error(t("designEditor.componentInstances.detachFailed")),
+      },
+    );
+  };
+
+  const handleSwapInstance = (targetComponentName: string) => {
+    const source = sourceForMutation();
+    swapMutation.mutate(
+      {
+        designId,
+        nodeId,
+        ...(fileId ? { fileId } : {}),
+        targetComponentName,
+        ...(source ? { source } : {}),
+      },
+      {
+        onSuccess: (result: SwapComponentInstanceResult) => {
+          if (result.conflict || result.ctaRequired) {
+            toast.error(
+              result.error ??
+                result.ctaMessage ??
+                t("designEditor.componentInstances.swapFailed"),
+            );
+            return;
+          }
+          if (result.swapped) {
+            toast(
+              result.note ??
+                t("designEditor.componentInstances.swappedFor", {
+                  name: targetComponentName,
+                }),
+            );
+            setSwapPickerOpen(false);
+            setSwapQuery("");
+            refreshAfterInstanceMutation(result);
+          }
+        },
+        onError: () =>
+          toast.error(t("designEditor.componentInstances.swapFailed")),
+      },
+    );
+  };
 
   const postComponentPropPreview = useCallback(
     (attribute: string, value: string) => {
@@ -428,10 +740,12 @@ export function ComponentSection({
 
     const handleMessage = (event: MessageEvent) => {
       if (
-        (event.data as { type?: unknown } | null)?.type === "element-select"
+        (event.data as { type?: unknown } | null)?.type !== "element-select"
       ) {
-        void refetch();
+        return;
       }
+      if (!isMessageFromOwnPreviewIframe(event.source)) return;
+      void refetch();
     };
     window.addEventListener("message", handleMessage);
     return () => {
@@ -479,55 +793,11 @@ export function ComponentSection({
   const editingEnabled = isInline && capabilities.canEditProps; // gated; real-app stays read-only for now
   const alpineData = parseAlpineDataObject(instance?.alpineData);
 
-  // Each editable row: name + current value + how it persists + its options.
-  type PropRow = {
-    name: string;
-    value: string;
-    /** Variant/enum options when the prop is a known group. */
-    options?: string[];
-    /** Persist surface for this prop. */
-    surface: "alpineData" | "attribute";
-  };
-
-  const rows: PropRow[] = [];
-  const seen = new Set<string>();
-
-  // 1) Alpine x-data keys come first — they drive the live variant/state.
-  if (alpineData) {
-    for (const [key, value] of Object.entries(alpineData)) {
-      rows.push({
-        name: key,
-        value,
-        options: persistedVariants[key],
-        surface: "alpineData",
-      });
-      seen.add(key);
-    }
-  }
-
-  // 2) data-agent-native-prop-* attributes not already covered by x-data.
-  for (const prop of observedProps) {
-    if (seen.has(prop.name)) continue;
-    rows.push({
-      name: prop.name,
-      value: prop.value,
-      options: persistedVariants[prop.name],
-      surface: "attribute",
-    });
-    seen.add(prop.name);
-  }
-
-  // 3) persistedVariant groups with no observed value yet (default to first).
-  for (const [group, options] of Object.entries(persistedVariants)) {
-    if (seen.has(group)) continue;
-    rows.push({
-      name: group,
-      value: options[0] ?? "",
-      options,
-      surface: alpineData ? "alpineData" : "attribute",
-    });
-    seen.add(group);
-  }
+  const rows: PropRow[] = buildComponentPropRows({
+    instance,
+    observedProps,
+    persistedVariants,
+  });
 
   const hasRows = rows.length > 0;
 
@@ -559,10 +829,7 @@ export function ComponentSection({
         // can't rewrite for this key without dropping it. Fail safe: skip the
         // edit rather than persist a lossy rewrite, and tell the user why so
         // the change doesn't silently vanish.
-        toast.error(
-          // i18n-ignore
-          "Can’t safely edit this prop inline — this component’s Alpine state is too complex. Edit the source instead.",
-        );
+        toast.error(t("designEditor.componentProps.alpineTooComplexToEdit"));
         return;
       }
 
@@ -625,6 +892,125 @@ export function ComponentSection({
         <h3 className="min-w-0 flex-1 truncate !text-[11px] font-semibold text-foreground">
           {name}
         </h3>
+        {/* Instance operations: Go to main component / Swap instance /
+            Detach instance (Figma's instance-only affordances). Inline/Alpine
+            designs only — the underlying actions fail closed for real-app
+            sources, so hide them entirely there rather than show a
+            perpetually-disabled button. */}
+        {isInline && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={goToMainMutation.isPending}
+                  aria-label={t("designEditor.componentInstances.goToMain")}
+                  onClick={handleGoToMainComponent}
+                >
+                  <IconComponents className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("designEditor.componentInstances.goToMain")}
+              </TooltipContent>
+            </Tooltip>
+
+            <Popover
+              open={swapPickerOpen}
+              onOpenChange={(open) => {
+                setSwapPickerOpen(open);
+                if (!open) setSwapQuery("");
+              }}
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                      disabled={!editingEnabled || swapMutation.isPending}
+                      aria-label={t("designEditor.componentInstances.swap")}
+                    >
+                      <IconArrowsLeftRight className="size-3.5" />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("designEditor.componentInstances.swap")}
+                </TooltipContent>
+              </Tooltip>
+              <PopoverContent
+                align="end"
+                className="w-56 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1.5 text-[11px]"
+              >
+                <Input
+                  autoFocus
+                  value={swapQuery}
+                  onChange={(e) => setSwapQuery(e.target.value)}
+                  placeholder={t(
+                    "designEditor.componentInstances.searchComponents",
+                  )}
+                  className="mb-1.5 h-7 !text-[11px]"
+                />
+                <div className="max-h-52 overflow-y-auto">
+                  {swapCatalogLoading ? (
+                    <div className="px-2 py-1.5 text-muted-foreground">
+                      {t("designEditor.componentInstances.loading")}
+                    </div>
+                  ) : swapCandidates.length === 0 ? (
+                    <div className="px-2 py-1.5 text-muted-foreground">
+                      {t("designEditor.componentInstances.noOtherComponents")}
+                    </div>
+                  ) : (
+                    swapCandidates.map((candidate) => (
+                      <button
+                        key={candidate.name}
+                        type="button"
+                        disabled={swapMutation.isPending}
+                        onClick={() => handleSwapInstance(candidate.name)}
+                        className="flex w-full items-center justify-between gap-2 rounded-[4px] px-2 py-1.5 text-left hover:bg-[var(--design-editor-selection-color)] hover:text-white disabled:cursor-wait disabled:opacity-60"
+                      >
+                        <span className="min-w-0 flex-1 truncate">
+                          {candidate.name}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">
+                          {candidate.instanceCount}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={!editingEnabled || detachMutation.isPending}
+                  aria-label={t("designEditor.componentInstances.detach")}
+                  onClick={handleDetachInstance}
+                >
+                  <IconUnlink className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("designEditor.componentInstances.detach")}
+                <span className="ms-1.5 text-muted-foreground/70">
+                  {"⌥⌘B" /* i18n-ignore keyboard shortcut */}
+                </span>
+              </TooltipContent>
+            </Tooltip>
+          </>
+        )}
         {/* Jump-to-source action */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -634,9 +1020,7 @@ export function ComponentSection({
               size="icon"
               className="size-6 rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!canJumpToSource}
-              aria-label={
-                "Edit component source" /* i18n-ignore design inspector action */
-              }
+              aria-label={t("designEditor.componentSource.editSource")}
               onClick={() => {
                 openSourceMutation.mutate({
                   designId,
@@ -649,12 +1033,10 @@ export function ComponentSection({
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            {
-              canJumpToSource
-                ? "Edit component source" /* i18n-ignore design inspector action */
-                : (capabilities.ctaMessage ??
-                  "Source jump needs a connected app") /* i18n-ignore design inspector tooltip */
-            }
+            {canJumpToSource
+              ? t("designEditor.componentSource.editSource")
+              : (capabilities.ctaMessage ??
+                t("designEditor.componentSource.needsConnectedApp"))}
           </TooltipContent>
         </Tooltip>
       </div>
@@ -680,7 +1062,7 @@ export function ComponentSection({
         {hasRows && (
           <div className="space-y-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-              {"Props" /* i18n-ignore design inspector label */}
+              {t("designEditor.componentProps.label")}
             </p>
             {rows.map((row) => {
               const hasOptions = (row.options?.length ?? 0) > 0;

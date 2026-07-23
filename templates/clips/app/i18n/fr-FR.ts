@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Opérations",
     commandSearch: "Rechercher",
+    openAgent: "Ouvrir l’agent",
     commandAppearance: "Apparence",
     toggleTheme: "Changer de thème",
     extensionSignedInTitle: "Connecté",
@@ -48,11 +49,13 @@ const messages = {
   navigation: {
     brand: "Clips",
     library: "Bibliothèque",
+    sharedWithMe: "Partagés avec moi",
     spaces: "Espaces",
     meetings: "Réunions",
     dictate: "Dicter",
     archive: "Archiver",
     trash: "Corbeille",
+    agent: "Agent",
     settings: "Paramètres",
     notifications: "Alertes",
     insights: "Analyses",
@@ -82,6 +85,10 @@ const messages = {
       title: "Votre bibliothèque est vide",
       body: "Capturez votre premier enregistrement d’écran et il apparaîtra ici, prêt à partager.",
       cta: "Enregistrer votre premier Clip",
+    },
+    shared: {
+      title: "Aucun clip partagé avec vous",
+      body: "Les clips que vos collègues partagent avec vous apparaîtront ici.",
     },
     folder: {
       title: "Ce dossier est vide",
@@ -165,7 +172,7 @@ const messages = {
       "L'enregistreur de bureau a terminé et a enregistré une copie locale, mais Clips n'a pas pu la télécharger. Vous pouvez réessayer à partir du menu Clips sans réenregistrer.",
     retryLibrary: "Vous pouvez réessayer depuis la bibliothèque.",
     processingStuck:
-      "Le traitement n'est pas terminé après 30 secondes (status={{status}}). Le téléchargement du clip n'est peut-être pas terminé – vérifiez les journaux du serveur pour les messages de fragmentation/finalisation.",
+      "L’enregistrement prend plus de temps que prévu (statut={{status}}). Si vous avez utilisé l’application de bureau, ouvrez Clips depuis la barre des menus pour réessayer l’envoi ou télécharger une copie locale enregistrée, puis vérifiez à nouveau.",
     uploadingAssembling:
       "Télécharger et assembler votre vidéo : cela ne prend généralement que quelques secondes.",
     connectStorageImportLoom: "Connectez le stockage pour importer ce Loom.",
@@ -217,6 +224,9 @@ const messages = {
     autoChapters: "Chapitres automatiques",
     removeFillerWords: "Supprimer les mots de remplissage",
     removeSilences: "Supprimer les silences (>1,2s)",
+    silenceWorking: "Suppression des silences…",
+    silenceCompleted: "Suppression des silences terminée",
+    silenceFailed: "Échec de la suppression des silences",
     generatePrSummary: "Générer un résumé des relations publiques",
     generateSop: "Générer SOP",
     generateSopTooltip:
@@ -304,6 +314,7 @@ const messages = {
     insights: "Connaissances",
     downloadForMac: "Télécharger pour Mac",
     downloadForWindows: "Télécharger pour Windows",
+    downloadForLinux: "Télécharger pour Linux",
     downloadDesktopApp: "Téléchargez l'application de bureau",
     agentNativeClips: "Agent-Native Clips",
     agentNativeClipsIntro: "est une alternative gratuite,",
@@ -320,8 +331,7 @@ const messages = {
     unassigned: "Non attribué",
     them: "Eux",
     me: "Moi",
-    regeneratingNotes:
-      "Notes régénératrices : vos propres notes sont conservées",
+    regeneratingNotes: "Régénération du résumé",
     meetingRemoved: "Réunion supprimée",
     couldNotRemoveMeeting: "Impossible de supprimer la réunion",
     couldNotLoadMeeting: "Impossible de charger cette réunion.",
@@ -329,8 +339,8 @@ const messages = {
     couldNotCopyTranscript: "Impossible de copier la transcription",
     allMeetings: "Toutes les réunions",
     live: "En direct",
-    generatingNotesInline: "Générer des notes…",
-    regenerateNotes: "Régénérer les notes",
+    generatingNotesInline: "Génération du résumé…",
+    regenerateNotes: "Régénérer le résumé",
     share: "Partager",
     meetingOptions: "Options de réunion",
     removeMeeting: "Supprimer la réunion",
@@ -343,12 +353,13 @@ const messages = {
     desktopHint:
       "Pour démarrer les notes, ouvrez Clips Desktop dans la barre de menus et choisissez Start Meeting Notes, ou cliquez sur Start notes lorsque le rappel apparaît. Clips capture le micro et l'audio système, puis écrit la transcription ici.",
     getDesktopApp: "Obtenir l'application de bureau",
-    generateNotesFailed: "Impossible de générer des notes. Essayer à nouveau.",
+    generateNotesFailed: "Impossible de générer le résumé. Essayer à nouveau.",
     attendee_one: "participant {{count}}",
     attendee_other: "participants {{count}}",
     joinCall: "Rejoindre l'appel",
     myNotes: "Mes notes",
     aiNotes: "Notes sur l'IA",
+    summary: "Résumé",
     actionItems: "Éléments d'action",
     working: "Fonctionnement…",
     noActionItems:
@@ -386,6 +397,7 @@ const messages = {
     searchPlaceholder: "Rechercher la transcription",
     copyTranscript: "Copier la transcription",
     downloadSrt: "Télécharger .srt",
+    regenerate: "Régénérer la transcription",
     cleanupRunning: "Nettoyage de la transcription en arrière-plan.",
     noMatches: "Aucun match.",
     noTranscript: "Pas encore de transcription.",
@@ -445,6 +457,7 @@ const messages = {
     invite: "Inviter",
     embed: "Intégrer",
     shareLink: "Lien de partage",
+    shareWithHumans: "Partager avec des personnes",
     shareWithAgents: "Partager avec les agents",
     copyAgentPrompt: "Copier le prompt pour agent",
     agentPrompt:
@@ -455,6 +468,8 @@ const messages = {
     retryAgentLink: "Réessayer",
     gifPreview: "aperçu de GIF",
     openPlayer: "Joueur ouvert",
+    chooseFile: "Choisir un fichier",
+    remove: "Retirer",
     downloadMp4: "Télécharger MP4",
     embedsNeedPublic: "Les intégrations nécessitent un clip public",
     embedPublicDescription:
@@ -481,6 +496,7 @@ const messages = {
     makePublicAndCopy: "Rendre public et copier",
     copy: "Copie",
     addPeopleByEmail: "Ajouter des personnes par email",
+    invite: "Inviter",
     notifyPeople: "Avertir les gens",
     peopleWithAccess: "Personnes ayant accès",
     ownerRole: "Propriétaire",
@@ -540,6 +556,9 @@ const messages = {
     brandingUpdated: "Image de marque mise à jour",
     saveFailed: "Échec de l'enregistrement",
     organizationName: "Nom de l'organisation",
+    defaultVisibility: "Visibilité par défaut des nouveaux enregistrements",
+    defaultVisibilityDescription:
+      "S'applique aux nouveaux enregistrements, sauf si vous choisissez une autre visibilité.",
     brandColor: "Couleur de la marque",
     brandColorPicker: "Sélecteur de couleurs de marque",
     useColor: "Utilisez {{color}}",
@@ -558,7 +577,7 @@ const messages = {
   downloadRoute: {
     pageTitle: "Télécharger Clips Desktop",
     description:
-      "Enregistrez votre écran à partir de la barre de menu. Application de bureau à mise à jour automatique pour macOS et Windows.",
+      "Enregistrez votre écran depuis la barre d’état système. Application de bureau à mise à jour automatique pour macOS, Windows et Linux.",
     macSublabel: "Universel (Apple Silicon + Intel)",
     windowsSublabel: "Programme d'installation de MSI 64 bits",
     downloadFor: "Télécharger pour {{platform}}",
@@ -607,10 +626,10 @@ const messages = {
     pageTitle: "Rejoindre l’équipe · Clips",
   },
   settings: {
-    openAgentSettings: "Ouvrir les paramètres de l’agent",
+    openAgentSettings: "Gérer l’agent",
     agentDescription:
-      "Ouvrez les paramètres de l’agent dans la barre latérale pour les modèles, clés API, automatisations, voix et autres contrôles.",
-    agentTitle: "Paramètres de l’agent",
+      "Gérez le modèle de l’agent, les clés API, les automatisations, la voix et les autres contrôles.",
+    agentTitle: "Gérer l’agent",
     title: "Paramètres",
     pageTitle: "Paramètres · Clips",
     intro: "Préférences et services connectés pour cet espace Clips.",
@@ -618,6 +637,16 @@ const messages = {
     languageDescription:
       "Choisissez la langue de l’interface pour ce compte. Clips s’en souviendra sur tous vos appareils.",
     languageLabel: "Langue de l’interface",
+    uploadWorkspaceTitle: "Espace actif",
+    uploadWorkspaceDescription:
+      "Choisissez l’espace utilisé par Clips pour les nouveaux enregistrements, y compris ceux importés depuis le bureau.",
+    uploadWorkspaceLabel: "Espace actuel",
+    uploadWorkspacePlaceholder: "Choisir un espace",
+    uploadWorkspaceHint:
+      "Ce changement met également à jour les vues Clips liées à l’espace.",
+    uploadWorkspaceSaving: "Enregistrement de l’espace…",
+    uploadWorkspaceSaved: "Espace actif mis à jour",
+    uploadWorkspaceSaveFailed: "Impossible de mettre à jour l’espace actif",
     whatsNew: "Nouveautés",
     changelogEmpty: "Aucune mise à jour pour le moment.",
     viewAllUpdates: "Voir toutes les mises à jour",
@@ -828,6 +857,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     loadFailedBody:
       "Une erreur s’est produite lors du chargement de cette liste. Vos enregistrements sont en sécurité — réessayez.",
     retry: "Réessayer",
+    paginationRange: "{{start}}–{{end}} sur {{total}}",
+    paginationPrevious: "Précédent",
+    paginationNext: "Suivant",
+    paginationPage: "Page {{page}} sur {{totalPages}}",
   },
   notificationsRoute: {
     pageTitle: "Alertes · Clips",
@@ -897,15 +930,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "{{email}} perdra l’accès à cette organisation. Vous pourrez toujours l’inviter à nouveau.",
     remove: "Retirer",
   },
-  slackShareHint: {
-    playsInline: "Lecture inline dans Slack",
-    connectedDescription:
-      "Collez ce lien dans n’importe quel espace connecté pour le lire inline.",
-    makeInline: "Le lire inline dans Slack",
-    connectDescription:
-      "Connectez un espace pour que ce lien se déplie en vidéo.",
-    connect: "Connecter",
-  },
   commentsPanel: {
     disabled: "Les commentaires sont désactivés pour cet enregistrement.",
     beFirst: "Soyez le premier à commenter",
@@ -928,10 +952,22 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     unavailable: "Cette réunion est privée ou n’est plus disponible.",
     tryClips: "Essayer Clips",
     attendees: "{{count}} participants",
-    noAiNotes: "Les notes IA n’ont pas encore été générées pour cette réunion.",
+    noAiNotes: "Aucun résumé n’a encore été généré pour cette réunion.",
     summary: "Résumé",
     keyPoints: "Points clés",
     actionItems: "Actions à faire",
+    sharedContent: "Contenu partagé",
+    summaryIncluded: "Résumé, points clés et actions à faire",
+    includeTranscript: "Inclure la transcription complète",
+    includeTranscriptDescription:
+      "Toute personne ayant accès à cette réunion peut lire la transcription complète.",
+    transcriptUnavailable: "La transcription n’est pas encore prête.",
+    transcript: "Transcription",
+    copyTranscript: "Copier la transcription",
+    transcriptCopied: "Transcription copiée",
+    copyTranscriptFailed: "Impossible de copier la transcription",
+    updateTranscriptSharingFailed:
+      "Impossible de modifier le partage de la transcription",
   },
   deleteRecordingMenu: {
     movedToTrash: "Clip déplacé vers la corbeille",
@@ -1118,6 +1154,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     desktopTitle: "Desktop app (Localisé)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localisé)",
+    openDesktopApp: "Open desktop app (Localisé)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localisé)",
@@ -1245,9 +1282,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     visibilityOrg: "Organization (Localisé)",
     visibilityPublic: "Public (Localisé)",
     passwordProtection: "Password protection (Localisé)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Localisé)",
+    passwordSetPlaceholder: "Password is set — type to replace (Localisé)",
     noPasswordPlaceholder: "No password (Localisé)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (Localisé)",
+    removePassword: "Remove (Localisé)",
     expiry: "Expiry (Localisé)",
     viewerOptions: "Viewer options (Localisé)",
     comments: "Comments (Localisé)",
@@ -1370,6 +1408,8 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
   clipsFinalRaw: {
     splitAtPlayhead: "Couper à la tête de lecture (S)",
     selectedCount: "{{count}} sélectionnés",
+    selectAll: "Tout sélectionner",
+    deselectAll: "Tout désélectionner",
     move: "Déplacer",
     moveSelected: "Déplacer {{count}} sélectionnés",
     current: "Actuel",
@@ -1380,7 +1420,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     connectStorageToFinish:
       "Ouvrez pour connecter le stockage et terminer l’enregistrement.",
     retryFromClipsMenu:
-      "Réessayez depuis le menu Clips ; inutile de réenregistrer.",
+      "Ouvrez Clips depuis la barre des menus pour réessayer cet envoi enregistré ; inutile de réenregistrer.",
     removeFailedClip: "Supprimer ce clip en échec.",
     remove: "Supprimer",
     viewsCount: "{{count}} vues",
@@ -1495,6 +1535,23 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     guideStartDescription:
       "Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins. (Localisé)",
   },
+  rewindExtension: {
+    title: "Ajouter ce qui s’est passé avant",
+    description:
+      "Choisissez un intervalle du Rewind local et ajoutez-le au début de ce clip. Rien n’est ajouté automatiquement.",
+    progressLabel: "Progression du traitement de l’historique Rewind",
+    privateFirstTitle: "Rendre d’abord ce clip privé",
+    privateFirstDescription:
+      "L’historique Rewind local peut contenir du contexte antérieur au début de l’enregistrement. Le clip deviendra privé. Si quelqu’un dispose encore d’un accès direct, Clips s’arrêtera pour vous laisser le retirer dans Partager.",
+    makePrivateContinue: "Rendre privé et continuer",
+    add30Seconds: "Ajouter les 30 secondes précédentes",
+    add5Minutes: "Ajouter les 5 minutes précédentes",
+    add5MinutesDescription:
+      "Utile pour retrouver le début d’une explication plus longue.",
+    privateReady:
+      "Ce clip est privé. Vous pouvez maintenant ajouter l’historique Rewind local.",
+  },
+  timeline: { clipStartedHere: "Le clip commence ici" },
 };
 
 export default messages;

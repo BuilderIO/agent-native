@@ -691,22 +691,17 @@ export function DesignColorPicker({
   blendMode,
   onBlendModeChange,
   showBlendMode = false,
-  fillRows: _fillRows,
-  selectedFillId: _selectedFillId,
-  onFillSelect: _onFillSelect,
-  onFillChange: _onFillChange,
-  onAddFill: _onAddFill,
-  onRemoveFill: _onRemoveFill,
+  // Note: fillRows/selectedFillId/onFillSelect/onFillChange/onAddFill/
+  // onRemoveFill and gradientStops/selectedStopId/onGradientStopSelect/
+  // onGradientStopChange/onAddGradientStop/onRemoveGradientStop are
+  // deliberately NOT destructured here — see the "These interfaces remain…"
+  // comment on DesignColorPickerProps above. The popover doesn't render a
+  // fills/gradient-stops list (fill-properties.tsx in edit-panel owns that
+  // UI directly), so binding them to local variables here was dead code.
   paintType,
   onPaintTypeChange,
   gradientType,
   onGradientTypeChange,
-  gradientStops: _gradientStops,
-  selectedStopId: _selectedStopId,
-  onGradientStopSelect: _onGradientStopSelect,
-  onGradientStopChange: _onGradientStopChange,
-  onAddGradientStop: _onAddGradientStop,
-  onRemoveGradientStop: _onRemoveGradientStop,
   documentColors,
   supportedPaintTypes,
   shaderContext,
@@ -752,6 +747,18 @@ export function DesignColorPicker({
   const [hexDraft, setHexDraft] = useState(() => toDisplayHex(color));
   const hexDraftRef = useRef(hexDraft);
   const [open, setOpen] = useState(false);
+  // Snapshot of value/opacity/paintType captured the instant the popover
+  // opens, so Escape can cancel the whole editing session — matching Figma:
+  // dragging hue/sat/alpha/gradient stops live-previews the color, but
+  // Escaping out reverts everything back to how it was before the popover
+  // opened, not just whatever field happens to be focused. Re-snapshotted
+  // only on the open transition (see the effect below), never while already
+  // open, so it doesn't chase the user's own edits.
+  const openSnapshotRef = useRef({
+    value,
+    opacity: effectiveOpacity,
+    paintType,
+  });
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
   // Preserve the last non-zero hue so dragging through an achromatic point
@@ -834,6 +841,16 @@ export function DesignColorPicker({
     hexDraftRef.current = nextHex;
     setHexDraft(nextHex);
   }, [color.r, color.g, color.b]);
+
+  useEffect(() => {
+    if (open) {
+      openSnapshotRef.current = { value, opacity: effectiveOpacity, paintType };
+    }
+    // Deliberately only depends on `open`: this must capture the value as of
+    // the open transition, not re-run on every edit made while already open
+    // (that would defeat the point of an Escape-to-cancel snapshot).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // The local override (the user's explicit paint-type click) persists for the
   // life of the open popover so EditPanel bouncing `paintType` back to solid
@@ -1015,15 +1032,31 @@ export function DesignColorPicker({
       onImageFillChange(next);
       return;
     }
+    // ImageFillControls has no drag surface of its own (URL entry, file
+    // pick, and fit selection are each already a discrete, complete action),
+    // so — unlike the SV field / hue / alpha tracks — every onChange call
+    // here is itself a final commit, never a live-preview tick.
     emitPaintValue(imageFillToCss(next));
+    notifyChangeComplete();
   };
 
   // ── Shader editing ──────────────────────────────────────────────────────────────
 
-  const emitShader = (descriptor: ShaderDescriptor, css: string) => {
+  // Cheap live preview — fires on every ShaderFillsPanel tuning tick. Must
+  // not call notifyChangeComplete (that's the expensive-commit signal), or
+  // every drag tick would dirty undo history the same way an un-split
+  // onChange/onChangeComplete would for color/gradient dragging.
+  const previewShader = (descriptor: ShaderDescriptor, css: string) => {
+    setShaderDescriptor(descriptor);
+    emitPaintValue(css);
+  };
+
+  // Fires once per gesture/discrete pick (see ShaderFillsPanel's onCommit).
+  const commitShader = (descriptor: ShaderDescriptor, css: string) => {
     setShaderDescriptor(descriptor);
     onShaderChange?.(descriptor, css);
     emitPaintValue(css);
+    notifyChangeComplete();
   };
 
   // ── Paint-type switching (does real work for every type) ──────────────────────
@@ -1134,6 +1167,29 @@ export function DesignColorPicker({
 
   const hasEyeDropper = hasEyeDropperSupport();
 
+  // Cancels the whole editing session back to the snapshot captured when the
+  // popover opened — the Escape-key contract (matches Figma: any live-preview
+  // dragging done while the popover was open gets thrown away, not just
+  // whatever field currently has focus). Resets every local override so the
+  // effective paint type / gradient / shader recompute cleanly from the
+  // reverted props on the next render.
+  const revertToOpenSnapshot = () => {
+    if (disabled) return;
+    const snapshot = openSnapshotRef.current;
+    setLocalPaintType(null);
+    setLocalGradient(null);
+    setSelectedStopId("");
+    setShaderDescriptor(null);
+    setView("picker");
+    if (onPaintTypeChange && snapshot.paintType !== undefined) {
+      onPaintTypeChange(snapshot.paintType);
+    }
+    if (onOpacityChange) onOpacityChange(snapshot.opacity);
+    lastEmittedValueRef.current = snapshot.value;
+    onChange(snapshot.value);
+    onChangeComplete?.(snapshot.value);
+  };
+
   // ── Value row inputs by mode ─────────────────────────────────────────────────
 
   function renderValueInputs() {
@@ -1185,6 +1241,7 @@ export function DesignColorPicker({
               max={255}
               disabled={disabled}
               onChange={(next) => emitFieldColor({ ...fieldColor, [ch]: next })}
+              onCommit={notifyChangeComplete}
             />
           ))}
         </div>
@@ -1200,6 +1257,7 @@ export function DesignColorPicker({
             max={360}
             disabled={disabled}
             onChange={(h) => emitFieldHsl({ ...fieldHsl, h })}
+            onCommit={notifyChangeComplete}
           />
           <ScrubbyNumberInput
             aria-label={copy.saturation}
@@ -1208,6 +1266,7 @@ export function DesignColorPicker({
             max={100}
             disabled={disabled}
             onChange={(s) => emitFieldHsl({ ...fieldHsl, s })}
+            onCommit={notifyChangeComplete}
           />
           <ScrubbyNumberInput
             aria-label={copy.lightness}
@@ -1216,6 +1275,7 @@ export function DesignColorPicker({
             max={100}
             disabled={disabled}
             onChange={(l) => emitFieldHsl({ ...fieldHsl, l })}
+            onCommit={notifyChangeComplete}
           />
         </div>
       );
@@ -1230,6 +1290,7 @@ export function DesignColorPicker({
           max={360}
           disabled={disabled}
           onChange={(h) => emitFieldHsv({ ...fieldHsv, h })}
+          onCommit={notifyChangeComplete}
         />
         <ScrubbyNumberInput
           aria-label={copy.saturation}
@@ -1238,6 +1299,7 @@ export function DesignColorPicker({
           max={100}
           disabled={disabled}
           onChange={(s) => emitFieldHsv({ ...fieldHsv, s })}
+          onCommit={notifyChangeComplete}
         />
         <ScrubbyNumberInput
           aria-label={copy.brightness}
@@ -1246,6 +1308,7 @@ export function DesignColorPicker({
           max={100}
           disabled={disabled}
           onChange={(v) => emitFieldHsv({ ...fieldHsv, v })}
+          onCommit={notifyChangeComplete}
         />
       </div>
     );
@@ -1298,6 +1361,11 @@ export function DesignColorPicker({
           // re-projection can't close the popover. Genuine pointer clicks
           // outside still close it via the default onInteractOutside behavior.
           onFocusOutside={(e) => e.preventDefault()}
+          // Escape cancels the whole editing session (see revertToOpenSnapshot)
+          // and then still closes the popover via Radix's default dismiss
+          // behavior — this only reverts the color/opacity/paint-type state,
+          // it doesn't call `e.preventDefault()`, so the close still happens.
+          onEscapeKeyDown={revertToOpenSnapshot}
         >
           <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" && glslShaderContext ? (
@@ -1320,7 +1388,8 @@ export function DesignColorPicker({
                 descriptor={shaderDescriptor ?? undefined}
                 applyContext={shaderContext}
                 disabled={disabled}
-                onApply={emitShader}
+                onApply={previewShader}
+                onCommit={commitShader}
                 onBack={() => {
                   setView("picker");
                   if (effectivePaintType === "shader") {
@@ -1367,7 +1436,7 @@ export function DesignColorPicker({
                                 disabled={disabled}
                                 onClick={() => setPaintType(type)}
                                 className={cn(
-                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
+                                  "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-[color,background-color,transform] duration-150",
                                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                   "active:scale-95",
                                   isActive
@@ -1452,19 +1521,23 @@ export function DesignColorPicker({
                         if (e.key === "Enter") {
                           e.preventDefault();
                           const url = e.currentTarget.value.trim();
-                          if (url)
+                          if (url) {
                             emitPaintValue(
                               `url("${url}") center / cover no-repeat`,
                             );
+                            notifyChangeComplete();
+                          }
                           e.currentTarget.blur();
                         }
                       }}
                       onBlur={(e) => {
                         const url = e.currentTarget.value.trim();
-                        if (url)
+                        if (url) {
                           emitPaintValue(
                             `url("${url}") center / cover no-repeat`,
                           );
+                          notifyChangeComplete();
+                        }
                       }}
                     />
                   </div>
@@ -1479,6 +1552,7 @@ export function DesignColorPicker({
                       disabled={disabled}
                       onSelectStop={setSelectedStopId}
                       onChange={emitGradient}
+                      onCommit={notifyChangeComplete}
                     />
                   </div>
                 )}
@@ -1660,6 +1734,7 @@ export function DesignColorPicker({
                               setOpacity(next);
                             }
                           }}
+                          onCommit={notifyChangeComplete}
                           className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 !text-[11px] tabular-nums shadow-none focus-visible:ring-0"
                           compact
                         />
@@ -1959,7 +2034,7 @@ function SaturationBrightnessField({
       }}
       onKeyDown={stepWithKeyboard}
       className={cn(
-        "relative h-48 w-full cursor-crosshair overflow-hidden outline-none",
+        "relative h-48 w-full touch-none cursor-crosshair overflow-hidden outline-none",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         "active:cursor-grabbing",
         disabled && "cursor-not-allowed opacity-60",
@@ -2080,7 +2155,7 @@ function ColorTrack({
         if (ended.shouldCommit) onCommit?.();
       }}
       className={cn(
-        "relative h-3.5 cursor-pointer rounded-full border border-border/60 outline-none",
+        "relative h-3.5 touch-none cursor-pointer rounded-full border border-border/60 outline-none",
         "ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "active:cursor-grabbing",
         disabled && "cursor-not-allowed opacity-60",
@@ -2097,7 +2172,14 @@ function ColorTrack({
 }
 
 /**
- * A number input with select-on-focus and Esc-to-revert.
+ * A number input with select-on-focus, Esc-to-revert, arrow-key nudging, and
+ * Figma-style click-drag "scrubbing": pressing down and dragging left/right
+ * decrements/increments the value continuously (Shift = 10x coarser step,
+ * matching the same shift convention as arrow-key nudges and the SV/hue/alpha
+ * tracks) without needing to type. A short press-release with no meaningful
+ * movement is treated as an ordinary click so focus + select-on-focus (and
+ * therefore typing) keep working exactly as before.
+ *
  * The `compact` prop removes inner padding for use inside bordered wrappers.
  */
 function ScrubbyNumberInput({
@@ -2107,6 +2189,7 @@ function ScrubbyNumberInput({
   max,
   disabled,
   onChange,
+  onCommit,
   className,
   compact = false,
 }: {
@@ -2116,12 +2199,22 @@ function ScrubbyNumberInput({
   max: number;
   disabled: boolean;
   onChange: (value: number) => void;
+  /**
+   * Fires once per discrete, complete edit: a blur/Enter commit (only when
+   * the draft actually parsed — not on a revert), each arrow-key step, and
+   * once at the end of a scrub drag (not per pointermove tick). Mirrors the
+   * `onCommit` contract used by SaturationBrightnessField/ColorTrack so every
+   * draggable/steppable control in this picker notifies
+   * `onChangeComplete` exactly once per gesture.
+   */
+  onCommit?: () => void;
   className?: string;
   compact?: boolean;
 }) {
   const [draft, setDraft] = useState<string>(() => String(value));
   const draftRef = useRef(draft);
   const skipBlurRef = useRef(false);
+  const scrubRef = useRef<ScrubGestureState>(SCRUB_GESTURE_IDLE);
 
   useEffect(() => {
     const nextDraft = String(value);
@@ -2138,6 +2231,7 @@ function ScrubbyNumberInput({
       return;
     }
     onChange(clamp(parsed, min, max));
+    onCommit?.();
   };
 
   return (
@@ -2149,8 +2243,15 @@ function ScrubbyNumberInput({
       max={max}
       disabled={disabled}
       className={cn(
-        "h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center !text-[11px] tabular-nums",
+        "h-6 w-full touch-none rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center !text-[11px] tabular-nums",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        // Figma's numeric fields never show the native up/down spinner —
+        // hide it in both engines so this reads as a plain scrubbable value,
+        // not a browser default number input. (The spinner buttons also
+        // bypassed this component's onChange/onCommit contract entirely,
+        // since native stepper clicks only mutate the draft string, not the
+        // color — hiding them removes that dead, contract-violating path.)
+        "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
         compact && "border-0 shadow-none focus-visible:ring-0",
         className,
       )}
@@ -2179,6 +2280,7 @@ function ScrubbyNumberInput({
           const parsed = Number(draftRef.current);
           const base = Number.isFinite(parsed) ? parsed : value;
           onChange(clamp(base + step, min, max));
+          onCommit?.();
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
@@ -2186,6 +2288,7 @@ function ScrubbyNumberInput({
           const parsed = Number(draftRef.current);
           const base = Number.isFinite(parsed) ? parsed : value;
           onChange(clamp(base - step, min, max));
+          onCommit?.();
         }
       }}
       onBlur={() => {
@@ -2194,6 +2297,58 @@ function ScrubbyNumberInput({
           return;
         }
         commit();
+      }}
+      onPointerDown={(e) => {
+        if (disabled) return;
+        // Don't preventDefault here — a plain click (no subsequent movement
+        // past the threshold) must still focus the input normally so typing
+        // keeps working. Pointer capture just ensures a real drag keeps
+        // routing to this element even once the cursor leaves its bounds.
+        scrubRef.current = startScrubGesture(e.clientX, value);
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        if (disabled || !scrubRef.current.active) return;
+        const deltaX = e.clientX - scrubRef.current.startX;
+        if (!scrubRef.current.dragging) {
+          if (Math.abs(deltaX) < SCRUB_DRAG_THRESHOLD_PX) return;
+          scrubRef.current = { ...scrubRef.current, dragging: true };
+          // Now that this is a genuine drag (not a click), stop the browser
+          // from turning the pointer move into a text-selection drag.
+          window.getSelection?.()?.removeAllRanges();
+        }
+        e.preventDefault();
+        onChange(
+          computeScrubbedValue(
+            scrubRef.current.startValue,
+            deltaX,
+            min,
+            max,
+            e.shiftKey,
+          ),
+        );
+      }}
+      onPointerUp={(e) => {
+        const wasDragging = scrubRef.current.dragging;
+        scrubRef.current = SCRUB_GESTURE_IDLE;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        if (wasDragging) {
+          onCommit?.();
+          // A drag ended without focusing the field for text entry — match
+          // Figma (dragging a number field doesn't leave it in edit mode).
+          skipBlurRef.current = true;
+          e.currentTarget.blur();
+        }
+      }}
+      onPointerCancel={(e) => {
+        const wasDragging = scrubRef.current.dragging;
+        scrubRef.current = SCRUB_GESTURE_IDLE;
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        if (wasDragging) onCommit?.();
       }}
     />
   );
@@ -2228,6 +2383,61 @@ export function endPointerGesture(state: PointerGestureState): {
   shouldCommit: boolean;
 } {
   return { state: POINTER_GESTURE_IDLE, shouldCommit: state };
+}
+
+// ─── Click-drag "scrub" tracking for ScrubbyNumberInput ────────────────────────
+//
+// A plain pointerdown+pointerup with no meaningful movement must behave like
+// an ordinary click (focus the input, select-on-focus, allow typing) — it
+// only becomes a scrub once the pointer has moved past a small pixel
+// threshold, matching Figma's numeric fields (click to type, click-drag to
+// scrub). `dragging` flips true exactly once per gesture, the first time the
+// threshold is crossed.
+
+const SCRUB_DRAG_THRESHOLD_PX = 3;
+/** Pixels of drag per 1 unit of value change at the normal (non-Shift) rate. */
+const SCRUB_PIXELS_PER_STEP = 4;
+
+export interface ScrubGestureState {
+  /** True from pointerdown until the matching pointerup/pointercancel. */
+  active: boolean;
+  /** True once the drag has crossed the click-vs-drag threshold. */
+  dragging: boolean;
+  startX: number;
+  startValue: number;
+}
+
+export const SCRUB_GESTURE_IDLE: ScrubGestureState = {
+  active: false,
+  dragging: false,
+  startX: 0,
+  startValue: 0,
+};
+
+/** Call on pointerdown: starts tracking a new potential scrub gesture. */
+export function startScrubGesture(
+  startX: number,
+  startValue: number,
+): ScrubGestureState {
+  return { active: true, dragging: false, startX, startValue };
+}
+
+/**
+ * Pure math for one scrub tick: converts total horizontal drag distance
+ * (from the gesture's start position) into a new clamped value. Shift scales
+ * the rate 10x coarser, matching the same shift convention as arrow-key
+ * nudges and the SV/hue/alpha track keyboard steps.
+ */
+export function computeScrubbedValue(
+  startValue: number,
+  deltaX: number,
+  min: number,
+  max: number,
+  shiftKey: boolean,
+): number {
+  const rate = shiftKey ? 10 : 1;
+  const delta = Math.round(deltaX / SCRUB_PIXELS_PER_STEP) * rate;
+  return clamp(startValue + delta, min, max);
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
@@ -2388,7 +2598,7 @@ function alphaTrackBackground(color: RgbaColor): string {
   return `${CHECKERBOARD_IMAGE}, linear-gradient(90deg, rgba(${color.r}, ${color.g}, ${color.b}, 0), rgba(${color.r}, ${color.g}, ${color.b}, 1))`;
 }
 
-function rgbaToHsv(color: RgbaColor): HsvaColor {
+export function rgbaToHsv(color: RgbaColor): HsvaColor {
   const r = clampFloat(color.r / 255, 0, 1);
   const g = clampFloat(color.g / 255, 0, 1);
   const b = clampFloat(color.b / 255, 0, 1);
@@ -2413,7 +2623,7 @@ function rgbaToHsv(color: RgbaColor): HsvaColor {
   };
 }
 
-function hsvToRgba(color: HsvaColor): RgbaColor {
+export function hsvToRgba(color: HsvaColor): RgbaColor {
   const h = ((color.h % 360) + 360) % 360;
   const s = clampFloat(color.s, 0, 100) / 100;
   const v = clampFloat(color.v, 0, 100) / 100;
@@ -2449,7 +2659,7 @@ function clampFloat(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-function hasHexAlpha(value: string): boolean {
+export function hasHexAlpha(value: string): boolean {
   return /^#?(?:[0-9a-f]{4}|[0-9a-f]{8})$/i.test(value.trim());
 }
 
@@ -2468,16 +2678,16 @@ export function parseNumericDraft(draft: string): number | null {
 }
 
 /**
- * Expands a bare 1-digit hex fragment (e.g. "F") into the standard 3-digit
- * shorthand ("FFF", which `parseCssColor` then doubles up to "FFFFFF") so a
- * single typed hex digit still commits instead of being rejected as
- * unparseable. Standard 3/4/6/8-digit hex (already handled by
- * `parseCssColor`) passes through unchanged.
+ * Expands 1-3 digit hex inputs to their 6-digit Figma-style equivalents.
+ * One digit fills every channel, two digits repeat as a grayscale byte, and
+ * three digits use standard CSS shorthand expansion.
  */
 export function expandHexShorthand(value: string): string {
   const trimmed = value.trim().replace(/^#/, "");
-  if (/^[0-9a-f]$/i.test(trimmed)) {
-    return trimmed.repeat(3);
+  if (/^[0-9a-f]$/i.test(trimmed)) return trimmed.repeat(6);
+  if (/^[0-9a-f]{2}$/i.test(trimmed)) return trimmed.repeat(3);
+  if (/^[0-9a-f]{3}$/i.test(trimmed)) {
+    return [...trimmed].map((digit) => digit.repeat(2)).join("");
   }
   return trimmed;
 }

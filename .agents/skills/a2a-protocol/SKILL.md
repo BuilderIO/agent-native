@@ -117,6 +117,54 @@ const answer = await callAgent(
 // answer is a plain string
 ```
 
+### Fast bounded read: `invokeAgentAction()`
+
+When the caller knows the exact receiver-owned read action and arguments, skip
+the receiver's model loop:
+
+```ts
+import { invokeAgentAction } from "@agent-native/core/a2a";
+
+const { result } = await invokeAgentAction({
+  target: "analytics",
+  action: "gong-calls",
+  input: { company: "Acme", days: 90, includeTranscripts: true },
+  userEmail,
+  orgDomain,
+  orgSecret,
+});
+```
+
+The receiver still owns schema validation, credentials, access scoping, audit
+attribution, and exposure policy. Direct invocation is available only for
+cataloged, authenticated, explicitly exposed read-only actions that do not
+require approval. Its JWT is audience-bound to the receiving app. Use normal
+message delegation for planning, synthesis, multi-step work, or mutations.
+
+Inside an agent loop, `call-agent` exposes the same path with `action` + `input`;
+omit `message` and `taskId` in that mode.
+
+### Retry safety and trace linkage
+
+`call-agent` automatically derives an owner-scoped idempotency key from the
+originating turn, target, and exact message. If a retry reaches the receiver
+after the caller timed out, asynchronous `message/send` returns the existing
+active or completed task instead of starting a duplicate agent run. Failed and
+canceled tasks release the key for an intentional retry; synchronous calls are
+never deduplicated. Lower-level clients may pass an
+`idempotencyKey` explicitly; keep it stable for the same logical submission and
+change it when the work changes. Dedupe is scoped to the JWT-authenticated
+owner and verified org, and keys are limited to 128 characters.
+
+The caller also forwards bounded correlation metadata (`callerApp`,
+`callerThreadId`, `parentRunId`, `parentTurnId`, and direct-read
+`invocationId`). These fields
+are telemetry hints only. Receivers must continue to derive identity,
+ownership, org scope, access, and approval from the verified request context.
+Delegated model loops emit `$ai_generation` with A2A/MCP lineage, while direct
+reads emit the content-free `$a2a_read_invoke` event; neither event includes
+action arguments or results.
+
 ### Advanced: `A2AClient` (full control)
 
 ```ts
@@ -147,12 +195,38 @@ for await (const update of client.stream({
 }
 ```
 
+### Carrying explicit chat authorization
+
+When the authenticated caller has an exact consequential action that the user
+explicitly authorized in the originating chat, pass the tool name and complete
+input as `approvedActions`. The receiver accepts these grants only from a
+JWT-verified user identity, converts each one to the same content-addressed key
+as its local approval gate, and consumes it once:
+
+```ts
+await client.send(message, {
+  async: true,
+  approvedActions: [
+    {
+      tool: "send-email",
+      input: { to, subject, body, attachments },
+    },
+  ],
+});
+```
+
+Never infer authorization from request prose or broaden the input. A changed
+recipient, body, attachment, or tool produces a different key and follows the
+receiver's normal approval-required path. Static API keys and unsigned callers
+cannot carry these grants.
+
 ## JSON-RPC Methods
 
 | Method           | Purpose                          | Auth required |
 | ---------------- | -------------------------------- | ------------- |
 | `message/send`   | Send a message, get a task back  | Yes           |
 | `message/stream` | Send a message, stream responses | Yes           |
+| `actions/invoke` | Invoke one exposed read action   | Yes, JWT      |
 | `tasks/get`      | Get task status by ID            | Yes           |
 | `tasks/cancel`   | Cancel a running task            | Yes           |
 

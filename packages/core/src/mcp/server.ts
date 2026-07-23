@@ -28,6 +28,11 @@ import {
   getMcpOAuthProtectedResourceMetadataUrl,
   getMcpOAuthResource,
 } from "./oauth-route.js";
+import {
+  MCP_PUBLIC_ROUTE_PREFIX,
+  MCP_ROUTE_PREFIXES,
+  joinMcpRoute,
+} from "./route-paths.js";
 
 // Re-export the shared MCP server builder + types so the stdio transport and
 // any (future) external importer of `@agent-native/core/mcp` keep resolving
@@ -183,7 +188,7 @@ function buildWebRequest(event: H3Event, method: string): Request {
     forwardedProto?.split(",")[0]?.trim() ||
     (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
   const basePath = getConfiguredAppBasePath();
-  const url = `${proto}://${host}${basePath}/_agent-native/mcp`;
+  const url = `${proto}://${host}${basePath}${MCP_PUBLIC_ROUTE_PREFIX}`;
 
   // No body here on purpose: the JSON-RPC payload is forwarded via the
   // transport's `parsedBody` option (the same mechanism the Node transport
@@ -220,7 +225,7 @@ function buildUnauthorizedBody(event: H3Event): {
     ? `npx @agent-native/core@latest connect ${issuer}`
     : undefined;
   const authorizeUrl = issuer
-    ? `${issuer}/_agent-native/mcp/oauth/authorize`
+    ? `${issuer}${MCP_PUBLIC_ROUTE_PREFIX}/oauth/authorize`
     : undefined;
   const message = command
     ? `Authentication required. Run \`${command}\` to re-authenticate this ` +
@@ -305,9 +310,18 @@ export async function handleMcpRequest(
   // must fail closed rather than trust a spoofable owner-email header that
   // `fullSurface` would otherwise escalate to the full mutating surface.
   const requestMeta = deriveRequestMeta(event);
+  const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    // A bare localhost URL is still a protected MCP resource. This lets
+    // OAuth-native hosts (Kiro, Claude Code, etc.) receive the standard 401
+    // challenge and open browser approval instead of silently getting the
+    // sparse anonymous dev surface. The stdio proxy remains zero-config for
+    // local installs because it forwards an owner hint; an explicit opt-in is
+    // available for local diagnostics.
     allowDevOpen:
-      isLoopbackRequest(event) && isLoopbackOrigin(requestMeta.origin),
+      isLoopbackRequest(event) &&
+      isLoopbackOrigin(requestMeta.origin) &&
+      (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
     resourceUrl: getMcpOAuthAudiences(event),
   });
   if (!authResult.authed) {
@@ -454,7 +468,8 @@ export async function handleMcpRequest(
 /**
  * Mount an MCP remote server on an H3/Nitro app.
  *
- * Endpoint: `{routePrefix}/mcp` (default `/_agent-native/mcp`)
+ * Endpoints: `/mcp` (public) and `/_agent-native/mcp` (compatibility).
+ * A custom route prefix only mounts that custom endpoint.
  *
  * Uses stateless Streamable HTTP transport — no in-memory sessions, JSON
  * request/response (no SSE), and no standalone GET stream, so it survives
@@ -473,15 +488,20 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
-  getH3App(nitroApp).use(
-    `${routePrefix}/mcp`,
-    defineEventHandler(async (event) => {
-      return handleMcpRequest(event as H3Event, config);
-    }),
-  );
+  const routePaths =
+    routePrefix === "/_agent-native"
+      ? [...MCP_ROUTE_PREFIXES]
+      : [joinMcpRoute(routePrefix, "/mcp")];
+  const handler = defineEventHandler(async (event) => {
+    return handleMcpRequest(event as H3Event, config);
+  });
+
+  for (const routePath of routePaths) {
+    getH3App(nitroApp).use(routePath, handler);
+  }
 
   if (process.env.DEBUG)
     console.log(
-      `[mcp] Mounted MCP server at ${routePrefix}/mcp (${Object.keys(config.actions).length} tools${config.askAgent ? " + ask-agent" : ""})`,
+      `[mcp] Mounted MCP server at ${routePaths.join(" and ")} (${Object.keys(config.actions).length} tools${config.askAgent ? " + ask-agent" : ""})`,
     );
 }

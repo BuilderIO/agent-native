@@ -1,11 +1,4 @@
-/**
- * Detail view for a single monitor: status header, overview stats, response-time
- * chart, a 90-day uptime timeline, config summary, recent check results, and
- * incident history. The colorful charts + uptime windows are driven by the
- * shared `get-monitor-stats` aggregate and the reusable `@/components/monitoring`
- * chart components; per-check config/history comes from `get-monitor`.
- */
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import {
   IconArrowLeft,
   IconExternalLink,
@@ -36,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 import { fmt, useUptimeT } from "./i18n";
 import type {
+  MonitorCheckDiagnostics,
   MonitorDetail as MonitorDetailData,
   MonitorStats,
   MonitorSummary,
@@ -420,17 +414,22 @@ export function MonitorDetail({
                             {formatLatency(result.latencyMs)}
                           </TableCell>
                           <TableCell className="max-w-[220px] text-xs text-muted-foreground">
-                            {result.failedAssertions.length > 0 ? (
-                              <span className="text-amber-500">
-                                {result.failedAssertions.join("; ")}
-                              </span>
-                            ) : result.error ? (
-                              <span className="text-destructive">
-                                {result.error}
-                              </span>
-                            ) : (
-                              <span className="text-emerald-500">{t.ok}</span>
-                            )}
+                            <div className="space-y-1">
+                              {result.failedAssertions.length > 0 ? (
+                                <span className="text-amber-500">
+                                  {result.failedAssertions.join("; ")}
+                                </span>
+                              ) : result.error ? (
+                                <span className="text-destructive">
+                                  {result.error}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-500">{t.ok}</span>
+                              )}
+                              <div className="text-[11px] leading-snug text-muted-foreground/80">
+                                {formatDiagnostics(result.diagnostics)}
+                              </div>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -506,6 +505,30 @@ export function MonitorDetail({
       </Card>
     </div>
   );
+}
+
+function formatDiagnostics(diagnostics: MonitorCheckDiagnostics): string {
+  const timings = diagnostics.timings ?? {};
+  const parts = [
+    diagnostics.source,
+    timings.requestMs != null
+      ? `headers ${formatLatency(timings.requestMs)}`
+      : null,
+    timings.ssrfSetupMs != null
+      ? `ssrf ${formatLatency(timings.ssrfSetupMs)}`
+      : null,
+    timings.bodyReadMs != null
+      ? `body ${formatLatency(timings.bodyReadMs)}`
+      : null,
+    diagnostics.response?.finalHost
+      ? `host ${diagnostics.response.finalHost}`
+      : null,
+    diagnostics.error?.kind ? `error ${diagnostics.error.kind}` : null,
+    diagnostics.runtime?.commitRef
+      ? `sha ${diagnostics.runtime.commitRef.slice(0, 7)}`
+      : null,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function StatCard({

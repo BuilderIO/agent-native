@@ -71,12 +71,12 @@ export function resolveEmptyResponseRetryMaxOutputTokens(
 // room for the actual visible completion. This clamp guarantees at least
 // max(8000, 40% of maxOutputTokens) tokens of non-thinking headroom.
 //
-// Note: this only applies to the explicit numeric-budget "enabled" config.
-// Anthropic's `type: "adaptive"` thinking config (used by the
-// reasoningEffort -> output_config.effort mapping in anthropic-engine.ts /
-// ai-sdk-engine.ts) has NO budget_tokens field at all per the SDK types, so
-// there is nothing to clamp there — those callers rely on the raised
-// maxOutputTokens ceiling above instead.
+// Note: this applies to every numeric-budget "enabled" config, including the
+// compatibility fallback for Claude models that do not support adaptive
+// thinking. Anthropic's `type: "adaptive"` config (used by the
+// reasoningEffort -> output_config.effort mapping for supported models) has
+// NO budget_tokens field at all per the SDK types, so there is nothing to
+// clamp there — those callers rely on the raised maxOutputTokens ceiling.
 // ---------------------------------------------------------------------------
 
 /** Anthropic's documented minimum extended-thinking budget. */

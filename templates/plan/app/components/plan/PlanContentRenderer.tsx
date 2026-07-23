@@ -3,14 +3,15 @@ import {
   type BlockRenderContext,
 } from "@agent-native/core/blocks";
 import {
-  PresenceBar,
-  RecentEditHighlights,
-  useT,
   type AttributedRecentEdit,
   type CollabUser,
-  type RichMarkdownCollabUser,
-} from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  PresenceBar,
+  RecentEditHighlights,
+} from "@agent-native/toolkit/collab-ui";
+import { type RichMarkdownCollabUser } from "@agent-native/toolkit/editor";
 import type { PlanFileTreeBlock } from "@shared/plan-content";
 import type {
   PlanAnnotation,
@@ -34,6 +35,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
 import { cn } from "@/lib/utils";
 
@@ -650,10 +652,24 @@ export function PlanContentRenderer({
     hiddenChangedFileBlockIds,
     hideChangedFiles,
   ]);
-  const blockLookup = useMemo(
-    () => new Map(content.blocks.map((block) => [block.id, block])),
-    [content.blocks],
-  );
+  const blockLookup = useMemo(() => {
+    const blocks = new Map<string, PlanBlock>();
+    const visit = (block: PlanBlock) => {
+      blocks.set(block.id, block);
+      if (block.type === "tabs") {
+        for (const tab of block.data.tabs) {
+          for (const child of tab.blocks) visit(child);
+        }
+      }
+      if (block.type === "columns") {
+        for (const column of block.data.columns) {
+          for (const child of column.blocks) visit(child);
+        }
+      }
+    };
+    for (const block of content.blocks) visit(block);
+    return blocks;
+  }, [content.blocks]);
   const fileToBlockIdMap = useMemo<Map<string, string>>(() => {
     if (!isRecap) return new Map();
     const map = new Map<string, string>();

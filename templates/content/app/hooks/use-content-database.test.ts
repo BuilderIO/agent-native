@@ -6,18 +6,103 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
+  applyDocumentPropertiesToDatabaseResponse,
   applyDocumentPropertyValueToDatabaseResponse,
+  applyOptimisticItemToContentDatabase,
   applyOptimisticSourceFieldPropertyToDatabaseResponse,
   applySourceFieldPropertyToDatabaseResponse,
   clearDeletedContentDatabaseFromCache,
   contentDatabaseQueryKey,
   invalidateBuilderBodyHydrationQueries,
   invalidateContentDatabaseSourceRefreshQueries,
+  preserveScopedDatabasePlaceholder,
   readCachedContentDatabaseResponse,
+  removeDocumentPropertyFromDatabaseResponse,
+  removeOptimisticItemFromContentDatabase,
   writeContentDatabaseResponseToCache,
 } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";
+
+describe("preserveScopedDatabasePlaceholder", () => {
+  const previous = { database: "organization-files" };
+
+  it("preserves data while only pagination changes within one database", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { documentId: "organization-files", limit: 50 },
+          ],
+        },
+        { documentId: "organization-files" },
+      ),
+    ).toBe(previous);
+  });
+
+  it("never carries database rows across workspace database ids", () => {
+    expect(
+      preserveScopedDatabasePlaceholder(
+        previous,
+        {
+          queryKey: [
+            "action",
+            "get-content-database",
+            { databaseId: "organization-files" },
+          ],
+        },
+        { databaseId: "personal-files" },
+      ),
+    ).toBeUndefined();
+  });
+});
+
+describe("optimistic Content database items", () => {
+  it("adds a new page immediately and rolls it back by document id", () => {
+    const current = {
+      ...databaseResponse(),
+      items: [],
+      pagination: {
+        offset: 0,
+        limit: 100,
+        totalItems: 0,
+        returnedItems: 0,
+        hasMore: false,
+      },
+    };
+    const optimisticItem = {
+      id: "optimistic-new-page",
+      databaseId: "database",
+      document: databaseResponse().items[0]!.document,
+      position: 9999,
+      properties: [],
+    };
+
+    const added = applyOptimisticItemToContentDatabase(current, optimisticItem);
+
+    expect(added?.items).toEqual([optimisticItem]);
+    expect(added?.pagination).toMatchObject({
+      totalItems: 1,
+      returnedItems: 1,
+    });
+    expect(applyOptimisticItemToContentDatabase(added, optimisticItem)).toBe(
+      added,
+    );
+
+    const rolledBack = removeOptimisticItemFromContentDatabase(
+      added,
+      optimisticItem.document.id,
+    );
+    expect(rolledBack?.items).toEqual([]);
+    expect(rolledBack?.pagination).toMatchObject({
+      totalItems: 0,
+      returnedItems: 0,
+    });
+  });
+});
 
 function databaseResponse(): ContentDatabaseResponse {
   return {
@@ -310,6 +395,61 @@ describe("applyDocumentPropertyValueToDatabaseResponse", () => {
       value: "Agent Native",
       editable: true,
     });
+  });
+});
+
+describe("applyDocumentPropertiesToDatabaseResponse", () => {
+  it("updates definitions while preserving each row's stored value", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+    const renamed = {
+      ...current.properties[0]!,
+      definition: {
+        ...current.properties[0]!.definition,
+        name: "Workflow",
+      },
+    };
+
+    const updated = applyDocumentPropertiesToDatabaseResponse(current, {
+      databaseId: "database",
+      properties: [renamed],
+    });
+
+    expect(updated?.properties[0]?.definition.name).toBe("Workflow");
+    expect(updated?.items[0]?.properties[0]).toMatchObject({
+      definition: { id: "status", name: "Workflow" },
+      value: "Draft",
+    });
+  });
+
+  it("does not patch a cache entry for another database", () => {
+    const current = databaseResponse();
+
+    expect(
+      applyDocumentPropertiesToDatabaseResponse(current, {
+        databaseId: "other-database",
+        properties: [],
+      }),
+    ).toBe(current);
+  });
+});
+
+describe("removeDocumentPropertyFromDatabaseResponse", () => {
+  it("removes a property from the schema and every cached row", () => {
+    const current = databaseResponse();
+    current.items[0]!.properties = [
+      { ...current.properties[0]!, value: "Draft" },
+    ];
+
+    const updated = removeDocumentPropertyFromDatabaseResponse(
+      current,
+      "status",
+    );
+
+    expect(updated?.properties).toEqual([]);
+    expect(updated?.items[0]?.properties).toEqual([]);
   });
 });
 

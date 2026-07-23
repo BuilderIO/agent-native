@@ -1,5 +1,7 @@
-import { CommandMenu, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { CommandMenu } from "@agent-native/core/client/navigation";
 import {
+  IconHierarchy2,
   IconInbox,
   IconStar,
   IconSend,
@@ -74,6 +76,11 @@ const navCommands = [
     shortcut: "G A",
   },
   { labelKey: "commandPalette.goToTrash", icon: IconTrash, route: "/trash" },
+  {
+    labelKey: "settings.openAgentSettings",
+    icon: IconHierarchy2,
+    route: "/agent",
+  },
 ];
 
 export function CommandPalette({

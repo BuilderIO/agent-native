@@ -13,8 +13,23 @@ import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-sys
 
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
-  content: z.string().describe("Raw text content of the code/design file"),
+  content: z
+    .string()
+    .describe(
+      "File content. Text files (code, CSS, markdown, JSON, SVG): raw text. " +
+        "Binary files -- most importantly `.fig` (a zip/kiwi binary container, " +
+        'never valid text) -- MUST be base64-encoded with encoding: "base64"; ' +
+        "sending raw/binary-as-string content with the default utf8 encoding " +
+        "corrupts the file before it reaches Builder.",
+    ),
   mimeType: z.string().trim().optional().describe("Optional MIME type"),
+  encoding: z
+    .enum(["utf8", "base64"])
+    .optional()
+    .describe(
+      "Encoding of `content`. Defaults to utf8. Set to base64 for `.fig` and " +
+        "other binary files.",
+    ),
 });
 
 export default defineAction({
@@ -61,6 +76,10 @@ export default defineAction({
     const files = buildBuilderDesignSystemIndexFiles({
       codeFiles,
       designMd,
+      // Agent action payloads intentionally stay at the core 2 MB inline
+      // budget. Fail loudly instead of silently dropping a larger `.fig`;
+      // the setup screen's guarded multipart route supports up to 200 MB.
+      overflowBehavior: "throw",
     });
     const result = await startBuilderDesignSystemIndex({
       projectName,

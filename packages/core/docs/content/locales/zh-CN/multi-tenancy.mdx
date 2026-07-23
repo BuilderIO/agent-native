@@ -17,7 +17,7 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 - **组织切换** — 会话跟踪活动组织 (`session.orgId`)，切换它会更改用户和代理看到的数据。
 - **每组织数据隔离** — 每个查询都会自动限定到活动组织。
 
-如果您正在评估 CRM、项目跟踪器、支持收件箱或任何团队工具的原生代理，那么多租户基础已经存在。所有第一方模板都是多租户的 - 请参阅 [Cloneable SaaS templates](/docs/cloneable-saas) 获取列表。
+如果您正在评估 CRM、项目跟踪器、支持收件箱或任何团队工具的原生代理，那么多租户基础已经存在。所有第一方模板都是多租户的 - 请参阅 [模板](/docs/cloneable-saas) 获取列表。
 
 <Diagram id="doc-block-ssxv49" title={"组织成员资格和隔离"} summary={"用户以 owner/admin/member 身份加入组织。每个可拥有的行都带有拥有它的租户的 org_id ，并且没有行跨越边界泄漏。"}>
 
@@ -117,8 +117,8 @@ description: "每个代理本机应用程序都是开箱即用的多租户 - 组
 
 这与用于每用户范围的管道相同。对于 SQL 级别的机制、`ownableColumns()` 合约和 `accessFilter` / `resolveAccess` / `assertAccess` 防护，请参阅 [Security → Data Scoping](/docs/security#data-scoping) — 范围界定管道的单一事实来源。
 
-## 相关文档 {#related}
+## 下一步 {#related}
 
-- [Authentication](/docs/authentication#organizations) — 会话、社交提供商和组织管理界面
-- [Security → Data Scoping](/docs/security#data-scoping) - SQL 级隔离、`ownableColumns()` 合约和访问防护
-- [Multi-App Workspace](/docs/multi-app-workspace) — 在具有共享身份验证和 RBAC 的单一存储库中托管多个代理本机应用程序
+- [**Authentication**](/docs/authentication#organizations) — 会话、社交提供商和组织管理界面
+- [**Security — Data Scoping**](/docs/security#data-scoping) — SQL 级隔离、`ownableColumns()` 合约和访问防护
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 在一个 monorepo 中托管多个 Agent-Native 应用，共享身份验证和 RBAC

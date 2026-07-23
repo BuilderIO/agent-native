@@ -961,6 +961,52 @@ describe("canvas (Artboard/Section/Annotation/Connector) round-trip", () => {
     );
   });
 
+  it("round-trips annotation text that looks like an HTML tag", async () => {
+    const content: PlanContent = {
+      version: 2,
+      title: "Canvas annotation text",
+      canvas: {
+        title: "Board",
+        frames: [],
+        annotations: [
+          {
+            id: "anno-html-like",
+            text: "Inspect the <label> before continuing.",
+          },
+        ],
+      },
+      blocks: [{ id: "rt", type: "rich-text", data: { markdown: "x" } }],
+    };
+
+    const folder = await exportPlanContentToMdxFolder({
+      content,
+      title: content.title ?? "Canvas annotation text",
+    });
+
+    expect(folder["canvas.mdx"]).toContain("text={");
+    const result = await parsePlanMdxFolder(folder);
+    expect(result.canvas?.annotations?.[0]?.text).toBe(
+      "Inspect the <label> before continuing.",
+    );
+  });
+
+  it("accepts legacy annotation bodies containing HTML-like plain text", async () => {
+    const result = await parsePlanMdxFolder({
+      "plan.mdx":
+        '---\ntitle: "Canvas annotation text"\nversion: 2\n---\n\nBody.\n',
+      "canvas.mdx": `<DesignBoard title="Board">
+  <Annotation id="anno-html-like">
+    Inspect the <label> before continuing.
+  </Annotation>
+</DesignBoard>
+`,
+    });
+
+    expect(result.canvas?.annotations?.[0]?.text).toBe(
+      "Inspect the <label> before continuing.",
+    );
+  });
+
   it("round-trips artboard geometry (x/y/width/height/order)", async () => {
     const content: PlanContent = {
       version: 2,
@@ -1078,6 +1124,50 @@ describe("byte stability and malformed import handling", () => {
       }),
     ).rejects.toThrow(/plan-state\.json is not valid/);
   });
+
+  it("reports the source file and VFile location for a raw newline in an MDX JS string", async () => {
+    const error = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Raw newline"
+version: 2
+---
+
+<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />
+`,
+    }).then(
+      () => null,
+      (err) => err,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+    expect(error.message).toBe(
+      "plan.mdx:6:53: Could not parse expression with acorn",
+    );
+  });
+
+  it.each(["canvas.mdx", "prototype.mdx"])(
+    "reports the failing %s file when its MDX does not parse",
+    async (filename) => {
+      const error = await parsePlanMdxFolder({
+        "plan.mdx": `---\ntitle: "Valid plan"\nversion: 2\n---\n\n# Valid\n`,
+        [filename]: `<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />\n`,
+      }).then(
+        () => null,
+        (err) => err,
+      );
+
+      expect(error).toBeInstanceOf(Error);
+      if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+      expect(error.message).toMatch(
+        new RegExp(
+          `^${filename.replace(".", "\\.")}:\\d+:\\d+: Could not parse expression with acorn$`,
+        ),
+      );
+    },
+  );
 
   it("captures loose intro prose alongside a block-level RichText", async () => {
     const parsed = await parsePlanMdxFolder({

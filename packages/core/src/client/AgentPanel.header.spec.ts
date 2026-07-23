@@ -1,16 +1,32 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
+  AgentChatSurface,
+  getActiveTabScrollDelta,
   getAgentPanelChatTabGroups,
   normalizeAgentPanelModeForSurface,
+  resolveAgentPanelChatSurface,
   shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
+  shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
+  shouldShowAgentPanelSidebarChatTabs,
   shouldShowAgentPanelCliTabBar,
+  shouldShowAgentPanelModeButtons,
 } from "./AgentPanel.js";
+
+describe("resolveAgentPanelChatSurface", () => {
+  it("uses the desktop surface only for explicitly marked local app previews", () => {
+    expect(resolveAgentPanelChatSurface(undefined, true)).toBe("desktop");
+    expect(resolveAgentPanelChatSurface(undefined, false)).toBe("app");
+    expect(resolveAgentPanelChatSurface("dev-frame", true)).toBe("dev-frame");
+  });
+});
 
 function chatTab(
   id: string,
@@ -26,6 +42,43 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
+  it("keeps the active tab clear of the overflow edges", () => {
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 280, right: 340 },
+      ),
+    ).toBe(64);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 70, right: 140 },
+      ),
+    ).toBe(-54);
+    expect(
+      getActiveTabScrollDelta(
+        { left: 100, right: 300 },
+        { left: 140, right: 260 },
+      ),
+    ).toBe(0);
+  });
+
+  it("hides sidebar chat tabs until a second main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+    expect(
+      shouldShowAgentPanelSidebarChatTabs([
+        chatTab("main"),
+        chatTab("follow-up"),
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not render a sidebar chat tab strip without a main tab", () => {
+    expect(
+      shouldShowAgentPanelSidebarChatTabs([chatTab("research", "main")]),
+    ).toBe(false);
+  });
+
   it("hides the chat tab strip for a single main tab", () => {
     expect(shouldShowAgentPanelChatTabBar([chatTab("main")], "main")).toBe(
       false,
@@ -112,6 +165,89 @@ describe("AgentPanel header tab visibility", () => {
     );
     expect(normalizeAgentPanelModeForSurface("resources", false)).toBe(
       "resources",
+    );
+  });
+});
+
+describe("AgentPanel mode and full-view visibility", () => {
+  it("hides mode buttons in the sidebar and shows them on the full page", () => {
+    expect(shouldShowAgentPanelModeButtons(true)).toBe(false);
+    expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
+  });
+
+  it("shows the full-view action for resources and settings when a page href exists", () => {
+    expect(shouldShowAgentPanelFullViewAction("/agent", "resources")).toBe(
+      true,
+    );
+    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
+  });
+
+  it("hides the full-view action for chat, CLI, or a missing page href", () => {
+    expect(shouldShowAgentPanelFullViewAction("/agent", "chat")).toBe(false);
+    expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
+    expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
+      false,
+    );
+    expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
+      false,
+    );
+  });
+});
+
+describe("AgentChatSurface chrome defaults", () => {
+  it("hides the legacy header and chat tab row by default", () => {
+    const surface = AgentChatSurface({ mode: "page" });
+    const panel = surface.props.children[1];
+
+    expect(panel.props.showHeader).toBe(false);
+    expect(panel.props.showTabBar).toBe(false);
+  });
+
+  it("mounts URL command sync for a full-page chat surface", () => {
+    const surface = AgentChatSurface({
+      mode: "page",
+      browserTabId: "tab-one",
+    });
+
+    expect(surface.props.children[0].type.name).toBe("URLSync");
+    expect(surface.props.children[0].props.browserTabId).toBe("tab-one");
+  });
+
+  it("allows an embedded host to opt back into the header chrome", () => {
+    const surface = AgentChatSurface({
+      mode: "panel",
+      showHeader: true,
+      showTabBar: true,
+    });
+
+    expect(surface.props.showHeader).toBe(true);
+    expect(surface.props.showTabBar).toBe(true);
+  });
+});
+
+describe("AgentPanel stale lazy chunk recovery", () => {
+  it("uses the guarded reload path before the panel reset fallback", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const componentDidCatch = source.slice(
+      source.indexOf("componentDidCatch(error: Error"),
+      source.indexOf(
+        "componentDidUpdate(",
+        source.indexOf("componentDidCatch"),
+      ),
+    );
+
+    expect(source).toContain(
+      'import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";',
+    );
+    expect(componentDidCatch).toContain(
+      "if (recoverFromStaleChunkError(error))",
+    );
+    expect(
+      componentDidCatch.indexOf("recoverFromStaleChunkError(error)"),
+    ).toBeLessThan(
+      componentDidCatch.indexOf("assistantUiRecoverableRenderErrorKind(error)"),
     );
   });
 });

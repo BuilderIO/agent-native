@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Pesquisar formularios",
     appearance: "Aparencia",
     toggleTheme: "Alternar tema",
+    openAgent: "Abrir agente",
   },
   header: {
     settings: "Configurações",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Perguntar ao Forms",
     allForms: "Todos os formulários",
     team: "Equipe",
+    agent: "Agente",
   },
   settings: {
     title: "Configurações",
@@ -32,10 +34,10 @@ const messages = {
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    agentTitle: "Configurações do agente",
+    agentTitle: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    openAgentSettings: "Abrir configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    openAgentSettings: "Gerenciar agente",
   },
   agent: {
     emptyState: "Pergunte qualquer coisa sobre seus formularios",
@@ -192,6 +194,12 @@ const messages = {
       successMessage: "Mensagem de sucesso",
       defaultSuccessMessage: "Obrigado! Sua resposta foi registrada.",
       redirectUrl: "URL de redirecionamento (opcional)",
+      anonymousResponses: "Respostas anônimas",
+      anonymousResponsesDescription:
+        "Não guardar endereços IP, identidade do respondente nem metadados de origem.",
+      emailNewResponses: "Enviar-me um e-mail sobre novas respostas",
+      emailNewResponsesDescription:
+        "Envie uma notificação para o e-mail da conta proprietária do formulário sempre que alguém responder.",
       saveSettings: "Salvar configurações",
     },
     integrations: {
@@ -260,6 +268,8 @@ const messages = {
     duplicated: "Formulário duplicado",
     duplicateFailed: "Falha ao duplicar o formulário",
     movedToArchive: "Formulário movido para arquivo",
+    movingToArchive: "Movendo formulário para o arquivo…",
+    archiveFailed: "Falha ao mover o formulário para o arquivo",
     restored: "Formulário restaurado",
     permanentlyDeleted: "Formulário excluído permanentemente",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

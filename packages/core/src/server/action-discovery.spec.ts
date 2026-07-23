@@ -92,6 +92,21 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "poll-run": {
+        default: {
+          tool: { description: "Poll run status", parameters: {} },
+          readOnly: true,
+          dedupe: false,
+          run: async () => ({ status: "running" }),
+        },
+      },
+    });
+
+    expect(registry["poll-run"].dedupe).toBe(false);
+  });
+
   it("preserves explicit allowInPlanMode false metadata", () => {
     const registry = loadActionsFromStaticRegistry({
       "act-only-read": {
@@ -326,6 +341,24 @@ describe("action discovery", () => {
     CORE_ACTION_DISCOVERY_TIMEOUT_MS,
   );
 
+  it(
+    "merges app-facing MCP actions without exposing them as agent tools",
+    async () => {
+      const registry: Record<string, any> = {};
+      await mergeCoreSharingActions(registry);
+
+      for (const name of ["list-mcp-tools", "call-mcp-tool"]) {
+        expect(registry[name], `${name} should be merged`).toBeDefined();
+        expect(registry[name].agentTool).toBe(false);
+        expect(registry[name].requiresAuth).toBe(true);
+      }
+      expect(registry["list-mcp-tools"].http).toEqual({ method: "GET" });
+      expect(registry["call-mcp-tool"].http).toBeUndefined();
+      expect(registry["call-mcp-tool"].toolCallable).toBe(false);
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
+
   it("does not overwrite a template-provided action of the same name (template wins)", async () => {
     const templateRun = async () => "template-share";
     const registry: Record<string, any> = {
@@ -374,6 +407,7 @@ describe("action discovery", () => {
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
+      "send-review-thread-to-agent",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }

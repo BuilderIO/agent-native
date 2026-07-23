@@ -11,20 +11,20 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   deployFusionProject,
   getFusionHostingUrl,
   reserveFusionHostingSlug,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
-  FULL_APP_BUILDING_ENABLED,
-  parseDesignDataBlob,
+  FULL_APP_BUILDING,
   readFusionApp,
   writeFusionApp,
 } from "../shared/full-app.js";
@@ -59,8 +59,8 @@ export default defineAction({
           "use the design's already-reserved slug, or derive one from the title.",
       ),
   }),
-  run: async ({ designId, slug }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, slug }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 
@@ -100,19 +100,27 @@ export default defineAction({
 
     const deployedUrl = getFusionHostingUrl(reservedSlug);
     const now = new Date().toISOString();
-    const db = getDb();
-    const nextData = writeFusionApp(parseDesignDataBlob(design.data), {
-      ...fusionApp,
-      hostingSlug: reservedSlug,
-      deployedUrl,
-      lastDeployId: deploy.deployId,
-      lastDeployStatus: deploy.status,
-      updatedAt: now,
+    await mutateDesignData({
+      designId,
+      mutate: (current) =>
+        writeFusionApp(current, {
+          ...(readFusionApp(current) ?? fusionApp),
+          hostingSlug: reservedSlug,
+          deployedUrl,
+          lastDeployId: deploy.deployId,
+          lastDeployStatus: deploy.status,
+          updatedAt: now,
+        }),
+      isApplied: (current) => {
+        const persisted = readFusionApp(current);
+        return (
+          persisted?.hostingSlug === reservedSlug &&
+          persisted.deployedUrl === deployedUrl &&
+          persisted.lastDeployId === deploy.deployId &&
+          persisted.lastDeployStatus === deploy.status
+        );
+      },
     });
-    await db
-      .update(schema.designs)
-      .set({ data: JSON.stringify(nextData), updatedAt: now })
-      .where(eq(schema.designs.id, designId));
 
     return {
       deployId: deploy.deployId,

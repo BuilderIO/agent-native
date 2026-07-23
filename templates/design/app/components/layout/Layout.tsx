@@ -1,11 +1,11 @@
 import {
   AgentSidebar,
-  isEmbedAuthActive,
-  getBrowserTabId,
   useGuidedQuestionFlow,
-  useSession,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { getBrowserTabId, useSession } from "@agent-native/core/client/hooks";
+import { isEmbedAuthActive } from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
@@ -22,6 +22,10 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { DESIGN_CHAT_STORAGE_KEY } from "@/lib/agent-chat";
 import { cn } from "@/lib/utils";
 
+import {
+  FigmaLinkComposerBubble,
+  useDetectedFigmaComposerLink,
+} from "../editor/FigmaLinkComposerBubble";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 
@@ -58,6 +62,10 @@ export function Layout({ children }: LayoutProps) {
   const isDesignEditor = location.pathname.startsWith("/design/");
   const showMobileTopBar = !isDesignEditor;
   const browserTabId = getBrowserTabId();
+  const {
+    link: detectedFigmaComposerLink,
+    onComposerTextChange: handleComposerTextChange,
+  } = useDetectedFigmaComposerLink();
 
   // Bind chat to the currently-open design. Same pattern as slides — the
   // route is `/design/:id` for the editor and `/present/:id` for preview
@@ -73,6 +81,7 @@ export function Layout({ children }: LayoutProps) {
     ? `show-questions:${designScope.id}`
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
+    enabled: hasSession,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -121,7 +130,7 @@ export function Layout({ children }: LayoutProps) {
     return (
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>
-          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
             <div className="agent-layout-main-surface design-editor-main-surface flex h-full flex-1 flex-col overflow-hidden">
               <main className="agent-native-app-main flex-1 overflow-hidden">
                 {children}
@@ -141,6 +150,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           storageKey={DESIGN_CHAT_STORAGE_KEY}
+          agentPageHref="/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionLandingPage"),
@@ -151,8 +161,17 @@ export function Layout({ children }: LayoutProps) {
           showScopeBadge={false}
           browserTabId={browserTabId}
           threadFooterSlot={designQuestionsWaitingSlot}
+          onComposerTextChange={handleComposerTextChange}
+          composerSlot={
+            <>
+              <CreativeContextComposerChip />
+              {detectedFigmaComposerLink ? (
+                <FigmaLinkComposerBubble link={detectedFigmaComposerLink} />
+              ) : null}
+            </>
+          }
         >
-          <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+          <div className="agent-layout-shell flex h-dvh w-full overflow-hidden bg-background text-foreground">
             {!isDesignEditor && mobileSidebarOpen && (
               <div
                 className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -162,7 +181,7 @@ export function Layout({ children }: LayoutProps) {
             {!isDesignEditor && (
               <div
                 className={cn(
-                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
                   mobileSidebarOpen
                     ? "translate-x-0"
                     : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",

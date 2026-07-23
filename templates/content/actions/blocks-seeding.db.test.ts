@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   countWords,
@@ -31,6 +31,13 @@ let schema: Schema;
 let propertyUtils: typeof import("./_property-utils.js");
 let databaseUtils: typeof import("./_database-utils.js");
 let createInlineContentDatabaseAction: typeof import("./create-inline-content-database.js").default;
+let updateDocumentAction: typeof import("./update-document.js").default;
+let createContentDatabaseAction: typeof import("./create-content-database.js").default;
+let createContentDatabaseModule: typeof import("./create-content-database.js");
+let getContentDatabaseAction: typeof import("./get-content-database.js").default;
+let getDocumentAction: typeof import("./get-document.js").default;
+let configureDocumentPropertyAction: typeof import("./configure-document-property.js").default;
+let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -44,6 +51,16 @@ beforeAll(async () => {
   createInlineContentDatabaseAction = (
     await import("./create-inline-content-database.js")
   ).default;
+  updateDocumentAction = (await import("./update-document.js")).default;
+  createContentDatabaseModule = await import("./create-content-database.js");
+  createContentDatabaseAction = createContentDatabaseModule.default;
+  getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
+  getDocumentAction = (await import("./get-document.js")).default;
+  configureDocumentPropertyAction = (
+    await import("./configure-document-property.js")
+  ).default;
+  addDatabaseItemAction = (await import("./add-database-item.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000); // cold-import of the db module + migrations exceeds the default 10s hook timeout
@@ -94,6 +111,213 @@ async function blocksDefinitions(databaseId: string) {
 }
 
 describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", () => {
+  it("revalidates space access through the database transaction", async () => {
+    let transactionDb: any;
+    let resolvedSpaceAccess: any;
+    const resolveInsideTransaction = vi.fn(
+      async (_spaceId: string, _role: string, options?: { db?: any }) => {
+        expect(options?.db).toBe(transactionDb);
+        return resolvedSpaceAccess;
+      },
+    );
+
+    const databaseId = await runWithRequestContext(
+      { userEmail: OWNER },
+      async () => {
+        const db = getDb();
+        const args = { title: "Hosted transaction boundary" };
+        const spaceId =
+          await createContentDatabaseModule.resolveContentDatabaseSpace(
+            args,
+            db,
+          );
+        resolvedSpaceAccess = await (
+          await import("./_content-space-access.js")
+        ).resolveContentSpaceAccess(spaceId, "editor");
+        let createdId: string | null = null;
+        await db.transaction(async (tx: any) => {
+          transactionDb = tx;
+          createdId =
+            await createContentDatabaseModule.createContentDatabaseRecord(
+              args,
+              {
+                db: tx,
+                spaceId,
+                resolveSpaceAccess: resolveInsideTransaction,
+              },
+            );
+        });
+        return createdId;
+      },
+    );
+
+    expect(databaseId).toEqual(expect.any(String));
+    expect(resolveInsideTransaction).toHaveBeenCalledOnce();
+  });
+
+  it("rejects document access revoked after preflight", async () => {
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const db = getDb();
+      const spaceId =
+        await createContentDatabaseModule.resolveContentDatabaseSpace({}, db);
+      const now = new Date().toISOString();
+      const documentId = `revoked_${Math.random().toString(36).slice(2, 10)}`;
+      const shareId = `share_${Math.random().toString(36).slice(2, 10)}`;
+
+      await db.insert(schema.documents).values({
+        id: documentId,
+        spaceId,
+        ownerEmail: "other-owner@example.com",
+        title: "Revoked document",
+        content: "",
+        visibility: "private",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.documentShares).values({
+        id: shareId,
+        resourceId: documentId,
+        principalType: "user",
+        principalId: OWNER,
+        role: "editor",
+        createdBy: "other-owner@example.com",
+        createdAt: now,
+      });
+
+      await expect(
+        createContentDatabaseModule.resolveContentDatabaseSpace(
+          { documentId },
+          db,
+        ),
+      ).resolves.toBe(spaceId);
+
+      await db
+        .delete(schema.documentShares)
+        .where(eq(schema.documentShares.id, shareId));
+
+      await expect(
+        db.transaction((tx: any) =>
+          createContentDatabaseModule.createContentDatabaseRecord(
+            { documentId },
+            { db: tx, spaceId },
+          ),
+        ),
+      ).rejects.toThrow(`No editor access to document ${documentId}`);
+
+      const databases = await db
+        .select({ id: schema.contentDatabases.id })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.documentId, documentId));
+      expect(databases).toEqual([]);
+    });
+  });
+  it("round-trips owned descriptions and returns one live root-to-database row context path", async () => {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const rootId = `root_${suffix}`;
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.documents)
+      .values({
+        id: rootId,
+        ownerEmail: OWNER,
+        title: `Root ${suffix}`,
+        description: "Root guidance",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      });
+    const result = await runWithRequestContext(
+      { userEmail: OWNER },
+      async () => {
+        await updateDocumentAction.run({
+          id: rootId,
+          description: "Updated root guidance",
+        });
+        const database = await createContentDatabaseAction.run({
+          parentId: rootId,
+          title: `Tasks ${suffix}`,
+          description: "Only actionable tasks belong here",
+        });
+        const propertyResult = await configureDocumentPropertyAction.run({
+          documentId: database.database.documentId,
+          name: "Status",
+          description: "The current workflow state",
+          type: "status",
+          options: {
+            options: [
+              {
+                id: "doing",
+                name: "Doing",
+                color: "blue",
+                description: "Choose while active work is underway",
+              },
+            ],
+          },
+        });
+        const row = await addDatabaseItemAction.run({
+          databaseId: database.database.id,
+          title: `Row ${suffix}`,
+        });
+        const page = await getDocumentAction.run({ id: rootId });
+        const databasePage = await getDocumentAction.run({
+          id: database.database.documentId,
+        });
+        const databaseRead = await getContentDatabaseAction.run({
+          databaseId: database.database.id,
+        });
+        const databaseHelperRead =
+          await databaseUtils.getContentDatabaseResponse(database.database.id);
+        const rowPage = await getDocumentAction.run({
+          id: row.createdDocumentId,
+        });
+        return {
+          page,
+          databasePage,
+          databaseRead,
+          databaseHelperRead,
+          rowPage,
+          propertyResult,
+        };
+      },
+    );
+
+    expect(result.page.description).toBe("Updated root guidance");
+    expect(result.databasePage.description).toBe(
+      "Only actionable tasks belong here",
+    );
+    expect(result.databasePage.database?.description).toBe(
+      "Only actionable tasks belong here",
+    );
+    expect(result.databaseRead.database.description).toBe(
+      "Only actionable tasks belong here",
+    );
+    expect(result.databaseHelperRead.contextPath).toEqual([
+      expect.objectContaining({
+        title: expect.stringMatching(/^Root /),
+        kind: "page",
+      }),
+    ]);
+    const status = result.databaseRead.properties.find(
+      (property) => property.definition.name === "Status",
+    );
+    expect(status?.definition.description).toBe("The current workflow state");
+    expect(status?.definition.options.options?.[0]?.description).toBe(
+      "Choose while active work is underway",
+    );
+    expect(result.rowPage.contextPath).toEqual([
+      expect.objectContaining({
+        title: expect.stringMatching(/^Root /),
+        kind: "page",
+      }),
+      expect.objectContaining({
+        title: expect.stringMatching(/^Tasks /),
+        kind: "database",
+      }),
+    ]);
+    expect(
+      result.rowPage.contextPath?.filter((entry) => entry.kind === "database"),
+    ).toHaveLength(1);
+  });
   it("seeds exactly one primary and is idempotent on repeat calls", async () => {
     const { databaseId } = await createDatabaseRow();
     const now = new Date().toISOString();

@@ -1,13 +1,8 @@
-import {
-  markAgentChatHomeHandoff,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+import { markAgentChatHomeHandoff } from "@agent-native/core/client/agent-chat";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useLocation } from "react-router";
 
-import {
-  ANALYTICS_CHAT_STORAGE_KEY,
-  hasRecentAnalyticsChat,
-} from "@/lib/chat-handoff";
+import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { rememberLastOpened } from "@/lib/last-opened";
 import { TAB_ID } from "@/lib/tab-id";
 
@@ -127,9 +122,16 @@ export function useNavigationState() {
       if (cmd.view === "sessions" && cmd.recordingId)
         return `/sessions/${encodeURIComponent(cmd.recordingId)}`;
       if (cmd.view === "sessions") return "/sessions";
-      if (cmd.view === "agents" && cmd.agentsView === "database") {
-        const params = new URLSearchParams({ view: "database" });
-        if (cmd.dbAdminConnectionId) params.set("db", cmd.dbAdminConnectionId);
+      if (
+        cmd.view === "agents" &&
+        (cmd.agentsView === "database" ||
+          cmd.agentsView === "dashboards" ||
+          cmd.agentsView === "flags")
+      ) {
+        const params = new URLSearchParams({ view: cmd.agentsView });
+        if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {
+          params.set("db", cmd.dbAdminConnectionId);
+        }
         return `/agents?${params.toString()}`;
       }
       if (cmd.view === "agents") return "/agents";
@@ -156,9 +158,7 @@ export function useNavigationState() {
     },
     onNavigate: (_command, path) => {
       if (location.pathname === "/ask" && pathnameFromPath(path) !== "/ask") {
-        if (hasRecentAnalyticsChat()) {
-          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-        }
+        markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
       }
     },
   });

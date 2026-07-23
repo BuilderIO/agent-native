@@ -55,6 +55,45 @@ describe("code-layer projection", () => {
     ]);
   });
 
+  it("only aliases stable per-node id attributes in node.selectors, never shared kind/state flags", () => {
+    // Regression: node.selectors previously included an attribute selector
+    // for EVERY data-* attribute on an element, including non-unique ones
+    // like data-an-primitive (shared by every rectangle/frame primitive) and
+    // the boolean data-agent-native-hidden/-locked state flags. Design's
+    // hidden/locked-layer propagation (codeLayerSelectorAliases in
+    // app/pages/design-editor/code-layer-state.ts) treats every entry in
+    // node.selectors as a selector that uniquely resolves to that one node,
+    // then feeds it straight into the bridge's document-wide
+    // `document.querySelectorAll(selector)` (applyHiddenSelectors /
+    // isLayerInteractionBlocked). A generic `[data-an-primitive="frame"]`
+    // alias there silently hid or blocked interaction on EVERY frame-kind
+    // container in the whole screen just because ONE of them was hidden or
+    // locked — breaking drag/drop and selection for unrelated siblings.
+    const html = `
+      <div data-agent-native-node-id="hidden-container" data-an-primitive="frame" data-agent-native-hidden="true"></div>
+      <div data-agent-native-node-id="col-container" data-an-primitive="frame"></div>
+    `;
+    const projection = buildCodeLayerProjection(html);
+    const hidden = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "hidden-container",
+    );
+    const other = projection.nodes.find(
+      (node) =>
+        node.dataAttributes["data-agent-native-node-id"] === "col-container",
+    );
+    expect(hidden?.selectors).toContain(
+      '[data-agent-native-node-id="hidden-container"]',
+    );
+    expect(hidden?.selectors).not.toContain('[data-an-primitive="frame"]');
+    expect(hidden?.selectors).not.toContain(
+      '[data-agent-native-hidden="true"]',
+    );
+    // The unrelated sibling's own selectors must never resolve back to the
+    // hidden node's selector set either.
+    expect(other?.selectors).not.toContain('[data-an-primitive="frame"]');
+  });
+
   it("keeps deep repeated tree paths distinct", () => {
     const html = `
       <main>
@@ -963,6 +1002,23 @@ describe("wrapNodes", () => {
     expect(patch.content).toMatch(/<\/div><div data-agent-native-node-id="c">/);
   });
 
+  it("deduplicates repeated target ids instead of duplicating/removing the same source span twice", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div><p>After</p></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "wrapNodes",
+      targetIds: ["a", "a", "b", "b"],
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content.match(/data-agent-native-node-id="a"/g)).toHaveLength(
+      1,
+    );
+    expect(patch.content.match(/data-agent-native-node-id="b"/g)).toHaveLength(
+      1,
+    );
+    expect(patch.content).toContain("<p>After</p>");
+  });
+
   it("adds autoLayout styles to wrapper and strips absolute positioning from wrapped children", () => {
     const html = `<main><div data-agent-native-node-id="x" style="position: absolute; left: 10px; top: 20px">X</div><div data-agent-native-node-id="y" style="position: absolute; right: 5px">Y</div></main>`;
     const patch = applyVisualEdit(html, {
@@ -1441,6 +1497,57 @@ describe("moveNodeBetweenDocuments", () => {
     expect(result.destHtml).toContain("Deep");
   });
 
+  it("repairs duplicate ids already inside the moved subtree per occurrence", () => {
+    const sourceHtml =
+      `<body>` +
+      `<section data-agent-native-node-id="move-root">` +
+      `<div data-agent-native-node-id="duplicate"><span data-agent-native-node-id="duplicate">A</span></div>` +
+      `<div data-agent-native-node-id="duplicate">B</div>` +
+      `</section>` +
+      `</body>`;
+    const destHtml = `<body><div data-agent-native-node-id="existing">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-root",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.movedNodeId).toBe("move-root");
+    const allIds = Array.from(
+      result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (match) => match[1]!,
+    );
+    expect(new Set(allIds).size).toBe(allIds.length);
+    expect(allIds.filter((id) => id === "duplicate")).toHaveLength(1);
+    expect(result.destHtml).toContain(">A</span>");
+    expect(result.destHtml).toContain(">B</div>");
+  });
+
+  it("returns the root's occurrence-specific remap when root and descendant collide with the destination", () => {
+    const sourceHtml =
+      `<body>` +
+      `<section data-agent-native-node-id="duplicate">` +
+      `<span data-agent-native-node-id="duplicate">Child</span>` +
+      `</section>` +
+      `</body>`;
+    const destHtml = `<body><div data-agent-native-node-id="duplicate">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "duplicate",
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.movedNodeId).toBeTruthy();
+    expect(result.movedNodeId).not.toBe("duplicate");
+    const allIds = Array.from(
+      result.destHtml.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (match) => match[1]!,
+    );
+    expect(new Set(allIds).size).toBe(allIds.length);
+    expect(allIds).toContain(result.movedNodeId!);
+    expect(allIds.filter((id) => id === "duplicate")).toHaveLength(1);
+  });
+
   // Regression for the cross-screen "drop lands inside <template> markup"
   // corruption bug: findClosingTag used to do a naive "first </tag> after
   // `from`" search for NON_VISUAL_TAGS (template/script/style/etc), which
@@ -1492,6 +1599,122 @@ describe("moveNodeBetweenDocuments", () => {
       `data-agent-native-node-id="move-me"`,
     );
     expect(movedIdx).toBeGreaterThan(templateCloseIdx);
+  });
+
+  it("no-anchor body-append strips absolute positioning when the destination <body> is a flex container", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me" style="position: absolute; left: 24px; top: 48px; color: red">Move</div></body>`;
+    const destHtml = `<body style="display: flex; flex-direction: column; gap: 16px"><div data-agent-native-node-id="existing">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // Same normalization as the anchored `placement: "inside"` branch: the
+    // moved node becomes a flow child of the flex body, so its stale
+    // absolute offsets must be stripped or it renders detached from the
+    // body's ordering/gap/alignment.
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(-1);
+    const movedTag = result.destHtml.slice(
+      result.destHtml.lastIndexOf("<", movedIdx),
+      result.destHtml.indexOf(">", movedIdx) + 1,
+    );
+    expect(movedTag).not.toContain("position: absolute");
+    expect(movedTag).not.toContain("left:");
+    expect(movedTag).not.toContain("top:");
+    // Non-positioning styles on the moved root survive.
+    expect(movedTag).toContain("color: red");
+  });
+
+  it("no-anchor body-append keeps absolute positioning when the destination <body> is a plain flow container", () => {
+    const sourceHtml = `<body><div data-agent-native-node-id="move-me" style="position: absolute; left: 24px; top: 48px">Move</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="existing">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    // A non-flex/grid body is a normal positioning context; the moved node's
+    // explicit absolute placement is intentional and must be preserved.
+    expect(result.destHtml).toContain("position: absolute");
+    expect(result.destHtml).toContain("left: 24px");
+  });
+
+  it("no-anchor body-append strips leftover flex-item styling when the destination <body> is not flow", () => {
+    // Regression: a node dragged OUT of a flex/grid parent into an absolute
+    // context (here, a plain non-flex screen root) must lose flex-item-only
+    // styling (flex-grow/shrink/basis, align-self, order) — those properties
+    // only mean anything inside a flex/grid parent, and leaving them behind
+    // is dead source clutter that would resurrect with a stale value if the
+    // node were ever reparented back into flow (e.g. via undo). Mirrors the
+    // "strips absolute positioning when the destination is flex" case above
+    // in the opposite direction.
+    const sourceHtml =
+      `<body><div data-agent-native-node-id="move-me" ` +
+      `style="flex-grow: 2; flex-shrink: 3; flex-basis: 40px; align-self: center; order: 1; color: red">Move</div></body>`;
+    const destHtml = `<body><div data-agent-native-node-id="existing">Existing</div></body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+    });
+
+    expect(result.status).toBe("applied");
+    const movedIdx = result.destHtml.indexOf(
+      `data-agent-native-node-id="move-me"`,
+    );
+    expect(movedIdx).toBeGreaterThan(-1);
+    const movedTag = result.destHtml.slice(
+      result.destHtml.lastIndexOf("<", movedIdx),
+      result.destHtml.indexOf(">", movedIdx) + 1,
+    );
+    expect(movedTag).not.toContain("flex-grow");
+    expect(movedTag).not.toContain("flex-shrink");
+    expect(movedTag).not.toContain("flex-basis");
+    expect(movedTag).not.toContain("align-self");
+    expect(movedTag).not.toContain("order");
+    // Non-flex-item styles on the moved root survive.
+    expect(movedTag).toContain("color: red");
+  });
+
+  it("moves an Alpine absolute subtree before a nested grid child without flattening descendant positioning", () => {
+    const sourceHtml =
+      `<body x-data="{ open: true }">` +
+      `<article data-agent-native-node-id="move-me" x-show="open" class="absolute left-4 top-8 rounded">` +
+      `<span data-agent-native-node-id="nested" style="position: absolute; left: 3px; top: 5px">Nested</span>` +
+      `</article>` +
+      `</body>`;
+    const destHtml =
+      `<body>` +
+      `<section data-agent-native-node-id="grid" class="grid grid-cols-2 gap-4">` +
+      `<div data-agent-native-node-id="anchor">Anchor</div>` +
+      `</section>` +
+      `</body>`;
+
+    const result = moveNodeBetweenDocuments(sourceHtml, destHtml, {
+      nodeId: "move-me",
+      anchorNodeId: "anchor",
+      placement: "before",
+    });
+
+    expect(result.status).toBe("applied");
+    const movedOpenTag = result.destHtml.match(
+      /<article[^>]*data-agent-native-node-id="move-me"[^>]*>/,
+    )?.[0];
+    expect(movedOpenTag).toBeTruthy();
+    expect(movedOpenTag).not.toMatch(/\babsolute\b/);
+    expect(movedOpenTag).toContain('x-show="open"');
+    // Only the moved root becomes a grid-flow child. Its nested absolute
+    // positioning context is intentional and must survive the reparent.
+    expect(result.destHtml).toContain(
+      'data-agent-native-node-id="nested" style="position: absolute; left: 3px; top: 5px"',
+    );
+    expect(result.destHtml.indexOf("move-me")).toBeLessThan(
+      result.destHtml.indexOf("anchor"),
+    );
   });
 
   it("anchored insert (placement inside) never lands inside a nested <template> even when the anchor itself precedes templates", () => {
@@ -1998,6 +2221,41 @@ describe("style edit property normalization for fill layers", () => {
 
     expect(patch.result.status).toBe("applied");
     expect(patch.content).toContain("background-image");
+  });
+
+  it("keeps quoted image URLs intact across sequential style patches", () => {
+    const imagePatch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundImage",
+      value:
+        'url("https://example.com/fill.png") /* agent-native-image-fit:tile */',
+    } as EditIntent);
+    const repeatPatch = applyVisualEdit(imagePatch.content, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundRepeat",
+      value: "repeat",
+    } as EditIntent);
+    const positionPatch = applyVisualEdit(repeatPatch.content, {
+      kind: "style",
+      target: { selector: "#cta" },
+      property: "backgroundPosition",
+      value: "top left",
+    } as EditIntent);
+
+    expect(positionPatch.result.status).toBe("applied");
+    expect(positionPatch.content).toContain(
+      "url(&quot;https://example.com/fill.png&quot;)",
+    );
+    expect(positionPatch.content).not.toContain("&amp;quot;");
+    const projection = buildCodeLayerProjection(positionPatch.content);
+    const button = projection.nodes.find((node) => node.tag === "button");
+    expect(button?.style["background-image"]).toContain(
+      'url("https://example.com/fill.png")',
+    );
+    expect(button?.style["background-repeat"]).toBe("repeat");
+    expect(button?.style["background-position"]).toBe("top left");
   });
 
   it("rejects a backgroundImage url() with a javascript: scheme", () => {

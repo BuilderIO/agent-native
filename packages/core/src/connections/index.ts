@@ -6,6 +6,7 @@ export {
   listWorkspaceConnectionProviders,
   listWorkspaceConnectionProvidersForCapability,
   listWorkspaceConnectionProvidersForTemplate,
+  mergeWorkspaceConnectionProviders,
   workspaceConnectionProviderSupports,
   type ListWorkspaceConnectionProvidersOptions,
   type WorkspaceConnectionCapability,

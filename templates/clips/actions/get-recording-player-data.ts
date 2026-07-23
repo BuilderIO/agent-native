@@ -20,12 +20,22 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { resolveAccess, ForbiddenError } from "@agent-native/core/sharing";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isAgentRecordingCaller } from "../server/lib/agent-recording-access.js";
+import { isMediaVerificationPending } from "../server/lib/media-verification-state.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import {
+  canOpenDirectRecordingPage,
+  isRecordingExpired,
+} from "../server/lib/recording-page-access.js";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
@@ -36,6 +46,8 @@ import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { resolveTranscriptPresentation } from "../shared/transcript-status.js";
+import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
 
 function safeJsonObject(raw: string | null | undefined) {
   if (!raw) return {};
@@ -81,7 +93,7 @@ function recordingDeepLink(recordingId: string): string {
 
 export default defineAction({
   description:
-    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role.",
+    "Fetch everything the player page needs for a recording: metadata, transcript, comments, reactions, chapters, CTAs, and the caller's effective role. Agent calls receive a bounded transcript payload; browser player calls receive the full transcript.",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
   }),
@@ -96,7 +108,7 @@ export default defineAction({
     }),
   },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const access = await resolveAccess("recording", args.recordingId);
     if (!access) {
       throw new ForbiddenError(`No access to recording ${args.recordingId}`);
@@ -104,6 +116,73 @@ export default defineAction({
 
     const db = getDb();
     const rec: any = access.resource;
+
+    if (isRecordingExpired(rec.expiresAt)) {
+      throw new ForbiddenError("Recording has expired");
+    }
+
+    let hasExplicitShare = access.role === "owner";
+    if (
+      rec.visibility === "public" &&
+      access.role !== "owner" &&
+      !rec.password &&
+      isAgentRecordingCaller(ctx?.caller)
+    ) {
+      hasExplicitShare = true;
+    }
+    if (
+      rec.visibility === "public" &&
+      access.role !== "owner" &&
+      !hasExplicitShare
+    ) {
+      const userEmail = getRequestUserEmail()?.trim().toLowerCase();
+      const orgId = getRequestOrgId();
+      const principals = [];
+      if (userEmail) {
+        principals.push(
+          and(
+            eq(schema.recordingShares.principalType, "user"),
+            sql`lower(${schema.recordingShares.principalId}) = ${userEmail}`,
+          ),
+        );
+      }
+      if (orgId) {
+        principals.push(
+          and(
+            eq(schema.recordingShares.principalType, "org"),
+            eq(schema.recordingShares.principalId, orgId),
+          ),
+        );
+      }
+      if (principals.length > 0) {
+        const [share] = await db
+          .select({ id: schema.recordingShares.id })
+          .from(schema.recordingShares)
+          .where(
+            and(
+              eq(schema.recordingShares.resourceId, args.recordingId),
+              or(...principals),
+            ),
+          )
+          .limit(1);
+        hasExplicitShare = Boolean(share);
+      } else {
+        hasExplicitShare = false;
+      }
+    }
+
+    if (
+      !canOpenDirectRecordingPage({
+        role: access.role,
+        visibility: rec.visibility,
+        hasPassword: Boolean(rec.password),
+        hasExplicitShare,
+      })
+    ) {
+      throw new ForbiddenError(
+        "Open this recording from its share link instead of the direct recording URL",
+      );
+    }
 
     const [transcript] = await db
       .select()
@@ -114,12 +193,20 @@ export default defineAction({
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
-    const [cleanupStateRaw, builderCreditsRaw] = await Promise.all([
-      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
-      canEditRecording
-        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    const [cleanupStateRaw, builderCreditsRaw, verificationPending] =
+      await Promise.all([
+        readAppState(`transcript-cleanup-${args.recordingId}`).catch(
+          () => null,
+        ),
+        canEditRecording
+          ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+          : Promise.resolve(null),
+        isMediaVerificationPending({
+          ownerEmail: rec.ownerEmail,
+          recordingId: args.recordingId,
+          recordingStatus: rec.status,
+        }),
+      ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
@@ -215,6 +302,14 @@ export default defineAction({
       transcript?.status === "ready" &&
       !transcript.fullText?.trim() &&
       transcriptSegments.length === 0;
+    const transcriptPresentation = resolveTranscriptPresentation(transcript);
+    const agentTranscript =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a"
+        ? boundTranscriptForAgent({
+            fullText: transcript?.fullText,
+            segments: transcriptSegments,
+          })
+        : null;
 
     // Normalize the dev-fallback videoUrl:
     //   1. Rewrite legacy `/api/uploads/:id/blob` to `/api/video/:id` so old
@@ -261,6 +356,7 @@ export default defineAction({
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,
+        verificationPending,
         uploadProgress: rec.uploadProgress,
         failureReason: rec.failureReason,
         // Don't leak the password to clients (especially to MCP hosts that
@@ -283,13 +379,23 @@ export default defineAction({
       },
       transcript: transcript
         ? {
-            status: transcriptReadyButEmpty ? "failed" : transcript.status,
+            status: transcriptReadyButEmpty
+              ? "failed"
+              : transcriptPresentation.status,
             language: transcript.language,
-            fullText: transcript.fullText,
+            fullText: agentTranscript?.fullText ?? transcript.fullText,
+            ...(agentTranscript
+              ? {
+                  fullTextLength: agentTranscript.fullTextLength,
+                  segmentCount: agentTranscript.segmentCount,
+                  previewTruncated: agentTranscript.previewTruncated,
+                  note: agentTranscript.note,
+                }
+              : {}),
             failureReason: transcriptReadyButEmpty
               ? "No speech was detected by transcription. Check microphone and speech permissions, then retry transcription."
-              : transcript.failureReason,
-            segments: transcriptSegments,
+              : transcriptPresentation.failureReason,
+            segments: agentTranscript?.segments ?? transcriptSegments,
             cleanup: cleanupState
               ? {
                   status:

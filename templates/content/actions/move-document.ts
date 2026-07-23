@@ -9,11 +9,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  isLocalDocumentId,
-  isContentLocalFileMode,
-  moveLocalFileDocument,
-} from "./_local-file-documents.js";
+import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 async function assertParentIsNotDescendant({
   db,
@@ -213,15 +209,6 @@ export default defineAction({
       throw new Error("A document cannot be moved under itself");
     }
 
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const doc = await moveLocalFileDocument(id, args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-      };
-    }
-
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
@@ -241,6 +228,9 @@ export default defineAction({
         );
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
           throw new Error("Parent document must belong to the same owner");
+        }
+        if (parentAccess.resource.spaceId !== existing.spaceId) {
+          throw new Error("Parent document must be in the same Content space");
         }
         if (!sameRootSection(parentAccess.resource, existing)) {
           throw new Error("Parent document must be in the same section");
@@ -266,76 +256,107 @@ export default defineAction({
             parentId: args.parentId,
           })
         : null;
-    const normalizedSiblingPositions =
-      args.position !== undefined
-        ? await resolveSiblingPositionsAfterMove({
+    let normalizedSiblingPositions: Array<{
+      id: string;
+      position: number;
+    }> | null = null;
+
+    const runMoveTransaction = () =>
+      db.transaction(async (tx) => {
+        await tx
+          .update(schema.documents)
+          .set(updates)
+          .where(
+            and(
+              eq(schema.documents.id, id),
+              eq(schema.documents.ownerEmail, ownerEmail),
+            ),
+          );
+
+        if (args.parentId !== undefined && blockDatabaseIdToDetach) {
+          await clearBlockDatabaseOwnership({
+            db: tx,
+            databaseId: blockDatabaseIdToDetach,
+            ownerEmail,
+            updatedAt,
+          });
+        }
+
+        if (normalizedSiblingPositions) {
+          for (const document of normalizedSiblingPositions) {
+            await tx
+              .update(schema.documents)
+              .set({ position: document.position })
+              .where(
+                and(
+                  eq(schema.documents.id, document.id),
+                  eq(schema.documents.ownerEmail, ownerEmail),
+                ),
+              );
+          }
+        }
+      });
+
+    if (args.position !== undefined) {
+      // Resequencing reads every current sibling under the target parent,
+      // computes a full renumbering with the moved document inserted, then
+      // writes that renumbering. That read-then-write is exactly as racy as
+      // the append path below: two concurrent moves/reparents into the same
+      // parent can each read the same pre-move snapshot and then each commit
+      // a full-but-stale renumbering, silently clobbering the other move or
+      // leaving a document's new position colliding with one a concurrent
+      // append/reparent just claimed. Serialize the read through the write
+      // under the SAME per-(owner, parent) lock the append branch uses so an
+      // append and a reorder/reparent into one parent can't race each other
+      // either (see _position-utils.ts).
+      await withPositionLock(
+        documentsPositionScope(ownerEmail, targetParentId),
+        async () => {
+          normalizedSiblingPositions = await resolveSiblingPositionsAfterMove({
             db,
             ownerEmail,
             id,
             parentId: targetParentId,
             rootSection: existing,
-            position: args.position,
-          })
-        : null;
-
-    if (args.position !== undefined) {
-      updates.position =
-        normalizedSiblingPositions?.find((document) => document.id === id)
-          ?.position ?? args.position;
+            position: args.position!,
+          });
+          updates.position =
+            normalizedSiblingPositions?.find((document) => document.id === id)
+              ?.position ?? args.position;
+          await runMoveTransaction();
+        },
+      );
     } else if (args.parentId !== undefined) {
+      // Appending to the end of the new parent's children reads MAX(position)
+      // then writes MAX+1. Serialize the read through the write so a
+      // concurrent move/create/add targeting the same parent can't read the
+      // same MAX and land on the same position (see _position-utils.ts).
       const parentId = args.parentId;
-      const maxPos = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-        .from(schema.documents)
-        .where(
-          parentId
-            ? and(
-                eq(schema.documents.ownerEmail, ownerEmail),
-                eq(schema.documents.parentId, parentId),
-              )
-            : and(
-                eq(schema.documents.ownerEmail, ownerEmail),
-                rootSectionFilter(existing),
-                sql`parent_id IS NULL`,
-              ),
-        );
-      updates.position = (maxPos[0]?.max ?? -1) + 1;
-    }
-
-    await db.transaction(async (tx) => {
-      await tx
-        .update(schema.documents)
-        .set(updates)
-        .where(
-          and(
-            eq(schema.documents.id, id),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        );
-
-      if (args.parentId !== undefined && blockDatabaseIdToDetach) {
-        await clearBlockDatabaseOwnership({
-          db: tx,
-          databaseId: blockDatabaseIdToDetach,
-          ownerEmail,
-          updatedAt,
-        });
-      }
-
-      if (normalizedSiblingPositions) {
-        for (const document of normalizedSiblingPositions) {
-          await tx
-            .update(schema.documents)
-            .set({ position: document.position })
+      await withPositionLock(
+        documentsPositionScope(ownerEmail, parentId),
+        async () => {
+          const maxPos = await db
+            .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+            .from(schema.documents)
             .where(
-              and(
-                eq(schema.documents.id, document.id),
-                eq(schema.documents.ownerEmail, ownerEmail),
-              ),
+              parentId
+                ? and(
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                    eq(schema.documents.parentId, parentId),
+                  )
+                : and(
+                    eq(schema.documents.ownerEmail, ownerEmail),
+                    rootSectionFilter(existing),
+                    sql`parent_id IS NULL`,
+                  ),
             );
-        }
-      }
-    });
+          updates.position = (maxPos[0]?.max ?? -1) + 1;
+          await runMoveTransaction();
+        },
+      );
+    } else {
+      await runMoveTransaction();
+    }
 
     const [doc] = await db
       .select()

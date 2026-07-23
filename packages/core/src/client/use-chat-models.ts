@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
@@ -20,6 +22,7 @@ export interface UseChatModelsResult {
   selectedModel: string;
   selectedEngine: string;
   selectedEffort: ReasoningEffort;
+  isLoading: boolean;
   onModelChange: (model: string, engine: string) => void;
   onEffortChange: (effort: ReasoningEffort) => void;
   refreshEngines: () => void;
@@ -76,6 +79,7 @@ export function useChatModels({
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
+  const [isLoading, setIsLoading] = useState(enabled);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
 
   const initialPersisted = readPersisted(storageKey);
@@ -87,7 +91,10 @@ export function useChatModels({
     initialPersisted.engine ?? "",
   );
   const [selectedEffort, setSelectedEffort] = useState<ReasoningEffort>(
-    initialPersisted.effort ?? "auto",
+    resolveReasoningEffortSelection(
+      initialPersisted.model ?? DEFAULT_MODEL,
+      initialPersisted.effort,
+    ),
   );
   const selectionRef = useRef({
     selectedModel,
@@ -110,10 +117,9 @@ export function useChatModels({
       setSelectedModel(model);
       setSelectedEngine(engine);
       setSelectedEffort((prevEffort) => {
-        const next =
-          prevEffort === "auto" || effortOptions.includes(prevEffort)
-            ? prevEffort
-            : "auto";
+        const next = effortOptions.includes(prevEffort)
+          ? prevEffort
+          : DEFAULT_REASONING_EFFORT;
         writePersisted(storageKey, { model, engine, effort: next });
         return next;
       });
@@ -136,6 +142,7 @@ export function useChatModels({
 
   const refreshEngines = useCallback(() => {
     if (!enabled) return;
+    setIsLoading(true);
     Promise.all([
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
@@ -180,12 +187,10 @@ export function useChatModels({
             defaultGroup?.models[0] ??
             nextDefaultModel;
           const nextEngine = defaultGroup?.engine ?? "";
-          const effortOptions = getReasoningEffortOptionsForModel(nextModel);
-          const nextEffort =
-            selection.selectedEffort === "auto" ||
-            effortOptions.includes(selection.selectedEffort)
-              ? selection.selectedEffort
-              : "auto";
+          const nextEffort = resolveReasoningEffortSelection(
+            nextModel,
+            selection.selectedEffort,
+          );
           setSelectedModel(nextModel);
           setSelectedEngine(nextEngine);
           setSelectedEffort(nextEffort);
@@ -207,12 +212,10 @@ export function useChatModels({
             defaultGroup?.models[0] ??
             nextDefaultModel;
           const nextEngine = defaultGroup?.engine ?? "";
-          const effortOptions = getReasoningEffortOptionsForModel(nextModel);
-          const nextEffort =
-            selection.selectedEffort === "auto" ||
-            effortOptions.includes(selection.selectedEffort)
-              ? selection.selectedEffort
-              : "auto";
+          const nextEffort = resolveReasoningEffortSelection(
+            nextModel,
+            selection.selectedEffort,
+          );
           setSelectedModel(nextModel);
           setSelectedEngine(nextEngine);
           setSelectedEffort(nextEffort);
@@ -223,11 +226,15 @@ export function useChatModels({
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
   }, [enabled, storageKey]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
     refreshEngines();
   }, [enabled, refreshEngines]);
 
@@ -237,6 +244,7 @@ export function useChatModels({
     selectedModel,
     selectedEngine,
     selectedEffort,
+    isLoading,
     onModelChange,
     onEffortChange,
     refreshEngines,

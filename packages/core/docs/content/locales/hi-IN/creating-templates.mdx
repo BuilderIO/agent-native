@@ -44,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-339wig"
   title={"Template project की संरचना"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -174,8 +173,7 @@ npx @agent-native/core@latest create my-platform
 
 फ़्रेमवर्क Drizzle सहायकों के साथ डोमेन तालिकाओं को परिभाषित करें ताकि स्कीमा SQLite, Postgres, D1, Turso, Supabase, Neon और अन्य समर्थित बैकएंड पर पोर्टेबल रहें:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -206,8 +204,7 @@ export const projectShares = createSharesTable("project_shares");
 
 ऐप पढ़ने और लिखने के लिए, Drizzle के क्वेरी बिल्डर और `drizzle-orm` के पोर्टेबल ऑपरेटरों का उपयोग करें। जब Drizzle क्वेरी को व्यक्त कर सकता है, तो कच्चे SQL के साथ उत्पाद कोड न लिखें, और टेम्पलेट्स में `drizzle-orm/sqlite-core` या `drizzle-orm/pg-core` से आयात न करें।
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -275,8 +272,10 @@ export default runMigrations(
 रूट `app/routes/` में रहते हैं और React राउटर v8 फ़ाइल रूटिंग का उपयोग करते हैं। actions या API हैंडलर के माध्यम से डेटा क्वेरी करें, और म्यूटेशन को डिफ़ॉल्ट रूप से आशावादी बनाएं।
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -292,7 +291,7 @@ export default function ProjectsPage() {
 ऐप शेल के पास एक बार वायर लाइव सिंक करें ताकि जब एजेंट, कोई अन्य टैब, या कोई एक्शन डेटा बदलता है तो React क्वेरी कैश रीफ्रेश हो जाता है:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -305,7 +304,7 @@ export function AppSync() {
 **एजेंट-नेटिव वादा: एजेंट लिखता है UI में बिना मैन्युअल रिफ्रेश के दिखाई देता है।** `useActionQuery` आसान रास्ता है - जब कोई परिवर्तनशील क्रिया `source: "action"` उत्सर्जित करती है तो प्रत्येक हुक रीफ़ेच हो जाता है। यदि आप एक कस्टम कुंजी (उदाहरण के लिए, एक निम्न-स्तरीय क्लाइंट सहायक जो एकीकरण स्थिति पढ़ता है) के साथ कच्चे `useQuery` तक पहुंचते हैं, तो लक्षित ताज़ा करने के लिए प्रति-स्रोत काउंटर को queryKey में मोड़ें:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -328,7 +327,7 @@ useQuery({
 UI हुक के लिए `useAgentRouteState` का उपयोग करें ताकि एप्लिकेशन-स्टेट लिखें, टैब-स्कोप्ड कमांड पढ़ें, डिलीट-आफ्टर-रीड, और डुप्लिकेट-कमांड सुरक्षा सुसंगत रहें:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -351,8 +350,7 @@ URL क्वेरी पैरामीटर्स में साझा क
 `path` जब URL ज्ञात हो। उसी चाल के लिए `__set_url__` भी न लिखें;
 वह कुंजी फ़्रेमवर्क URL टूल और URL-केवल फ़िल्टर परिवर्तनों के लिए आरक्षित है।
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

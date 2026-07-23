@@ -13,7 +13,15 @@ const guards = [
   "guard:template-list",
   "guard:netlify-private-env",
   "guard:workspace-skills",
+  "guard:template-standard",
   "guard:public-packages",
+  "guard:shared-ui-singletons",
+  "guard:no-core-client-barrel-imports",
+  "guard:toolkit-must-not-import-core",
+  "guard:template-ui-imports",
+  "guard:controller-boundaries",
+  "guard:migration-manifest",
+  "guard:eject-manifests",
   "guard:no-generated-artifacts",
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",
@@ -22,6 +30,10 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:provider-action-factories",
+  "guard:agent-chat-context",
+  "guard:request-storms",
+  "guard:ssr-cache-shell",
 ] as const;
 
 type GuardName = (typeof guards)[number];

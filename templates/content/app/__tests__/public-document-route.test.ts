@@ -16,8 +16,11 @@ vi.mock("@/components/editor/VisualEditor", () => ({
   VisualEditor: () => null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 

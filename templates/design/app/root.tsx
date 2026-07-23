@@ -1,18 +1,19 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
-  useCommandMenuShortcut,
   useDbSync,
-  getLocaleInitScript,
-  getThemeInitScript,
   getBrowserTabId,
-  configureTracking,
   useSession,
-  useT,
-} from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -23,6 +24,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -32,10 +34,14 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
 
 configureTracking({
+  llmConnectionStatus:
+    typeof window === "undefined" ||
+    !isPublicDesignAppPath(window.location.pathname),
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "design",
@@ -122,6 +128,7 @@ function DesignCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -130,6 +137,10 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.commandSearch")}
         </CommandMenu.Item>
@@ -175,13 +186,19 @@ function RootContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isPublicPath = isPublicDesignAppPath(location.pathname);
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isPublicPath}
+        i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+      >
         <RootContent />
       </AppProviders>
     </AppToolkitProvider>
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

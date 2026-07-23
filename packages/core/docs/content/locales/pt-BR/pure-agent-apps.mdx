@@ -68,6 +68,10 @@ a caixa, o scaffold, o acesso ao repositório e o compartilhamento de execução
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
+## Adicione uma UI depois {#add-chat-later}
+
+`--headless` escolhe somente o scaffold inicial; não há um comando `agent-native` que converta no lugar um projeto existente apenas com actions em um app de navegador. Quando as pessoas precisarem de uma UI, use o [template Chat](/docs/template-chat) como referência de migração: mantenha as actions, os dados SQL, as instructions e as skills e adicione o shell do navegador e os server plugins. Para uma superfície de chat, adicione `<AgentChatSurface>` e um chat plugin que carregue as actions existentes. Verifique `pnpm typecheck` e um fluxo de UI que chame uma action existente. `agent-native add` é para integration blueprints, não para essa conversão.
+
 ## O que vem a seguir
 
 - [**Agent Surfaces — Headless**](/docs/agent-surfaces#headless) — o guia completo de decisão sem cabeça e APIs

@@ -30,10 +30,10 @@ const messages = {
       "Gerencie membros da equipe, acesso da organização e preferências compartilhadas.",
     openTeamSettings: "Abrir configurações da equipe",
     openResourceSettings: "Abrir configurações de recursos",
-    agentTitle: "Configurações do agente",
+    agentTitle: "Gerenciar agente",
     agentDescription:
-      "Abra as configurações do agente na barra lateral para modelos, chaves de API, automações, voz e outros controles.",
-    openAgentSettings: "Abrir configurações do agente",
+      "Gerencie o modelo do agente, chaves de API, automações, voz e outros controles.",
+    openAgentSettings: "Gerenciar agente",
   },
   agent: {
     emptyState: "Diga o que voce comeu; eu estimo os macros",
@@ -59,6 +59,8 @@ const messages = {
     optional: "Opcional",
     saveChanges: "Salvar alterações",
     saving: "Salvando...",
+    loadFailed: "Não foi possível carregar estes dados",
+    retry: "Tentar novamente",
   },
   seo: {
     homeTitle:

@@ -330,6 +330,20 @@ describe("writeHttpEntryForClient", () => {
 });
 
 describe("buildLocalMcpEntryForClient", () => {
+  it("can configure a resolvable npx command for a self-installing MCP", () => {
+    expect(
+      buildLocalMcpEntryForClient(
+        "claude-code",
+        ["-y", "@agent-native/core@latest", "mcp", "screen-memory"],
+        {},
+        "npx",
+      ),
+    ).toEqual({
+      command: "npx",
+      args: ["-y", "@agent-native/core@latest", "mcp", "screen-memory"],
+    });
+  });
+
   it("uses the OpenCode local command-array shape", () => {
     expect(
       buildLocalMcpEntryForClient("opencode", ["mcp", "serve"], {
@@ -399,6 +413,15 @@ describe("canonicalUrl", () => {
   it("strips hash and search params", () => {
     expect(canonicalUrl("https://x.com/mcp?foo=1#bar")).toBe(
       "https://x.com/mcp",
+    );
+  });
+
+  it("canonicalizes legacy MCP URLs, including app base paths", () => {
+    expect(canonicalUrl("https://x.com/_agent-native/mcp")).toBe(
+      "https://x.com/mcp",
+    );
+    expect(canonicalUrl("https://x.com/mail/_agent-native/mcp/")).toBe(
+      "https://x.com/mail/mcp",
     );
   });
 

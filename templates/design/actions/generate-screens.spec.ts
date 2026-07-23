@@ -3,6 +3,16 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   writeAppState: vi.fn(),
   assertAccess: vi.fn(),
+  existingDesignFiles: [] as Array<{ filename: string }>,
+  recordGenerationCreativeContext: vi.fn(),
+  resolveGenerationCreativeContext: vi.fn(
+    async (input: { contextModeOverride?: "off" }) => ({
+      contextMode: input.contextModeOverride === "off" ? "off" : "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      results: [],
+    }),
+  ),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -12,6 +22,28 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
   registerShareableResource: vi.fn(),
+}));
+
+vi.mock("drizzle-orm", () => ({
+  eq: (left: unknown, right: unknown) => ({ left, right }),
+  sql: (strings: unknown, ...values: unknown[]) => ({ strings, values }),
+}));
+
+vi.mock("../server/db/index.js", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => Promise.resolve(mocks.existingDesignFiles),
+      }),
+    }),
+  }),
+  schema: {
+    designFiles: {
+      id: "designFiles.id",
+      designId: "designFiles.designId",
+      filename: "designFiles.filename",
+    },
+  },
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -24,12 +56,18 @@ vi.mock("@agent-native/core/server", () => ({
     `/_agent-native/open?app=${args.app}&view=${args.view}&designId=${args.params?.designId ?? ""}&to=${encodeURIComponent(args.to ?? "")}`,
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
+  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
+}));
+
 import action from "./generate-screens.js";
 
 describe("generate-screens", () => {
   beforeEach(() => {
     mocks.writeAppState.mockReset();
     mocks.assertAccess.mockReset();
+    mocks.existingDesignFiles = [];
   });
 
   it("creates an overview generation session and returns placed targets", async () => {
@@ -136,6 +174,48 @@ describe("generate-screens", () => {
       "landing.html",
       "landing-2.html",
     ]);
+  });
+
+  // Without checking the design's already-saved files, a requested/slugged
+  // target could silently collide with an existing screen: generate-design's
+  // existing-file lookup is keyed by filename, so the later generate-design
+  // call for a "new" target that happens to match an existing filename would
+  // UPDATE (overwrite) that pre-existing file instead of creating a new one.
+  it("avoids target filenames that already exist in the design", async () => {
+    mocks.existingDesignFiles = [{ filename: "onboarding.html" }];
+
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Add another onboarding screen",
+      screens: [{ title: "Onboarding" }],
+    });
+
+    expect(result.targets[0]!.filename).toBe("onboarding-2.html");
+  });
+
+  it("avoids an explicit filename that collides with an existing file", async () => {
+    mocks.existingDesignFiles = [{ filename: "index.html" }];
+
+    const result = await action.run({
+      designId: "design_123",
+      prompt: "Add a home screen",
+      screens: [{ title: "Home", filename: "index.html" }],
+    });
+
+    expect(result.targets[0]!.filename).toBe("index-2.html");
+  });
+
+  it("rejects two screens sharing the same explicit frameId", () => {
+    expect(
+      action.schema.safeParse({
+        designId: "design_123",
+        prompt: "Build two screens",
+        screens: [
+          { frameId: "frame-a", title: "Landing" },
+          { frameId: "frame-a", title: "Details" },
+        ],
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects variants anchored to another variant in the same request", () => {

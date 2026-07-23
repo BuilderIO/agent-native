@@ -114,7 +114,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 إذا كنت تستخدم مضيفًا يستند إلى الدردشة ويقبل موصل MCP URLs مباشرةً
 (بدلاً من عميل تم تكوينه بواسطة CLI)، قم بتوصيل موصل الخطط المستضاف على
-`https://plan.agent-native.com/_agent-native/mcp` — راجع [MCP Clients](/docs/mcp-clients) للتعرف على الإعداد الخاص بالعميل.
+`https://plan.agent-native.com/mcp` — راجع [MCP Clients](/docs/mcp-clients) للتعرف على الإعداد الخاص بالعميل.
 
 المصادقة عبارة عن تسجيل دخول إلى المتصفح لمرة واحدة عند الإعداد — وهذا هو المقصود، وهو كذلك
 هو ما يتيح للوكيل الاستمرار ومشاركة الخطط التي ينشئها. ما المصادقة
@@ -212,6 +212,13 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
 **نموذج الأسئلة المفتوحة** الموجود أسفل نفس الخطة. الرد عليه والإرسال
 يبدأ الوكيل في مراجعة الخطة الحالية.
 
+## التكلفة واختيار النموذج
+
+يؤدي إنشاء خطة أو ملخّص إلى تشغيل جلسة وكيلية كاملة على LLM الخاص بوكيل الترميز لديك، وليس مجرد ملء قالب خفيف، لذا تتناسب التكلفة مع حجم الفرق (diff) أو الخطة والنموذج الذي تختاره.
+
+- نموذج الدردشة الافتراضي الخاص بالتطبيق هو Sonnet 5؛ يمكنك تغييره في أي وقت من **الإعدادات**. Haiku هو خيار Claude الأرخص، وLuna هو الخيار الأرخص في عائلة GPT-5.6.
+- تعمل ملخصات طلبات السحب (PR) الآلية من GitHub Action بشكل منفصل عن التطبيق التفاعلي، ولها مقابض النموذج والتكلفة الخاصة بها — راجع [PR Visual Recap](/docs/pr-visual-recap) للاطلاع على `VISUAL_RECAP_MODEL` و`VISUAL_RECAP_AGENT` و`VISUAL_RECAP_REASONING`.
+
 ## ما يمكنك فعله به
 
 - **المراجعة قبل التنفيذ.** React للرسومات التخطيطية، والإطارات السلكية، وعلامات تبويب الخيارات،
@@ -253,7 +260,7 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
   المراجعة عبر الأجهزة أو الفريق) تسجيل الدخول. وسيظهر تسجيل الدخول إلى Google عندما
   تم تكوين vars env القياسي لـ Google OAuth.
 
-موصل الخطط المستضاف موجود في `https://plan.agent-native.com/_agent-native/mcp`.
+موصل الخطط المستضاف موجود في `https://plan.agent-native.com/mcp`.
 لا تضع الأسرار المشتركة أبدًا في ملفات المهارات.
 
 ## وضع خصوصية الملفات المحلية {#local-files}
@@ -290,7 +297,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 يبدو شكل الجسر URL
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 الصفحة هي عارض الخطة العادي، لكن المتصفح يجلب `plan.mdx`،
 `canvas.mdx`، و`prototype.mdx`، و`.plan-state.json`، وأصول الصور المحلية من
 جسر المضيف المحلي. لا تتم كتابة محتوى الخطة في قاعدة البيانات المستضافة وهي
@@ -452,7 +459,7 @@ pnpm dev
 تستخدم المهارة المدعومة بالتطبيق المستضاف:
 
 - التطبيق: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 يكون القالب المحلي مفيدًا عند تطوير الخطط نفسها، أو اختبار الثبات المحلي، أو تشغيل سطح مراجعة مستضاف ذاتيًا بالكامل.
 

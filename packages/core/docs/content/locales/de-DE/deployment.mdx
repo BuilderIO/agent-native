@@ -333,12 +333,14 @@ export default defineConfig({
 
 ### Build/Laufzeit {#env-runtime}
 
-| Variable                    | Beschreibung                                                                                                                                                     |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | Server-Port (nur Node.js)                                                                                                                                        |
-| `NITRO_PRESET`              | Build-Voreinstellung zum Build-Zeitpunkt überschreiben                                                                                                           |
-| `APP_BASE_PATH`             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen. |
-| `AGENT_PROD_CODE_EXECUTION` | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution).        |
+| Variable                                    | Beschreibung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Server-Port (nur Node.js)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `NITRO_PRESET`                              | Build-Voreinstellung zum Build-Zeitpunkt überschreiben                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `APP_BASE_PATH`                             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen.                                                                                                                                                                                                                                                                                                                                            |
+| `AGENT_PROD_CODE_EXECUTION`                 | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dediziertes, gemeinsam verwendetes HMAC-Geheimnis mit mindestens 32 Zeichen für die previewsichere Builder-Autorisierungsweiterleitung. Legen Sie denselben Wert in der genehmigten Unternehmens-Callback-Bereitstellung und in Preview-Bereitstellungen nur fest, wenn die Autorisierung in einer isolierten Preview-Datenbank gespeichert werden muss.                                                                                                                                                    |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Nur für den Unternehmens-Callback bestimmte, kommagetrennte Zulassungsliste exakt übereinstimmender, vertrauenswürdiger Preview-Origins (zum Beispiel `https://0123456789abcdef01234567--content.netlify.app`). Legen Sie sie nur in der Unternehmens-Callback-Bereitstellung fest. Netlify-Origins müssen einen unveränderlichen, bereitstellungsspezifischen Permalink mit einer 24-stelligen Hex-ID verwenden; veränderliche `deploy-preview-*`-Aliase, Platzhalter und Domain-Suffixe werden abgelehnt. |
 
 Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, pro App `<APP_NAME>_DATABASE_URL`) leben in [Database](/docs/database#production).
 
@@ -373,7 +375,7 @@ Innerhalb eines Arbeitsbereichs wird der Root-`.env` automatisch in jede App gel
 
 ### Generieren starker Geheimnisse {#env-generate-secrets}
 
-Generieren Sie für jedes Geheimnis, das mit „32+ char random“ gekennzeichnet ist (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), neue Werte mit:
+Generieren Sie für jedes Geheimnis, das mit „32+ char random“ gekennzeichnet ist (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), neue Werte mit:
 
 ```bash
 openssl rand -hex 32
@@ -438,7 +440,7 @@ In einer standardmäßigen Produktionsbereitstellung mit weggelassenem [producti
 
 ### Builder.io: Visuelle Bearbeitung in der Produktion {#builderio}
 
-[Builder.io](https://www.builder.io) löst dieses Problem durch die Bereitstellung einer verwalteten Cloud-Umgebung, in der der Agent die Möglichkeit behält, den UI Ihrer App in der Produktion zu ändern. Verbinden Sie Ihr Repo mit Builder.io und fordern Sie direkt UI-Änderungen an – keine erneute Bereitstellung erforderlich.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) löst dieses Problem durch die Bereitstellung einer verwalteten Cloud-Umgebung, in der der Agent die Möglichkeit behält, den UI Ihrer App in der Produktion zu ändern. Verbinden Sie Ihr Repo mit Builder.io und fordern Sie direkt UI-Änderungen an – keine erneute Bereitstellung erforderlich.
 
 **So funktioniert es:**
 
@@ -452,3 +454,11 @@ Weitere Informationen zum eingebetteten Agent-Panel im Vergleich zu Cloud-Frame-
 ## Mehrinstanzbereitstellungen {#multi-instance}
 
 Agent-native Apps speichern den gesamten Status in SQL über Drizzle und synchronisieren den UI über [polling](/docs/key-concepts#polling-sync) mit der Datenbank – kein Dateisystemstatus, keine Sticky Sessions, keine In-Memory-Caches. Das bedeutet, dass Bereitstellungen mit mehreren Instanzen und serverlosen Bereitstellungen sofort funktionieren: Richten Sie jede Instanz auf denselben `DATABASE_URL` und sie konvergieren automatisch. Siehe [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) und [Portability](/docs/key-concepts#hosting-agnostic).
+
+## Wie geht es weiter?
+
+- [**Database**](/docs/database#production) — Wählen Sie vor der ersten Produktionsbereitstellung ein persistentes SQL-Backend
+- [**Security**](/docs/security) — Die Produktionscheckliste und die auf dieser Seite erwähnten Opt-in-Flags
+- [**Authentication**](/docs/authentication) — OAuth-Anmeldedaten und Umgebungsvariablen für den gewählten Authentifizierungsmodus
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — Das Workspace-Modell hinter dem Single-Origin-Build von `deploy`
+- [**Frames**](/docs/frames) — Das eingebettete Agent-Panel gegenüber dem Cloud-Frame von Builder.io für UI-Änderungen in der Produktion

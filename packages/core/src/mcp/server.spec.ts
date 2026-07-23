@@ -17,6 +17,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
+const builtinToolMocks = vi.hoisted(() => ({
+  askAppRun: vi.fn(async () => ({ response: "agent answer" })),
+  askAppStatusRun: vi.fn(async () => ({
+    status: "completed",
+    response: "agent answer",
+  })),
+}));
+
 // Heavy/irrelevant deps mocked so importing build-server.ts is cheap. The
 // MCP SDK itself is REAL — that's the whole point of these tests.
 vi.mock("./builtin-tools.js", () => ({
@@ -63,7 +71,7 @@ vi.mock("./builtin-tools.js", () => ({
           required: ["app", "message"],
         },
       },
-      run: async () => ({ response: "agent answer" }),
+      run: (...args: any[]) => builtinToolMocks.askAppRun(...args),
     },
     ask_app_status: {
       tool: {
@@ -78,7 +86,7 @@ vi.mock("./builtin-tools.js", () => ({
         },
       },
       readOnly: true,
-      run: async () => ({ status: "completed", response: "agent answer" }),
+      run: (...args: any[]) => builtinToolMocks.askAppStatusRun(...args),
     },
     create_embed_session: {
       tool: {
@@ -505,6 +513,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     // Inline MCP App embeds are off by default; these tests assert the embed
@@ -518,12 +528,19 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS;
     mockOAuthClients.clear();
     vi.clearAllMocks();
+    builtinToolMocks.askAppRun.mockResolvedValue({ response: "agent answer" });
+    builtinToolMocks.askAppStatusRun.mockResolvedValue({
+      status: "completed",
+      response: "agent answer",
+    });
   });
 
   it("handles `initialize` without a 501", async () => {
@@ -1387,6 +1404,130 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect.arrayContaining(["echo-thing", "internal-heavy", "ask-agent"]),
     );
     expect(JSON.stringify(out)).toContain("INTERNAL_TOOL_BLOAT_SENTINEL");
+  });
+
+  it("uses the durable ask_app path for hosted ask-agent calls", async () => {
+    builtinToolMocks.askAppRun.mockResolvedValueOnce({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "working",
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message:
+        'ask_app is still working. Call ask_app_status with taskId "task-1" to retrieve the final response.',
+    });
+
+    const toolsOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 291,
+        method: "tools/list",
+        params: {},
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: compactSurfaceConfig,
+      },
+    );
+    const askAgent = toolsOut.result.tools.find(
+      (tool: any) => tool.name === "ask-agent",
+    );
+    expect(askAgent.description).toContain("taskId");
+    expect(askAgent.inputSchema.properties.async).toEqual({
+      type: "boolean",
+      description: "Start a durable task and return immediately with a taskId.",
+    });
+    expect(askAgent.inputSchema.properties.maxWaitMs).toEqual({
+      type: "number",
+      description:
+        "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 292,
+        method: "tools/call",
+        params: {
+          name: "ask-agent",
+          arguments: { message: "Build the report.", async: true },
+        },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: compactSurfaceConfig,
+      },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      taskId: "task-1",
+      status: "working",
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+    expect(builtinToolMocks.askAppRun).toHaveBeenCalledWith({
+      message: "Build the report.",
+      async: true,
+      maxWaitMs: 0,
+    });
+  });
+
+  it("returns transient ask_app status read exhaustion as recoverable structured content", async () => {
+    builtinToolMocks.askAppStatusRun.mockResolvedValueOnce({
+      app: "mail",
+      routedVia: "local",
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      errorCategory: "transport",
+      attempts: 4,
+      pollAfterMs: 1_500,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+      message:
+        "The task status could not be read. Retry ask_app_status; do not resubmit ask_app.",
+    });
+
+    const call = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 293,
+        method: "tools/call",
+        params: {
+          name: "ask_app_status",
+          arguments: { app: "mail", taskId: "task-1" },
+        },
+      },
+      { config: compactSurfaceDefaultConfig },
+    );
+
+    expect(call.error).toBeUndefined();
+    expect(call.result.isError).toBeUndefined();
+    expect(JSON.parse(call.result.content[0].text)).toMatchObject({
+      taskId: "task-1",
+      status: "unknown",
+      statusRead: "unavailable",
+      retryable: true,
+      poll: {
+        tool: "ask_app_status",
+        arguments: { app: "mail", taskId: "task-1" },
+      },
+    });
+    expect(call.result.structuredContent).toMatchObject({
+      taskId: "task-1",
+      statusRead: "unavailable",
+      retryable: true,
+    });
   });
 
   it("handles `resources/list` and advertises MCP App resources", async () => {
@@ -2753,6 +2894,236 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).not.toContain("should-be-hidden");
   });
 
+  it("surfaces sanitized structured payloads for model-visible read-only tools", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-detail": {
+          tool: { description: "Read a detail record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-42",
+            status: "failed",
+            message: "The request failed",
+            url: "/_agent-native/embed/start?ticket=must-not-leak",
+            ticket: "top-level-ticket-must-not-leak",
+            embedTargetPath: "/private/thread/42",
+            embedExpiresAt: 1735689600,
+            uploadTicket: "nested-upload-ticket-must-not-leak",
+            steps: [
+              {
+                kind: "network",
+                status: 404,
+                details: {
+                  ticket: "nested-ticket-must-not-leak",
+                  embedTargetPath: "/private/nested",
+                  safe: "keep this detail",
+                },
+              },
+            ],
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 162,
+        method: "tools/call",
+        params: { name: "read-detail", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-42",
+      status: "failed",
+      message: "The request failed",
+      steps: [
+        {
+          kind: "network",
+          status: 404,
+          details: { safe: "keep this detail" },
+        },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-42"');
+    expect(out.result.content[0].text).not.toContain("must-not-leak");
+    expect(out.result.content[0].text).not.toContain("top-level-ticket");
+    expect(out.result.content[0].text).not.toContain("nested-ticket");
+    expect(out.result.content[0].text).not.toContain("private/thread/42");
+  });
+
+  it("preserves ordinary ticket fields on unrelated read-only payloads", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-business-record": {
+          tool: { description: "Read a business record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "order-42",
+            ticket: "customer-support-ticket-42",
+            receiptTicket: "receipt-ticket-42",
+            nested: { ticket: "nested-business-ticket-42" },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 163,
+        method: "tools/call",
+        params: { name: "read-business-record", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "order-42",
+      ticket: "customer-support-ticket-42",
+      receiptTicket: "receipt-ticket-42",
+      nested: { ticket: "nested-business-ticket-42" },
+    });
+    expect(out.result.content[0].text).toContain("customer-support-ticket-42");
+  });
+
+  it("sanitizes ticket fields across read-only array siblings when one item carries embed routing", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-array": {
+          tool: { description: "Read records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "business-record", ticket: "sibling-ticket-must-not-leak" },
+            {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this record",
+            },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-array", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [{ id: "business-record" }, { safe: "keep this record" }],
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
+  it("preserves top-level read-only arrays in structuredContent", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "list-records": {
+          tool: { description: "List records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "record-1", status: "ready" },
+            { id: "record-2", status: "failed" },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 165,
+        method: "tools/call",
+        params: { name: "list-records", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [
+        { id: "record-1", status: "ready" },
+        { id: "record-2", status: "failed" },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-1"');
+  });
+
+  it("propagates embed sanitization to credential siblings", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-nested-embed-record": {
+          tool: { description: "Read a nested embed record" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => ({
+            id: "record-with-nested-embed",
+            ticket: "sibling-ticket-must-not-leak",
+            details: {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this detail",
+            },
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-nested-embed-record", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      id: "record-with-nested-embed",
+      details: { safe: "keep this detail" },
+    });
+    expect(out.result.content[0].text).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
   it("strips embedTargetPath, embedExpiresAt, and ticket fields from structuredContent", async () => {
     // Regression: internal embed-routing fields are carried in
     // `_meta["agent-native/embedStart"]` for the embed runtime. They must NOT
@@ -2992,7 +3363,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       'resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource"',
     );
     expect(event._responseHeaders?.["www-authenticate"]).toContain(
-      'scope="mcp:read mcp:write mcp:apps"',
+      'scope="mcp:read mcp:write mcp:apps offline_access"',
     );
     // The legacy `error` field is preserved, plus an actionable message and the
     // exact remediation (connect command + authorize/metadata/MCP URLs).
@@ -3003,16 +3374,72 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
         firstTimeCommand:
           "npx @agent-native/core@latest connect https://mail.agent-native.com",
-        authorizeUrl:
-          "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
+        authorizeUrl: "https://mail.agent-native.com/mcp/oauth/authorize",
         resourceMetadataUrl:
           "https://mail.agent-native.com/.well-known/oauth-protected-resource",
-        mcpUrl: "https://mail.agent-native.com/_agent-native/mcp",
+        mcpUrl: "https://mail.agent-native.com/mcp",
       },
     });
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 11, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        mcpUrl: "http://localhost:8100/mcp",
+      },
+    });
+  });
+
+  it("does not treat a server owner env var as a local owner hint", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 12, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({ error: "Unauthorized" });
   });
 
   it("uses forwarded host for tunneled OAuth challenges instead of opening dev mode", async () => {
@@ -3048,11 +3475,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         firstTimeCommand:
           "npx @agent-native/core@latest connect https://assets-local.trycloudflare.com/assets",
         authorizeUrl:
-          "https://assets-local.trycloudflare.com/assets/_agent-native/mcp/oauth/authorize",
+          "https://assets-local.trycloudflare.com/assets/mcp/oauth/authorize",
         resourceMetadataUrl:
           "https://assets-local.trycloudflare.com/assets/.well-known/oauth-protected-resource",
-        mcpUrl:
-          "https://assets-local.trycloudflare.com/assets/_agent-native/mcp",
+        mcpUrl: "https://assets-local.trycloudflare.com/assets/mcp",
       },
     });
   });

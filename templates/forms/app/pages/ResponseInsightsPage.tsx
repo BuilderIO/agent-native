@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { ResponseInsightsWidgetResult } from "@shared/types";
 import {
   IconArrowLeft,
@@ -52,7 +52,7 @@ function Metric({
   detail?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-md border border-border bg-background px-3 py-2">
+    <div className="min-w-0 rounded-xl border border-border/80 bg-background px-3 py-3 shadow-sm">
       <div className="text-[11px] font-medium uppercase tracking-normal text-muted-foreground">
         {label}
       </div>
@@ -97,7 +97,7 @@ function SubmissionBars({
               <div className="flex h-40 w-full items-end rounded-sm bg-muted/40 px-0.5">
                 <div
                   className={cn(
-                    "w-full rounded-sm bg-primary/80 transition-colors",
+                    "w-full rounded-sm bg-primary/80 shadow-sm transition-[height,background-color,box-shadow] duration-300 ease-out hover:bg-primary hover:shadow-md motion-reduce:transition-none",
                     point.submissions === 0 && "bg-muted-foreground/30",
                   )}
                   style={{ height }}
@@ -121,11 +121,11 @@ function LoadingState() {
       <Skeleton className="h-10 w-72" />
       <div className="forms-response-metrics-grid grid gap-3">
         {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="h-20 rounded-md" />
+          <Skeleton key={index} className="h-20 rounded-xl" />
         ))}
       </div>
-      <Skeleton className="h-64 rounded-md" />
-      <Skeleton className="h-72 rounded-md" />
+      <Skeleton className="h-64 rounded-xl" />
+      <Skeleton className="h-72 rounded-xl" />
     </div>
   );
 }
@@ -160,7 +160,7 @@ export function ResponseInsightsPage() {
           type="button"
           variant="outline"
           size="sm"
-          className="gap-1.5"
+          className="min-h-10 gap-1.5 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
           onClick={() => refetch()}
         >
           <IconRefresh className="size-3.5" />
@@ -176,7 +176,12 @@ export function ResponseInsightsPage() {
     <div className="flex min-h-full flex-col bg-background">
       <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-border pl-12 pr-3 sm:px-4 md:pl-4">
         <div className="flex min-w-0 items-center gap-2">
-          <Button variant="ghost" size="sm" asChild className="gap-1.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            className="min-h-10 gap-1.5 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
+          >
             <Link to="/forms">
               <IconArrowLeft className="size-3.5" />
               Forms
@@ -196,7 +201,12 @@ export function ResponseInsightsPage() {
             </div>
           </div>
         </div>
-        <Button variant="outline" size="sm" asChild className="gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          asChild
+          className="min-h-10 gap-1.5 transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none"
+        >
           <Link to={display.primaryAction.href}>
             {display.primaryAction.label}
             <IconExternalLink className="size-3.5" />
@@ -204,7 +214,7 @@ export function ResponseInsightsPage() {
         </Button>
       </header>
 
-      <main className="forms-response-insights-grid grid gap-4 p-4">
+      <main className="forms-response-insights-grid grid gap-4 bg-muted/20 p-4">
         <section className="space-y-4">
           <div className="forms-response-metrics-grid grid gap-3">
             <Metric
@@ -233,7 +243,7 @@ export function ResponseInsightsPage() {
             />
           </div>
 
-          <div className="rounded-md border border-border bg-background p-4">
+          <div className="rounded-xl border border-border/80 bg-background p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold">{chartSeries.title}</h2>
@@ -249,7 +259,7 @@ export function ResponseInsightsPage() {
           </div>
         </section>
 
-        <section className="min-w-0 rounded-md border border-border bg-background">
+        <section className="min-w-0 overflow-hidden rounded-xl border border-border/80 bg-background shadow-sm">
           <div className="flex min-h-12 items-center justify-between gap-3 border-b border-border px-3">
             <div className="min-w-0">
               <h2 className="truncate text-sm font-semibold">{table.title}</h2>
@@ -268,13 +278,13 @@ export function ResponseInsightsPage() {
           ) : (
             <div className="max-h-[calc(100vh-15rem)] overflow-auto">
               <Table>
-                <TableHeader className="sticky top-0 z-10 bg-background">
+                <TableHeader className="sticky top-0 z-10 bg-background shadow-sm">
                   <TableRow>
                     {table.columns.map((column) => (
                       <TableHead
                         key={column.key}
                         className={cn(
-                          "h-9 whitespace-nowrap px-3 text-xs",
+                          "h-11 whitespace-nowrap px-3 text-xs",
                           column.align === "right" && "text-right",
                         )}
                       >
@@ -285,12 +295,15 @@ export function ResponseInsightsPage() {
                 </TableHeader>
                 <TableBody>
                   {table.rows.map((row) => (
-                    <TableRow key={String(row.id)}>
+                    <TableRow
+                      key={String(row.id)}
+                      className="transition-[background-color] duration-150 hover:bg-muted/30 motion-reduce:transition-none"
+                    >
                       {table.columns.map((column) => (
                         <TableCell
                           key={column.key}
                           className={cn(
-                            "max-w-56 truncate px-3 py-2 text-xs",
+                            "max-w-56 truncate px-3 py-3 text-xs",
                             column.align === "right" && "text-right",
                           )}
                           title={formatCell(row[column.key])}

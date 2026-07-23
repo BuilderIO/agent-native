@@ -4,6 +4,7 @@ const messages = {
     commandSearch: "搜尋",
     commandAppearance: "外觀",
     toggleTheme: "切換主題",
+    openAgent: "開啟代理",
   },
   routeTitles: {
     chat: "聊天 — Dispatch",
@@ -28,10 +29,10 @@ const messages = {
     deliveryTitle: "投遞",
     deliveryDescription: "管理訊息目的地並查看出站投遞佇列。",
     openDelivery: "開啟投遞",
-    agentTitle: "代理設定",
+    agentTitle: "管理代理",
     agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、語音和其他代理控制項。排程與事件觸發的工作請使用自動化頁面。",
-    openAgentSettings: "開啟代理設定",
+      "管理代理的模型、API 金鑰、語音和其他控制項。排程與事件觸發的工作請使用自動化頁面。",
+    openAgentSettings: "管理代理",
   },
   integrations: {
     title: "整合",
@@ -197,6 +198,54 @@ const messages = {
     onboardingDescription:
       "Dispatch 管理共用提供者帳戶。每個應用管理自己如何使用該帳戶。",
   },
+  messaging: {
+    managed: {
+      connectionChecked: "已檢查 Slack 連線",
+      workspaceDisconnected: "已中斷 Slack 工作區連線",
+      actionFailed: "Slack 操作失敗",
+      channelPolicyUpdated: "已更新頻道政策",
+      policyUpdateFailed: "無法更新政策",
+      positiveMonthlyBudget: "請輸入大於零的每月預算",
+      channelBudgetSaved: "已儲存頻道預算",
+      budgetSaveFailed: "無法儲存預算",
+      title: "受管理的 Slack 工作區",
+      description:
+        "OAuth 會隔離每個工作區的權杖，並啟用原生討論串內容與即時工作進度。",
+      addToSlack: "新增至 Slack",
+      agentManifest: "Agent 資訊清單",
+      agentManifestDescription:
+        "Agent 資訊清單會啟用 Slack 的 Agent 檢視與私訊。",
+      requiredCredentials:
+        "請先在下方儲存必要的 Slack 應用程式憑證，以啟用新增至 Slack。",
+      workspaceFallback: "Slack 工作區",
+      scopesUpdated_other: "{{count}} 個範圍 · 更新於 {{date}}",
+      health: {
+        unknown: "未知",
+        healthy: "正常",
+        degraded: "效能降低",
+        revoked: "已撤銷",
+      },
+      test: "測試",
+      disconnect: "中斷連線",
+      empty:
+        "尚未連線任何受管理的工作區。下方仍提供手動憑證，供本機與舊版設定使用。",
+      channelAccessTitle: "頻道存取權與預算",
+      channelAccessDescription:
+        "每個頻道都以隔離的服務身分執行。訪客、Slack Connect 和無需提及的存取預設關閉，直到管理員在此啟用。",
+      isolatedIdentity: "{{trust}} · 隔離的服務身分",
+      trust: {
+        trusted: "受信任",
+        guest: "訪客",
+        external_shared: "外部共用（Slack Connect）",
+        unknown: "未知",
+      },
+      requireMention: "需要提及",
+      allowGuests: "允許訪客",
+      allowSlackConnect: "允許 Slack Connect",
+      monthlyBudgetUsd: "每月 AI 預算（美元）",
+      saveBudget: "儲存預算",
+    },
+  },
   dispatch: {
     nav: {
       automations: "自動化",
@@ -205,9 +254,23 @@ const messages = {
       agents: "代理",
       vault: "保管庫",
       audit: "稽核",
+      operations: "營運",
+      agent: "代理",
     },
     pages: {
+      dataLoadFailed: "無法載入資料",
+      dataLoadFailedDescription: "Dispatch 無法載入這些資料。",
+      tryAgain: "再試一次",
       also: "還有",
+      monitoring: "監控",
+      database: "資料庫",
+      chatAcrossApps: "跨應用程式聊天",
+      chatAcrossAppsDescription: "在同一個地方分派工作、檢查狀態或建立新內容。",
+      overviewPromptPlaceholder: "向 Dispatch 提問...",
+      chatPromptPlaceholder: "詢問 Dispatch...",
+      suggestionWorkspaceHealth: "摘要目前的工作區狀態",
+      suggestionOnboardingApp: "為新手引導要求建立應用程式",
+      suggestionAnalyticsAgents: "查看哪些代理可以協助分析",
       workspaceShortcutsAria: "工作區快捷入口",
       deliveryQueue: "投遞佇列",
       failedLastHour: "過去一小時失敗 {{count}} 次",

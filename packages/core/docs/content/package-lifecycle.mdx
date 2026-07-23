@@ -1,0 +1,130 @@
+---
+title: Package Lifecycle
+description: Inspect, add, and take ownership of manifest-driven Agent Native packages and features safely.
+---
+
+# Package lifecycle
+
+Reusable Agent Native packages can publish a versioned static
+`agent-native.package.json`. The CLI reads that JSON without executing package
+code and reports the package's actions, schema entry point, skills, secret key
+names, and peer providers.
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package inspect @agent-native/scheduling --json
+agent-native package add @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+`add` and `eject` are dry-run by default. `--apply` is required before the CLI
+writes files or runs the detected package manager. Use `--root` for a different
+project root; at a workspace root, pass `--app <name>` to select the target app.
+
+## Eject one feature
+
+Use the top-level `eject` command when the package should remain installed but
+one component, integration, or adapter needs app-specific source changes. Start
+with the customization ladder: configure a public API, compose public
+primitives, eject the smallest unit, then propose a shared seam when multiple
+apps need the same override.
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+```
+
+The dry run shows the complete source closure, target paths, consumer import
+rewrites, package imports that remain protected, and verification commands.
+`--apply` performs that exact plan. First-party packages publish static unit
+manifests, and release guards require every public Toolkit entry point and every
+first-party integration catalog entry to have a definition. A missing
+first-party recipe is therefore a framework coverage failure, not a reason to
+guess at files.
+
+For an unknown third-party package, the CLI emits an add-style blueprint that
+identifies the manifest information needed to make it ejectable. Protected Core
+runtime behavior is never copied: the result explains the public configuration,
+adapter, or extension seam to use instead.
+
+### Provenance, diff, and restore
+
+Every applied unit is recorded in the app root's committed
+`agent-native.ejections.json`. The record contains the source package and
+version, manifest digest, copied target hashes, and exact consumer import
+rewrites. Commit it with the app-owned source so CI, teammates, and fresh clones
+can review the same ownership boundary.
+
+```bash
+agent-native eject diff <unit> --app <app>
+agent-native eject restore <unit> --app <app>
+agent-native eject restore <unit> --app <app> --apply
+```
+
+`diff` compares the working tree with the recorded result. `restore` is also a
+dry run until `--apply`; it removes the copied files and reverses imports only
+when every file and rewrite still matches its recorded hash. If app-owned code
+has changed, restore refuses and prints the diff so no local customization is
+lost.
+
+## Safety and idempotency
+
+Before writing, the CLI resolves every contribution and refuses missing or
+ambiguous layouts, existing files with different content, escaping manifest
+paths, and eject targets that already exist. It stages the complete write set,
+uses atomic renames, snapshots package and lock files, and rolls back if the
+package-manager install fails. A provenance record under
+`.agent-native/packages/` makes a repeated add a no-op when generated files are
+unchanged.
+
+Inspection and registry staging use static package metadata only. The CLI never
+imports a package's JavaScript manifest and passes `--ignore-scripts` while
+downloading an uninstalled package archive. Reports show credential key names,
+never credential values.
+
+## Migration manifests and tombstones
+
+Published framework packages ship a `migration-manifest.json`. It records moved
+package specifiers and renamed symbols before a breaking release. When a path is
+removed, its tombstone module remains in the package long enough to throw an
+actionable error that names the replacement and the exact migration command.
+
+Preview the manifest-driven rewrite before making any manual import edits:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods
+```
+
+The command is dry-run by default and prints the proposed diff. After review,
+apply the same rewrite explicitly:
+
+```bash
+npx @agent-native/core@latest upgrade --codemods --yes
+```
+
+Run `agent-native doctor --only migration-manifest` in CI or before an upgrade
+to identify imports that are listed in installed manifests. The guard has no
+opt-out: migrate the import with the codemod instead of suppressing a future
+breaking change.
+
+Manifest entries can be `planned` before their destination ships. Doctor reports
+those as non-blocking warnings, and the codemod leaves them unchanged. An active
+move is rewritten only when the installed destination package exports its target.
+
+## Whole-package ejection
+
+`@agent-native/scheduling` is the first package with the generic manifest. Add
+creates action re-export stubs, adds the schema export, copies its agent skills,
+records the dependency, and reports required secret names and providers.
+Eject copies the published Scheduling source to `packages/scheduling`, switches
+the dependency to `workspace:*`, and preserves canonical
+`@agent-native/scheduling` imports so workspace resolution selects the local
+copy.
+
+Whole-package ejection and feature ejection solve different ownership needs.
+Use `agent-native package eject` when the complete domain package should become
+a workspace package. Use `agent-native eject <unit>` when the package should
+keep supplying upgrades for everything except one app-owned feature.

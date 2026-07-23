@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { FormField, FormFieldType } from "@shared/types";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
@@ -70,7 +70,7 @@ export function FieldPropertiesPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="text-destructive h-7 px-2 text-xs"
+          className="h-10 px-3 text-xs text-destructive active:scale-[0.96]"
           onClick={onDelete}
         >
           {t("common.delete")}
@@ -181,13 +181,13 @@ export function FieldPropertiesPanel({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 w-7 p-0"
+                    className="relative h-10 w-10 shrink-0 p-0 transition-transform duration-150 ease-out before:absolute before:-inset-1 active:scale-[0.96] motion-reduce:active:scale-100 sm:h-7 sm:w-7"
                     onClick={() => removeOption(i)}
                     aria-label={t("fieldProperties.removeOption", {
                       option: opt,
                     })}
                   >
-                    <IconX className="h-3 w-3" />
+                    <IconX className="h-3.5 w-3.5 translate-y-px" />
                   </Button>
                 </div>
               ))}
@@ -202,11 +202,11 @@ export function FieldPropertiesPanel({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 w-7 p-0"
+                  className="relative h-10 w-10 shrink-0 p-0 transition-transform duration-150 ease-out before:absolute before:-inset-1 active:scale-[0.96] motion-reduce:active:scale-100 sm:h-7 sm:w-7"
                   onClick={addOption}
                   aria-label={t("fieldProperties.addOption")}
                 >
-                  <IconPlus className="h-3 w-3" />
+                  <IconPlus className="h-3.5 w-3.5 translate-y-px" />
                 </Button>
               </div>
             </div>

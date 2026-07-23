@@ -12,7 +12,7 @@ The Agent-Native **Plan** app ships as one installable bundle. A single install 
 One install gives you:
 
 - **Three skills** — `/visual-plan` (the canonical entry point), `/visual-recap`, and `/visualize-repo`.
-- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/_agent-native/mcp`, server name `plan`).
+- **The Plan MCP connector** — registered against the hosted app at `https://plan.agent-native.com` (MCP endpoint `https://plan.agent-native.com/mcp`, server name `plan`).
 
 <Diagram id="doc-block-i1sn3n" title="Three routes, one bundle" summary="The universal CLI, Claude Code plugin, and Codex plugin all install the same Plan skills plus the hosted Plan connector.">
 
@@ -43,7 +43,7 @@ One install gives you:
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box">
     Plan MCP connector<br /><small class="diagram-muted"
-      >plan.agent-native.com/_agent-native/mcp</small
+      >plan.agent-native.com/mcp</small
     >
   </div>
 </div>
@@ -251,9 +251,13 @@ codex plugin add agent-native-visual-plans@agent-native-apps
 codex mcp login plan   # OAuth in the browser
 ```
 
-After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/_agent-native/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together, or when you want local-files or self-hosted mode.
+After install, **start a new Codex thread** so the skills and MCP tools load into the session. The plugin ships a URL-only connector (`[mcp_servers.plan]` → `https://plan.agent-native.com/mcp`); `codex mcp login plan` runs the OAuth flow. The universal CLI route above also works for Codex (`npx @agent-native/core@latest skills add visual-plan --client codex`) if you prefer one command that installs and authenticates together, or when you want local-files or self-hosted mode.
 
-> **Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
+<Callout tone="info">
+
+**Older installs:** if your config still has an `agent-native-plans` entry pointing at the same URL, running `npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` for Codex, or the same command with your target `--client`, consolidates it to the canonical `plan` name.
+
+</Callout>
 
 ## Updates {#updates}
 
@@ -265,7 +269,11 @@ The plugin routes auto-update — you do not re-pack or re-add the marketplace f
 
 The connector points at a **hosted** app, so the Plan app's actions and live tool surface always reflect the deployed version regardless of when you installed; only the bundled skill instructions follow the update mechanisms above.
 
-> **Maintainers:** the marketplace bundle (`.claude-plugin/`, `.agents/plugins/`) is generated from the canonical plan skills by `pnpm sync:plan-marketplace` and verified in CI by `pnpm guard:plan-marketplace`, so the published marketplace always matches the canonical skills. Edit the skill, run `pnpm sync:plan-marketplace`, and commit.
+<Callout tone="info">
+
+**Maintainers:** the marketplace bundle (`.claude-plugin/`, `.agents/plugins/`) is generated from the canonical plan skills by `pnpm sync:plan-marketplace` and verified in CI by `pnpm guard:plan-marketplace`, so the published marketplace always matches the canonical skills. Edit the skill, run `pnpm sync:plan-marketplace`, and commit.
+
+</Callout>
 
 ## Do you need to submit anything? {#submission}
 

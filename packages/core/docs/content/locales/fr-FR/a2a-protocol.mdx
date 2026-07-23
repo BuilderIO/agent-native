@@ -384,6 +384,48 @@ environnement d'application et transmettre l'identité de l'appelant (`userEmail
 signé en tant que jetons au porteur JWT. Utilisez `apiKeyEnv` uniquement pour les anciens homologues externes qui
 attendez-vous à un jeton de porteur statique. Utilisez actions local au lieu de vous invoquer.
 
+## CLI : agent-native invoke {#cli-invoke}
+
+`agent-native invoke` est un mince wrapper CLI au-dessus de la même primitive de résolution et d'appel que `agentNative.invoke()`. Utilisez-la pour déclencher l'agent d'une application depuis un script shell, un job CI, une entrée cron, ou tout système externe capable de lancer une commande shell — l'équivalent CLI d'un POST manuel vers `/_agent-native/a2a`.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# Résoudre "analytics" dans le registre de l'espace de travail et attendre la réponse
+agent-native invoke analytics "Summarize signups by source this month"
+
+# Appeler une application déployée directement par URL, en lisant le jeton au porteur depuis l'environnement
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# Forcer un seul message/send bloquant au lieu du mode async+poll par défaut
+agent-native invoke analytics "Quick lookup" --sync
+
+# Sortie exploitable par machine pour le scripting
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                    | Description                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | Agent cible (alias de l'argument positionnel `<app-or-url>`)                             |
+| `--message <text>`        | Prompt (alias de l'argument positionnel `"prompt"`)                                      |
+| `--api-key-env <name>`    | Lit le jeton au porteur depuis une variable d'environnement                              |
+| `--api-key <token>`       | Valeur du jeton au porteur, passée directement                                           |
+| `--context-id <id>`       | `contextId` A2A, pour poursuivre la conversation d'une tâche existante                   |
+| `--self-app-id <id>`      | Identifiant de l'application courante, utilisé pour éviter les auto-appels               |
+| `--self-url <url>`        | URL de l'application courante, utilisée pour éviter les auto-appels                      |
+| `--timeout-ms <n>`        | Délai d'expiration du polling asynchrone                                                 |
+| `--poll-interval-ms <n>`  | Intervalle de polling asynchrone                                                         |
+| `--sync`                  | Utilise une seule requête `message/send` bloquante au lieu du mode async+poll par défaut |
+| `--no-hint`               | Envoie le prompt tel quel, sans l'indice d'invocation inter-application                  |
+| `--json`                  | Affiche les métadonnées de la cible et le texte de la réponse au format JSON             |
+
+Comme `callAgent()`, la CLI utilise par défaut le mode async + poll (`invokeAgent` → `callAgent` en interne), ce qui est le choix sûr face à des cibles hébergées/serverless — voir [Délais d'expiration des webhooks et passerelles serverless](#json-rpc-methods) ci-dessus. Ne passez `--sync` que lorsque vous savez que la cible n'est pas derrière une passerelle avec une limite d'exécution courte.
+
+La cible se résout de la même manière que `agentNative.invoke()` : par identifiant d'application de l'espace de travail, par nom d'application, ou par une URL complète — la même commande fonctionne donc aussi bien contre une application sœur dans un espace de travail multi-applications que contre un pair A2A arbitraire ailleurs.
+
 ## Cycle de vie des tâches {#task-lifecycle}
 
 Chaque message crée une tâche qui passe par ces états :
@@ -435,6 +477,18 @@ La politique de production est stricte : dans n'importe quel environnement d'ex
 Cette limite est importante car la boucle d'agent accepte les entrées de forme libre d'un appelant distant. Placer la vérification du porteur à l'intérieur de la boucle, ou s'appuyer sur un outil pour l'appliquer, permettrait à l'injection rapide ou à un gestionnaire de bogues de contourner l'authentification. Le garder à la limite HTTP signifie qu'un échec de jeton court-circuite avant tout appel LLM.
 
 La vérification JWT (`verifyA2AToken` dans `server.ts`) accepte les jetons signés soit avec le `A2A_SECRET` global, soit avec un secret d'organisation recherché à partir de SQL via la revendication `org_domain` du jeton, et applique les propres revendications `aud`/`iss` du jeton lorsqu'elles sont présentes.
+
+### Synchronisation du secret d'organisation {#organization-secret-sync}
+
+Le réglage **Organisation → Authentification inter-applications** gère le secret défini au niveau de l'organisation qui authentifie la délégation entre des applications déployées séparément dans la même organisation. Il ne s'agit pas d'un réglage de connexion utilisateur ni de Cross-App SSO. Le secret complète l'`A2A_SECRET` du déploiement : un JWT A2A contenant une revendication `org_domain` peut être vérifié avec le secret de l'organisation correspondante.
+
+Le propriétaire de l'organisation doit attribuer à chaque application participante le même domaine de messagerie autorisé et le même secret défini au niveau de l'organisation :
+
+1. Dans la première application, générez ou révélez le secret dans **Organisation → Authentification inter-applications**.
+2. Dans chaque application supplémentaire, choisissez **Coller le secret d'une autre application** et collez cette valeur. Cette étape manuelle est nécessaire pour la première connexion : une application qui ne possède pas encore le secret ne peut pas vérifier une demande de synchronisation distante.
+3. Une fois que les applications partagent le secret, utilisez **Synchroniser avec les applications** pour envoyer les mises à jour futures aux applications connectées et découvertes. Le résultat signale toute application qui n'a pas pu être mise à jour.
+
+Lorsque vous **Régénérez** le secret, l'interface de réglages le synchronise immédiatement et signe la mise à jour avec le secret précédent afin que les applications déjà connectées puissent vérifier la modification. Si une application manque cette synchronisation, collez-y le nouveau secret manuellement, puis synchronisez à nouveau. Traitez ce secret comme toute autre information d'identification : ne le placez pas dans du code client, des journaux ou une configuration de client tiers.
 
 ## Suites {#continuations}
 

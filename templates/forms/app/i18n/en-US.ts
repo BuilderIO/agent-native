@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Search forms",
     appearance: "Appearance",
     toggleTheme: "Toggle theme",
+    openAgent: "Open Agent",
   },
   header: {
     settings: "Settings",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Ask Forms",
     allForms: "All forms",
     team: "Team",
+    agent: "Agent",
   },
   settings: {
     title: "Settings",
@@ -32,10 +34,10 @@ const messages = {
       "Manage team members, organization access, and shared workspace preferences.",
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
-    agentTitle: "Agent settings",
+    agentTitle: "Manage agent",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Manage the agent's model, API keys, automations, voice, and other controls.",
+    openAgentSettings: "Manage agent",
   },
   agent: {
     emptyState: "Ask me anything about your forms",
@@ -189,6 +191,12 @@ const messages = {
       successMessage: "Success message",
       defaultSuccessMessage: "Thank you! Your response has been recorded.",
       redirectUrl: "Redirect URL (optional)",
+      anonymousResponses: "Anonymous responses",
+      anonymousResponsesDescription:
+        "Do not retain IP addresses, submitter identity, or source metadata.",
+      emailNewResponses: "Email me for new responses",
+      emailNewResponsesDescription:
+        "Send a notification to the form owner's account email whenever someone submits a response.",
       saveSettings: "Save Settings",
     },
     integrations: {
@@ -251,6 +259,8 @@ const messages = {
     duplicated: "Form duplicated",
     duplicateFailed: "Failed to duplicate form",
     movedToArchive: "Form moved to Archive",
+    movingToArchive: "Moving form to Archive…",
+    archiveFailed: "Failed to move form to Archive",
     restored: "Form restored",
     permanentlyDeleted: "Form permanently deleted",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

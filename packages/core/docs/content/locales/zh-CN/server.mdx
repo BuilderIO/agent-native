@@ -92,8 +92,7 @@ server/routes/
 
 每条路由导出一个`defineEventHandler`：
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -125,6 +124,40 @@ export default defineEventHandler(() => ({
 
 仅当您需要路由型协议或二进制/流行为时才使用自定义 `/api/*` 路由。参见[Actions](/docs/actions)。
 
+### 仅 API 应用 {#api-only-apps}
+
+应用仅提供 API 并不意味着需要 Express 服务器。Agent Native 应用已经自带 Nitro/H3 服务器，`defineAction()` 是默认的 API 表面。将操作定义在 `actions/` 中；框架会把每个 action 挂载到 `/_agent-native/actions/<name>`，并带有 schema 验证和请求上下文。
+
+使用 action 的 `http` 选项来调整直接 HTTP 访问方式：actions 默认是 `POST`，`http: { method: "GET" | "PUT" | "DELETE" }` 会更改动词，`http: false` 会关闭该 action 的 HTTP 端点。只有在处理路由形状或协议问题时才使用 `server/routes/api/*`：文件上传、流式传输/SSE、webhooks、OAuth 回调、公共页面，或无法干净表示为 action 的外部 REST 形状。不要创建主要只是包装或重新导出 actions 的 `/api/*` 路由。
+
+对于只读状态 endpoint，请保持为 action：
+
+```ts filename="actions/get-status.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+直接通过 HTTP 调用：
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+对于 `POST` 和其他写入 actions，请将 JSON body 发送到相同的 action path。
+
 ## 一次性文本完成 {#complete-text}
 
 大多数人工智能工作应通过代理聊天进行，以便用户可以查看、引导和审核
@@ -132,8 +165,7 @@ export default defineEventHandler(() => ({
 工具、聊天记录或运行状态，使用 `completeText()` 作为显式转义
 孵化。
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -198,8 +230,7 @@ Actions 由框架自动安装并与请求上下文一起运行。自定义路线
 
 插件位于 `server/plugins/` 中并在启动时运行。将它们用于迁移、提供程序设置、重复作业、集成适配器和框架插件配置。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -234,7 +265,7 @@ export default runMigrations(
 | `/_agent-native/extensions/*`    | 运行时扩展和扩展代理（旧别名：`/_agent-native/tools/*`） |
 | `/_agent-native/integrations/*`  | 消息传递/webhook 集成                                    |
 | `/_agent-native/a2a`             | 代理到代理 JSON-RPC                                      |
-| `/_agent-native/mcp`             | MCP端点                                                  |
+| `/mcp`                           | MCP端点                                                  |
 | `/_agent-native/onboarding/*`    | 设置清单                                                 |
 | `/_agent-native/observability/*` | 跟踪、反馈、评估、实验                                   |
 | `/_agent-native/file-upload`     | 文件上传提供程序端点                                     |
@@ -377,8 +408,10 @@ export default runMigrations(
 
 </Diagram>
 
-> [!WARNING]
-> 不要依赖返回响应后未等待的承诺 — 无服务器主机会冻结执行。请参阅 [Messaging](/docs/messaging) 以了解规范集成队列。
+<Callout tone="warning">
+  不要依赖返回响应后未等待的承诺 — 无服务器主机会冻结执行。请参阅
+  [Messaging](/docs/messaging) 以了解规范集成队列。
+</Callout>
 
 ## 高级：逃生舱口 {#advanced-escape-hatches}
 
@@ -420,3 +453,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## 后续步骤
+
+- [**Actions**](/docs/actions) — 默认操作表面；仅当操作不适用时才使用自定义路由
+- [**数据库**](/docs/database) — 自定义路由和 actions 都会导入的 `getDb()`/`schema` 模式
+- [**安全**](/docs/security#access-guards) — `accessFilter`/`assertAccess` 和完整的数据作用域模型
+- [**消息传递**](/docs/messaging) — 入站 webhook 的标准集成队列模式
+- [**MCP 协议**](/docs/mcp-protocol) — 此服务器自动挂载的 `/mcp` 端点

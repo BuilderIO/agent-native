@@ -1,4 +1,5 @@
-import { useT, VisualTweakControl } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { VisualTweakControl } from "@agent-native/toolkit/design-tweaks";
 import type { TweakDefinition } from "@shared/api";
 import {
   IconX,
@@ -73,6 +74,20 @@ export function TweaksPanelContent({
           )}
         </div>
       )}
+      <p
+        data-tweaks-help
+        className="mt-2 border-t border-border/60 pt-2 !text-[10px] leading-relaxed text-muted-foreground/70"
+      >
+        {t("designEditor.tweaksHelp")}{" "}
+        <a
+          href="/docs/template-design#tweaks"
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground/80 underline-offset-2 hover:text-foreground hover:underline"
+        >
+          {t("designEditor.tweaksDocs")}
+        </a>
+      </p>
     </div>
   );
 }

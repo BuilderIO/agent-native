@@ -1,21 +1,24 @@
 ---
-title: "Toolkits"
-description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
+title: "Toolkit"
+description: "Ein ausgewogener Katalog wiederverwendbarer Grundlagen, Editoren und Leinwände, Agentenkontext, Governance, Workspace-Chrome, Betrieb und Toolkit-Fähigkeitsmodule."
 ---
 
 <!-- i18n-docs-ignore -->
 
-# Toolkits
+# Toolkit
 
-Toolkits are reusable, battle-tested building blocks for high-quality agentic
-applications. They turn the hard product work that repeats across apps into
-standard surfaces: realtime collaboration between humans and agents, sharing
-with humans and agents, settings, teams, setup, resources, history, review, and
-observability.
+Toolkit ist das Regal wiederverwendbarer, praxiserprobter Bausteine für
+hochwertige agentische Anwendungen. Es macht wiederkehrende Produktarbeit zu
+Standards, ohne ein einzelnes App-Muster ins Zentrum des Katalogs zu stellen.
+
+Dieser Abschnitt ist die zentrale Entdeckungsfläche für wiederverwendbare App-UI.
+Eine Oberfläche gehört hierher, weil sie wiederverwendbar ist, auch wenn Core
+oder ein Template sie derzeit besitzt. Besitzlabels und Importpfade machen diese
+Grenze klar, ohne zusammenhängende UI-Hinweise über die Website zu verteilen.
 
 Each kit packages the UI patterns, action contracts, app-state expectations,
 access boundaries, and agent-visible behavior that users expect to work
-consistently. Apps still own their domain model and visual identity; toolkits
+consistently. Apps still own their domain model and visual identity; Toolkit
 make the common product systems feel complete from the first version instead of
 being rebuilt in slightly different ways every time.
 
@@ -28,23 +31,24 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="So passen Kits zusammen" summary={"Die Framework-Laufzeit liefert dauerhafte Garantien. Toolkit macht daraus wiederverwendbare Produktsysteme. Apps ergänzen Domänendaten, Routen und visuelle Identität."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
     <span class="diagram-pill accent">Runtime</span><br />
-    actions, SQL, auth, app state, access checks, realtime transport
+    Aktionen, SQL, Authentifizierung, App-Zustand, Zugriffskontrollen,
+    Echtzeittransport
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkits</span><br />
-    collaboration, sharing, setup, review, history, observability
+    <span class="diagram-pill accent">Toolkit</span><br />
+    Zusammenarbeit, Teilen, Einrichtung, Review, Verlauf, Beobachtbarkeit
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
     <span class="diagram-pill accent">Apps</span><br />
-    domain schema, routes, actions, branding, specialized workflows
+    Domänenschema, Routen, Aktionen, Marke, spezialisierte Abläufe
   </div>
 </div>
 ```
@@ -68,45 +72,86 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
-## The Kits {#the-kits}
+## Katalog {#catalog}
 
-| Kit                                                      | Use it for                                                                                                  |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.              |
-| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                       |
-| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place. |
-| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                  |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                  |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                  |
-| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                              |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                          |
-| [History](/docs/toolkit-history)                         | Version history, audit logs, undo/redo, restore, and "what changed" surfaces.                               |
-| [Comments & Review](/docs/toolkit-comments-review)       | Inline comments, annotations, mentions, resolved threads, review status.                                    |
-| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                |
+| Bereich                     | Einstieg                                               | Inhalt                                                                             |
+| --------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Grundlagen                  | [UI-Primitives](/docs/toolkit-ui)                      | Gemeinsame Controls, Hooks, App-Adapter und Shell-Nähte.                           |
+| Editoren & Leinwände        | [Editoren & Leinwände](/docs/toolkit-editors-canvases) | Reichhaltige Bearbeitung, strukturierte Blöcke, Canvas-Controls und Design-Muster. |
+| Agentenerlebnis & Kontext   | [Kontext & Wissen](/docs/toolkit-context-knowledge)    | Context X-Ray, Ressourcen, Wissen, Composer-Kontext und agentensichtbarer Zustand. |
+| Zusammenarbeit & Governance | [Zusammenarbeit](/docs/toolkit-collaboration)          | Teilen, Präsenz, Review, Historie, Audit und Organisationsgrenzen.                 |
+| Workspace-Chrome            | [App-Chrome](/docs/toolkit-settings)                   | Einstellungen, Teams, Setup, Navigation, Ressourcen und Agenten-UX.                |
+| Betrieb                     | [Observability](/docs/toolkit-observability)           | Nutzung, Feedback, Replay, Diagnose und operative Sichtbarkeit.                    |
+| Toolkit-Fähigkeitsmodule    | [Fähigkeitsmodule](/docs/toolkit-capability-packages)  | Bei Bedarf installierte Domänenpakete und ihre Lifecycle-Manifeste.                |
 
-## Implementation Boundary {#implementation-boundary}
+## Produkt-Kits {#product-kits}
 
-Kits are product surfaces first. Some pieces are runtime-backed
+| Kit                                                      | Verwende es für                                                                                      |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Besitzbare Ressourcen, Teilen-Dialoge/-Aktionen, Sichtbarkeit und öffentlicher/privater/Org-Zugriff. |
+| [Collaboration](/docs/toolkit-collaboration)             | Echtzeitbearbeitung, Präsenz, Live-Cursor, letzte Änderungen und gemeinsames Rückgängig.             |
+| [Settings](/docs/toolkit-settings)                       | Standardseiten/-tabs für App- und Agent-/Provider-Einstellungen an einem vorhersehbaren Ort.         |
+| [Org & Team](/docs/toolkit-org-team)                     | Teamseiten, Org-Wechsel, Einladungen, Org-Domänen, Rollen und App-Wechsel.                           |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, Secrets, Workspace-Verbindungen, OAuth/Provider-Bereitschaft und Builder Connect.        |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Befehlsmenü, Deep Links, Standardrouten sowie Sidebar- und Shell-Muster.                             |
+| [Resources](/docs/toolkit-resources)                     | Ressourcenbäume/-editoren, Dateiauswahl/-suche, Anhänge und lokaler Dateimodus.                      |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, Modellauswahl, Kontext-Chips, Freigaben, Wiederherstellung und Run-Leiste.                 |
+| [History](/docs/toolkit-history)                         | Versionierte Ressourcen, Snapshots, Verlauf, Audit, Undo/Redo, Wiederherstellung und Änderungen.     |
+| [Comments & Review](/docs/toolkit-comments-review)       | Prüfbare Ressourcen, Kommentare, Feedback-Warteschlangen, Threads, Erwähnungen und Review-Status.    |
+| [Observability](/docs/toolkit-observability)             | Nutzung, Ausgaben, Feedback, Replay, Fehler und Laufdiagnosen.                                       |
+
+## Paket-Reife und Ownership {#package-maturity-and-ownership}
+
+- Der Rich-Text-Editor gehört zu **Toolkit**; vorhandene Core-Imports bleiben während der Migration schlanke Kompatibilitäts-Re-Exports.
+- Design ist ein **Template-Muster** mit wiederverwendbaren `design-tweaks`, kein vollständiger Drop-in-Editor oder Canvas.
+- Blocks und die Context-X-Ray-Engine bleiben in dieser Phase **Core-owned**; die wiederverwendbare Context-X-Ray-Darstellung gehört zu Toolkit.
+- Creative Context, Scheduling und Pinpoint sind **Toolkit-Fähigkeitsmodule**, die bei Bedarf installiert werden; sie behalten separate npm-Pakete und Lifecycle-Manifeste. Dispatch bleibt ein separates Produkt.
+
+## Dashboard-Kit {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` ist eine auswerfbare reine Darstellungseinheit
+für Kennzahlen- und Statistik-Karten, Tabellen, Datumsbereich, Panel-Reihenfolge
+und -Layout sowie generische Charts. Die App liefert Zeilen und Callbacks; das
+Kit lädt weder Daten noch verwaltet es Dashboard-Zustand oder Credentials.
+Instanziiere `@agent-native/core/dashboard-storage` pro App mit eigenem Schema
+und Zugriff; die Standardquelle `program` führt ein app-eigenes Datenprogramm aus.
+Führe vor der Übernahme `agent-native eject inspect toolkit/dashboard` aus.
+Provider-Resolver bleiben in der App, die die Verbindung und Abfragerichtlinie besitzt.
+
+## Implementierungsgrenze {#implementation-boundary}
+
+Kits sind zuerst Produktoberflächen. Manche Teile werden von der Laufzeit
 (`@agent-native/core`), some are presentation primitives
 (`@agent-native/toolkit`), and apps usually wrap both through local adapters.
-Use the package path that owns the needed behavior, but design the user-facing
-settings, collaboration, sharing, team, review, and setup experiences as one
-coherent kit instead of exposing package boundaries in the app.
+Nutze den Paketpfad, dem das benötigte Verhalten gehört, aber gestalte
+Einstellungen, Zusammenarbeit, Teilen, Team, Review und Einrichtung als ein
+stimmiges Kit statt Paketgrenzen in der App sichtbar zu machen.
 
-## Foundation Pieces {#foundation-pieces}
+## Grundbausteine {#foundation-pieces}
 
-- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
-  `@agent-native/toolkit/ui/*`.
-- [App Adapters](/docs/toolkit-app-adapters) show how apps wrap Toolkit pieces
-  through local `@/components/*` adapters.
-- [Shell & Hooks](/docs/toolkit-shell-hooks) cover header actions, mobile hooks,
-  toasts, and small app-shell helpers.
-- [Component API](/docs/components) remains the lower-level reference for the
-  public React exports.
+- [UI-Primitives](/docs/toolkit-ui) behandelt die gemeinsamen shadcn-artigen
+  Primitives unter `@agent-native/toolkit/ui/*`, lokale App-Adapter und
+  gemeinsame Shell-Hooks.
+- Die [Component API](/docs/components) bleibt die Referenz auf niedriger Ebene
+  für öffentliche React-Exports.
 
-## Design Rule {#design-rule}
+## Designregel {#design-rule}
 
-Use a toolkit when the behavior repeats across apps and users expect it to feel
-standard: sharing, settings, teams, comments, history, and agent progress should
-not be slightly different in every template. Keep domain-specific data,
-workflows, labels, and visual styling in the app.
+Verwende ein Kit, wenn Verhalten appübergreifend wiederkehrt und Nutzer einen
+Standard erwarten: Teilen, Einstellungen, Teams, Kommentare, Verlauf und
+Agentenfortschritt sollten nicht je Template anders sein. Domänendaten,
+Abläufe, Labels und visuelles Styling bleiben in der App.
+
+## Nächste Schritte
+
+- [**Toolkit UI-Primitives**](/docs/toolkit-ui) — gemeinsame Primitives, App-Adapter und Shell-Hooks.
+- [**Sharing Kit**](/docs/toolkit-sharing) — ein guter erster Einstieg für Ressourcen, Teilen und Sichtbarkeit.
+- [**Templates erstellen**](/docs/creating-templates) — Templates Ende-zu-Ende bauen und Kits im Kontext sehen.
+- [**Komponenten-API**](/docs/components) — die Referenz aller öffentlichen React-Exports.
+- [**Paket-Lebenszyklus**](/docs/package-lifecycle) — manifestgesteuerte Toolkit-Fähigkeitsmodule sicher untersuchen, hinzufügen und auswerfen.
+
+## Ein Kit anpassen oder auswerfen {#customize-or-eject}
+
+Folgen Sie dieser Reihenfolge: öffentliche API konfigurieren → öffentliche Primitives zusammensetzen → kleinste Einheit auswerfen → gemeinsame Naht vorschlagen. Erkunden Sie mit `agent-native eject --list` und `agent-native eject inspect <unit>`; prüfen Sie danach `agent-native eject <unit> --app <app>` als Vorschau, bevor Sie `--apply` hinzufügen.
+
+Toolkit-Manifeste decken jeden öffentlichen Einstiegspunkt ab. Die Anwendung protokolliert Quelle und Import-Umschreibungen in `agent-native.ejections.json`. `agent-native eject diff <unit> --app <app>` zeigt Abweichungen; `restore` läuft nur, wenn Hashes und Importe unverändert sind. First-Party-Einheiten decken auch Remote-MCP-Kataloge, Workspace-Verbindungen, Provider-API-Definitionen, Messaging-Adapter, Setup-/Readiness-UI und Domänenpakete ab. Ein fehlendes First-Party-Rezept lässt den Release-Guard fehlschlagen; Drittanbieter erhalten einen Add-Blueprint; geschützte Core-Verträge bleiben hinter öffentlichen Erweiterungsnähten.

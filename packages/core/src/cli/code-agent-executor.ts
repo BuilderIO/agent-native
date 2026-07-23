@@ -44,6 +44,7 @@ import {
   buildMergedConfig,
   McpClientManager,
   mcpToolsToActionEntries,
+  type McpToolInvocationPolicy,
 } from "../mcp-client/index.js";
 import {
   readAgentsBundleFromFs,
@@ -88,6 +89,11 @@ interface PendingCodeAgentApproval {
   permissionMode: CodeAgentPermissionMode;
 }
 
+interface CodeAgentApprovalExecutionOptions {
+  stdout?: NodeJS.WritableStream;
+  signal?: AbortSignal;
+}
+
 interface CodexCliProcessResult {
   exitCode: number | null;
   exitSignal: NodeJS.Signals | null;
@@ -100,6 +106,10 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
+const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
+const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
+
+type CodeAgentToolProfile = typeof RECAP_SOURCE_TOOL_PROFILE;
 
 /**
  * Number of most-recent transcript events reconstructed as native
@@ -210,6 +220,7 @@ export async function executeCodeAgentRun(
       runId: existing.id,
       kind: "status",
       message,
+      signal: "credential-gap",
       metadata: { status: "paused", phase: "missing-credentials" },
     });
     return updateCodeAgentRunRecord(existing.id, {
@@ -236,6 +247,9 @@ export async function executeCodeAgentRun(
     options.reasoningEffort ?? metadataReasoningEffort(existing);
   const cwd = existing.cwd || process.cwd();
   const permissionMode = existing.permissionMode ?? "full-auto";
+  const toolProfile = resolveCodeAgentToolProfile(
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE,
+  );
 
   // Holds structured metadata emitted by the coding tools side-channel.
   // Keyed by tool name; consumed when the matching tool_start / tool_done fires.
@@ -253,10 +267,18 @@ export async function executeCodeAgentRun(
       // Stream incremental bash output to stdout for the terminal smoother
       options.stdout?.write(chunk);
     },
+    toolProfile,
   );
-  const mcpManager = await startCodeAgentMcpManager(existing.id);
+  const mcpManager = toolProfile
+    ? null
+    : await startCodeAgentMcpManager(existing.id);
   if (mcpManager) {
-    Object.assign(actions, mcpToolsToActionEntries(mcpManager));
+    Object.assign(
+      actions,
+      mcpToolsToActionEntries(mcpManager, {
+        invocationPolicy: codeAgentMcpInvocationPolicy(permissionMode),
+      }),
+    );
   }
   actions[TOOL_SEARCH_ACTION_NAME] = createToolSearchEntry(() => actions);
   const tools = actionsToEngineTools(actions);
@@ -386,6 +408,7 @@ export async function executeCodeAgentRun(
         }),
     );
     loopUsage = usageResult ?? null;
+    writeCodeAgentUsageSnapshot(cwd, loopUsage);
     // Persist cumulative token totals from this turn into the run record so
     // the UI can display per-run usage statistics.
     if (loopUsage) {
@@ -534,6 +557,14 @@ export async function executeCodeAgentRun(
   }
 }
 
+export function codeAgentMcpInvocationPolicy(
+  permissionMode: CodeAgentPermissionMode,
+): McpToolInvocationPolicy {
+  return {
+    mode: permissionMode === "read-only" ? "read-only" : "allow-all",
+  };
+}
+
 async function executeCodexCliRun(options: {
   run: CodeAgentRunRecord;
   prompt: string;
@@ -586,36 +617,44 @@ async function executeCodexCliRun(options: {
     });
 
     if (result.exitCode !== 0) {
+      const interrupted = options.signal?.aborted === true;
       const message =
         result.error ??
         result.stderr.trim() ??
         `Codex CLI exited with ${result.exitSignal ?? result.exitCode}.`;
-      options.stdout?.write(`\nCodex CLI run failed: ${message}\n`);
+      const summary = interrupted
+        ? "Codex CLI run paused."
+        : `Codex CLI run failed: ${message}`;
+      options.stdout?.write(`\n${summary}\n`);
       appendCodeAgentTranscriptEvent({
         runId: options.run.id,
         kind: "status",
-        message: `Codex CLI run failed: ${message}`,
+        message: summary,
         metadata: {
-          status: "errored",
-          phase: "error",
+          status: interrupted ? "paused" : "errored",
+          phase: interrupted ? "paused" : "error",
           engine: CODEX_CLI_ENGINE_NAME,
           exitCode: result.exitCode,
           exitSignal: result.exitSignal,
         },
       });
       return updateCodeAgentRunRecord(options.run.id, {
-        status: options.signal?.aborted ? "paused" : "errored",
-        phase: options.signal?.aborted ? "paused" : "error",
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
         progress: {
-          label: options.signal?.aborted ? "Paused" : "Error",
+          label: interrupted ? "Paused" : "Error",
           completed: 0,
           total: 1,
-          failed: options.signal?.aborted ? 0 : 1,
+          failed: interrupted ? 0 : 1,
           percent: 0,
         },
         metadata: {
-          executionError: message,
-          executionErroredAt: new Date().toISOString(),
+          ...(interrupted
+            ? { executionPausedAt: new Date().toISOString() }
+            : {
+                executionError: message,
+                executionErroredAt: new Date().toISOString(),
+              }),
           engine: CODEX_CLI_ENGINE_NAME,
           model: model ?? "codex-default",
         },
@@ -832,7 +871,7 @@ export async function executeExistingCodeAgentRun(
  */
 export async function executeApproveAlwaysCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const approval = getPendingApproval(runId);
   if (approval?.command) {
@@ -849,7 +888,7 @@ export async function executeApproveAlwaysCodeAgentApproval(
 
 export async function executePendingCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -895,6 +934,7 @@ export async function executePendingCodeAgentApproval(
     approval.command,
     record.cwd || process.cwd(),
     DEFAULT_COMMAND_TIMEOUT_MS,
+    { signal: options.signal },
   );
   const summary = truncateCodingOutput(
     [
@@ -941,7 +981,10 @@ export async function executePendingCodeAgentApproval(
     message: "Resuming run after approval.",
     metadata: { status: "running", phase: "approval-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 /**
@@ -951,7 +994,7 @@ export async function executePendingCodeAgentApproval(
  */
 export async function executeDenyCodeAgentApproval(
   runId: string,
-  options: { stdout?: NodeJS.WritableStream } = {},
+  options: CodeAgentApprovalExecutionOptions = {},
 ): Promise<CodeAgentRunRecord | null> {
   const record = getCodeAgentRunRecord(runId);
   if (!record) return null;
@@ -993,7 +1036,10 @@ export async function executeDenyCodeAgentApproval(
     message: "Resuming run after denial — model will adapt its plan.",
     metadata: { status: "running", phase: "approval-denied-resuming" },
   });
-  return executeExistingCodeAgentRun(runId, { stdout: options.stdout });
+  return executeExistingCodeAgentRun(runId, {
+    stdout: options.stdout,
+    signal: options.signal,
+  });
 }
 
 function latestUserPrompt(runId: string): string {
@@ -1649,6 +1695,7 @@ function createLocalCodeAgentActions(
     meta: StructuredToolMetadata,
   ) => void,
   onBashOutputChunk?: (chunk: string) => void,
+  toolProfile?: CodeAgentToolProfile,
 ): Record<string, ActionEntry> {
   const actions = createCodingToolRegistry({
     cwd,
@@ -1687,6 +1734,24 @@ function createLocalCodeAgentActions(
       return null;
     },
   });
+  if (toolProfile === RECAP_SOURCE_TOOL_PROFILE) {
+    const allowedOutput = path.resolve(cwd, RECAP_SOURCE_OUTPUT_FILE);
+    const writeAction = actions.write;
+    return {
+      read: actions.read,
+      write: {
+        ...writeAction,
+        run: async (args, context) => {
+          const requestedPath =
+            args && typeof args.path === "string" ? args.path : "";
+          if (path.resolve(cwd, requestedPath) !== allowedOutput) {
+            return `Error: only ${RECAP_SOURCE_OUTPUT_FILE} may be written in the recap-source tool profile.`;
+          }
+          return writeAction.run(args, context);
+        },
+      },
+    };
+  }
   if (permissionMode === "read-only") {
     return {
       bash: actions.bash,
@@ -1694,6 +1759,15 @@ function createLocalCodeAgentActions(
     };
   }
   return actions;
+}
+
+function resolveCodeAgentToolProfile(
+  value: string | undefined,
+): CodeAgentToolProfile | undefined {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (normalized === RECAP_SOURCE_TOOL_PROFILE) return normalized;
+  throw new Error(`Unsupported Agent-Native Code tool profile: ${normalized}`);
 }
 
 export type CodeAgentCommandPermission =
@@ -1847,6 +1921,27 @@ function getPendingApproval(runId: string): PendingCodeAgentApproval | null {
         ? candidate.permissionMode
         : "full-auto",
   };
+}
+
+export function writeCodeAgentUsageSnapshot(
+  cwd: string,
+  usage: AgentLoopUsage | null,
+): void {
+  const configuredPath = process.env.AGENT_NATIVE_CODE_USAGE_FILE?.trim();
+  if (!configuredPath || !usage) return;
+
+  const outputPath = path.isAbsolute(configuredPath)
+    ? configuredPath
+    : path.resolve(cwd, configuredPath);
+  try {
+    fs.writeFileSync(outputPath, `${JSON.stringify(usage)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+  } catch {
+    // Usage reporting is best-effort and must not turn a completed agent run
+    // into a failed recap when the optional sidecar cannot be written.
+  }
 }
 
 // --------------- Token usage accumulator ---------------

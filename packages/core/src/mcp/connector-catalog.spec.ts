@@ -228,6 +228,24 @@ const fullActions: Record<string, unknown> = {
     readOnly: true,
     run: async () => ({ id: "plan-1", title: "My plan" }),
   },
+  "public-read": {
+    tool: { description: "Read an authenticated record" },
+    http: { method: "GET" },
+    readOnly: true,
+    publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+    run: async () => ({ ok: true }),
+  },
+  "public-write": {
+    tool: { description: "Write an authenticated record" },
+    http: { method: "POST" },
+    publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+    run: async () => ({ ok: true }),
+  },
+  "db-query": {
+    tool: { description: "Read the app database" },
+    readOnly: true,
+    run: async () => ({ ok: true }),
+  },
   navigate: {
     tool: {
       description: "Navigate to a view",
@@ -375,8 +393,9 @@ describe("connector-catalog tier", () => {
 
       // The exact set: catalog tools + the 5 core builtin cross-app tools.
       // create_workspace_app and list_templates are NOT in COMPACT_MCP_APP_CATALOG_BUILTINS
-      // so they are excluded by isActionInConnectorCatalog unless explicitly listed in the
-      // connectorCatalog. Only the 5 core cross-app builtins are always included.
+      // so they are excluded unless explicitly listed in the connectorCatalog
+      // or marked as authenticated reads through the auto policy. Only the 5
+      // core cross-app builtins are always included.
       const expected = [
         ...CONNECTOR_CATALOG,
         "list_apps",
@@ -428,6 +447,58 @@ describe("connector-catalog tier", () => {
       expect(names).not.toContain("manage-extensions");
       expect(names).not.toContain("ask-agent");
     });
+  });
+
+  it("advertises and calls the Calendar and Mail deterministic connector reads", async () => {
+    const deterministicReads = {
+      "list-events": {
+        tool: { description: "List a calendar inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+      "list-emails": {
+        tool: { description: "List a mail inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+    };
+    const mcpConfig = {
+      ...connectorConfig,
+      actions: deterministicReads,
+      productionActions: deterministicReads,
+      connectorCatalog: ["list-events", "list-emails"],
+    };
+    const token = await signA2AToken("alice@example.com");
+    const headers = { authorization: `Bearer ${token}` };
+    const listed = await call(
+      { jsonrpc: "2.0", id: 30, method: "tools/list", params: {} },
+      { headers, mcpConfig },
+    );
+    const names = listed.result.tools.map((tool: any) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["list-events", "list-emails"]),
+    );
+
+    for (const name of ["list-events", "list-emails"]) {
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: name,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        { headers, mcpConfig },
+      );
+      expect(called.error).toBeUndefined();
+      expect(called.result.isError).not.toBe(true);
+      expect(called.result.structuredContent).toMatchObject({
+        version: 1,
+        items: [],
+        complete: true,
+      });
+    }
   });
 
   describe("tools/call — non-catalog tool is rejected", () => {
@@ -678,5 +749,192 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
     const names: string[] = out.result.tools.map((t: any) => t.name);
     expect(names).toContain("db-exec");
     expect(names).toContain("seed-kitchen-sink");
+  });
+
+  it("auto-advertises authenticated read actions without exposing writes", async () => {
+    const autoConfig = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+      externalAgents: { authenticatedReads: "auto" as const },
+    };
+    const token = await signA2AToken("alice@example.com");
+    const listOut = await call(
+      { jsonrpc: "2.0", id: 15, method: "tools/list", params: {} },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    const names: string[] = listOut.result.tools.map((t: any) => t.name);
+
+    expect(names).toContain("public-read");
+    expect(names).not.toContain("public-write");
+    expect(names).not.toContain("db-query");
+    expect(names).not.toContain("get-plan");
+
+    const readOut = await call(
+      {
+        jsonrpc: "2.0",
+        id: 16,
+        method: "tools/call",
+        params: { name: "public-read", arguments: {} },
+      },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    expect(readOut.result.isError).toBeFalsy();
+
+    const writeOut = await call(
+      {
+        jsonrpc: "2.0",
+        id: 17,
+        method: "tools/call",
+        params: { name: "public-write", arguments: {} },
+      },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    expect(writeOut.result.isError).toBe(true);
+    expect(writeOut.result.content[0].text).toMatch(/Unknown tool/);
+  });
+
+  it("applies the external-agent deny list to auto-discovered reads", async () => {
+    const autoConfig = {
+      ...connectorConfig,
+      connectorCatalog: undefined,
+      externalAgents: {
+        authenticatedReads: "auto" as const,
+        denyActions: ["public-read"],
+      },
+    };
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      { jsonrpc: "2.0", id: 18, method: "tools/list", params: {} },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).not.toContain("public-read");
+  });
+
+  it("keeps explicitly cataloged writes behind ask_app in auto-read mode", async () => {
+    const autoConfig = {
+      ...connectorConfig,
+      connectorCatalog: ["public-write"],
+      externalAgents: { authenticatedReads: "auto" as const },
+    };
+    const token = await signA2AToken("alice@example.com");
+    const out = await call(
+      { jsonrpc: "2.0", id: 19, method: "tools/list", params: {} },
+      { headers: { authorization: `Bearer ${token}` }, mcpConfig: autoConfig },
+    );
+    const names: string[] = out.result.tools.map((t: any) => t.name);
+    expect(names).not.toContain("public-write");
+  });
+
+  // Hard-exclusion regression guard: even if a footgun action (generic
+  // SQL, template seed data, extension management, browser-session
+  // control, Context X-Ray) is ever mis-annotated with the full
+  // authenticated-read flag set — as db-query/db-schema briefly were —
+  // the AUTO derivation must still never advertise or call it. Explicit
+  // connectorCatalog entries remain a deliberate, unaffected app choice.
+  describe("AUTO authenticated-read hard exclusions", () => {
+    const excludedButFullyAnnotatedActions: Record<string, unknown> = {
+      "db-query": {
+        tool: { description: "Read the app's own SQL database" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
+      "seed-demo-data": {
+        tool: { description: "Seed demo data" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
+      "context-preview-get": {
+        tool: { description: "Preview the composed system context" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
+    };
+
+    it("never auto-advertises or auto-calls excluded actions even when fully annotated as authenticated reads", async () => {
+      const autoConfig = {
+        ...connectorConfig,
+        connectorCatalog: undefined,
+        actions: excludedButFullyAnnotatedActions,
+        productionActions: excludedButFullyAnnotatedActions,
+        externalAgents: { authenticatedReads: "auto" as const },
+      };
+      const token = await signA2AToken("alice@example.com");
+      const listOut = await call(
+        { jsonrpc: "2.0", id: 20, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: autoConfig,
+        },
+      );
+      const names: string[] = listOut.result.tools.map((t: any) => t.name);
+      expect(names).not.toContain("db-query");
+      expect(names).not.toContain("seed-demo-data");
+      expect(names).not.toContain("context-preview-get");
+
+      for (const name of [
+        "db-query",
+        "seed-demo-data",
+        "context-preview-get",
+      ]) {
+        const callOut = await call(
+          {
+            jsonrpc: "2.0",
+            id: 21,
+            method: "tools/call",
+            params: { name, arguments: {} },
+          },
+          {
+            headers: { authorization: `Bearer ${token}` },
+            mcpConfig: autoConfig,
+          },
+        );
+        expect(callOut.result.isError).toBe(true);
+        expect(callOut.result.content[0].text).toMatch(/Unknown tool/);
+      }
+    });
+
+    it("still serves db-query / seed-demo-data when explicitly listed in connectorCatalog", async () => {
+      const explicitConfig = {
+        ...connectorConfig,
+        connectorCatalog: ["db-query", "seed-demo-data"],
+        actions: excludedButFullyAnnotatedActions,
+        productionActions: excludedButFullyAnnotatedActions,
+        externalAgents: { authenticatedReads: "auto" as const },
+      };
+      const token = await signA2AToken("alice@example.com");
+      const listOut = await call(
+        { jsonrpc: "2.0", id: 22, method: "tools/list", params: {} },
+        {
+          headers: { authorization: `Bearer ${token}` },
+          mcpConfig: explicitConfig,
+        },
+      );
+      const names: string[] = listOut.result.tools.map((t: any) => t.name);
+      expect(names).toContain("db-query");
+      expect(names).toContain("seed-demo-data");
+
+      for (const name of ["db-query", "seed-demo-data"]) {
+        const callOut = await call(
+          {
+            jsonrpc: "2.0",
+            id: 23,
+            method: "tools/call",
+            params: { name, arguments: {} },
+          },
+          {
+            headers: { authorization: `Bearer ${token}` },
+            mcpConfig: explicitConfig,
+          },
+        );
+        expect(callOut.result.isError).toBeFalsy();
+      }
+    });
   });
 });

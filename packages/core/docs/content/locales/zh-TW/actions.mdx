@@ -11,7 +11,7 @@ Actions 是您的應用所做的任何事情的唯一事實來源。使用 `defi
 - **型別安全 React 掛鉤** - 前端的 `useActionQuery("name")` 和 `useActionMutation("name")`，從架構推斷的型別。
 - **指令式用戶端呼叫** — 當鉤子不適合時 `callAction("name", params)`。
 - **框架傳輸** — 由這些鉤子後面的框架自動安裝，並可供外部 HTTP 用戶端使用。
-- **MCP 工具** - 暴露給 Claude、ChatGPT 自訂 MCP 應用、Claude 桌面/程式碼、游標、Codex 和任何其他 MCP 用戶端。
+- **MCP 工具** - 暴露給 Claude、ChatGPT 自訂 MCP 應用、Claude 桌面/程式碼、游標、Codex 和任何其他 MCP 主機。
 - **A2A 工具** — 由其他 Agent-Native 應用透過 A2A 呼叫。
 - **CLI 指令** - `pnpm action <name>` 用於指令碼和開發迴圈。
 
@@ -439,8 +439,7 @@ export default defineAction({
 對於改變狀態的actions：
 
 ```tsx
-import { useActionMutation } from "@agent-native/core/client";
-
+import { useActionMutation } from "@agent-native/core/client/hooks";
 const { mutate, isPending } = useActionMutation("reply-to-email");
 
 <Button
@@ -458,8 +457,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 對於唯讀 GET actions：
 
 ```ts
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data, isLoading } = useActionQuery("get-lead", { leadId });
 ```
 
@@ -536,7 +534,7 @@ JSON 輸入是代理和複雜物件的首選形狀。標誌是
 
 ## 透過 MCP 公開它 {#mcp}
 
-啟用 MCP 後，您的 actions 將顯示在框架的 MCP 伺服器中，位置為 `/_agent-native/mcp`。預設情況下，每個呼叫者都會獲得一個緊湊的目錄 - 面向應用程式的內建程式以及範本聲明的應用程式 actions - 並且 `tool-search` 始終存在，因此任何其他工具都可以按需存取。完整的操作介面僅在明確選取加入（`--full-catalog` 代幣或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`）時提供，並且 `publicAgent.expose` 在公開介面上選取安全讀取/攝取工具。請參閱 [MCP Protocol](/docs/mcp-protocol) 了解目錄層、驗證和 `mcpApp` 資源詳細資訊。
+啟用 MCP 後，您的 actions 將顯示在框架的 MCP 伺服器中，位置為 `/mcp`。預設情況下，每個呼叫者都會獲得一個緊湊的目錄 - 面向應用程式的內建程式以及範本聲明的應用程式 actions - 並且 `tool-search` 始終存在，因此任何其他工具都可以按需存取。完整的操作介面僅在明確選取加入（`--full-catalog` 代幣或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`）時提供，並且 `publicAgent.expose` 在公開介面上選取安全讀取/攝取工具。請參閱 [MCP Protocol](/docs/mcp-protocol) 了解目錄層、驗證和 `mcpApp` 資源詳細資訊。
 
 對於支援 UI 的 MCP 主機，操作可以透過 `mcpApp` 欄位（加上匹配的 `link`）聲明可選的 MCP Apps 資源，以便有能力的主機行內渲染結果。當 `link` 和 `mcpApp` 應指向同一路由時，`embedRoute()` 從一個純路徑建置器建置兩者：
 
@@ -558,7 +556,7 @@ export default defineAction({
 });
 ```
 
-保留 `link` 作為 CLI 和非 UI MCP 用戶端的後備；這也是嵌入的啟動目標。嵌入橋 - 已簽名的嵌入啟動工作階段、移植與受控幀渲染、`ui/*` 主橋、CSP 和高度限制 - 歸 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。
+保留 `link` 作為 CLI 和非 UI MCP 主機的後備；這也是嵌入的啟動目標。嵌入橋 - 已簽名的嵌入啟動工作階段、移植與受控幀渲染、`ui/*` 主橋、CSP 和高度限制 - 歸 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。
 
 ## 標準actions {#standard-actions}
 
@@ -613,6 +611,44 @@ export default defineAction({
   },
 });
 ```
+
++## 保護分階段功能 {#feature-flags}
+
+當某個 action 可以安全部署、但需要逐步進入生產環境時，請使用 Core 功能旗標。只需宣告一次預設關閉的旗標，從 Nitro 外掛程式註冊它，並在每個受保護的 action 中評估。隱藏對應按鈕只是介面呈現；action 檢查才是強制執行。
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+使用 `@agent-native/core/client` 中的 `useFeatureFlag(FULL_APP_BUILDING.key)` 隱藏或顯示用戶端介面。Core 提供 `get-feature-flags`、`list-feature-flags` 和 `set-feature-flag`。管理會檢查權限並稽核；fleet UI 透過嚴格限定的 A2A 委派呼叫相同的應用程式本機 actions。切勿透過通用設定 endpoint 或原始 SQL 寫入旗標，也不要將驗證、授權、稽核、secret 或 SSR 快取置於 runtime flag 之後。
 
 ## 舊版 CLI 樣式 actions {#legacy-cli-actions}
 

@@ -22,6 +22,7 @@ const testState = vi.hoisted(() => ({
   },
   link: null as any,
   comments: [] as Array<Record<string, unknown>>,
+  versions: [] as Array<Record<string, unknown>>,
 }));
 
 const notionMocks = vi.hoisted(() => {
@@ -106,6 +107,14 @@ vi.mock("../db/index.js", () => {
       ownerEmail: "documentSyncLinks.ownerEmail",
       syncClaimedAt: "documentSyncLinks.syncClaimedAt",
     },
+    documentVersions: {
+      id: "documentVersions.id",
+      documentId: "documentVersions.documentId",
+      ownerEmail: "documentVersions.ownerEmail",
+      title: "documentVersions.title",
+      content: "documentVersions.content",
+      createdAt: "documentVersions.createdAt",
+    },
     documentComments: {
       documentId: "documentComments.documentId",
       ownerEmail: "documentComments.ownerEmail",
@@ -143,7 +152,7 @@ vi.mock("../db/index.js", () => {
     return true;
   }
 
-  const db = {
+  const db: any = {
     select: () => ({
       from: (table: unknown) => ({
         where: async () => {
@@ -157,17 +166,23 @@ vi.mock("../db/index.js", () => {
       }),
     }),
     insert: (table: unknown) => ({
-      values: (row: Record<string, unknown>) => ({
-        onConflictDoUpdate: async ({
-          set,
-        }: {
-          set: Record<string, unknown>;
-        }) => {
-          if (table === schema.documentSyncLinks) {
-            testState.link = { ...row, ...set };
-          }
-        },
-      }),
+      values: (row: Record<string, unknown>) => {
+        if (table === schema.documentVersions) {
+          testState.versions.push(row);
+          return Promise.resolve();
+        }
+        return {
+          onConflictDoUpdate: async ({
+            set,
+          }: {
+            set: Record<string, unknown>;
+          }) => {
+            if (table === schema.documentSyncLinks) {
+              testState.link = { ...row, ...set };
+            }
+          },
+        };
+      },
     }),
     update: (table: unknown) => ({
       set: (updates: Record<string, unknown>) => ({
@@ -213,6 +228,7 @@ vi.mock("../db/index.js", () => {
         }
       },
     }),
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db),
   };
 
   return { getDb: () => db, schema };
@@ -403,6 +419,7 @@ describe("getDocumentSyncStatus", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
     });
@@ -458,6 +475,7 @@ describe("pullDocumentFromNotion", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
 
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
@@ -528,6 +546,13 @@ describe("pullDocumentFromNotion", () => {
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Remote edit from Notion"),
     );
+    expect(testState.versions).toContainEqual(
+      expect.objectContaining({
+        documentId: "doc-1",
+        title: "Local title",
+        content: "Local body",
+      }),
+    );
     expect(status.hasConflict).toBe(false);
   });
 });
@@ -560,6 +585,7 @@ describe("refreshDocumentSyncStatus", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
 
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
@@ -635,6 +661,200 @@ describe("refreshDocumentSyncStatus", () => {
     expect(notionMocks.readNotionPageAsDocument).not.toHaveBeenCalled();
     expect(testState.document.content).toBe("Local body");
     expect(status.remoteChanged).toBe(true);
+  });
+
+  it("does not flash a conflict while a save-triggered push holds the sync claim", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    // The local save has landed and its push owns the claim. Notion's remote
+    // timestamp can advance before that push updates the stored hash baseline,
+    // briefly making both sides look changed to a concurrent status poll.
+    testState.document = {
+      ...testState.document,
+      content: "Local edit being pushed",
+      updatedAt: "2026-06-01T10:00:05.000Z",
+    };
+    testState.link.syncClaimedAt = new Date().toISOString();
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      {
+        autoSync: true,
+      },
+    );
+
+    expect(status.localChanged).toBe(true);
+    expect(status.remoteChanged).toBe(true);
+    expect(status.hasConflict).toBe(false);
+    expect(testState.link?.state).toBe("linked");
+    expect(Boolean(testState.link?.hasConflict)).toBe(false);
+  });
+
+  it("rechecks change flags when the push finishes before the poll acquires the claim", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.document = {
+      ...testState.document,
+      content: "Local edit that just finished pushing",
+      updatedAt: "2026-06-01T10:00:05.000Z",
+    };
+    testState.link.syncClaimedAt = new Date().toISOString();
+    notionMocks.fetchNotionPage.mockImplementation(async () => {
+      // getDocumentSyncStatus already captured the old link snapshot. Finish
+      // the competing push before refresh tries to claim, including advancing
+      // the baseline and releasing its claim.
+      testState.link = {
+        ...testState.link,
+        state: "linked",
+        lastSyncedAt: "2026-06-01T10:30:00.000Z",
+        lastPulledRemoteUpdatedAt: "2026-06-01T10:30:00.000Z",
+        lastPushedLocalUpdatedAt: testState.document.updatedAt,
+        lastKnownRemoteUpdatedAt: "2026-06-01T10:30:00.000Z",
+        lastSyncedContentHash: hashContentForTest(testState.document.content),
+        hasConflict: false,
+        syncClaimedAt: null,
+      };
+      return {
+        id: "notion-page",
+        last_edited_time: "2026-06-01T10:30:00.000Z",
+      };
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      {
+        autoSync: true,
+      },
+    );
+
+    expect(status.localChanged).toBe(false);
+    expect(status.remoteChanged).toBe(false);
+    expect(status.hasConflict).toBe(false);
+    expect(testState.link?.state).toBe("linked");
+    expect(testState.link?.syncClaimedAt).toBeNull();
+  });
+
+  it("hash-verifies a timestamp bump before auto-syncing instead of flashing a conflict", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.document = {
+      ...testState.document,
+      content: "Local edit ready to push",
+      updatedAt: "2026-06-01T10:00:05.000Z",
+    };
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+    // The newer timestamp is not a remote content edit: Notion still holds
+    // the baseline body, so auto-sync should push the local edit.
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T10:30:00.000Z",
+      warnings: [],
+    });
+    notionMocks.pushDocumentToNotionPage.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local edit ready to push",
+      lastEditedTime: "2026-06-01T10:31:00.000Z",
+      warnings: [],
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      {
+        autoSync: true,
+      },
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).toHaveBeenCalledTimes(1);
+    expect(status.hasConflict).toBe(false);
+    expect(status.localChanged).toBe(false);
+    expect(status.remoteChanged).toBe(false);
+    expect(testState.link?.state).toBe("linked");
+  });
+
+  it("reports hash-verified change flags without pushing when auto-sync is off", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.document = {
+      ...testState.document,
+      content: "Local edit waiting for manual push",
+      updatedAt: "2026-06-01T10:00:05.000Z",
+    };
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Local body",
+      lastEditedTime: "2026-06-01T10:30:00.000Z",
+      warnings: [],
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      {
+        autoSync: false,
+      },
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.hasConflict).toBe(false);
+    expect(status.localChanged).toBe(true);
+    expect(status.remoteChanged).toBe(false);
+    expect(testState.link?.state).toBe("linked");
+  });
+
+  it("still persists a conflict when both content hashes genuinely changed", async () => {
+    const { refreshDocumentSyncStatus } = await import("./notion-sync.js");
+
+    testState.document = {
+      ...testState.document,
+      content: "Independent local edit",
+      updatedAt: "2026-06-01T10:00:05.000Z",
+    };
+    notionMocks.fetchNotionPage.mockResolvedValue({
+      id: "notion-page",
+      last_edited_time: "2026-06-01T10:30:00.000Z",
+    });
+    notionMocks.readNotionPageAsDocument.mockResolvedValue({
+      pageId: "notion-page",
+      title: "Local title",
+      icon: null,
+      content: "Independent remote edit",
+      lastEditedTime: "2026-06-01T10:30:00.000Z",
+      warnings: [],
+    });
+
+    const status = await refreshDocumentSyncStatus(
+      "alice@example.com",
+      "doc-1",
+      {
+        autoSync: true,
+      },
+    );
+
+    expect(notionMocks.pushDocumentToNotionPage).not.toHaveBeenCalled();
+    expect(status.hasConflict).toBe(true);
+    expect(testState.link?.state).toBe("conflict");
+    expect(Boolean(testState.link?.hasConflict)).toBe(true);
   });
 
   it("proceeds with the pull when a stale claim (older than the staleness window) is held", async () => {
@@ -727,6 +947,7 @@ describe("pushDocumentToNotion", () => {
       hasConflict: false,
       warningsJson: "[]",
     };
+    testState.versions = [];
 
     notionMocks.getNotionConnectionForOwner.mockResolvedValue({
       accessToken: "notion-token",
@@ -829,6 +1050,9 @@ describe("pushDocumentToNotion", () => {
 
     // The concurrent save must survive; normalized old content must not land.
     expect(testState.document.content).toBe("Newer local save mid-push");
+    // A lost replacement CAS must not create a history entry for a
+    // replacement that never happened.
+    expect(testState.versions).toHaveLength(0);
   });
 
   it("leaves localChanged false when Notion's post-push readback normalizes the content (n-C)", async () => {
@@ -869,6 +1093,13 @@ describe("pushDocumentToNotion", () => {
     expect(status.localChanged).toBe(false);
     expect(testState.document.content).toBe(
       "Local edit typed just now (normalized)",
+    );
+    expect(testState.versions).toContainEqual(
+      expect.objectContaining({
+        documentId: "doc-1",
+        title: "Local title",
+        content: "Local edit typed just now",
+      }),
     );
     expect(testState.link?.lastSyncedContentHash).toBe(
       hashContentForTest("Local edit typed just now (normalized)"),

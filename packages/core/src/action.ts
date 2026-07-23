@@ -24,10 +24,30 @@ import type { ActionAuditConfig } from "./audit/types.js";
  *   `callAction` (tagged with the `X-Request-Source` header).
  * - `"cli"` — `pnpm action <name>` (the CLI runner).
  * - `"mcp"` — an external agent over the MCP `tools/call` endpoint.
- * - `"a2a"` — a direct A2A action dispatch (currently unused: A2A runs through
- *   the agent loop, so those calls are `"tool"`). Reserved for completeness.
+ * - `"a2a"` — a direct, explicitly exposed read-only A2A action dispatch.
+ *   Natural-language A2A delegation still runs through the agent loop and its
+ *   selected actions are attributed as `"tool"`.
+ * - `"automation"` — an event-triggered automation dispatched from a stored
+ *   workspace trigger with trusted trigger lineage.
  */
-export type ActionCaller = "tool" | "http" | "frontend" | "cli" | "mcp" | "a2a";
+export type ActionCaller =
+  | "tool"
+  | "http"
+  | "frontend"
+  | "cli"
+  | "mcp"
+  | "a2a"
+  | "automation";
+
+/**
+ * Trusted automation lineage added by the trigger dispatcher. Action inputs
+ * must never be used to create or override this context.
+ */
+export interface ActionAutomationContext {
+  triggerId: string;
+  triggerName: string;
+  policyId?: string;
+}
 
 /**
  * Context passed as the optional second argument to an action's `run`.
@@ -55,6 +75,12 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /** Present only for trigger-dispatched automation calls. */
+  automation?: ActionAutomationContext;
+  /** Verified network lineage for direct delegated action calls. */
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   /**
    * Attachments submitted with the current agent turn (pasted text blocks,
    * uploaded files, images), exactly as the server received them — with full,
@@ -92,6 +118,8 @@ export interface ActionRunContext {
    * every human/programmatic surface.
    */
   threadId?: string;
+  /** Concrete execution id for this agent-loop attempt. */
+  runId?: string;
   turnId?: string;
 }
 
@@ -307,6 +335,25 @@ interface DefineActionWithSchema<
   schema: TSchema;
   /** Legacy parameters — ignored when `schema` is provided. */
   parameters?: never;
+  /**
+   * Optional alternate Standard Schema (Zod, Valibot, ArkType) used ONLY to
+   * build the tool definition advertised to the model — the JSON Schema that
+   * lands in the Claude `tools` array (and MCP/A2A tool listings, which read
+   * the same `tool.parameters`). Runtime validation always runs against
+   * `schema` above via the normal `wrapWithValidation` path; setting this
+   * never weakens validation and never changes `run()`'s argument type.
+   *
+   * Use this when the full input schema is much richer than what the model
+   * needs to see up front — the canonical example is a deep discriminated
+   * union of block/shape types where a per-call catalog lookup tool (e.g.
+   * `get-plan-blocks`) already teaches the full field shapes. Advertise a
+   * compact version (e.g. an enum of valid `type` values plus a note to call
+   * the lookup tool) instead of embedding every variant's fields in every
+   * request. Invalid calls still get the full, actionable validation error
+   * (missing/invalid fields, received args) from `schema` — this only trims
+   * what is proactively shown, not what is accepted or checked.
+   */
+  agentInputSchema?: StandardSchemaV1;
   /** Optional Standard Schema-compatible schema (Zod, Valibot, ArkType) the
    *  action's RETURN value is validated against AFTER `run()` resolves. Borrowed
    *  from Mastra/Flue structured-output. When omitted, behavior is byte-for-byte
@@ -354,6 +401,14 @@ interface DefineActionWithSchema<
    *  Only set this for mutating actions that are internally concurrency-safe
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the agent loop's duplicate
+   *  read-only call guard (per-turn result cache + "Skipped duplicate..."
+   *  repeat detection). Default true (deduped). Use this for volatile/polling
+   *  reads where an identical call is expected to return a different result
+   *  each time — e.g. polling a code-execution status by id, or re-fetching
+   *  current on-screen state. Has no effect on non-read-only actions, which
+   *  are never deduped in the first place. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
@@ -437,6 +492,10 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
+  /** Advertised-only schema override — not used in this overload (no runtime
+   *  schema to advertise a compact alternative for). See the schema overload
+   *  above. */
+  agentInputSchema?: never;
   /** Optional Standard Schema-compatible schema the action's RETURN value is
    *  validated against AFTER `run()` resolves. See the schema overload above.
    *  When omitted, behavior is byte-for-byte unchanged. */
@@ -470,6 +529,9 @@ interface DefineActionWithParams<
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the duplicate read-only call
+   *  guard. Default true. See the schema overload above. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
@@ -534,6 +596,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly readOnly?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly parallelSafe?: boolean;
+  readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
@@ -632,6 +695,25 @@ export function defineAction(options: any) {
     };
   }
 
+  // `agentInputSchema` swaps in a compact JSON Schema for the ADVERTISED tool
+  // definition only (what the model/MCP/A2A tool listings see). It never
+  // touches validation below — `wrapWithValidation` is always called with
+  // `options.schema`, the full schema, as the source of truth for what's
+  // accepted. Passing the same (compact) `toolParameters` into it only
+  // affects the top-level "Expected: { ... }" hint text and gateway string
+  // coercion, both of which only look at top-level property names/types —
+  // unaffected by trimming a nested union, so this stays safe either way.
+  if (
+    hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+  ) {
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema,
+      options.description,
+    );
+  }
+
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
@@ -710,6 +792,8 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const dedupe: boolean | undefined =
+    typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
     options.publicAgent &&
     typeof options.publicAgent === "object" &&
@@ -764,6 +848,7 @@ export function defineAction(options: any) {
       ? { allowInPlanMode: options.allowInPlanMode }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
+    ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),

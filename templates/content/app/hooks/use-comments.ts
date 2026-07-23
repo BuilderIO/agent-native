@@ -1,4 +1,7 @@
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 
 export interface CommentMention {
   email: string;
@@ -65,7 +68,6 @@ export function useComments(documentId: string | null) {
         }
         return Array.from(threadMap.values());
       },
-      refetchInterval: 5000,
     },
   );
 }

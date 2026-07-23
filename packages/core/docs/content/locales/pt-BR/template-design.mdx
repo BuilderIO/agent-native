@@ -11,7 +11,7 @@ Design é um estúdio de prototipagem HTML nativo do agente. Em vez de uma tela 
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lançamento do produto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Protótipo HTML gerado</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Deixe o hero mais denso e o CTA mais claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisão</button></div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lançamento do produto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>Lance mais rápido com Agent-Native</strong><span class='wf-muted' style='max-width:70%'>Gere um protótipo funcional a partir de um prompt e refine-o no próprio lugar.</span><button class='primary'>Começar</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Deixe o hero mais denso e o CTA mais claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisão</button></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -89,6 +89,7 @@ Quando você abre o aplicativo, o protótipo gerado é o centro da área de trab
 ## O que você pode fazer com isso
 
 - **Gere protótipos completos.** Descreva a tela ou página necessária e o agente criará um documento HTML funcional com estilo Tailwind e interactions Alpine.
+- **Comece com modelos reutilizáveis.** Escolha um formato dimensionado para anúncios, páginas únicas ou páginas de destino, ou salve qualquer design integrado como modelo. O prompt ajusta apenas o conteúdo desbloqueado e mantém logotipos e fundos bloqueados.
 - **Compare variantes.** Comece com várias direções, escolha a mais forte e continue refinando.
 - **Ajuste visual.** Use os controles de ajuste integrados para alterações comuns ou peça ao agente atualizações de cópia, layout, cor, espaçamento e interação.
 - **Aplique sistemas de design.** Salve e reutilize as preferências do sistema de design para que o trabalho gerado fique mais próximo de sua marca.
@@ -132,6 +133,8 @@ pnpm dev
 ### Modelo de dados
 
 Todos os dados residem em SQL com Drizzle ORM. Esquema: `templates/design/server/db/schema.ts`. Os designs e sistemas de design carregam o padrão `ownableColumns` e uma tabela de compartilhamentos de estrutura correspondente, para que eles se encaixem no modelo de compartilhamento por usuário/por organização.
+
+A tabela abaixo abrange os principais recursos com proprietário: designs, arquivos, modelos, versões e sistemas de design. Outras sete tabelas no mesmo esquema dão suporte a recursos descritos em outras partes deste documento, em vez do modelo de recursos principal: `design_localhost_connections` e `design_localhost_write_grants` (modo de origem localhost), `component_index` (indexação de componentes), `motion_timeline` (movimento), `design_state` (instantâneos do estado do editor), `design_fusion_edits` (modo de fusão do aplicativo completo) e `design_review_snapshot` (instantâneos de revisão).
 
 | Tabela                                   | O que ele contém                                                                                                                              |
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -360,6 +363,22 @@ O modo de tela única serve para rolar, interagir com o comportamento do
 protótipo e editar as camadas DOM/código dentro de um arquivo renderizado. O
 painel de camadas reflete essa divisão: telas são frames de nível superior, com
 camadas DOM/código aninhadas para a tela ativa.
+
+### Tweaks
+
+Tweaks são controles nomeados para alterar rapidamente as propriedades visuais
+mais úteis de um design sem editar o código-fonte. Um design pode oferecer
+amostras de cor, opções segmentadas, controles deslizantes e alternâncias para
+propriedades como cor de destaque, raio dos cantos, espaçamento, densidade ou
+visibilidade. Cada controle se conecta a uma propriedade CSS personalizada usada
+pelo design renderizado, então a visualização é atualizada durante o ajuste.
+
+Tweaks seguem a cascata do editor. Breakpoints responsivos e estados herdam o
+valor definido no design base. Alterar um tweak enquanto um breakpoint ou estado
+está ativo cria uma substituição para esse contexto; redefinir o controle remove
+a substituição e restaura o valor herdado. Os valores salvos permanecem com o
+design. Use **Adicionar controles de ajuste** ou peça ao agente para expor outra
+propriedade visual quando o controle necessário não estiver no painel.
 
 Instale `/visual-edit` quando um agente de código precisar abrir um app local em
 execução no Design em vez de gerar HTML de protótipo independente:

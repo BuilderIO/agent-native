@@ -1,13 +1,20 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanRunPolicyPrompt,
+  resolveInteractiveAgentRunOptions,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
+  corpusToolNamesTaughtByPrompt,
+  generateCorpusToolsPrompt,
+} from "./agent-chat/framework-prompts.js";
+import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
-  FIRST_SESSION_PERSONALIZATION,
 } from "./prompts/index.js";
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
@@ -58,6 +65,87 @@ describe("shouldBlockInProductCodeEditingSurface", () => {
         host: "agent.example.com",
       }),
     ).toBe(false);
+  });
+});
+
+describe("lean production run policy", () => {
+  it("uses the same combined policy for the emitted prompt and Context X-Ray manifest", () => {
+    const restriction = "<app-rendered-chat-no-direct-code-edits />";
+    const codeExecution =
+      "<code-execution-mode>Sandboxed</code-execution-mode>";
+
+    expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
+      restriction + codeExecution,
+    );
+  });
+});
+
+describe("interactive agent run options", () => {
+  it("forwards an app's durable no-progress watchdog to every interactive handler", () => {
+    expect(
+      resolveInteractiveAgentRunOptions({
+        runSoftTimeoutMs: 13 * 60_000,
+        runNoProgressTimeoutMs: 3 * 60_000,
+        durableBackgroundRuns: true,
+      }),
+    ).toEqual({
+      runSoftTimeoutMs: 13 * 60_000,
+      runNoProgressTimeoutMs: 3 * 60_000,
+      durableBackgroundRuns: true,
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `resolveInteractiveAgentRunOptions` echoing its own inputs (above) proves
+// nothing about whether the value it returns actually reaches the run
+// manager — that wiring lives inside `createAgentChatPlugin`'s and
+// `createProductionAgentHandler`'s multi-thousand-line request-handler
+// closures, which have no cheap unit seam (same rationale as the
+// "prompt-caching wiring guards" in runtime-context.spec.ts). These source
+// guards close that gap: they fail if a future call site forgets to spread
+// `resolveInteractiveAgentRunOptions(options)`, or if `startRun` stops
+// receiving `runNoProgressTimeoutMs` as its `noProgressTimeoutMs` option —
+// exactly the class of bug the run-manager's own no-progress-backstop tests
+// (run-manager.spec.ts) cannot see, since they drive `startRun` directly.
+describe("interactive agent run options — wiring guards", () => {
+  it("spreads resolveInteractiveAgentRunOptions(options) into every createProductionAgentHandler call site", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    const handlerCallSites = source.match(/createProductionAgentHandler\(\{/g);
+    const spreadSites = source.match(
+      /\.\.\.resolveInteractiveAgentRunOptions\(options\),\s*\n\s*finalResponseGuard: options\?\.finalResponseGuard,/g,
+    );
+
+    // Three interactive handlers are created today (prod, anonymous
+    // read-only, dev). If this count changes, a new call site was added or
+    // removed — update this guard alongside it, and confirm the new/changed
+    // site still spreads the run options immediately before
+    // `finalResponseGuard`.
+    expect(handlerCallSites).toHaveLength(3);
+    expect(spreadSites).toHaveLength(handlerCallSites?.length ?? 0);
+  });
+
+  it("threads runNoProgressTimeoutMs into startRun's noProgressTimeoutMs option", () => {
+    const source = readFileSync("src/agent/production-agent.ts", {
+      encoding: "utf-8",
+    });
+
+    // There is exactly one `startRun(...)` call in production-agent.ts — the
+    // interactive/production run start. Confirm it stays singular so the
+    // adjacency assertion below can't silently start matching a different,
+    // unrelated call site.
+    expect(source.match(/\n {4}startRun\(\n/g)).toHaveLength(1);
+
+    // `noProgressTimeoutMs` must be set from `options.runNoProgressTimeoutMs`
+    // (not hardcoded, not dropped) and live in the same options object as
+    // `turnId`/`dispatchMode`, which are unambiguously the literal passed as
+    // startRun's final argument.
+    expect(source).toMatch(
+      /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
+    );
   });
 });
 
@@ -113,8 +201,11 @@ describe("prompt token-budget regressions", () => {
     expect(compact.length).toBeLessThan(full.length * 0.75);
   });
 
-  it("first-session personalization block stays under 3 KB", () => {
-    expect(FIRST_SESSION_PERSONALIZATION.length).toBeLessThan(3 * 1024);
+  it("does not include first-session personalization onboarding", () => {
+    for (const prompt of [full, compact]) {
+      expect(prompt).not.toContain("First-Session Personalization");
+      expect(prompt).not.toContain("application_state.personalization");
+    }
   });
 });
 
@@ -208,6 +299,26 @@ describe("prompt content invariants", () => {
     );
   });
 
+  it("routes extension requests that need native placement to code customization", () => {
+    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "UI inside or beside a native component where no named slot exists",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "show local time beside every native Calendar attendee row",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      'do not end with "extensions cannot do that."',
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "needs placement where no slot exists",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "continue the code-change handoff",
+    );
+  });
+
   it("both variants contain the no-fabrication rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate factual claims");
@@ -259,6 +370,47 @@ describe("prompt content invariants", () => {
 });
 
 describe("available action prompt rendering", () => {
+  const actions = {
+    common: {
+      tool: {
+        description: "Common action.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => ({}),
+    },
+    rare: {
+      tool: {
+        description: "Rare action.",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => ({}),
+    },
+  } as never;
+
+  it("defaults unconfigured apps to their own template actions", () => {
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(actions),
+    ).toEqual(["common", "rare"]);
+    expect(
+      _agentChatPromptSectionsForTests.resolveInitialToolNames(actions, [
+        "common",
+      ]),
+    ).toEqual(["common"]);
+  });
+
+  it("summarizes only starter actions and points to tool-search for the rest", () => {
+    const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
+      actions,
+      "tool",
+      ["common"],
+    );
+
+    expect(prompt).toContain("`common`");
+    expect(prompt).not.toContain("`rare`");
+    expect(prompt).toContain("1 less-common app action is available on demand");
+    expect(prompt).toContain("`tool-search`");
+  });
+
   it("labels actions that render native chat widgets", () => {
     const prompt = _agentChatPromptSectionsForTests.generateActionsPrompt(
       {
@@ -316,6 +468,76 @@ describe("render-data-widget framework action", () => {
         chartSeries: { type: "bar" },
       }),
     ).rejects.toThrow();
+  });
+});
+
+describe("corpusToolNamesTaughtByPrompt / generateCorpusToolsPrompt consistency", () => {
+  const noopTool = {
+    tool: {
+      description: "noop",
+      parameters: { type: "object" as const, properties: {} },
+    },
+    run: async () => "ok",
+  } as never;
+
+  it("returns no names and no prompt text for a registry with none of the corpus tools", () => {
+    const registry = { "some-template-action": noopTool } as never;
+
+    expect(corpusToolNamesTaughtByPrompt(registry)).toEqual([]);
+    expect(generateCorpusToolsPrompt(registry)).toBe("");
+  });
+
+  it("returns exactly the corpus tool names present, matching the prompt's authoritative availability line", () => {
+    const registry = {
+      "some-template-action": noopTool,
+      "provider-api-catalog": noopTool,
+      "query-staged-dataset": noopTool,
+    } as never;
+
+    const names = corpusToolNamesTaughtByPrompt(registry);
+    expect(names).toEqual(["provider-api-catalog", "query-staged-dataset"]);
+
+    const prompt = generateCorpusToolsPrompt(registry);
+    // "Available corpus-capable tools: ..." is the authoritative,
+    // registry-conditional line — this is the invariant
+    // agent-chat-plugin.ts's `effectiveInitialToolNames` wiring depends on
+    // to avoid teaching a tool as available when it isn't in the first
+    // request's active tool set. (The fixed prose below it separately
+    // explains `provider-corpus-job` / run-code usage unconditionally
+    // whenever the block renders at all — that static explanatory text is
+    // pre-existing and out of scope here.)
+    const availabilityLine = prompt
+      .split("\n")
+      .find((line) => line.startsWith("Available corpus-capable tools:"));
+    expect(availabilityLine).toBe(
+      "Available corpus-capable tools: `provider-api-catalog`, `query-staged-dataset`.",
+    );
+    for (const name of names) {
+      expect(availabilityLine).toContain(`\`${name}\``);
+    }
+    expect(availabilityLine).not.toContain("`provider-api-request`");
+    expect(availabilityLine).not.toContain("`provider-corpus-job`");
+    expect(availabilityLine).not.toContain("`run-code`");
+  });
+
+  it("includes every corpus tool name when the full set is registered", () => {
+    const registry = {
+      "provider-api-catalog": noopTool,
+      "provider-api-docs": noopTool,
+      "provider-api-request": noopTool,
+      "provider-corpus-job": noopTool,
+      "query-staged-dataset": noopTool,
+      "run-code": noopTool,
+    } as never;
+
+    expect(corpusToolNamesTaughtByPrompt(registry)).toEqual([
+      "provider-api-catalog",
+      "provider-api-docs",
+      "provider-api-request",
+      "provider-corpus-job",
+      "query-staged-dataset",
+      "run-code",
+    ]);
   });
 });
 

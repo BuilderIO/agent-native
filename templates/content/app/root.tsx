@@ -1,25 +1,32 @@
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
-  AgentSidebar,
   AppProviders,
-  appPath,
-  CommandMenu,
   createAgentNativeQueryClient,
-  ErrorReportActions,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
+import {
   getLocaleInitScript,
-  getThemeInitScript,
   type LocaleCode,
   type LocaleMessages,
   type LocalizationPreference,
-  useActionQuery,
-  useCommandMenuShortcut,
   useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import {
+  ErrorReportActions,
+  getThemeInitScript,
+} from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
 import type { ListContentDatabasesResponse } from "@shared/api";
 import {
   IconDatabase,
   IconDeviceDesktop,
+  IconHierarchy2,
   IconFileText,
   IconFolderOpen,
   IconLoader2,
@@ -61,6 +68,7 @@ import {
 } from "./lib/content-command-search";
 
 import stylesheet from "./global.css?url";
+import katexStylesheet from "katex/dist/katex.min.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -70,6 +78,7 @@ configureTracking({
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
+  { rel: "stylesheet", href: katexStylesheet },
 ];
 
 interface RootLoaderData {
@@ -222,8 +231,8 @@ function RouteTransitionIndicator() {
       data-pending={pending ? "true" : undefined}
     >
       <div
-        className={`h-full bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-all duration-200 ${
-          pending ? "w-2/3 opacity-100" : "w-0 opacity-0"
+        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
+          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
         }`}
       />
     </div>
@@ -476,15 +485,6 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    if (!window.matchMedia("(min-width: 768px)").matches) return;
-    const id = window.setTimeout(() => {
-      window.dispatchEvent(new Event("agent-panel:open"));
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [mounted]);
-
   const content = <>{children}</>;
 
   if (!mounted) {
@@ -500,7 +500,7 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen
+      defaultOpen={false}
       defaultSidebarWidth={420}
       emptyStateText={t("chat.publicEmptyState")}
       suggestions={[
@@ -522,6 +522,7 @@ function ContentCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -536,6 +537,12 @@ function ContentCommandMenu({
         />
       )}
     >
+      <CommandMenu.Group heading={t("root.commandContent")}>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
         <ThemeToggleItem />
       </CommandMenu.Group>

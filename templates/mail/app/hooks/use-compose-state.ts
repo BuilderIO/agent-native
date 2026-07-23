@@ -1,5 +1,5 @@
-import { agentNativePath } from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { appendSignatureToBody } from "@shared/signature";
 import type { ComposeState, UserSettings } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -139,6 +139,7 @@ export function useComposeState() {
       return merged;
     },
     staleTime: 1_000,
+    // request-storm-allow: one focus refresh reconciles bounded compose drafts across tabs.
     refetchOnWindowFocus: true,
   });
 

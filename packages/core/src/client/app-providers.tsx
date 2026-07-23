@@ -22,10 +22,12 @@
  *       ...
  *     </AppProviders>
  *
- *   When `isPublicPath` is true the providers render without `<ClientOnly>`,
- *   streaming real markup to the client. When false (the default) the standard
- *   `<ClientOnly fallback={clientOnlyFallback}>` gate wraps everything.
- *   When `clientOnlyFallback` is omitted, `<DefaultSpinner />` is used.
+ *   When `isPublicPath` is true the providers render without `<ClientOnly>` or
+ *   a session gate, streaming real markup to the client. When false (the
+ *   default), `<ClientOnly>` hydrates the shared SSR shell and
+ *   `<RequireSession>` redirects signed-out visitors to the framework sign-in
+ *   page before private app chrome mounts. When `clientOnlyFallback` is
+ *   omitted, `<DefaultSpinner />` is used.
  *
  * Customisation props:
  *   themeAttribute           — passed to next-themes ThemeProvider `attribute`.
@@ -46,11 +48,11 @@
  *                              intentionally animates theme changes (e.g. content).
  */
 
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute } from "next-themes";
 import React from "react";
-import { Toaster } from "sonner";
 
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";
@@ -58,6 +60,7 @@ import {
   AgentNativeI18nProvider,
   type AgentNativeI18nProviderProps,
 } from "./i18n.js";
+import { RequireSession } from "./require-session.js";
 
 export interface AppProvidersProps {
   /** QueryClient instance — create with `createAgentNativeQueryClient()`. */
@@ -119,6 +122,13 @@ export interface AppProvidersProps {
    */
   clientOnlyFallback?: React.ReactNode;
 
+  /**
+   * Skip the default client-side session gate on a private path. Use only for
+   * surfaces that authenticate by another mechanism, such as an MCP embed with
+   * its own scoped token. Public/SEO routes should use `isPublicPath` instead.
+   */
+  sessionBypass?: boolean;
+
   children: React.ReactNode;
 }
 
@@ -173,6 +183,7 @@ export function AppProviders({
   queryClient,
   isPublicPath = false,
   clientOnlyFallback,
+  sessionBypass = false,
   defaultTheme,
   themeAttribute,
   tooltipDelayDuration,
@@ -210,7 +221,9 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
       >
-        {children}
+        <RequireSession bypass={sessionBypass} fallback={fallback}>
+          {children}
+        </RequireSession>
       </ProvidersInner>
     </ClientOnly>
   );

@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["ko-KR"],
   root: {
     commandPresentations: "프레젠테이션",
     searchDecks: "덱 검색",
@@ -34,10 +37,10 @@ const messages = {
       "팀원, 조직 접근 권한, 공유 워크스페이스 환경설정을 관리합니다.",
     openTeamSettings: "팀 설정 열기",
     openResourceSettings: "리소스 설정 열기",
-    agentTitle: "에이전트 설정",
+    agentTitle: "에이전트 관리",
     agentDescription:
-      "오른쪽 사이드바의 에이전트 설정을 열어 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
-    openAgentSettings: "에이전트 설정 열기",
+      "에이전트의 모델, API 키, 자동화, 음성 및 기타 제어를 관리합니다.",
+    openAgentSettings: "에이전트 관리",
   },
   agent: {
     emptyState: "프레젠테이션에 대해 무엇이든 물어보세요",
@@ -104,6 +107,7 @@ const messages = {
     searchImagesPlaceholder: "画像を検索...",
     searchForLogosImagesIcons: "ロゴ、画像、アイコンを検索...",
     search: "검색",
+    searchFailed: "검색 실패",
     logoSearchTitle: "로고 검색",
     searchCompanyLogo: "会社を検索してロゴを見つける",
     searchCompanyPlaceholder: "会社名を検索（例: Intuit）",
@@ -329,6 +333,8 @@ const messages = {
     hideResolved: "해결됨 숨기기",
     showResolved: "해결됨 {{count}}개 표시",
     noCommentsYet: "아직 댓글 없음",
+    loadFailed: "댓글을 불러올 수 없습니다",
+    retry: "다시 시도",
     clickToAddComment: "클릭하여 댓글 추가",
     selectSlideToAdd: "추가하려면 슬라이드를 선택하세요",
   },
@@ -536,6 +542,10 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    loadFailed: "콘텐츠를 불러올 수 없습니다",
+    loadFailedDescription:
+      "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
+    retry: "다시 시도",
     decksTitle: "덱",
     newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",

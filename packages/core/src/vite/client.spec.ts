@@ -8,15 +8,185 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseChangelog } from "../changelog/parse.js";
 import { signEmbedSessionToken } from "../server/embed-session.js";
 import {
+  _debounceNitroFullReloadHotUpdate,
   _findCorePackageRoot,
   _getClientDedupe,
   _getDefaultOptimizeDeps,
   _getReactRouterAliases,
+  _nitroModuleGraphSignature,
+  _nitroStartupGate,
+  _nitroStartupRecovery,
   agentNative,
   defineConfig,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
+
+describe("Nitro dev startup recovery", () => {
+  it("waits for Nitro's module graph to become stable", () => {
+    const dependency = {
+      id: "/app/server.ts",
+      transformResult: null,
+    };
+    const entry = {
+      id: "/node_modules/nitro/dist/runtime/internal/vite/dev-entry.mjs",
+      transformResult: { code: "entry" },
+    };
+    const environment = {
+      moduleGraph: {
+        idToModuleMap: new Map([
+          [entry.id, entry],
+          [dependency.id, dependency],
+        ]),
+      },
+    };
+
+    expect(_nitroModuleGraphSignature(environment)).toBe("2:1:0");
+    dependency.transformResult = { code: "server" };
+    expect(_nitroModuleGraphSignature(environment)).toBe("2:2:0");
+
+    let time = 0;
+    let middleware:
+      | ((req: unknown, res: unknown, next: () => void) => void)
+      | undefined;
+    _nitroStartupGate({ now: () => time, settleMs: 100 }).configureServer?.({
+      environments: { nitro: environment },
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+    const request = { headers: { accept: "text/html" }, method: "GET" };
+    const firstResponse = {
+      end: vi.fn(),
+      setHeader: vi.fn(),
+      statusCode: 200,
+    };
+    const next = vi.fn();
+
+    middleware?.(request, firstResponse, next);
+    expect(firstResponse.statusCode).toBe(503);
+    expect(next).not.toHaveBeenCalled();
+
+    time = 50;
+    middleware?.(
+      request,
+      { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+      next,
+    );
+    expect(next).not.toHaveBeenCalled();
+
+    time = 150;
+    middleware?.(
+      request,
+      { end: vi.fn(), setHeader: vi.fn(), statusCode: 200 },
+      next,
+    );
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("turns a transient document error into a quiet retry page", () => {
+    let middleware:
+      | ((
+          error: unknown,
+          req: unknown,
+          res: unknown,
+          next: (error?: unknown) => void,
+        ) => void)
+      | undefined;
+    const plugin = _nitroStartupRecovery();
+    plugin.configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const error = Object.assign(
+      new Error('Vite environment "nitro" is unavailable'),
+      { name: "NitroViteError", status: 503 },
+    );
+    const res = {
+      end: vi.fn(),
+      headersSent: false,
+      setHeader: vi.fn(),
+      statusCode: 200,
+    };
+    const next = vi.fn();
+    middleware?.(
+      error,
+      { headers: { accept: "text/html" }, method: "GET" },
+      res,
+      next,
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(503);
+    expect(res.setHeader).toHaveBeenCalledWith("retry-after", "1");
+    expect(res.end).toHaveBeenCalledWith(expect.stringContaining("refresh"));
+  });
+
+  it("preserves genuine Nitro errors and non-document requests", () => {
+    let middleware:
+      | ((
+          error: unknown,
+          req: unknown,
+          res: unknown,
+          next: (error?: unknown) => void,
+        ) => void)
+      | undefined;
+    _nitroStartupRecovery().configureServer?.({
+      middlewares: {
+        use: vi.fn((handler) => {
+          middleware = handler;
+        }),
+      },
+    } as never);
+
+    const error = Object.assign(
+      new Error('Vite environment "nitro" is unavailable'),
+      { name: "NitroViteError", status: 503 },
+    );
+    const next = vi.fn();
+    middleware?.(
+      error,
+      { headers: { accept: "application/json" }, method: "GET" },
+      { headersSent: false },
+      next,
+    );
+    expect(next).toHaveBeenCalledWith(error);
+
+    const importError = new Error("broken import");
+    middleware?.(
+      importError,
+      { headers: { accept: "text/html" }, method: "GET" },
+      { headersSent: false },
+      next,
+    );
+    expect(next).toHaveBeenLastCalledWith(importError);
+  });
+
+  it("registers the startup gate before Nitro and recovery after it", () => {
+    const plugins = flatPlugins(defineConfig().plugins);
+    const startupGateIndex = plugins.findIndex(
+      (plugin) => plugin.name === "agent-native-nitro-startup-gate",
+    );
+    const recoveryIndex = plugins.findIndex(
+      (plugin) => plugin.name === "agent-native-nitro-startup-recovery",
+    );
+    const nitroIndex = plugins.findIndex(
+      (plugin) => plugin.name === "nitro:main",
+    );
+
+    expect(startupGateIndex).toBeGreaterThanOrEqual(0);
+    expect(startupGateIndex).toBeLessThan(nitroIndex);
+    expect(plugins[startupGateIndex]?.enforce).toBe("pre");
+    expect(recoveryIndex).toBeGreaterThan(nitroIndex);
+    expect(plugins[recoveryIndex]?.enforce).toBeUndefined();
+  });
+});
 
 function findPlugin(name: string) {
   const plugins = (defineConfig().plugins ?? [])
@@ -30,6 +200,46 @@ function findPlugin(name: string) {
 function flatPlugins(plugins: any[] | undefined): any[] {
   return (plugins ?? []).flat().filter(Boolean) as any[];
 }
+
+describe("design system theme plugin", () => {
+  it("emits normalized build-time CSS from a virtual module", async () => {
+    const plugins = flatPlugins(
+      defineConfig({
+        designSystemTheme: {
+          colors: {
+            light: { primary: "oklch(60% 0.2 250)", background: "white" },
+            dark: { background: "#101010" },
+          },
+        },
+      }).plugins,
+    );
+    const plugin = plugins.find(
+      (candidate) => candidate.name === "agent-native-design-system-theme",
+    );
+
+    expect(plugin).toBeDefined();
+    const resolved = await plugin.resolveId("virtual:agent-native-theme.css");
+    const css = await plugin.load(resolved);
+    expect(css).toContain("--primary:");
+    expect(css).toContain("--background: 0 0% 6.275%");
+    expect(await plugin.transformIndexHtml()).toEqual([
+      expect.objectContaining({
+        tag: "style",
+        children: css,
+        injectTo: "head",
+      }),
+    ]);
+  });
+
+  it("does not add theme CSS when a theme is not configured", () => {
+    const plugins = flatPlugins(defineConfig().plugins);
+    expect(
+      plugins.some(
+        (candidate) => candidate.name === "agent-native-design-system-theme",
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("dev server mounted path helpers", () => {
   const previousSecret = process.env.OAUTH_STATE_SECRET;
@@ -271,6 +481,26 @@ describe("Vite optimized dependency recovery", () => {
 });
 
 describe("route warmup config", () => {
+  it("compiles the app compatibility epoch and deploy build id into client and server bundles", () => {
+    const previousDeployId = process.env.DEPLOY_ID;
+    process.env.DEPLOY_ID = "deploy-123";
+    try {
+      const config = defineConfig({
+        clientCompatibilityVersion: " content-spaces-v1 ",
+      });
+
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("deploy-123"),
+      );
+      expect(config.define?.__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__).toBe(
+        JSON.stringify("content-spaces-v1"),
+      );
+    } finally {
+      if (previousDeployId === undefined) delete process.env.DEPLOY_ID;
+      else process.env.DEPLOY_ID = previousDeployId;
+    }
+  });
+
   it("enables safe React Router route warmup by default", () => {
     const config = defineConfig();
     const routeWarmup = JSON.parse(
@@ -342,6 +572,25 @@ describe("route warmup config", () => {
 });
 
 describe("MCP integrations config", () => {
+  it("exposes the active template to shared client capabilities", () => {
+    const previous = process.env.AGENT_NATIVE_TEMPLATE;
+    process.env.AGENT_NATIVE_TEMPLATE = " Design ";
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_TEMPLATE__).toBe(
+        JSON.stringify("design"),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_TEMPLATE;
+      } else {
+        process.env.AGENT_NATIVE_TEMPLATE = previous;
+      }
+    }
+  });
+
   it("exposes default MCP integration catalog settings", () => {
     const config = defineConfig();
     const mcpIntegrations = JSON.parse(
@@ -466,7 +715,7 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
-  it("externalizes native sqlite deps for production SSR builds", async () => {
+  it("externalizes singleton and native deps for production SSR builds", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
 
@@ -479,6 +728,7 @@ describe("agentNative Vite plugin preset", () => {
       { command: "build", mode: "production" },
     )) as any;
 
+    expect(config.ssr.external).toContain("yjs");
     expect(config.ssr.external).toContain("better-sqlite3");
     expect(config.ssr.external).toContain("bindings");
     expect(config.ssr.external).toContain("custom-native-package");
@@ -509,7 +759,7 @@ describe("app changelog raw imports", () => {
     );
     fs.writeFileSync(
       path.join(pendingDir, "2026-07-01-new-thing.md"),
-      "---\ntype: added\ndate: 2026-07-01\n---\n\nNew visible thing.\n",
+      "---\ntype: added\n---\n\nNew visible thing.\n",
     );
     fs.writeFileSync(
       path.join(pendingDir, "2026-06-23-same-day.md"),
@@ -550,6 +800,7 @@ describe("app changelog raw imports", () => {
         "2026-07-01",
         "2026-06-23",
       ]);
+      expect(entries.map((entry) => entry.title)).not.toContain("Unreleased");
       expect(entries[0].body).toContain("New visible thing.");
       expect(entries[1].body).toContain("Same-day fix.");
       expect(entries[1].body).toContain("Seed entry.");
@@ -879,6 +1130,180 @@ describe("Vite connection reset noise", () => {
   });
 });
 
+describe("Nitro dev full-reload debounce", () => {
+  // These fakes mirror the shape nitro's own `hotUpdate` hook actually uses
+  // (see nitro/dist/vite.mjs): `this.environment.moduleGraph.invalidateModule`
+  // for every changed module, followed by `this.environment.hot.send({ type:
+  // "full-reload" })`. We only need enough of that shape to exercise the
+  // wrapper, not a real Vite dev server.
+  function fakeNitroMainPlugin(
+    handler: (
+      this: { environment: any },
+      options: { modules: string[] },
+    ) => void,
+  ) {
+    return { name: "nitro:main", hotUpdate: handler } as any;
+  }
+
+  it("coalesces a burst of full-reload sends into exactly one after quiescence", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      for (let i = 0; i < 5; i++) {
+        plugin.hotUpdate.call(context, { modules: [] });
+      }
+
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(299);
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ type: "full-reload" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still reloads after a single isolated change, just delayed by the debounce window", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      plugin.hotUpdate.call(context, { modules: [] });
+      expect(send).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(300);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes non full-reload hot messages through immediately, unbatched", () => {
+    const send = vi.fn();
+    const plugin = _debounceNitroFullReloadHotUpdate(
+      fakeNitroMainPlugin(function () {
+        this.environment.hot.send({ type: "custom", event: "an:ping" });
+      }),
+    );
+    const context = { environment: { name: "ssr", hot: { send } } };
+
+    plugin.hotUpdate.call(context, { modules: [] });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: "custom", event: "an:ping" });
+  });
+
+  it("never delays module-graph invalidation, only the reload broadcast", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const invalidateModule = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function (options) {
+          for (const mod of options.modules) {
+            this.environment.moduleGraph.invalidateModule(mod);
+          }
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+      const context = {
+        environment: {
+          name: "ssr",
+          hot: { send },
+          moduleGraph: { invalidateModule },
+        },
+      };
+
+      plugin.hotUpdate.call(context, { modules: ["a.ts", "b.ts"] });
+
+      expect(invalidateModule).toHaveBeenCalledTimes(2);
+      expect(invalidateModule).toHaveBeenCalledWith("a.ts");
+      expect(invalidateModule).toHaveBeenCalledWith("b.ts");
+      // The reload itself is still debounced.
+      expect(send).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(300);
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps debounce timers independent per Vite environment", () => {
+    vi.useFakeTimers();
+    try {
+      const sendSsr = vi.fn();
+      const sendWorker = vi.fn();
+      const plugin = _debounceNitroFullReloadHotUpdate(
+        fakeNitroMainPlugin(function () {
+          this.environment.hot.send({ type: "full-reload" });
+        }),
+      );
+
+      plugin.hotUpdate.call(
+        { environment: { name: "ssr", hot: { send: sendSsr } } },
+        { modules: [] },
+      );
+      vi.advanceTimersByTime(150);
+      plugin.hotUpdate.call(
+        { environment: { name: "worker", hot: { send: sendWorker } } },
+        { modules: [] },
+      );
+
+      // 300ms after the "ssr" call, but only 150ms after "worker"'s call.
+      vi.advanceTimersByTime(150);
+      expect(sendSsr).toHaveBeenCalledTimes(1);
+      expect(sendWorker).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(150);
+      expect(sendWorker).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("supports object-form ({ handler }) hotUpdate hooks", () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const handler = vi.fn(function (this: { environment: any }) {
+        this.environment.hot.send({ type: "full-reload" });
+      });
+      const plugin = _debounceNitroFullReloadHotUpdate({
+        name: "nitro:main",
+        hotUpdate: { order: "post", handler },
+      } as any);
+      const context = { environment: { name: "ssr", hot: { send } } };
+
+      expect((plugin.hotUpdate as any).order).toBe("post");
+      (plugin.hotUpdate as any).handler.call(context, { modules: [] });
+      vi.advanceTimersByTime(300);
+
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves plugins without a hotUpdate hook unchanged", () => {
+    const plugin = { name: "nitro:env" } as any;
+    expect(_debounceNitroFullReloadHotUpdate(plugin)).toBe(plugin);
+  });
+});
+
 describe("Vite CSS build defaults", () => {
   it("keeps standard backdrop-filter declarations in production CSS", () => {
     const config = defineConfig();
@@ -917,6 +1342,9 @@ describe("Vite SSR stubs", () => {
     expect(code).toContain("export const EditorContent = stub;");
     expect(code).toContain("export const createNodeFromContent = stub;");
     expect(code).toContain("export const format = stub;");
+    expect(code).toContain("export const InputRule = stub;");
+    expect(code).toContain("export const useMessagePartReasoning = stub;");
+    expect(code).toContain("export const useMessagePartRuntime = stub;");
   });
 });
 
@@ -945,6 +1373,10 @@ describe("local-core dev aliases and router dedupe", () => {
       JSON.stringify({
         dependencies: {
           "@agent-native/core": pathToFileURL(coreRoot).href,
+          "@agent-native/toolkit": "workspace:*",
+          "@paper-design/shaders-react": "0.0.76",
+          html2canvas: "^1.4.1",
+          "react-dom": "^19.2.7",
           "react-router": "^8.0.1",
         },
       }),
@@ -952,16 +1384,65 @@ describe("local-core dev aliases and router dedupe", () => {
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
     expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).not.toContain("@agent-native/core/client/agent-chat");
+    expect(deps).not.toContain("@agent-native/core/client/changelog");
+    expect(deps).not.toContain("@agent-native/core/client/dev-overlay");
+    expect(deps).not.toContain("@agent-native/core/client/feature-flags");
+    expect(deps).not.toContain("@agent-native/core/client/hooks");
+    expect(deps).not.toContain("@agent-native/core/client/host");
     expect(deps).not.toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@assistant-ui/react");
-    expect(deps).toContain("@tiptap/react");
-    expect(deps).toContain("@xterm/xterm");
-    expect(deps).toContain("shiki/core");
+    expect(deps).not.toContain("@agent-native/core/client/integrations");
+    expect(deps).not.toContain("@agent-native/core/client/navigation");
+    expect(deps).not.toContain(
+      "@agent-native/core/client/route-chunk-recovery",
+    );
+    expect(deps).not.toContain("@agent-native/core/client/settings");
+    expect(deps).not.toContain("@agent-native/core/client/ui");
+    expect(deps).not.toContain("@agent-native/core/client/uploads");
+    expect(deps).not.toContain("@agent-native/core/client/widgets");
+    expect(deps).toContain("@agent-native/core > @assistant-ui/react");
+    expect(deps).toContain("@agent-native/core > @codemirror/lang-sql");
+    expect(deps).toContain("@agent-native/core > @sentry/browser");
+    expect(deps).toContain(
+      "@agent-native/core > @shadcn/react/message-scroller",
+    );
+    expect(deps).not.toContain("@agent-native/core > @tiptap/react");
+    expect(deps).not.toContain("@agent-native/core > @radix-ui/react-dialog");
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-dropdown-menu",
+    );
+    expect(deps).not.toContain(
+      "@agent-native/core > @radix-ui/react-hover-card",
+    );
+    expect(deps).toContain("@agent-native/core > @uiw/react-codemirror");
+    expect(deps).toContain("@agent-native/core > @xterm/xterm");
+    expect(deps).toContain("@agent-native/core > i18next");
+    expect(deps).toContain("@agent-native/core > react-i18next");
+    expect(deps).toContain("@agent-native/core > shiki/core");
+    expect(deps).toContain("@paper-design/shaders-react");
+    expect(deps).not.toContain(
+      "@agent-native/core > @paper-design/shaders-react",
+    );
+    expect(deps).toContain("html2canvas");
+    expect(deps).not.toContain("@agent-native/core > html2canvas");
+    expect(deps).toContain("react-dom/server");
+    expect(deps).toContain("react-router");
+    expect(deps).not.toContain("@agent-native/core > react-router");
+    expect(deps).toContain("@agent-native/core > highlight.js/lib/core");
+    expect(deps).toContain(
+      "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/index.js",
+    );
+    expect(deps).toContain(
+      "@agent-native/toolkit > @tiptap/react > use-sync-external-store/shim/with-selector.js",
+    );
+    expect(deps).toContain(
+      "@agent-native/toolkit > tiptap-markdown > markdown-it-task-lists",
+    );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("pre-optimizes the i18n subpath for published core consumers", () => {
+  it("discovers focused client subpaths on demand for published consumers", () => {
     const tmpDir = fs.mkdtempSync(
       path.join(os.tmpdir(), "an-vite-optimize-i18n-"),
     );
@@ -976,9 +1457,14 @@ describe("local-core dev aliases and router dedupe", () => {
     );
 
     const deps = _getDefaultOptimizeDeps(tmpDir);
-    expect(deps).toContain("@agent-native/core/client/i18n");
-    expect(deps).toContain("@agent-native/toolkit/collab-ui");
-    expect(deps).toContain("@agent-native/toolkit/sharing");
+    expect(deps).toContain("@agent-native/core");
+    expect(deps).not.toContain("@agent-native/core/client");
+    expect(deps).not.toContain("@agent-native/core/client/agent-chat");
+    expect(deps).not.toContain("@agent-native/core/client/composer");
+    expect(deps).not.toContain("@agent-native/core/client/hooks");
+    expect(deps).not.toContain("@agent-native/core/client/widgets");
+    expect(deps).not.toContain("@agent-native/toolkit/collab-ui");
+    expect(deps).not.toContain("@agent-native/toolkit/editor");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -1015,6 +1501,75 @@ describe("local-core dev aliases and router dedupe", () => {
             alias.replacement.endsWith("src/client/i18n.tsx"),
         ),
       ).toBe(true);
+    } finally {
+      process.chdir(previousCwd);
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes and aliases every source client domain subpath", () => {
+    const previousCwd = process.cwd();
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-client-domains-src-"),
+    );
+    const appDir = path.join(tmpDir, "templates", "dispatch");
+    const coreSrcDir = path.join(tmpDir, "packages", "core", "src");
+    const clientDomains = {
+      "@agent-native/core/client/agent-chat": "client/agent-chat/index.ts",
+      "@agent-native/core/client/analytics": "client/analytics/index.ts",
+      "@agent-native/core/client/automation": "client/automation/index.ts",
+      "@agent-native/core/client/changelog": "client/changelog/index.ts",
+      "@agent-native/core/client/dev-overlay": "client/dev-overlay/index.ts",
+      "@agent-native/core/client/editor": "client/tombstone/editor.ts",
+      "@agent-native/core/client/feature-flags":
+        "client/feature-flags/index.ts",
+      "@agent-native/core/client/rich-markdown-editor":
+        "client/tombstone/rich-markdown-editor.ts",
+      "@agent-native/core/client/components/ui/dialog":
+        "client/tombstone/ui-dialog.ts",
+      "@agent-native/core/client/components/AgentPresenceChip":
+        "client/tombstone/agent-presence-chip.ts",
+      "@agent-native/core/client/visual-style-controls":
+        "client/tombstone/visual-style-controls.ts",
+      "@agent-native/core/client/hooks": "client/hooks/index.ts",
+      "@agent-native/core/client/host": "client/host/index.ts",
+      "@agent-native/core/client/integrations": "client/integrations/index.ts",
+      "@agent-native/core/client/navigation": "client/navigation/index.ts",
+      "@agent-native/core/client/route-chunk-recovery":
+        "client/route-chunk-recovery/index.ts",
+      "@agent-native/core/client/settings": "client/settings/index.ts",
+      "@agent-native/core/client/ui": "client/ui/index.ts",
+      "@agent-native/core/client/uploads": "client/uploads/index.ts",
+      "@agent-native/core/client/widgets": "client/widgets/index.ts",
+    };
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.mkdirSync(coreSrcDir, { recursive: true });
+    fs.writeFileSync(path.join(appDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(coreSrcDir, "index.ts"), "export {};\n");
+
+    try {
+      process.chdir(appDir);
+      const config = defineConfig();
+      const exclude =
+        (config.optimizeDeps as { exclude?: string[] } | undefined)?.exclude ??
+        [];
+      const aliases =
+        (
+          config.resolve as {
+            alias?: Array<{ find: RegExp; replacement: string }>;
+          }
+        )?.alias ?? [];
+
+      for (const [specifier, sourcePath] of Object.entries(clientDomains)) {
+        expect(exclude).toContain(specifier);
+        expect(
+          aliases.some(
+            (alias) =>
+              alias.find.test(specifier) &&
+              alias.replacement.endsWith(path.join("src", sourcePath)),
+          ),
+        ).toBe(true);
+      }
     } finally {
       process.chdir(previousCwd);
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -1101,10 +1656,13 @@ describe("local-core dev aliases and router dedupe", () => {
     const appDir = path.join(tmpDir, "templates", "forms");
     const nodeModulesDir = path.join(tmpDir, "node_modules");
     const coreDir = path.join(tmpDir, "packages", "core");
+    const toolkitDir = path.join(tmpDir, "packages", "toolkit");
     fs.mkdirSync(appDir, { recursive: true });
     fs.mkdirSync(nodeModulesDir, { recursive: true });
     fs.mkdirSync(coreDir, { recursive: true });
+    fs.mkdirSync(toolkitDir, { recursive: true });
     fs.writeFileSync(path.join(coreDir, "package.json"), "{}");
+    fs.writeFileSync(path.join(toolkitDir, "package.json"), "{}");
 
     try {
       process.chdir(appDir);
@@ -1115,6 +1673,9 @@ describe("local-core dev aliases and router dedupe", () => {
 
       expect(fsAllow).toContain(
         fs.realpathSync(path.join(tmpDir, "packages", "core")),
+      );
+      expect(fsAllow).toContain(
+        fs.realpathSync(path.join(tmpDir, "packages", "toolkit")),
       );
       expect(fsAllow).toContain(fs.realpathSync(nodeModulesDir));
     } finally {
@@ -1136,6 +1697,47 @@ describe("local-core dev aliases and router dedupe", () => {
     );
 
     expect(_findCorePackageRoot(tmpDir)).toBe(coreRoot);
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("does not treat a published core package with source files as a local checkout", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-published-core-"),
+    );
+    const installedCore = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    fs.mkdirSync(path.join(installedCore, "src"), { recursive: true });
+    fs.writeFileSync(path.join(installedCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(
+      path.join(installedCore, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        devDependencies: {
+          "@excalidraw/excalidraw": "0.18.1",
+          mermaid: "11.15.0",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "@agent-native/core": "^0.118.0" },
+      }),
+    );
+
+    expect(_findCorePackageRoot(tmpDir)).toBeNull();
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain("@agent-native/core");
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/core > @excalidraw/excalidraw",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/core > mermaid",
+    );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

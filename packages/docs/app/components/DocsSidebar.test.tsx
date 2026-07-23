@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
@@ -81,6 +81,15 @@ describe("DocsSidebar", () => {
     expect(html).toContain("Overview");
     expect(html).toContain('href="/docs"');
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
+  });
+
+  it("uses the Agent Resources section and canonical overview link", () => {
+    const html = renderSidebar("/docs/agent-resources");
+
+    expect(html).toContain("Agent Resources");
+    expect(html).toContain("Agent Resources Overview");
+    expect(html).toContain('href="/docs/agent-resources"');
+    expect(html).not.toContain('href="/docs/workspace"');
   });
 
   it("expands the section that contains the active docs page", () => {

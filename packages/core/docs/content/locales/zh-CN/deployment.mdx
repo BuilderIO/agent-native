@@ -333,12 +333,14 @@ export default defineConfig({
 
 ### 构建/运行时 {#env-runtime}
 
-| 变量                        | 描述                                                                                                                           |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `PORT`                      | 服务器端口（仅限Node.js）                                                                                                      |
-| `NITRO_PRESET`              | 在构建时覆盖构建预设                                                                                                           |
-| `APP_BASE_PATH`             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                   |
-| `AGENT_PROD_CODE_EXECUTION` | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。 |
+| 变量                                        | 描述                                                                                                                                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | 服务器端口（仅限Node.js）                                                                                                                                                                                                                                                             |
+| `NITRO_PRESET`                              | 在构建时覆盖构建预设                                                                                                                                                                                                                                                                  |
+| `APP_BASE_PATH`                             | 将应用程序安装在前缀下（例如 `/mail`）。由`npx @agent-native/core@latest deploy`自动设置；保持未设置为独立。                                                                                                                                                                          |
+| `AGENT_PROD_CODE_EXECUTION`                 | 可选的生产代码执行模式：`off`（默认）、`sandboxed` 或 `trusted`。参见[Production Code Execution](#production-code-execution)。                                                                                                                                                        |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 用于预览安全的 Builder 授权中继的专用 32+ 字符共享 HMAC 密钥。只有当授权结果必须写入隔离的预览数据库时，才在获批的企业回调部署和预览部署上设置相同的值。                                                                                                                              |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 仅用于企业回调的、以逗号分隔的精确可信预览来源允许列表（例如 `https://0123456789abcdef01234567--content.netlify.app`）。仅在企业回调部署中设置。Netlify 来源必须使用包含 24 位十六进制 ID、不可变且特定于部署的永久链接；可变的 `deploy-preview-*` 别名、通配符和域名后缀均会被拒绝。 |
 
 数据库连接变量（`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、每个应用程序 `<APP_NAME>_DATABASE_URL`）位于 [Database](/docs/database#production) 中。
 
@@ -373,7 +375,7 @@ OAuth 提供商凭证（Google、GitHub）、静态 MCP 承载后备（`ACCESS_T
 
 ### 生成强大的秘密 {#env-generate-secrets}
 
-对于任何标记为“32+ char random”的密钥（`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`），请使用以下命令生成新值：
+对于任何标记为“32+ char random”的密钥（`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`），请使用以下命令生成新值：
 
 ```bash
 openssl rand -hex 32
@@ -437,7 +439,7 @@ agent-native 的核心功能之一是代理可以修改应用程序的源代码 
 
 ### Builder.io：制作中的可视化编辑 {#builderio}
 
-[Builder.io](https://www.builder.io) 通过提供托管云环境来解决此问题，在该环境中，代理保留在生产中修改应用程序的 UI 的能力。将您的存储库连接到 Builder.io 并直接提示 UI 更改 - 无需重新部署。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 通过提供托管云环境来解决此问题，在该环境中，代理保留在生产中修改应用程序的 UI 的能力。将您的存储库连接到 Builder.io 并直接提示 UI 更改 - 无需重新部署。
 
 **工作原理：**
 
@@ -451,3 +453,11 @@ agent-native 的核心功能之一是代理可以修改应用程序的源代码 
 ## 多实例部署 {#multi-instance}
 
 代理本机应用程序通过 Drizzle 将所有状态存储在 SQL 中，并通过 [polling](/docs/key-concepts#polling-sync) 与数据库同步 UI — 无文件系统状态、无粘性会话、无内存缓存。这意味着多实例和无服务器部署开箱即用：将每个实例指向同一个 `DATABASE_URL`，它们会自动聚合。请参阅 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) 和 [Portability](/docs/key-concepts#hosting-agnostic)。
+
+## 下一步
+
+- [**Database**](/docs/database#production) — 在首次生产部署前选择持久化 SQL 后端
+- [**Security**](/docs/security) — 本页提到的生产检查清单和可选标志
+- [**Authentication**](/docs/authentication) — 所选身份验证模式的 OAuth 凭据和环境变量
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` 单源构建背后的工作区模型
+- [**Frames**](/docs/frames) — 用于生产 UI 编辑的嵌入式代理面板与 Builder.io 云框架

@@ -333,12 +333,14 @@ export default defineConfig({
 
 ### बिल्ड/रनटाइम {#env-runtime}
 
-| वेरिएबल                     | विवरण                                                                                                                                                                    |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `PORT`                      | सर्वर पोर्ट (केवल Node.js)                                                                                                                                               |
-| `NITRO_PRESET`              | बिल्ड समय पर बिल्ड प्रीसेट को ओवरराइड करें                                                                                                                               |
-| `APP_BASE_PATH`             | एप्लिकेशन को किसी उपसर्ग के अंतर्गत माउंट करें (उदा. `/mail`)। `npx @agent-native/core@latest deploy` द्वारा स्वचालित रूप से सेट करें; स्टैंडअलोन के लिए अनसेट छोड़ दें। |
-| `AGENT_PROD_CODE_EXECUTION` | वैकल्पिक उत्पादन कोड-निष्पादन मोड: `off` (डिफ़ॉल्ट), `sandboxed`, या `trusted`। [Production Code Execution](#production-code-execution) देखें.                           |
+| वेरिएबल                                     | विवरण                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | सर्वर पोर्ट (केवल Node.js)                                                                                                                                                                                                                                                                                                                                                                                    |
+| `NITRO_PRESET`                              | बिल्ड समय पर बिल्ड प्रीसेट को ओवरराइड करें                                                                                                                                                                                                                                                                                                                                                                    |
+| `APP_BASE_PATH`                             | एप्लिकेशन को किसी उपसर्ग के अंतर्गत माउंट करें (उदा. `/mail`)। `npx @agent-native/core@latest deploy` द्वारा स्वचालित रूप से सेट करें; स्टैंडअलोन के लिए अनसेट छोड़ दें।                                                                                                                                                                                                                                      |
+| `AGENT_PROD_CODE_EXECUTION`                 | वैकल्पिक उत्पादन कोड-निष्पादन मोड: `off` (डिफ़ॉल्ट), `sandboxed`, या `trusted`। [Production Code Execution](#production-code-execution) देखें.                                                                                                                                                                                                                                                                |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | पूर्वावलोकन-सुरक्षित Builder प्राधिकरण रिले के लिए समर्पित, साझा 32+ वर्णों का HMAC रहस्य। स्वीकृत कॉर्पोरेट कॉलबैक परिनियोजन और पूर्वावलोकन परिनियोजन पर समान मान केवल तभी सेट करें, जब प्राधिकरण को एक अलग पूर्वावलोकन डेटाबेस में सहेजना हो।                                                                                                                                                               |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | केवल कॉर्पोरेट कॉलबैक के लिए, सटीक विश्वसनीय पूर्वावलोकन origins की कॉमा से अलग की गई allowlist (उदाहरण: `https://0123456789abcdef01234567--content.netlify.app`)। इसे केवल कॉर्पोरेट कॉलबैक परिनियोजन पर सेट करें। Netlify origins को 24-हेक्स ID वाला अपरिवर्तनीय, परिनियोजन-विशिष्ट permalink उपयोग करना होगा; परिवर्तनशील `deploy-preview-*` aliases, वाइल्डकार्ड और डोमेन प्रत्यय अस्वीकार किए जाते हैं। |
 
 डेटाबेस कनेक्शन वेरिएबल (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, प्रति-ऐप `<APP_NAME>_DATABASE_URL`) [Database](/docs/database#production) में रहते हैं।
 
@@ -373,7 +375,7 @@ OAuth प्रदाता क्रेडेंशियल (Google, GitHub), 
 
 ### मजबूत रहस्य उत्पन्न करना {#env-generate-secrets}
 
-"32+ चार यादृच्छिक" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`) चिह्नित किसी भी रहस्य के लिए, इसके साथ नए मान उत्पन्न करें:
+"32+ चार यादृच्छिक" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`) चिह्नित किसी भी रहस्य के लिए, इसके साथ नए मान उत्पन्न करें:
 
 ```bash
 openssl rand -hex 32
@@ -438,7 +440,7 @@ export default createAgentChatPlugin({
 
 ### Builder.io: प्रोडक्शन में विजुअल एडिटिंग {#builderio}
 
-[Builder.io](https://www.builder.io) एक प्रबंधित क्लाउड वातावरण प्रदान करके इसे हल करता है जहां एजेंट उत्पादन में आपके ऐप के UI को संशोधित करने की क्षमता रखता है। अपने रेपो को Builder.io से कनेक्ट करें और सीधे UI परिवर्तनों के लिए संकेत दें - किसी पुनः तैनाती की आवश्यकता नहीं है।
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक प्रबंधित क्लाउड वातावरण प्रदान करके इसे हल करता है जहां एजेंट उत्पादन में आपके ऐप के UI को संशोधित करने की क्षमता रखता है। अपने रेपो को Builder.io से कनेक्ट करें और सीधे UI परिवर्तनों के लिए संकेत दें - किसी पुनः तैनाती की आवश्यकता नहीं है।
 
 **यह कैसे काम करता है:**
 
@@ -452,3 +454,11 @@ export default createAgentChatPlugin({
 ## मल्टी-इंस्टेंस परिनियोजन {#multi-instance}
 
 एजेंट-नेटिव ऐप्स सभी स्थिति को Drizzle के माध्यम से SQL में संग्रहीत करते हैं और UI को [polling](/docs/key-concepts#polling-sync) के माध्यम से डेटाबेस के विरुद्ध सिंक करते हैं - कोई फ़ाइल-सिस्टम स्थिति नहीं, कोई चिपचिपा सत्र नहीं, कोई इन-मेमोरी कैश नहीं। इसका मतलब है कि मल्टी-इंस्टेंस और सर्वर रहित परिनियोजन बॉक्स से बाहर काम करते हैं: प्रत्येक इंस्टेंस को एक ही `DATABASE_URL` पर इंगित करें और वे स्वचालित रूप से परिवर्तित हो जाते हैं। [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) और [Portability](/docs/key-concepts#hosting-agnostic) देखें।
+
+## आगे क्या है
+
+- [**Database**](/docs/database#production) — पहले production deploy से पहले persistent SQL backend चुनें
+- [**Security**](/docs/security) — इस पेज पर बताए गए production checklist और opt-in flags
+- [**Authentication**](/docs/authentication) — चुने गए auth mode के OAuth credentials और environment variables
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` के single-origin build के पीछे का workspace model
+- [**Frames**](/docs/frames) — production UI बदलावों के लिए embedded agent panel और Builder.io cloud frame की तुलना

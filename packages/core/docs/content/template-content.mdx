@@ -91,9 +91,8 @@ When you open the app, you'll see a page tree next to the editor. The agent alwa
 - **Organize pages in a tree** — nest infinitely, drag to reorder, favorite pages you use often.
 - **Search across everything** with full-text search across titles and content.
 - **Edit local Markdown/MDX files like Obsidian.** Use the `/local-files` view
-  to export your workspace to files, edit them in your own tools, preview
-  changes, and import them back. In Local File Mode, Content writes straight to
-  the selected `.md` or `.mdx` file.
+  to connect a folder to a space's Files database, edit with your own tools,
+  sync changes, and review conflicts without leaving the database-backed app.
 - **Generate rich interactive custom blocks.** Register local React components,
   insert them as MDX, and let the agent create or update component files for
   your docs.
@@ -120,10 +119,10 @@ Select text and hit Cmd+I to focus the agent with that selection pre-loaded — 
 
 Content can round-trip documents through local files without cloning or running
 the Content app locally. It feels like Obsidian for MDX: files stay inspectable
-and editable, while the app gives you a rich editor, agent actions, sharing, and
-custom blocks. Open `/local-files`, choose a folder in your browser or Agent
-Native Desktop, and export the current document tree as Markdown/MDX under
-`content/`.
+and editable on disk, while the app gives you a rich editor, agent actions,
+sharing, and custom blocks. Open
+`/local-files`, choose a folder in your browser or Agent Native Desktop, and
+export the current document tree as Markdown/MDX under `content/`.
 
 Each exported file contains frontmatter for document metadata (`id`, `title`,
 `parentId`, `position`, favorite/search/visibility flags, and `updatedAt`) plus
@@ -136,32 +135,23 @@ as the review surface. The hosted app remains the source of truth for sharing,
 comments, permissions, and live collaboration; the local folder is an explicit
 sync surface.
 
-Content can also run in **Local File Mode**, where files are the source of
-truth instead of SQL documents. Add `agent-native.json` to a repo, set
-`mode: "local-files"`, and configure roots such as `docs/`, `blog/`,
-`content/`, and `resources/`. The standard Content editor then populates its
-left sidebar from those local `.md`/`.mdx` files and writes edits back to the
-selected file through the normal document actions. Use this for repo-first docs,
-blogs, resource libraries, or Obsidian-style personal content with MDX-powered
-components; switch back to database mode when you want hosted collaboration and
-SQL-backed sharing. See [Local File Mode](/docs/local-file-mode) for the
-standalone repo layout, configuration, custom MDX components, local
-`extensions/` widgets, and production safety guide.
+Local folders now use the same database model as every other page. Each page
+belongs to a space and its system Files database; a folder is a source adapter
+on that database. You can attach a folder to an existing space or create a
+private folder-backed space, then use database properties and saved sidebar
+views on the imported pages. See [Local folder sources](/docs/local-file-mode)
+for configuration, truth policies, conflicts, custom MDX components, and local
+`extensions/` widgets.
 
-To install the Content local-files skill into an existing repo:
+To open Content for an existing repo:
 
 ```bash
-npx @agent-native/core@latest skills add content --mode local-files --scope project
+npx @agent-native/core@latest content .
 ```
 
-The installer copies the `content` skill for your coding agent and writes or
-updates `agent-native.json` with Content roots for `docs/`, `blog/`, `content/`,
-and `resources/`. When a local Content app, Agent Native Desktop, or trusted
-local bridge is running, agents should use Content actions such as
-`list-documents`, `get-document`, `edit-document`, `update-document`, and
-`share-local-file-document` instead of raw filesystem writes. Without that local
-bridge, the installed skill still gives the agent the repo-editing contract for
-safe Markdown/MDX edits.
+The CLI starts normal database-backed Content, registers an opaque local-folder
+connection in `agent-native.json`, and opens the connection screen. It does not
+set a local-mode environment variable.
 
 ## For developers
 
@@ -190,28 +180,21 @@ Open `http://localhost:8083` and create your first page. Then ask the agent to "
 
 **Search and comments.** Full-text search, anchored comments, version history, and restore flows are built into the document surface.
 
-**Sync surfaces.** Documents can sync with Notion or local Markdown/MDX folders, with SQL acting as the collaborative cache/history layer.
+**Sync surfaces.** Documents can sync with Notion or local Markdown/MDX folders, while SQL remains the canonical collaborative data model.
 
 ### Local file sync
 
 The protected `/local-files` route uses the browser File System Access API, or a
-guarded native folder bridge inside Agent Native Desktop, to read and write
-Markdown/MDX files from a user-chosen folder. After the folder is linked and
-imported, the selected file is treated as the authority: opening the page reads
-the file, and normal editor saves write the file first. SQL is then updated as a
-cache/history layer for the existing document UI, search, and version panel, not
-as the source of truth. The top-right page menu exposes the local source path:
-relative path is always available, absolute path is available in true local-file
-mode and Agent Native Desktop, and Reveal in Finder is available through the
-desktop bridge or server-backed local-file mode.
+guarded native folder bridge inside Agent Native Desktop, to connect a folder to
+a Files database. SQL stores only an opaque connection ID, relative paths,
+hashes, and source metadata. Sync materializes ordinary database pages and
+records concurrent edits as reviewable change sets instead of silently
+overwriting either side. Disconnecting preserves both database pages and files.
 
-The bulk sync route calls:
-
-- `export-content-source` — reads the accessible document tree and returns a
-  deterministic `content/` file bundle.
-- `import-content-source` — validates files, creates new private documents,
-  updates documents where the caller has editor access, preserves version
-  history, and rejects invalid parent cycles.
+The folder workflow calls `connect-local-folder-source`,
+`sync-local-folder-source`, `resolve-local-folder-conflict`, and
+`disconnect-local-folder-source`. `export-content-source` can export one source
+using its original relative paths.
 
 The source format lives in `shared/content-source.ts`. Keep that file as the
 single contract for filenames, frontmatter, parsing, and serialization.
@@ -225,8 +208,7 @@ workspace, but the editor can render them and the agent can generate or update
 their source without cloning the Content app. A minimal workspace component can
 be:
 
-```tsx
-// components/ImpactCounter.tsx
+```tsx filename="components/ImpactCounter.tsx"
 import { useState } from "react";
 
 export function ImpactCounter({
@@ -671,3 +653,11 @@ The four places to look when changing behavior:
 - **`shared/notion-markdown.ts`** — markdown-to-Notion-blocks conversion. Extend this if you add new block types that need to round-trip through Notion.
 
 The agent can make all of these changes itself — ask it to "add a tags column to documents and expose it in the sidebar" and it will update the schema, migrate, wire the UI, and write the action.
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Local folder sources**](/docs/local-file-mode) — spaces, Files databases, folder adapters, migration, and safety
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the Yjs pipeline documents share with other collaborative surfaces
+- [**Sharing**](/docs/sharing) — the share-grant model documents build on

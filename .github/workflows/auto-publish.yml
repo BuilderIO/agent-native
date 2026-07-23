@@ -26,8 +26,10 @@ on:
       # npm-published packages — any source change reaches here via the
       # Version Packages PR merge bumping their package.json.
       - "packages/core/**"
+      - "packages/creative-context/**"
       - "packages/dispatch/**"
       - "packages/pinpoint/**"
+      - "packages/recap-cli/**"
       - "packages/scheduling/**"
       - "packages/skills/**"
       - "packages/toolkit/**"
@@ -42,6 +44,8 @@ on:
       # Release workflow plumbing changes should exercise the npm release job.
       - ".github/workflows/auto-publish.yml"
       - "scripts/changeset-publish-sequential.ts"
+      - "scripts/guard-public-packages.ts"
+      - "scripts/prebuild-workspace-packages.ts"
       # desktop-app stays version-triggered (not changesets-managed).
       - "packages/desktop-app/package.json"
   workflow_dispatch:
@@ -135,6 +139,7 @@ jobs:
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
@@ -155,6 +160,7 @@ jobs:
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
@@ -174,6 +180,7 @@ jobs:
           steps.changesets.outputs.published == 'true' &&
           (
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
+            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
             contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
           )
         env:

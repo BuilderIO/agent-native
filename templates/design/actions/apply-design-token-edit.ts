@@ -1,11 +1,13 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import {
+  mutateDesignData,
+  type DesignDataRecord,
+} from "../server/lib/design-data-mutation.js";
 import {
   INLINE_DEFAULT_CAPABILITIES,
   hasCapability,
@@ -53,6 +55,25 @@ function designDeepLink(designId: string): string {
   });
 }
 
+type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
+type TweakSelections = Record<string, string | number | boolean>;
+
+function readTweaks(data: DesignDataRecord): TweakDef[] {
+  return Array.isArray(data.tweaks) ? (data.tweaks as TweakDef[]) : [];
+}
+
+function readSelections(data: DesignDataRecord): TweakSelections {
+  return data.tweakSelections &&
+    typeof data.tweakSelections === "object" &&
+    !Array.isArray(data.tweakSelections)
+    ? (data.tweakSelections as TweakSelections)
+    : {};
+}
+
+function selectionKeyForCssVar(tweaks: TweakDef[], cssVar: string): string {
+  return tweaks.find((tweak) => tweak.cssVar === cssVar)?.id ?? cssVar;
+}
+
 // ---------------------------------------------------------------------------
 // Action — persist token edit through the Tweaks loop (Tier-A)
 // ---------------------------------------------------------------------------
@@ -93,87 +114,35 @@ export default defineAction({
     // sourceRef will be used once real write-back is implemented
     void sourceRef;
 
-    const db = getDb();
-    const now = new Date().toISOString();
-
-    // ------------------------------------------------------------------
-    // Load current design data
-    // ------------------------------------------------------------------
-    const [existingDesign] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId));
-
-    let prevData: Record<string, unknown> = {};
-    if (existingDesign?.data) {
-      try {
-        const parsed = JSON.parse(existingDesign.data);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          prevData = parsed;
+    // Merge against the latest designs.data revision. Each retry re-resolves
+    // cssVar -> tweak id so a concurrent tweak-definition change cannot leave
+    // the value under a stale key.
+    const { data: persistedData } = await mutateDesignData({
+      designId,
+      mutate: (prevData, { updatedAt }) => {
+        const tweaks = readTweaks(prevData);
+        const newSelections = { ...readSelections(prevData) };
+        for (const { cssVar, value } of edits) {
+          newSelections[selectionKeyForCssVar(tweaks, cssVar)] = value;
         }
-      } catch {
-        // Stale/invalid JSON — start fresh but never drop the column.
-      }
-    }
+        return {
+          ...prevData,
+          tweakSelections: newSelections,
+          tweaksAppliedAt: updatedAt,
+        };
+      },
+      isApplied: (data) => {
+        const tweaks = readTweaks(data);
+        const selections = readSelections(data);
+        return edits.every(
+          ({ cssVar, value }) =>
+            selections[selectionKeyForCssVar(tweaks, cssVar)] === value,
+        );
+      },
+    });
 
-    type TweakDef = Parameters<typeof resolveTweaksToCssVars>[0][number];
-    const tweaks: TweakDef[] = Array.isArray(prevData.tweaks)
-      ? (prevData.tweaks as TweakDef[])
-      : [];
-
-    // Map cssVar -> tweakId for known tweaks
-    const cssVarToTweakId = new Map<string, string>();
-    for (const t of tweaks) {
-      if (t.cssVar) cssVarToTweakId.set(t.cssVar, t.id);
-    }
-
-    const prevSelections: Record<string, string | number | boolean> =
-      prevData.tweakSelections &&
-      typeof prevData.tweakSelections === "object" &&
-      !Array.isArray(prevData.tweakSelections)
-        ? (prevData.tweakSelections as Record<
-            string,
-            string | number | boolean
-          >)
-        : {};
-
-    // ------------------------------------------------------------------
-    // Merge edits into tweakSelections
-    // ------------------------------------------------------------------
-    // For each edit:
-    //   - If the cssVar maps to a known tweak, persist by tweakId (the standard
-    //     Tweaks loop key) so apply-tweaks, get-design-snapshot, and the bridge
-    //     script all pick it up consistently.
-    //   - If the cssVar does NOT map to a known tweak, we synthesise a minimal
-    //     tweak entry and persist via the raw cssVar key so the bridge script
-    //     (`TWEAK_BRIDGE_SCRIPT`) still applies it.
-    const newSelections = { ...prevSelections };
-
-    for (const { cssVar, value } of edits) {
-      const tweakId = cssVarToTweakId.get(cssVar);
-      if (tweakId) {
-        newSelections[tweakId] = value;
-      } else {
-        // Fallback: persist using the cssVar as the key — the bridge script
-        // calls documentElement.style.setProperty with the key directly, so
-        // any key starting with "--" is applied as-is.
-        newSelections[cssVar] = value;
-      }
-    }
-
-    // ------------------------------------------------------------------
-    // Persist — same atomic write as apply-tweaks
-    // ------------------------------------------------------------------
-    const mergedData: Record<string, unknown> = {
-      ...prevData,
-      tweakSelections: newSelections,
-      tweaksAppliedAt: now,
-    };
-
-    await db
-      .update(schema.designs)
-      .set({ data: JSON.stringify(mergedData), updatedAt: now })
-      .where(eq(schema.designs.id, designId));
+    const tweaks = readTweaks(persistedData);
+    const newSelections = readSelections(persistedData);
 
     // Resolve to full CSS var map for the response (so the caller can send a
     // tweak-values postMessage without a separate round-trip)

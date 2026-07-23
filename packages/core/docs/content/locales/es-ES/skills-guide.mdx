@@ -5,7 +5,7 @@ description: "Cómo funciona skills en el agente nativo: marco skills, dominio s
 
 # Guía Skills
 
-Skills son archivos Markdown que brindan al agente un conocimiento profundo sobre patrones y flujos de trabajo específicos.
+Skills son archivos Markdown que proporcionan al agente conocimientos profundos sobre patrones y flujos de trabajo específicos. En lugar de concentrar todas las reglas en un único prompt del sistema, el conocimiento se divide en archivos específicos que el agente carga solo cuando una tarea realmente los necesita. Así, el contexto predeterminado se mantiene reducido sin impedir que el agente profundice cuando sea necesario.
 
 ## ¿Qué son skills? {#what-are-skills}
 
@@ -120,9 +120,11 @@ El dominio skills sigue el mismo formato que el marco skills. Codifican patrones
 
 Las skills respaldadas por apps actuales incluyen `visual-plan`, `visual-recap` y `visualize-repo` de Plan, `visual-edit` de Design, `assets` de Assets y `content` para edición docs/blog/MDX respaldada por repositorio.
 
-skills, respaldado por una aplicación, empaqueta una aplicación nativa del agente como un artefacto del mercado de habilidades. El paquete puede incluir instrucciones del agente, skills exportado, metadatos del conector MCP, instrucciones de inicio alojadas/locales y superficies UI como aplicaciones MCP.
+<Callout tone="info">
 
-> **Detalles completos a continuación:** la mecánica de skills respaldado por aplicaciones (formato de manifiesto, comandos CLI, adaptadores de mercado, hash de actualización automática) se tratan en [App-backed skills — full details](#app-backed-skills-full).
+**Detalles completos a continuación:** la mecánica de skills respaldado por aplicaciones (formato de manifiesto, comandos CLI, adaptadores de mercado, hash de actualización automática) se tratan en [App-backed skills — full details](#app-backed-skills-full).
+
+</Callout>
 
 ## Creando skills personalizado {#creating-skills}
 
@@ -135,7 +137,7 @@ Crea una habilidad cuando:
 No crees una habilidad cuando:
 
 - La guía ya existe en otra habilidad; en su lugar, amplíela
-- La guía es única: colóquela en `AGENTS.md` o en la memoria del espacio de trabajo
+- La guía es única: colóquela en `AGENTS.md` o en la memoria del agente
 
 ## Formato de habilidad {#skill-format}
 
@@ -177,7 +179,11 @@ El sistema de herramientas del agente utiliza los frontmatter `name` y `descript
 
 Guarde el archivo en `.agents/skills/my-skill/SKILL.md`. El nombre del directorio debe coincidir con `name` en frontmatter.
 
-> **Ver también:** [Writing Agent Instructions](/docs/writing-agent-instructions) para saber cómo redactar descripciones de habilidades, aplicar la divulgación progresiva y mantener `AGENTS.md` eficiente. Ambas páginas utilizan la habilidad `project-imports` como ejemplo de ejecución.
+<Callout tone="info">
+
+**Ver también:** [Writing Agent Instructions](/docs/writing-agent-instructions) para saber cómo redactar descripciones de habilidades, aplicar la divulgación progresiva y mantener `AGENTS.md` eficiente. Ambas páginas utilizan la habilidad `project-imports` como ejemplo de ejecución.
+
+</Callout>
 
 ## Alcance de la habilidad: tiempo de ejecución frente a desarrollo {#skill-scope}
 
@@ -267,33 +273,37 @@ Esto reemplaza el antiguo truco de confiar en el código Claude que solo lee `.c
 
 </Diagram>
 
-> **Consulte también:** [Writing Agent Instructions](/docs/writing-agent-instructions) para saber cómo redactar descripciones de habilidades, aplicar la divulgación progresiva y mantener `AGENTS.md` optimizado.
-
 ## Skills frente a AGENTS.md {#skills-vs-agents-md}
 
-> **AGENTS.md**: descripción general. Enumera todos los scripts, describe el modelo de datos y explica la arquitectura de la aplicación. El agente lee esto primero para entender la aplicación.
->
-> **Skills**: inmersiones profundas. Cada habilidad se centra en un patrón con reglas detalladas, ejemplos de código y listas de lo que se debe/no se debe hacer. El agente los lee cuando necesita seguir un patrón específico.
+<Callout tone="info">
+
+**AGENTS.md**: descripción general. Enumera todos los scripts, describe el modelo de datos y explica la arquitectura de la aplicación. El agente lee esto primero para entender la aplicación.
+
+**Skills**: inmersiones profundas. Cada habilidad se centra en un patrón con reglas detalladas, ejemplos de código y listas de lo que se debe/no se debe hacer. El agente los lee cuando necesita seguir un patrón específico.
+
+</Callout>
 
 `AGENTS.md` le dice al agente _qué_ hace la aplicación. Skills le dice al agente _cómo_ hacer cosas específicas correctamente. Ambos son necesarios: `AGENTS.md` para orientación, skills para ejecución.
 
 ## Skills frente a memoria {#skills-vs-memory}
 
-> **Skills**: guías prácticas reutilizables y escritas. Se aplica a todos los usuarios y se invoca a pedido cuando la tarea coincide.
->
-> **Memoria (`LEARNINGS.md` / `memory/MEMORY.md`)**: aprendizajes compartidos del proyecto y memoria estructurada personal cargada en cada turno.
+<Callout tone="info">
 
-Si el conocimiento se aplica a _todos_ los que trabajan en la aplicación ("siempre prefiera CTE a las subconsultas"), es una habilidad o `LEARNINGS.md` compartida. Si se trata de _este usuario en particular_ ("A Steve le gustan las respuestas concisas"), pertenece a `memory/MEMORY.md`. Consulte [Workspace Memory](/docs/workspace#memory) para conocer el tratamiento completo.
+**Skills**: guías prácticas reutilizables y escritas. Se aplica a todos los usuarios y se invoca a pedido cuando la tarea coincide.
 
----
+**Memoria (`LEARNINGS.md` / `memory/MEMORY.md`)**: aprendizajes compartidos del proyecto y memoria estructurada personal cargada en cada turno.
 
-# Avanzado
+</Callout>
+
+Si el conocimiento se aplica a _todos_ los que trabajan en la aplicación ("siempre prefiera CTE a las subconsultas"), es una habilidad o `LEARNINGS.md` compartida. Si se trata de _este usuario en particular_ ("A Steve le gustan las respuestas concisas"), pertenece a `memory/MEMORY.md`. Consulte [Recursos del Agente — Memoria](/docs/agent-resources#memory) para conocer el tratamiento completo.
+
+## Skills frente a recursos SQL {#skills-vs-resources}
+
+Esta página presenta un skill como un archivo en `.agents/skills/<name>/SKILL.md`. [Recursos del Agente](/docs/agent-resources#skills) presenta el mismo skill como un recurso SQL en la ruta `skills/<slug>/SKILL.md`, con alcance de workspace, compartido o personal. Son el mismo concepto desde dos perspectivas: el modo Code lee y escribe el archivo directamente; el modo App lo almacena como una fila de recurso para que funcione sin un sistema de archivos. En ambos casos, crea el contenido con el formato de esta página.
 
 ## skills respaldado por la aplicación: detalles completos {#app-backed-skills-full}
 
-El paquete skills respaldado por una aplicación es una aplicación nativa del agente como un artefacto del mercado de habilidades.
-El paquete puede incluir instrucciones del agente, conector skills y MCP exportado
-metadatos, instrucciones de inicio alojadas/locales y superficies UI como aplicaciones MCP.
+El formato del manifiesto, los comandos CLI, los adaptadores de marketplace y el hash de actualización automática que sustentan los [skills respaldados por aplicaciones](#app-backed-skills), en detalle:
 
 Cada habilidad respaldada por la aplicación comienza con `agent-native.app-skill.json` en la raíz de la aplicación:
 
@@ -303,7 +313,7 @@ Cada habilidad respaldada por la aplicación comienza con `agent-native.app-skil
   "id": "assets",
   "hosted": {
     "url": "https://assets.agent-native.com",
-    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://assets.agent-native.com/mcp"
   },
   "mcp": { "serverName": "agent-native-assets" },
   "skills": [
@@ -410,3 +420,10 @@ npx @agent-native/core@latest skills update scaffold --project
 `AGENTS.md` y `.agents/skills` siguen siendo canónicos. El comando de actualización también repara
 Enlaces de compatibilidad Claude (`CLAUDE.md` y `.claude/skills`) para que vea el código Claude
 las mismas instrucciones sin mantener una segunda copia.
+
+## Qué sigue {#whats-next}
+
+- [**Escribir instrucciones del agente**](/docs/writing-agent-instructions) — redactar descripciones de skills y distribuir la guía entre AGENTS.md, skills y memoria
+- [**Recursos del Agente**](/docs/agent-resources#skills) — dónde se almacenan los skills como recursos SQL en el modo App
+- [**Menciones de agentes**](/docs/agent-mentions) — el activador de comandos `/` que invoca un skill en el chat
+- [**Plugin y marketplace de Plan**](/docs/plan-plugin) — instalación y actualización automática integral de un skill real respaldado por una aplicación

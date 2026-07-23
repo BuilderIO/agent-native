@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { createRecordingSchema } from "./lib/create-recording-schema";
 
 describe("create-recording schema", () => {
+  it("leaves visibility unset so the organization default can apply", () => {
+    const parsed = createRecordingSchema.parse({
+      title: "Uploaded demo",
+      titleSource: "upload",
+    });
+
+    expect(parsed.visibility).toBeUndefined();
+  });
+
   it("does not require spaceIds for recorder clients", () => {
     const parsed = createRecordingSchema.safeParse({
       title: "Screen recording - 12 May 2026",

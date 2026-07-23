@@ -44,7 +44,6 @@ Cada modelo segue o mesmo layout amplo:
 <FileTree
   id="doc-block-1mjrrpg"
   title="Layout do projeto de template"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -172,8 +171,7 @@ As quatro áreas de cada modelo se conectam por meio de uma superfície de açã
 
 Defina tabelas de domínio com os auxiliares da estrutura Drizzle para que os esquemas permaneçam portáveis em SQLite, Postgres, D1, Turso, Supabase, Neon e outros back-ends suportados:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -204,8 +202,7 @@ As alterações de esquema devem ser aditivas. Adicione tabelas e colunas atrav�
 
 Para leituras e gravações de aplicativos, use o construtor de consultas do Drizzle e os operadores portáteis do `drizzle-orm`. Não escreva o código do produto com SQL bruto quando Drizzle puder expressar a consulta e não importe de `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core` em modelos.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -273,8 +270,10 @@ Use `http: { method: "GET" }` ou `readOnly: true` para actions somente leitura. 
 As rotas residem em `app/routes/` e usam o roteamento de arquivos do React Router v8. Consulte dados por meio de manipuladores actions ou API e torne as mutações otimistas por padrão.
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -290,7 +289,7 @@ export default function ProjectsPage() {
 Conecte a sincronização ao vivo uma vez perto do shell do aplicativo para que os caches de consulta React sejam atualizados quando o agente, outra guia ou uma ação alterar os dados:
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -303,7 +302,7 @@ export function AppSync() {
 **A promessa do agente nativo: as gravações do agente aparecem no UI sem uma atualização manual.** `useActionQuery` é o caminho mais fácil — cada gancho é buscado novamente quando uma ação mutante emite `source: "action"`. Se você acessar `useQuery` bruto com uma chave personalizada (por exemplo, um auxiliar de cliente de baixo nível que lê o status de integração), inclua o contador por origem no queryKey para atualizações direcionadas:
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -326,7 +325,7 @@ O estado da aplicação é como o agente sabe o que o usuário está vendo. No m
 Use `useAgentRouteState` para o gancho UI para que gravações no estado do aplicativo, leituras de comandos com escopo de guia, exclusão após leitura e proteção de comando duplicado permaneçam consistentes:
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -349,8 +348,7 @@ Para navegação no aplicativo, prefira um comando `navigate` que inclua uma mes
 `path` quando o URL é conhecido. Não escreva também `__set_url__` para o mesmo movimento;
 essa chave é reservada para as ferramentas da estrutura URL e alterações de filtro somente URL.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

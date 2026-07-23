@@ -1,3 +1,7 @@
+import { stat, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /**
  * Server-side error capture — OWNED BY THE ERROR CAPTURE FEATURE.
  *
@@ -21,6 +25,7 @@ import {
   and,
   desc,
   eq,
+  exists,
   inArray,
   isNull,
   notInArray,
@@ -58,6 +63,10 @@ const DEFAULT_ISSUE_LIMIT = 50;
 const MAX_ISSUE_LIMIT = 100;
 const DEFAULT_EVENTS_PER_ISSUE_READ = 50;
 const SPARKLINE_DAYS = 14;
+const SOURCE_CONTEXT_BEFORE = 4;
+const SOURCE_CONTEXT_AFTER = 4;
+const MAX_SOURCE_CONTEXT_FILE_BYTES = 2_000_000;
+const MAX_SOURCE_CONTEXT_LINE_CHARS = 500;
 
 // ---------------------------------------------------------------------------
 // Pure helpers (unit tested)
@@ -70,6 +79,13 @@ export interface ParsedStackFrame {
   colno: number | null;
   inApp: boolean;
   raw: string;
+  sourceContext?: SourceContextLine[];
+}
+
+export interface SourceContextLine {
+  line: number;
+  text: string;
+  highlight: boolean;
 }
 
 const VENDOR_FILE_RE =
@@ -179,6 +195,172 @@ export function parseStack(
   return frames;
 }
 
+export function sourceContextFromText(
+  source: string,
+  lineNumber: number | null | undefined,
+  options: { before?: number; after?: number } = {},
+): SourceContextLine[] | null {
+  if (!lineNumber || lineNumber < 1) return null;
+  const lines = source.split(/\r?\n/);
+  if (lineNumber > lines.length) return null;
+  const before = options.before ?? SOURCE_CONTEXT_BEFORE;
+  const after = options.after ?? SOURCE_CONTEXT_AFTER;
+  const start = Math.max(1, lineNumber - before);
+  const end = Math.min(lines.length, lineNumber + after);
+  const context: SourceContextLine[] = [];
+  for (let line = start; line <= end; line += 1) {
+    const text = lines[line - 1] ?? "";
+    context.push({
+      line,
+      text:
+        text.length > MAX_SOURCE_CONTEXT_LINE_CHARS
+          ? `${text.slice(0, MAX_SOURCE_CONTEXT_LINE_CHARS)}…`
+          : text,
+      highlight: line === lineNumber,
+    });
+  }
+  return context;
+}
+
+const SOURCE_EXT_RE = /\.(?:[cm]?[jt]sx?|vue|svelte|css|scss|json)$/i;
+const SOURCE_CONTEXT_ALLOWED_PREFIXES = ["app/"] as const;
+
+function templateRootFrom(value: string): string | null {
+  const marker = `${path.sep}templates${path.sep}analytics`;
+  const index = value.indexOf(marker);
+  if (index < 0) return null;
+  return value.slice(0, index + marker.length);
+}
+
+function sourceRoots(): string[] {
+  const roots = new Set<string>();
+  const cwdTemplateRoot = templateRootFrom(process.cwd());
+  roots.add(cwdTemplateRoot ?? process.cwd());
+  try {
+    const modulePath = fileURLToPath(import.meta.url);
+    const moduleTemplateRoot = templateRootFrom(modulePath);
+    if (moduleTemplateRoot) roots.add(moduleTemplateRoot);
+  } catch {
+    // import.meta.url is always file: in Node, but source context is best-effort.
+  }
+  return Array.from(roots).map((root) => path.resolve(root));
+}
+
+function isWithinRoot(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function cleanFrameFile(file: string | null): string | null {
+  if (!file) return null;
+  let cleaned = file.trim();
+  if (!cleaned || cleaned === "<anonymous>" || cleaned === "[native code]") {
+    return null;
+  }
+  if (/^https?:\/\//i.test(cleaned)) {
+    try {
+      cleaned = new URL(cleaned).pathname;
+    } catch {
+      return null;
+    }
+  } else if (cleaned.startsWith("file://")) {
+    try {
+      cleaned = fileURLToPath(cleaned);
+    } catch {
+      return null;
+    }
+  }
+  cleaned = cleaned.replace(/[?#].*$/, "");
+  try {
+    cleaned = decodeURIComponent(cleaned);
+  } catch {
+    // Keep the original path when a browser stack includes malformed escapes.
+  }
+  return cleaned;
+}
+
+export function trustedSourceRelativePath(cleaned: string): string | null {
+  const normalized = cleaned.replace(/\\/g, "/").replace(/^\/+/, "");
+  if (
+    !normalized ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../")
+  ) {
+    return null;
+  }
+  if (
+    !SOURCE_CONTEXT_ALLOWED_PREFIXES.some((prefix) =>
+      normalized.startsWith(prefix),
+    )
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+async function resolveSourcePath(
+  frame: ParsedStackFrame,
+): Promise<string | null> {
+  if (!frame.inApp) return null;
+  const cleaned = cleanFrameFile(frame.file);
+  if (!cleaned || !SOURCE_EXT_RE.test(cleaned)) return null;
+  const relativePath = trustedSourceRelativePath(cleaned);
+  if (!relativePath) return null;
+  const roots = sourceRoots();
+  const candidates = new Set<string>();
+  for (const root of roots) candidates.add(path.resolve(root, relativePath));
+
+  for (const candidate of candidates) {
+    if (!roots.some((root) => isWithinRoot(candidate, root))) continue;
+    try {
+      const fileStat = await stat(candidate);
+      if (
+        fileStat.isFile() &&
+        fileStat.size > 0 &&
+        fileStat.size <= MAX_SOURCE_CONTEXT_FILE_BYTES
+      ) {
+        return candidate;
+      }
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
+async function sourceContextForFrame(
+  frame: ParsedStackFrame,
+): Promise<SourceContextLine[] | undefined> {
+  if (!frame.lineno) return undefined;
+  const sourcePath = await resolveSourcePath(frame);
+  if (!sourcePath) return undefined;
+  try {
+    const source = await readFile(sourcePath, "utf8");
+    return (
+      sourceContextFromText(source, frame.lineno, {
+        before: SOURCE_CONTEXT_BEFORE,
+        after: SOURCE_CONTEXT_AFTER,
+      }) ?? undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+async function addSourceContexts(
+  frames: ParsedStackFrame[],
+): Promise<ParsedStackFrame[]> {
+  return Promise.all(
+    frames.map(async (frame) => {
+      const sourceContext = await sourceContextForFrame(frame);
+      return sourceContext?.length ? { ...frame, sourceContext } : frame;
+    }),
+  );
+}
+
 /** Strip content hashes + query/hash from a filename for stable grouping. */
 export function normalizeFrameFile(file: string | null): string {
   if (!file) return "";
@@ -191,6 +373,11 @@ export function normalizeFrameFile(file: string | null): string {
   // Strip bundler content hashes in the basename: main.4f3a2b1c.js -> main.js
   out = out.replace(/([._-])[0-9a-fA-F]{8,}(?=\.[a-z0-9]+$)/i, "");
   out = out.replace(/([._-])[0-9a-fA-F]{8,}$/i, "");
+  // Vite also emits eight-character base64url hashes, e.g. entry-CVi_y2nS.js.
+  out = out.replace(
+    /([._-])(?=[A-Za-z0-9_-]{8}\.[a-z0-9]+$)(?=[A-Za-z0-9_-]*[A-Z0-9_])[A-Za-z0-9_-]{8}(?=\.[a-z0-9]+$)/,
+    "",
+  );
   return out;
 }
 
@@ -230,11 +417,15 @@ export function fingerprint(
   frames: ParsedStackFrame[],
   message: string,
 ): string {
+  // The client uses this synthetic type for bare Error rejections. Keep it
+  // in the same group as window errors while retaining the original event
+  // type in the stored occurrence.
+  const groupingType = type === "UnhandledRejection" ? "Error" : type;
   const frame = topFrame(frames);
   const key =
     frame && (frame.file || frame.function)
-      ? `${type}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}`
-      : `${type}|${normalizeMessageForFingerprint(message)}`;
+      ? `${groupingType}|${normalizeFrameFile(frame.file)}|${frame.function ?? ""}`
+      : `${groupingType}|${normalizeMessageForFingerprint(message)}`;
   return hashHex(key);
 }
 
@@ -362,6 +553,27 @@ export interface RawExceptionInput {
   tags: Record<string, string>;
   extra: Record<string, unknown>;
   breadcrumbs: unknown[];
+}
+
+/**
+ * Browser request cancellation is expected during navigation and query
+ * invalidation. Keep the first-party issue store aligned with the client
+ * Sentry filter, while preserving other AbortError failures for triage.
+ */
+export function isBenignBrowserAbortException(
+  input: Pick<RawExceptionInput, "type" | "message">,
+): boolean {
+  const exceptionType = input.type.trim().toLowerCase();
+  const exceptionValue = input.message.trim().toLowerCase();
+  return (
+    exceptionValue === "the user aborted a request." ||
+    exceptionValue === "signal is aborted without reason" ||
+    exceptionValue === "aborterror: the user aborted a request." ||
+    exceptionValue === "aborterror: signal is aborted without reason" ||
+    (exceptionType === "aborterror" &&
+      (exceptionValue.includes("the user aborted a request") ||
+        exceptionValue.includes("signal is aborted without reason")))
+  );
 }
 
 function nowIso(): string {
@@ -747,11 +959,9 @@ export async function ingestAnalyticsExceptionEvents(
   let ingested = 0;
   for (const item of events) {
     try {
-      await ingestException(
-        scope,
-        extractExceptionInput(item.properties),
-        item.derived,
-      );
+      const raw = extractExceptionInput(item.properties);
+      if (isBenignBrowserAbortException(raw)) continue;
+      await ingestException(scope, raw, item.derived);
       ingested += 1;
     } catch (error) {
       console.warn("[error-capture] Failed to ingest exception event:", error);
@@ -891,6 +1101,8 @@ export interface ListErrorIssuesFilters {
   status?: IssueStatus | "all";
   query?: string;
   app?: string;
+  sessionRecordingId?: string;
+  userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
 }
@@ -918,6 +1130,28 @@ export interface ErrorIssueSummary {
 
 function recordingPath(recordingId: string | null): string | null {
   return recordingId ? `/sessions/${recordingId}` : null;
+}
+
+async function accessibleClientRecordingId(
+  scope: ErrorReadScope,
+  recordingId: string,
+): Promise<string | null> {
+  const db = getDb() as any;
+  const [row] = await db
+    .select({ clientRecordingId: schema.sessionRecordings.clientRecordingId })
+    .from(schema.sessionRecordings)
+    .where(
+      and(
+        eq(schema.sessionRecordings.id, recordingId),
+        accessFilter(
+          schema.sessionRecordings,
+          schema.sessionRecordingShares,
+          accessCtx(scope),
+        ),
+      ),
+    )
+    .limit(1);
+  return row?.clientRecordingId ?? null;
 }
 
 async function sparklinesForIssues(
@@ -977,6 +1211,51 @@ export async function listErrorIssues(
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
   if (filters.app) conditions.push(eq(schema.errorIssues.app, filters.app));
+  const sessionRecordingId = filters.sessionRecordingId?.trim();
+  const userId = filters.userId?.trim();
+  if (sessionRecordingId || userId) {
+    const occurrenceConditions: any[] = [
+      eq(schema.errorEvents.issueId, schema.errorIssues.id),
+      // Keep the child occurrence in the same tenant as its parent issue even
+      // when the issue is visible through an org share.
+      eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
+      or(
+        eq(schema.errorEvents.orgId, schema.errorIssues.orgId),
+        and(isNull(schema.errorEvents.orgId), isNull(schema.errorIssues.orgId)),
+      ),
+    ];
+    if (sessionRecordingId) {
+      const clientRecordingId = await accessibleClientRecordingId(
+        scope,
+        sessionRecordingId,
+      );
+      const recordingConditions: any[] = [
+        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      ];
+      if (clientRecordingId) {
+        recordingConditions.push(
+          eq(schema.errorEvents.clientRecordingId, clientRecordingId),
+        );
+      }
+      occurrenceConditions.push(or(...recordingConditions));
+    }
+    if (userId) {
+      occurrenceConditions.push(
+        or(
+          eq(schema.errorEvents.userId, userId),
+          eq(schema.errorEvents.userKey, userId),
+        ),
+      );
+    }
+    conditions.push(
+      exists(
+        db
+          .select({ id: schema.errorEvents.id })
+          .from(schema.errorEvents)
+          .where(and(...occurrenceConditions)),
+      ),
+    );
+  }
   const query = filters.query?.trim();
   if (query) {
     conditions.push(
@@ -1003,7 +1282,14 @@ export async function listErrorIssues(
     .limit(limit);
 
   const sparklines = await sparklinesForIssues(rows.map((row: any) => row.id));
-  return rows.map((row: any) => ({
+  const { byId: accessibleLastRecordings } = await resolveAccessibleRecordings(
+    scope,
+    rows
+      .map((row: any) => row.lastSessionRecordingId)
+      .filter((value: unknown): value is string => Boolean(value)),
+    [],
+  );
+  const issues = rows.map((row: any) => ({
     id: row.id,
     fingerprint: row.fingerprint,
     type: row.type,
@@ -1015,13 +1301,23 @@ export async function listErrorIssues(
     lastSeenAt: row.lastSeenAt,
     eventCount: Number(row.eventCount ?? 0),
     usersAffected: Number(row.usersAffected ?? 0),
-    lastSessionRecordingId: row.lastSessionRecordingId ?? null,
-    lastSessionRecordingPath: recordingPath(row.lastSessionRecordingId ?? null),
+    lastSessionRecordingId:
+      row.lastSessionRecordingId &&
+      accessibleLastRecordings.has(row.lastSessionRecordingId)
+        ? row.lastSessionRecordingId
+        : null,
+    lastSessionRecordingPath: recordingPath(
+      row.lastSessionRecordingId &&
+        accessibleLastRecordings.has(row.lastSessionRecordingId)
+        ? row.lastSessionRecordingId
+        : null,
+    ),
     assignee: row.assignee ?? null,
     app: row.app ?? null,
     template: row.template ?? null,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
+  return issues;
 }
 
 export interface ErrorEventDetail {
@@ -1031,6 +1327,7 @@ export interface ErrorEventDetail {
   culprit: string | null;
   level: ExceptionLevel;
   stack: ParsedStackFrame[];
+  rawStack: string | null;
   handled: boolean;
   url: string | null;
   userId: string | null;
@@ -1150,6 +1447,9 @@ export async function getErrorIssue(
         .filter((value: unknown): value is string => Boolean(value)),
     ),
   ) as string[];
+  if (issueRow.lastSessionRecordingId) {
+    srIds.push(issueRow.lastSessionRecordingId);
+  }
   const clientIds = Array.from(
     new Set(
       eventRows
@@ -1164,42 +1464,55 @@ export async function getErrorIssue(
   );
 
   const sessions = new Map<string, { recordingId: string; path: string }>();
-  const events: ErrorEventDetail[] = eventRows.map((row: any) => {
-    let recordingId: string | null = null;
-    if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
-      recordingId = row.sessionRecordingId;
-    } else if (row.clientRecordingId && byClientId.has(row.clientRecordingId)) {
-      recordingId = byClientId.get(row.clientRecordingId) ?? null;
-    }
-    if (recordingId && !sessions.has(recordingId)) {
-      sessions.set(recordingId, {
-        recordingId,
-        path: `/sessions/${recordingId}`,
-      });
-    }
-    return {
-      id: row.id,
-      type: row.type,
-      message: row.message ?? "",
-      culprit: row.culprit ?? null,
-      level: coerceLevel(row.level),
-      stack: parseJson<ParsedStackFrame[]>(row.stack, []),
-      handled: Boolean(row.handled),
-      url: row.url ?? null,
-      userId: row.userId ?? null,
-      anonymousId: row.anonymousId ?? null,
-      userKey: row.userKey ?? null,
-      sessionId: row.sessionId ?? null,
-      sessionRecordingId: recordingId,
-      sessionRecordingPath: recordingPath(recordingId),
-      release: row.release ?? null,
-      environment: row.environment ?? null,
-      tags: parseJson<Record<string, unknown>>(row.tags, {}),
-      extra: parseJson<Record<string, unknown>>(row.extra, {}),
-      breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
-      occurredAt: row.occurredAt,
-    };
-  });
+  const events = await Promise.all(
+    eventRows.map(
+      async (row: any, index: number): Promise<ErrorEventDetail> => {
+        let recordingId: string | null = null;
+        if (row.sessionRecordingId && byId.has(row.sessionRecordingId)) {
+          recordingId = row.sessionRecordingId;
+        } else if (
+          row.clientRecordingId &&
+          byClientId.has(row.clientRecordingId)
+        ) {
+          recordingId = byClientId.get(row.clientRecordingId) ?? null;
+        }
+        if (recordingId && !sessions.has(recordingId)) {
+          sessions.set(recordingId, {
+            recordingId,
+            path: `/sessions/${recordingId}`,
+          });
+        }
+        return {
+          id: row.id,
+          type: row.type,
+          message: row.message ?? "",
+          culprit: row.culprit ?? null,
+          level: coerceLevel(row.level),
+          stack:
+            index === 0
+              ? await addSourceContexts(
+                  parseJson<ParsedStackFrame[]>(row.stack, []),
+                )
+              : parseJson<ParsedStackFrame[]>(row.stack, []),
+          rawStack: row.rawStack ?? null,
+          handled: Boolean(row.handled),
+          url: row.url ?? null,
+          userId: row.userId ?? null,
+          anonymousId: row.anonymousId ?? null,
+          userKey: row.userKey ?? null,
+          sessionId: row.sessionId ?? null,
+          sessionRecordingId: recordingId,
+          sessionRecordingPath: recordingPath(recordingId),
+          release: row.release ?? null,
+          environment: row.environment ?? null,
+          tags: parseJson<Record<string, unknown>>(row.tags, {}),
+          extra: parseJson<Record<string, unknown>>(row.extra, {}),
+          breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
+          occurredAt: row.occurredAt,
+        };
+      },
+    ),
+  );
 
   const sparklines = await sparklinesForIssues([issueId]);
   const issue: ErrorIssueSummary = {
@@ -1214,9 +1527,16 @@ export async function getErrorIssue(
     lastSeenAt: issueRow.lastSeenAt,
     eventCount: Number(issueRow.eventCount ?? 0),
     usersAffected: Number(issueRow.usersAffected ?? 0),
-    lastSessionRecordingId: issueRow.lastSessionRecordingId ?? null,
+    lastSessionRecordingId:
+      issueRow.lastSessionRecordingId &&
+      byId.has(issueRow.lastSessionRecordingId)
+        ? issueRow.lastSessionRecordingId
+        : null,
     lastSessionRecordingPath: recordingPath(
-      issueRow.lastSessionRecordingId ?? null,
+      issueRow.lastSessionRecordingId &&
+        byId.has(issueRow.lastSessionRecordingId)
+        ? issueRow.lastSessionRecordingId
+        : null,
     ),
     assignee: issueRow.assignee ?? null,
     app: issueRow.app ?? null,
@@ -1224,7 +1544,11 @@ export async function getErrorIssue(
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
-  return { issue, events, sessions: Array.from(sessions.values()) };
+  return {
+    issue,
+    events,
+    sessions: Array.from(sessions.values()),
+  };
 }
 
 export interface UpdateErrorIssueInput {

@@ -20,11 +20,17 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/corpus/` for source examples.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
-  `external-agents`, `mcp-protocol`, `sharing`, and `security`.
+  `external-agents`, `mcp-protocol`, `feature-flags`, `sharing`, and `security`.
 
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and this `AGENTS.md` plus `.agents/skills/` for
 workspace-specific conventions.
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Read
+`customizing-agent-native` before adapting shared UI. Use the supported
+ladder: configure → compose → eject the smallest unit → propose a shared seam.
+Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
+`node_modules` or eject protected runtime contracts.
 
 ## Shared Context
 
@@ -44,6 +50,10 @@ agent should know.
   UI or "AI" features.
 - Put shared code in `packages/shared` only when multiple apps need it.
 - Keep app-specific screens, actions, state, and skills inside `apps/<app>`.
+- SQL is for structured records, metadata, references, and searchable text. Store
+  large files/blob payloads (base64, `data:` URLs, images, video/audio, PDFs,
+  ZIPs, screenshots, thumbnails, session replay chunks) in configured file/blob
+  storage and persist only URLs, ids, or handles.
 - Store shared runtime configuration in the workspace root `.env`; use
   `apps/<app>/.env` only for app-specific overrides. Never hardcode API keys,
   tokens, webhook URLs, signing secrets, private Builder/internal data, customer
@@ -67,8 +77,9 @@ agent should know.
 
 ## Adding Apps
 
-When a user asks from Dispatch chat or by tagging `@agent-native` in Slack to
-create, build, make, scaffold, or generate an "agent", classify the ask first.
+When a user asks from Dispatch chat or through `@agent-native` in Slack or
+Telegram to create, build, make, scaffold, or generate an "agent", classify
+the ask first.
 Simple Dispatch-native behavior such as a reminder, digest, monitor, routing
 rule, saved instruction, or recurring workflow can stay in Dispatch as a
 recurring job/resource/destination. Robust unique products or teammates that
@@ -114,7 +125,9 @@ App database code must be provider-agnostic. Define schemas with
 query builder and portable `drizzle-orm` operators. Do not import from
 `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in app templates. Keep raw SQL
 for additive migrations, health checks, or carefully scoped maintenance, and
-never write SQLite-only or Postgres-only product code.
+never write SQLite-only or Postgres-only product code. Do not use SQL as object
+storage; file bytes belong in upload/private-blob providers with only references
+saved to app tables.
 
 In local development, run
 `pnpm exec agent-native create <app-name> --template=<template>` from the

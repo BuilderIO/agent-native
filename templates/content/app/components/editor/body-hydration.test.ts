@@ -9,6 +9,7 @@ import {
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
   previewBodyHydrationIsTerminalError,
+  previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
 } from "./body-hydration";
 
@@ -239,6 +240,49 @@ describe("body hydration editing gates", () => {
         document: documentWithHydration("error"),
       }),
     ).toBe(true);
+  });
+
+  it("keeps a non-empty draft recoverable when Builder hydrates a body over its empty baseline", () => {
+    expect(
+      previewDraftConflictsWithHydratedBody({
+        loadedContent: "",
+        loadedUpdatedAt: "v1",
+        loadedContentWasEmpty: true,
+        pendingContent: "My local draft",
+        hydratedContent: "Fresh Builder body",
+        hydratedUpdatedAt: "v2",
+      }),
+    ).toBe(true);
+    expect(
+      previewDraftConflictsWithHydratedBody({
+        loadedContent: "Original Builder body",
+        loadedUpdatedAt: "v1",
+        loadedContentWasEmpty: false,
+        pendingContent: "My local draft",
+        hydratedContent: "Fresh Builder body",
+        hydratedUpdatedAt: "v2",
+      }),
+    ).toBe(true);
+    expect(
+      previewDraftConflictsWithHydratedBody({
+        loadedContent: "Original Builder body",
+        loadedUpdatedAt: "v1",
+        loadedContentWasEmpty: false,
+        pendingContent: "My local draft",
+        hydratedContent: "Original Builder body",
+        hydratedUpdatedAt: "v1",
+      }),
+    ).toBe(false);
+    expect(
+      previewDraftConflictsWithHydratedBody({
+        loadedContent: "",
+        loadedUpdatedAt: "v1",
+        loadedContentWasEmpty: true,
+        pendingContent: "<empty-block/>",
+        hydratedContent: "Fresh Builder body",
+        hydratedUpdatedAt: "v2",
+      }),
+    ).toBe(false);
   });
 
   it("treats the editor empty block sentinel as empty content", () => {

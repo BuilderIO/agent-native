@@ -1,7 +1,4 @@
-import {
-  getBrowserTabId,
-  useDbSync as useCoreDbSync,
-} from "@agent-native/core/client";
+import { useDbSync as useCoreDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function useDbSync() {
@@ -9,7 +6,6 @@ export function useDbSync() {
 
   useCoreDbSync({
     queryClient,
-    ignoreSource: getBrowserTabId(),
     // refresh-notion-sync-status is a POST behind an ["action"]-keyed query
     // (useDocumentSyncStatus). Without suppression its own action-change event
     // invalidates all action queries, which refetches the POST, which emits

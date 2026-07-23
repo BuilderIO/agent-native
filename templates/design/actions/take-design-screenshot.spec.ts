@@ -56,6 +56,19 @@ describe("resolveViewports", () => {
       expect(vp.heightPx).toBeGreaterThan(0);
     }
   });
+
+  it("uses an explicit `heights` entry instead of the device heuristic when provided", () => {
+    const viewports = resolveViewports([960], [543]);
+    expect(viewports).toEqual([
+      { label: "desktop-960", widthPx: 960, heightPx: 543 },
+    ]);
+  });
+
+  it("falls back to the device heuristic for indices missing from `heights`", () => {
+    const viewports = resolveViewports([1280, 375], [900]);
+    expect(viewports[0]).toMatchObject({ widthPx: 1280, heightPx: 900 });
+    expect(viewports[1]).toMatchObject({ widthPx: 375, heightPx: 812 });
+  });
 });
 
 // ---------------------------------------------------------------------------

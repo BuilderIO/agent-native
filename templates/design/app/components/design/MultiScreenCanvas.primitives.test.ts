@@ -6,37 +6,71 @@ import {
 } from "@shared/pen-path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { computeAltHoverMeasurement } from "./multi-screen/alt-hover-measurement";
 import {
-  __clearPrimitiveParseCachesForTests,
-  computeAltHoverMeasurement,
-  getActiveScreenIframeId,
   getBoardContentKey,
   getBoardContentLayerSignature,
-  getBoardSurfaceLayerStyle,
+  getBoardSurfaceContentBounds,
   getBoardSurfaceRenderContent,
-  getBreakpointFrameGeometry,
-  getBreakpointIframeId,
+  getBoardSurfaceStaticPreviewContent,
+  hasBoardSurfaceContent,
+} from "./multi-screen/board-surface-html";
+import {
+  shouldBoardSurfaceCapturePointerEvents,
+  shouldBeginCanvasPan,
+  shouldShowBreakpointMenuAffordance,
+} from "./multi-screen/canvas-tools";
+import {
+  boardPointToScreenLocalPoint,
+  screenLocalPointToBoardPoint,
+} from "./multi-screen/coordinate-transforms";
+import {
   getCrossScreenDropGuideForHitTest,
+  getCrossScreenDropGuideStyle,
+} from "./multi-screen/cross-screen-drop";
+import {
+  draftPrimitiveToInsert,
   getDraftPreviewGeometryForTool,
+} from "./multi-screen/draft-primitives";
+import {
+  frameStyleLeftTop,
+  getBreakpointFrameGeometry,
+  getLayerSelectableBounds,
   getOutsideFrameDraftFallback,
+} from "./multi-screen/frame-geometry";
+import { screenPxToCanvasPx } from "./multi-screen/gradient-overlay-geometry";
+import {
+  getActiveScreenIframeId,
+  getBreakpointIframeId,
   getPrimaryIframeId,
   isBreakpointSelectionTarget,
-  frameStyleLeftTop,
+} from "./multi-screen/iframe-targeting";
+import {
+  BOARD_SURFACE_RENDER_MAX_SIZE,
+  boardPointToBoardSurfaceLocalPoint,
+  boardSurfaceLocalPointToBoardPoint,
+  getBoardSurfaceRenderGeometry,
+  getBoardSurfaceLayerStyle,
+  getBoardSurfaceStaticPreviewViewport,
+  shouldRenderBoardSurfaceStaticPreview,
+  SURFACE_PADDING,
+} from "./multi-screen/overview-layout";
+import {
+  __clearPrimitiveParseCachesForTests,
+  __getPrimitiveParseCacheSizesForTests,
   getPrimitiveDropTargetForPoint,
-  hasBoardSurfaceContent,
-  ParsedScreenPrimitive,
+  isPrimitiveContainer,
   parsePrimitivesFromScreen,
   primitiveLocalToBoardRect,
   primitiveParseCache,
   resolveNodeScreenId,
-  screenPxToCanvasPx,
-  shouldBoardSurfaceCapturePointerEvents,
-  shouldShowBreakpointMenuAffordance,
-  SURFACE_PADDING,
+  type ParsedScreenPrimitive,
+} from "./multi-screen/primitive-drop-target";
+import type { DraftPrimitive, FrameGeometry } from "./multi-screen/types";
+import {
   vectorEditCanvasToLocalPoint,
   vectorEditLocalToCanvasPoint,
-  type FrameGeometry,
-} from "./MultiScreenCanvas";
+} from "./multi-screen/vector-edit-geometry";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -105,6 +139,167 @@ describe("board surface pointer capture", () => {
 
     expect(style.background).toBe("transparent");
     expect(style.pointerEvents).toBe("auto");
+  });
+
+  it("bounds negative and positive board nodes in persisted canvas coordinates", () => {
+    const bounds = getBoardSurfaceContentBounds(`<!doctype html><body>
+      <div data-agent-native-node-id="negative" data-an-primitive="rectangle" style="position:absolute;left:-165px;top:-90px;width:84px;height:76px"></div>
+      <div data-agent-native-node-id="positive" data-an-primitive="rectangle" style="position:absolute;left:329px;top:210px;width:100px;height:60px"></div>
+    </body>`);
+
+    expect(bounds).toEqual({ x: -165, y: -90, width: 594, height: 360 });
+  });
+
+  it("includes nested overflow and ignores an instrumented document body", () => {
+    expect(
+      getBoardSurfaceContentBounds(
+        '<html><body data-agent-native-node-id="body"></body></html>',
+      ),
+    ).toBeNull();
+
+    const bounds =
+      getBoardSurfaceContentBounds(`<!doctype html><body data-agent-native-node-id="body">
+      <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:300px;top:100px;width:100px;height:100px">
+        <div data-agent-native-node-id="overflow" data-an-primitive="rectangle" style="position:absolute;left:140px;top:120px;width:80px;height:60px"></div>
+      </div>
+    </body>`);
+    expect(bounds).toEqual({ x: 300, y: 100, width: 220, height: 180 });
+  });
+
+  it("uses a browser-safe chunked paint window without changing logical board coordinates", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const negativeBounds = makeGeom(-165, -90, 84, 76);
+    const screens = [makeGeom(100, 80, 320, 640)];
+    const geometry = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: negativeBounds,
+      screenGeometries: screens,
+    });
+
+    expect(geometry).toEqual({
+      x: -4096,
+      y: -4096,
+      width: 8192,
+      height: 8192,
+    });
+    expect(geometry.width).toBeLessThanOrEqual(BOARD_SURFACE_RENDER_MAX_SIZE);
+    expect(geometry.height).toBeLessThanOrEqual(BOARD_SURFACE_RENDER_MAX_SIZE);
+    // The iframe-local coordinate round-trip lands at the exact persisted
+    // negative board coordinate; no fixed +/-65536 projection is involved.
+    const iframeLocalX = negativeBounds.x - geometry.x;
+    const iframeLocalY = negativeBounds.y - geometry.y;
+    expect(geometry.x + iframeLocalX).toBe(negativeBounds.x);
+    expect(geometry.y + iframeLocalY).toBe(negativeBounds.y);
+  });
+
+  it("keeps the render origin stable for nearby edits inside the same chunk", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const before = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: makeGeom(-165, -90, 84, 76),
+      screenGeometries: [makeGeom(100, 80, 320, 640)],
+    });
+    const after = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: makeGeom(329, 210, 100, 60),
+      screenGeometries: [makeGeom(100, 80, 320, 640)],
+    });
+
+    expect(after).toEqual(before);
+  });
+
+  it("keeps a low-zoom viewport browser-bounded while following its center", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    // At the canvas minimum zoom (2%), a 1440x900 viewport spans 72,000 x
+    // 45,000 board pixels. One iframe intentionally remains capped below
+    // that span; it follows the live viewport center instead of regressing to
+    // the origin or allocating the old 131,072px document.
+    const lowZoomViewport = makeGeom(18_000, -12_000, 72_000, 45_000);
+    const geometry = getBoardSurfaceRenderGeometry({
+      logicalGeometry: logical,
+      contentBounds: makeGeom(-165, -90, 84, 76),
+      screenGeometries: [lowZoomViewport],
+      focus: {
+        x: lowZoomViewport.x + lowZoomViewport.width / 2,
+        y: lowZoomViewport.y + lowZoomViewport.height / 2,
+      },
+    });
+
+    expect(geometry.width).toBe(BOARD_SURFACE_RENDER_MAX_SIZE);
+    expect(geometry.height).toBe(BOARD_SURFACE_RENDER_MAX_SIZE);
+    expect(geometry.x).toBe(40_960);
+    expect(geometry.y).toBe(-4096);
+    expect(geometry.x + geometry.width / 2).toBeCloseTo(53_248, 0);
+    expect(geometry.y + geometry.height / 2).toBeCloseTo(8192, 0);
+  });
+
+  it("covers a 2% viewport with one uniformly compressed inert board preview", () => {
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const active = makeGeom(-12288, -12288, 24576, 24576);
+    const viewport = makeGeom(-36000, -22500, 72000, 45000);
+    const staticViewport = getBoardSurfaceStaticPreviewViewport(logical);
+
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        viewportGeometry: viewport,
+        renderGeometry: active,
+      }),
+    ).toBe(true);
+    expect(staticViewport).toEqual({ width: 4096, height: 4096 });
+
+    const content = getBoardSurfaceStaticPreviewContent({
+      html: `<!doctype html><html><head>
+        <meta http-equiv="refresh" content="0;url=https://example.test">
+        <base href="https://example.test/">
+        <link rel="stylesheet" href="https://example.test/app.css">
+        <style>@import "https://example.test/import.css";.remote{background-image:url(https://example.test/bg.png);animation:pulse 1s infinite;transition:all 1s}</style>
+        <script>window.duplicateRuntime = true</script>
+      </head><body onload="start()">
+        <iframe src="https://example.test/embed"></iframe>
+        <object data="https://example.test/runtime"></object>
+        <embed src="https://example.test/plugin">
+        <audio autoplay src="https://example.test/audio.mp3"></audio>
+        <video autoplay src="https://example.test/video.mp4"></video>
+        <img src="https://example.test/image.png" srcset="https://example.test/image@2x.png 2x" style="background:url(https://example.test/inline.png)">
+        <svg><image href="https://example.test/vector.png"></image><use xlink:href="https://example.test/icons.svg#star"></use></svg>
+        <div data-agent-native-node-id="left" style="position:absolute;left:-50000px;top:0;width:100px;height:100px"></div>
+        <div data-agent-native-node-id="right" style="position:absolute;left:50000px;top:0;width:100px;height:100px"></div>
+      </body></html>`,
+      logicalGeometry: logical,
+      viewport: staticViewport,
+    });
+
+    expect(content).toContain("transform:scale(0.03125)!important");
+    expect(content).toContain("translate:65536px 65536px!important");
+    expect(content).toContain('data-agent-native-node-id="left"');
+    expect(content).toContain('data-agent-native-node-id="right"');
+    expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
+    expect(content).not.toMatch(/<audio|<video|autoplay|http-equiv="refresh"/i);
+    expect(content).not.toMatch(/<link|<meta|<base|@import|url\(/i);
+    expect(content).not.toContain("https://example.test");
+    expect(content).toContain("animation:none!important");
+    expect(content).toContain("transition:none!important");
+  });
+
+  it("round-trips board drag and hit-test points through the finite iframe origin", () => {
+    const renderGeometry = makeGeom(-4096, -4096, 8192, 8192);
+    for (const boardPoint of [
+      { x: -165, y: -90 },
+      { x: 329, y: 210 },
+    ]) {
+      const localPoint = boardPointToBoardSurfaceLocalPoint(
+        boardPoint,
+        renderGeometry,
+      );
+      expect(localPoint.x).toBeGreaterThanOrEqual(0);
+      expect(localPoint.y).toBeGreaterThanOrEqual(0);
+      expect(localPoint.x).toBeLessThan(renderGeometry.width);
+      expect(localPoint.y).toBeLessThan(renderGeometry.height);
+      expect(
+        boardSurfaceLocalPointToBoardPoint(localPoint, renderGeometry),
+      ).toEqual(boardPoint);
+    }
   });
 
   it("treats empty board documents as having no surface content", () => {
@@ -287,6 +482,19 @@ describe("board surface pointer capture", () => {
   });
 });
 
+describe("global canvas pan gestures", () => {
+  it("keeps middle-mouse pan available regardless of the active edit tool", () => {
+    expect(shouldBeginCanvasPan({ button: 1, tool: "move" })).toBe(true);
+    expect(shouldBeginCanvasPan({ button: 1, tool: "pen" })).toBe(true);
+  });
+
+  it("uses left mouse only for the hand tool", () => {
+    expect(shouldBeginCanvasPan({ button: 0, tool: "hand" })).toBe(true);
+    expect(shouldBeginCanvasPan({ button: 0, tool: "move" })).toBe(false);
+    expect(shouldBeginCanvasPan({ button: 2, tool: "hand" })).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // primitiveLocalToBoardRect
 // ---------------------------------------------------------------------------
@@ -340,6 +548,50 @@ describe("primitiveLocalToBoardRect", () => {
       }),
     ).not.toThrow();
   });
+
+  it("maps local primitive geometry through a rotated screen", () => {
+    const result = primitiveLocalToBoardRect(
+      0,
+      0,
+      20,
+      40,
+      { ...makeGeom(0, 0, 100, 200), rotation: 90 },
+      { width: 100, height: 200 },
+    );
+
+    // Local center (10,20), rotated 90deg around frame center (50,100),
+    // lands at board center (130,60).
+    expect(result.x).toBeCloseTo(120);
+    expect(result.y).toBeCloseTo(40);
+    expect(result.width).toBe(20);
+    expect(result.height).toBe(40);
+    expect(result.rotation).toBe(90);
+  });
+});
+
+describe("draftPrimitiveToInsert", () => {
+  it("keeps a board-space draft visually stationary when inserted into a rotated screen", () => {
+    const draft: DraftPrimitive = {
+      id: "draft",
+      kind: "rectangle",
+      // This box is the board-space result of local (0,0,20,40) inside the
+      // 90deg frame below. Its own global rotation is zero.
+      geometry: { x: 120, y: 40, width: 20, height: 40 },
+    };
+
+    const insert = draftPrimitiveToInsert(draft, {
+      ...makeGeom(0, 0, 100, 200),
+      rotation: 90,
+    });
+
+    expect(insert.geometry).toEqual({
+      x: 0,
+      y: 0,
+      width: 20,
+      height: 40,
+      rotation: -90,
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -382,6 +634,17 @@ describe("frameStyleLeftTop", () => {
   });
 });
 
+describe("layer marquee bounds", () => {
+  it("does not include the screen-only label band above a layer", () => {
+    expect(getLayerSelectableBounds(makeGeom(100, 200, 80, 40))).toEqual({
+      left: 100,
+      top: 200,
+      right: 180,
+      bottom: 240,
+    });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // getCrossScreenDropGuideForHitTest
 // ---------------------------------------------------------------------------
@@ -412,6 +675,29 @@ describe("getCrossScreenDropGuideForHitTest", () => {
         targetMetadata: { width: 320, height: 640 },
       }),
     ).toBeNull();
+  });
+
+  it("maps and rotates guides with their target screen", () => {
+    const guide = getCrossScreenDropGuideForHitTest({
+      hit: {
+        anchorRect: { left: 0, top: 0, width: 20, height: 40 },
+        placement: "inside",
+        axis: "y",
+      },
+      targetGeometry: { ...makeGeom(0, 0, 100, 200), rotation: 90 },
+      targetMetadata: { width: 100, height: 200 },
+    });
+
+    expect(guide?.boardRect.x).toBeCloseTo(120);
+    expect(guide?.boardRect.y).toBeCloseTo(40);
+    expect(guide?.boardRect.rotation).toBe(90);
+    expect(
+      getCrossScreenDropGuideStyle({
+        guide: guide!,
+        pan: { x: 0, y: 0 },
+        scale: 1,
+      }).transform,
+    ).toBe("rotate(90deg)");
   });
 });
 
@@ -524,6 +810,33 @@ describe("parsePrimitivesFromScreen cache key", () => {
 // the full content string and return the memoized result directly.
 // ---------------------------------------------------------------------------
 describe("parsePrimitivesFromScreen identity cache", () => {
+  it("treats a plain canvas frame as a child-drop container before Auto layout", () => {
+    expect(
+      isPrimitiveContainer({
+        tagName: "div",
+        primitiveKind: "frame",
+        display: "",
+        borderRadius: "",
+      }),
+    ).toBe(true);
+    expect(
+      isPrimitiveContainer({
+        tagName: "div",
+        primitiveKind: "text",
+        display: "inline-block",
+        borderRadius: "",
+      }),
+    ).toBe(false);
+    expect(
+      isPrimitiveContainer({
+        tagName: "div",
+        primitiveKind: "ellipse",
+        display: "",
+        borderRadius: "50%",
+      }),
+    ).toBe(false);
+  });
+
   it("returns the same result reference for repeated calls with unchanged content", () => {
     const screen: ScreenStub = {
       id: "identity-screen",
@@ -584,6 +897,22 @@ describe("parsePrimitivesFromScreen identity cache", () => {
     expect(second).toBe(seededV2);
     expect(third).toBe(seededV1);
     expect(second).not.toBe(first);
+  });
+
+  it("bounds per-screen identity entries on long-lived boards", () => {
+    for (let index = 0; index < 80; index += 1) {
+      const screen: ScreenStub = {
+        id: `identity-${index}`,
+        filename: `${index}.html`,
+        content: `content-${index}`,
+      };
+      seedCache(screen, []);
+      parsePrimitivesFromScreen(screen as never);
+    }
+
+    expect(
+      __getPrimitiveParseCacheSizesForTests().identity,
+    ).toBeLessThanOrEqual(64);
   });
 });
 
@@ -682,6 +1011,122 @@ describe("getPrimitiveDropTargetForPoint", () => {
     expect(result?.nodeId).toBe("outer");
   });
 
+  it("uses the visibly top overlapping screen instead of array fallthrough", () => {
+    const overlappingFrames = {
+      sA: makeGeom(0, 0, 320, 640),
+      sB: makeGeom(0, 0, 320, 640),
+    };
+    seedCache(screenA, [
+      primEntry("container-a", "sA", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+    seedCache(screenB, [
+      primEntry("container-b", "sB", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+
+    // Equal z: later DOM sibling paints above the earlier one.
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 100, y: 100 },
+        null,
+        [screenA, screenB],
+        overlappingFrames,
+        getMeta,
+      )?.nodeId,
+    ).toBe("container-b");
+
+    // The selected/active foreground boost wins even when it is earlier.
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 100, y: 100 },
+        null,
+        [screenA, screenB],
+        overlappingFrames,
+        getMeta,
+        { foregroundScreenId: "sA" },
+      )?.nodeId,
+    ).toBe("container-a");
+  });
+
+  it("keeps the board behind an overlapping screen", () => {
+    const boardScreen: ScreenStub = {
+      id: "board",
+      filename: "__board__.html",
+      content: "",
+    };
+    seedCache(screenA, [
+      primEntry("screen-container", "sA", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+    seedCache(boardScreen, [
+      primEntry("board-container", "board", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 100, y: 100 },
+      null,
+      [screenA, boardScreen],
+      {
+        sA: makeGeom(0, 0, 320, 640),
+        board: makeGeom(-65536, -65536, 131072, 131072),
+      },
+      getMeta,
+      {
+        identityCoordinateScreenIds: new Set(["board"]),
+        backgroundScreenIds: new Set(["board"]),
+      },
+    );
+
+    expect(result?.nodeId).toBe("screen-container");
+  });
+
+  it("hit-tests containers inside rotated screens in board space", () => {
+    seedCache(screenA, [
+      primEntry("rotated-container", "sA", {
+        left: 0,
+        top: 0,
+        width: 20,
+        height: 40,
+      }),
+    ]);
+    seedCache(screenB, []);
+    const rotatedFrames = {
+      sA: { ...makeGeom(0, 0, 100, 200), rotation: 90 },
+      sB: makeGeom(400, 0, 320, 640),
+    };
+
+    // The primitive's rotated board center is (130,60), outside the frame's
+    // unrotated x range but inside what is visibly painted after rotation.
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 130, y: 60 },
+      null,
+      [screenA, screenB],
+      rotatedFrames,
+      () => ({ width: 100, height: 200 }),
+    );
+
+    expect(result?.nodeId).toBe("rotated-container");
+    expect(result?.boardRect.rotation).toBe(90);
+  });
+
   it("excludes the exact dragged node and returns another screen's container", () => {
     seedCache(screenA, [
       primEntry("outer", "sA", { left: 0, top: 0, width: 320, height: 640 }),
@@ -705,6 +1150,40 @@ describe("getPrimitiveDropTargetForPoint", () => {
       getMeta,
     );
     expect(result?.nodeId).toBe("other-screen-container");
+  });
+
+  it("does not mistake a container on another screen for a descendant", () => {
+    const overlappingFrames = {
+      sA: makeGeom(0, 0, 320, 640),
+      sB: { ...makeGeom(0, 0, 320, 640), z: 1 },
+    };
+    seedCache(screenA, [
+      primEntry("dragged-outer", "sA", {
+        left: 0,
+        top: 0,
+        width: 320,
+        height: 640,
+      }),
+    ]);
+    seedCache(screenB, [
+      primEntry("other-screen-inner", "sB", {
+        left: 100,
+        top: 100,
+        width: 120,
+        height: 120,
+      }),
+    ]);
+
+    // The target is geometrically enclosed by the dragged node's old board
+    // rect, but it belongs to a different screen and cannot be its descendant.
+    const result = getPrimitiveDropTargetForPoint(
+      { x: 150, y: 150 },
+      "dragged-outer",
+      [screenA, screenB],
+      overlappingFrames,
+      getMeta,
+    );
+    expect(result?.nodeId).toBe("other-screen-inner");
   });
 
   it("regression: excludes geometric descendants of the dragged node", () => {
@@ -840,10 +1319,9 @@ describe("resolveNodeScreenId", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cross-screen coord translation: board coords from iframe coords
-// The cross-screen drag receiver uses the same formula as primitiveLocalToBoardRect
-// (boardX = frame.x + iframeX * (frame.width / metadata.width)).  Verify they
-// round-trip correctly and are consistent with each other.
+// Cross-screen coord translation: board coords from iframe coords. Verify the
+// shared mapping matches primitive rect conversion and remains invertible when
+// a screen frame is rotated.
 // ---------------------------------------------------------------------------
 describe("cross-screen coord translation (iframeX → boardX consistency)", () => {
   it("board coords from iframe coords match primitiveLocalToBoardRect inversion", () => {
@@ -879,6 +1357,21 @@ describe("cross-screen coord translation (iframeX → boardX consistency)", () =
     const boardY = frameGeom.y + 0 * scaleY;
     expect(boardX).toBe(50);
     expect(boardY).toBe(80);
+  });
+
+  it("round-trips points through a rotated screen without drift", () => {
+    const frameGeom = {
+      ...makeGeom(100, 200, 320, 640),
+      rotation: 37,
+    };
+    const viewport = { width: 390, height: 844 };
+    const local = { x: 78, y: 168 };
+
+    const board = screenLocalPointToBoardPoint(local, frameGeom, viewport);
+    const roundTrip = boardPointToScreenLocalPoint(board, frameGeom, viewport);
+
+    expect(roundTrip.x).toBeCloseTo(local.x, 8);
+    expect(roundTrip.y).toBeCloseTo(local.y, 8);
   });
 });
 

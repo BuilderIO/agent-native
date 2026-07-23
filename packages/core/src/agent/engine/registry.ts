@@ -121,20 +121,86 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
+interface ParsedVersionedModelId {
+  family: string;
+  version: number[];
+  suffix: string;
+}
+
+function parseVersionedModelId(model: string): ParsedVersionedModelId | null {
+  const match =
+    /^(?<family>.+?)[-.](?<version>\d+(?:[-.]\d+)*)(?<suffix>(?:[-.][a-z][a-z0-9]*)*)$/i.exec(
+      model.trim().toLowerCase(),
+    );
+  const groups = match?.groups;
+  if (!groups?.family || !groups.version) return null;
+
+  const version = groups.version.split(/[-.]/).map((part) => Number(part));
+  if (version.some((part) => !Number.isSafeInteger(part))) return null;
+
+  return {
+    family: groups.family,
+    version,
+    suffix: groups.suffix ?? "",
+  };
+}
+
+function compareModelVersions(left: number[], right: number[]): number {
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (left[index] ?? 0) - (right[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+function findLatestSupportedVersionMatch(
+  candidate: string,
+  supportedModels: readonly string[],
+): string | undefined {
+  const parsedCandidate = parseVersionedModelId(candidate);
+  if (!parsedCandidate) return undefined;
+
+  let best: { model: string; version: number[] } | undefined;
+  for (const supportedModel of supportedModels) {
+    const parsedSupported = parseVersionedModelId(supportedModel);
+    if (!parsedSupported) continue;
+    if (parsedSupported.family !== parsedCandidate.family) continue;
+    if (parsedSupported.suffix !== parsedCandidate.suffix) continue;
+    if (
+      best &&
+      compareModelVersions(parsedSupported.version, best.version) <= 0
+    ) {
+      continue;
+    }
+    best = { model: supportedModel, version: parsedSupported.version };
+  }
+
+  return best?.model;
+}
+
 export function normalizeModelForEngine(
-  engine: Pick<AgentEngine, "name" | "defaultModel" | "supportedModels">,
+  engine: Pick<
+    AgentEngine,
+    "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+  >,
   model: string | null | undefined,
 ): string {
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (engine.name !== "builder") return candidate;
+  if (engine.preserveCustomModels) return candidate;
+
+  if (engine.supportedModels.length === 0) return candidate;
 
   if (candidate === "auto" || engine.supportedModels.includes(candidate)) {
     return candidate;
   }
 
-  return engine.supportedModels.includes("auto") ? "auto" : engine.defaultModel;
+  return (
+    findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
+    engine.defaultModel
+  );
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
@@ -558,6 +624,46 @@ export interface ResolveEngineConfig {
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
   appId?: string;
+}
+
+/**
+ * Return the usable engine explicitly selected by the current user/org.
+ *
+ * This is intentionally narrower than {@link resolveEngine}: it only inspects
+ * persisted app/global selections and does not auto-detect credentials or fall
+ * back to deployment defaults. Callers that have their own configured fallback
+ * (notably messaging integrations) can therefore honor the live request's
+ * Agent settings before applying that fallback, while still resolving the API
+ * key for the provider that was actually selected.
+ */
+export async function getConfiguredEngineNameForRequest(
+  options: { appId?: string } = {},
+): Promise<string | undefined> {
+  const appDefault = await getAgentAppModelDefaultForCurrentRequest(
+    options.appId,
+  ).catch(() => null);
+  if (appDefault?.engine) {
+    const entry = _registry.get(appDefault.engine);
+    if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
+      return entry.name;
+    }
+  }
+
+  let stored: { engine?: unknown; config?: unknown } | null = null;
+  try {
+    stored = (await getSetting("agent-engine")) as {
+      engine?: unknown;
+      config?: unknown;
+    } | null;
+  } catch {
+    return undefined;
+  }
+  if (typeof stored?.engine !== "string") return undefined;
+  const entry = _registry.get(stored.engine);
+  if (!entry || !(await isStoredEngineUsableForRequest(stored, entry))) {
+    return undefined;
+  }
+  return entry.name;
 }
 
 /**

@@ -2,10 +2,10 @@
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
-import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 
+import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
@@ -35,6 +35,56 @@ function nanoid(size = 12): string {
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
   const bytes = crypto.randomBytes(size);
   return Array.from(bytes, (byte) => chars[byte % chars.length]).join("");
+}
+
+async function replaceDocumentFromExternal(args: {
+  document: DocumentRow;
+  expectedUpdatedAt: string;
+  title: string;
+  content: string;
+  icon: string | null;
+  updatedAt: string;
+}): Promise<boolean> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const applied = await tx
+      .update(schema.documents)
+      .set({
+        title: args.title,
+        content: args.content,
+        icon: args.icon,
+        updatedAt: args.updatedAt,
+      })
+      .where(
+        and(
+          eq(schema.documents.id, args.document.id),
+          eq(schema.documents.ownerEmail, args.document.ownerEmail),
+          eq(schema.documents.updatedAt, args.expectedUpdatedAt),
+        ),
+      )
+      .returning({ id: schema.documents.id });
+
+    if (!applied || applied.length === 0) return false;
+
+    if (
+      args.title !== args.document.title ||
+      args.content !== args.document.content
+    ) {
+      // Keep the recovery snapshot in the same transaction as the replacement:
+      // a lost CAS creates no phantom version, and a snapshot failure rolls the
+      // destructive replacement back instead of leaving it unrecoverable.
+      await tx.insert(schema.documentVersions).values({
+        id: nanoid(),
+        ownerEmail: args.document.ownerEmail,
+        documentId: args.document.id,
+        title: args.document.title,
+        content: args.document.content,
+        createdAt: nowIso(),
+      });
+    }
+
+    return true;
+  });
 }
 
 /**
@@ -443,11 +493,15 @@ async function createLinkedChildDocument(args: {
   const db = getDb();
   const now = nowIso();
   const id = nanoid();
+  if (!args.parent.spaceId) {
+    throw new Error("Parent document does not belong to a Content space.");
+  }
 
   let inserted = false;
   try {
     await db.insert(schema.documents).values({
       id,
+      spaceId: args.parent.spaceId,
       ownerEmail: args.parent.ownerEmail,
       orgId: args.parent.orgId,
       parentId: args.parent.id,
@@ -462,6 +516,7 @@ async function createLinkedChildDocument(args: {
       updatedAt: now,
     });
     inserted = true;
+    await ensureDocumentFilesMembership(db, id, now);
     await inheritShares(args.parent.id, id, now);
     await upsertSyncLink({
       owner: args.owner,
@@ -827,8 +882,6 @@ async function pullDocumentFromNotionInner(
     remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
   },
 ): Promise<DocumentSyncStatus> {
-  const db = getDb();
-  const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
   const connection = await getNotionConnectionForOwner(owner);
@@ -935,28 +988,18 @@ async function pullDocumentFromNotionInner(
   // check will mistake the unchanged document for a fresh local edit.
   const updatedAt = contentChanged ? nowIso() : freshDocument.updatedAt;
   if (contentChanged) {
-    // Compare-and-swap: only apply the pulled content if the row is still at
-    // the snapshot we just re-read. If a concurrent save landed in between,
-    // 0 rows match and we fall through to the conflict path instead of
-    // clobbering the newer local write.
-    const applied = await db
-      .update(schema.documents)
-      .set({
-        title: newTitle,
-        content: newContent,
-        icon: newIcon,
-        updatedAt,
-      })
-      .where(
-        and(
-          eq(schema.documents.id, documentId),
-          eq(schema.documents.ownerEmail, owner),
-          eq(schema.documents.updatedAt, freshDocument.updatedAt),
-        ),
-      )
-      .returning({ id: schema.documents.id });
+    // Snapshot + compare-and-swap are one transaction: only the winning
+    // replacement gets a recovery version, and snapshot failure rolls it back.
+    const applied = await replaceDocumentFromExternal({
+      document: freshDocument,
+      expectedUpdatedAt: freshDocument.updatedAt,
+      title: newTitle,
+      content: newContent,
+      icon: newIcon,
+      updatedAt,
+    });
 
-    if (!applied || applied.length === 0) {
+    if (!applied) {
       // A newer local save raced in after our re-read. Do not adopt the
       // pulled content or advance the hash baseline — surface a conflict so
       // the user resolves it explicitly instead of silently losing the edit.
@@ -986,16 +1029,10 @@ async function pullDocumentFromNotionInner(
       });
     }
 
-    // Reset the Yjs collaborative state so it no longer holds the pre-sync
-    // content. Connected clients re-seed their Y.XmlFragment from the new
-    // `documents.content` value via VisualEditor's content-sync effect, and
-    // a fresh page load starts from an empty server state and seeds from SQL.
-    try {
-      await deleteCollabState(documentId);
-      releaseDoc(documentId);
-    } catch {
-      // Non-fatal — the client-side sync will still reconcile via setContent.
-    }
+    // Keep the Y.Doc intact. The live editor's updatedAt-gated reconcile applies
+    // this authoritative SQL snapshot as a minimal Yjs transaction. Deleting
+    // collab state here races connected clients (which can re-persist the stale
+    // pre-pull state) and briefly makes later flush handshakes miss the editor.
   }
 
   await upsertSyncLink({
@@ -1193,7 +1230,6 @@ async function pushDocumentToNotionInner(
   // the rare case Notion normalizes a construct differently, immediately
   // converging instead of ping-ponging. Re-read the row first so a local save
   // that landed during the multi-round-trip push isn't clobbered below.
-  const db = getDb();
   const freshDocument = await getDocument(documentId, owner);
   const newContent = remote.content ?? document.content;
   const newTitle = remote.title || document.title;
@@ -1211,39 +1247,25 @@ async function pushDocumentToNotionInner(
   // exactly what we pushed, since contentChanged is false).
   let baselineContent = document.content;
   if (contentChanged) {
-    // Compare-and-swap against the pre-push snapshot: if a concurrent save
-    // changed the row since `document` was read, skip adopting Notion's
-    // normalized content so the newer local edit is never overwritten. The
-    // hash baseline is still advanced to the *pushed* content below so the
-    // concurrent edit continues to show as localChanged and gets re-pushed on
-    // the next sync cycle.
-    const applied = await db
-      .update(schema.documents)
-      .set({
-        title: newTitle,
-        content: newContent,
-        icon: newIcon,
-        updatedAt: pushedAt,
-      })
-      .where(
-        and(
-          eq(schema.documents.id, documentId),
-          eq(schema.documents.ownerEmail, owner),
-          eq(schema.documents.updatedAt, document.updatedAt),
-        ),
-      )
-      .returning({ id: schema.documents.id });
+    // Snapshot + compare-and-swap are atomic. If a concurrent save changed the
+    // row since `document` was read, skip both the provider readback adoption
+    // and its recovery version; the newer local edit remains localChanged.
+    const applied = await replaceDocumentFromExternal({
+      document: freshDocument,
+      expectedUpdatedAt: document.updatedAt,
+      title: newTitle,
+      content: newContent,
+      icon: newIcon,
+      updatedAt: pushedAt,
+    });
 
-    if (applied && applied.length > 0) {
+    if (applied) {
       // The CAS landed — the row now holds Notion's normalized readback, so
       // the baseline must match that, not the pre-push content we sent.
       baselineContent = newContent;
-      try {
-        await deleteCollabState(documentId);
-        releaseDoc(documentId);
-      } catch {
-        // Non-fatal — the client reconciles via setContent.
-      }
+      // Preserve the live Y.Doc and let the updatedAt-gated editor reconcile
+      // apply this provider-normalized snapshot. Clearing collab persistence
+      // here can race a connected client's stale update and resurrect it.
     }
     // else: CAS raced and lost — the row holds the concurrent edit's content,
     // not `newContent` and not `document.content`. Keep baselineContent as
@@ -1355,36 +1377,138 @@ export async function refreshDocumentSyncStatus(
       return status;
     }
     // Both sides changed since last sync — mark as conflict so the user can
-    // pick which side wins. Without this, auto-sync silently stalls whenever
-    // the user has unpushed local edits AND Notion also changed, and pulls
-    // never happen. Matches the conflict handling in pull/pushDocumentToNotion.
+    // pick which side wins. Take the same per-document claim used by pull/push
+    // before persisting that state: a save-triggered push can be between its
+    // remote write and baseline update here, making both sides look changed
+    // for a few hundred milliseconds. If that push owns the claim, let it
+    // finish instead of flashing a conflict that it immediately clears.
     if (status.localChanged && status.remoteChanged) {
-      const link = await getSyncLink(documentId, owner);
-      if (link) {
-        await upsertSyncLink({
-          owner,
-          documentId,
-          remotePageId: link.remotePageId,
-          state: "conflict",
-          lastSyncedAt: link.lastSyncedAt,
-          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
-          lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
-          lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
-          lastSyncedContentHash: link.lastSyncedContentHash,
-          lastError: null,
-          warnings: parseWarnings(link),
-          hasConflict: true,
-        });
+      if (!(await tryClaimSyncLink(documentId, owner))) return status;
+      try {
+        // The competing push may have finished after the status snapshot but
+        // before this poll acquired the claim. Re-read the local/link state
+        // under the claim so stale change flags cannot recreate the conflict
+        // immediately after that push resolved it.
         const document = await getDocument(documentId, owner);
-        const updatedLink = await getSyncLink(documentId, owner);
-        return buildStatus({
-          connected: true,
-          documentId,
-          link: updatedLink,
-          remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
-          documentUpdatedAt: document.updatedAt,
-          documentContent: document.content,
-        });
+        const link = await getSyncLink(documentId, owner);
+        if (link) {
+          const claimedStatus = buildStatus({
+            connected: true,
+            documentId,
+            link,
+            remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+            documentUpdatedAt: document.updatedAt,
+            documentContent: document.content,
+          });
+          if (!claimedStatus.localChanged || !claimedStatus.remoteChanged) {
+            return claimedStatus;
+          }
+          let conflictDocument = document;
+
+          // Notion timestamps are only a cheap candidate signal. Confirm the
+          // remote content against the authoritative hash baseline before
+          // persisting a conflict; our own completed push (or any metadata-only
+          // timestamp bump) can otherwise look like a remote content edit.
+          if (link.lastSyncedContentHash) {
+            const connection = await getNotionConnectionForOwner(owner);
+            if (!connection) return claimedStatus;
+
+            let remotePageContent: Awaited<
+              ReturnType<typeof readNotionPageAsDocument>
+            >;
+            try {
+              remotePageContent = await readNotionPageAsDocument(
+                connection.accessToken,
+                link.remotePageId,
+              );
+            } catch {
+              // Fail closed: an unverified timestamp bump is not enough to
+              // interrupt editing with a conflict warning.
+              return claimedStatus;
+            }
+
+            // Local saves do not take the Notion sync claim, so the editor can
+            // keep writing while the remote content request is in flight.
+            // Classify the conflict against the latest local row.
+            const verifiedDocument = await getDocument(documentId, owner);
+            conflictDocument = verifiedDocument;
+            const baselineHash = link.lastSyncedContentHash;
+            const localHash = hashContent(verifiedDocument.content);
+            const remoteHash = hashContent(remotePageContent.content);
+            const localHashChanged = localHash !== baselineHash;
+            const remoteHashChanged = remoteHash !== baselineHash;
+
+            if (localHash === remoteHash) {
+              await upsertSyncLink({
+                owner,
+                documentId,
+                remotePageId: link.remotePageId,
+                state: "linked",
+                lastSyncedAt: nowIso(),
+                lastPulledRemoteUpdatedAt: remotePageContent.lastEditedTime,
+                lastPushedLocalUpdatedAt: verifiedDocument.updatedAt,
+                lastKnownRemoteUpdatedAt: remotePageContent.lastEditedTime,
+                lastSyncedContentHash: localHash,
+                lastError: null,
+                warnings: remotePageContent.warnings,
+                hasConflict: false,
+              });
+              const convergedLink = await getSyncLink(documentId, owner);
+              return buildStatus({
+                connected: true,
+                documentId,
+                link: convergedLink,
+                remoteUpdatedAt: remotePageContent.lastEditedTime,
+                documentUpdatedAt: verifiedDocument.updatedAt,
+                documentContent: verifiedDocument.content,
+              });
+            }
+
+            if (!localHashChanged || !remoteHashChanged) {
+              if (options?.autoSync && localHashChanged) {
+                return pushDocumentToNotion(owner, documentId, false, {
+                  skipClaim: true,
+                });
+              }
+              if (options?.autoSync && remoteHashChanged) {
+                return pullDocumentFromNotion(owner, documentId, false, {
+                  skipClaim: true,
+                });
+              }
+              return {
+                ...claimedStatus,
+                localChanged: localHashChanged,
+                remoteChanged: remoteHashChanged,
+              };
+            }
+          }
+
+          await upsertSyncLink({
+            owner,
+            documentId,
+            remotePageId: link.remotePageId,
+            state: "conflict",
+            lastSyncedAt: link.lastSyncedAt,
+            lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+            lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+            lastKnownRemoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+            lastSyncedContentHash: link.lastSyncedContentHash,
+            lastError: null,
+            warnings: parseWarnings(link),
+            hasConflict: true,
+          });
+          const updatedLink = await getSyncLink(documentId, owner);
+          return buildStatus({
+            connected: true,
+            documentId,
+            link: updatedLink,
+            remoteUpdatedAt: status.lastKnownRemoteUpdatedAt,
+            documentUpdatedAt: conflictDocument.updatedAt,
+            documentContent: conflictDocument.content,
+          });
+        }
+      } finally {
+        await releaseSyncLink(documentId, owner);
       }
     }
   }

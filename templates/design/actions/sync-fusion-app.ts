@@ -10,6 +10,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { ensureFusionContainer } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, count, eq } from "drizzle-orm";
@@ -17,13 +18,14 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   DEFAULT_FUSION_SCREEN_HEIGHT,
   DEFAULT_FUSION_SCREEN_WIDTH,
   upsertFusionScreens,
 } from "../server/lib/fusion-screens.js";
 import {
-  FULL_APP_BUILDING_ENABLED,
+  FULL_APP_BUILDING,
   parseDesignDataBlob,
   readFusionApp,
   writeFusionApp,
@@ -69,8 +71,8 @@ export default defineAction({
           "Defaults to the design's existing fusion screen paths, or ['/'] if none exist.",
       ),
   }),
-  run: async ({ designId, paths }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, paths }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 
@@ -90,40 +92,55 @@ export default defineAction({
       timeoutMs: 20_000,
     });
 
-    const db = getDb();
     const now = new Date().toISOString();
 
     if (result.status === "error") {
-      const nextData = writeFusionApp(data, {
-        ...fusionApp,
-        status: "error",
-        statusMessage: result.message ?? "Container provisioning failed",
-        updatedAt: now,
+      const statusMessage = result.message ?? "Container provisioning failed";
+      await mutateDesignData({
+        designId,
+        mutate: (current) =>
+          writeFusionApp(current, {
+            ...(readFusionApp(current) ?? fusionApp),
+            status: "error",
+            statusMessage,
+            updatedAt: now,
+          }),
+        isApplied: (current) => {
+          const persisted = readFusionApp(current);
+          return (
+            persisted?.status === "error" &&
+            persisted.statusMessage === statusMessage
+          );
+        },
       });
-      await db
-        .update(schema.designs)
-        .set({ data: JSON.stringify(nextData), updatedAt: now })
-        .where(eq(schema.designs.id, designId));
       return {
         status: "error" as const,
-        message: result.message ?? "Container provisioning failed",
+        message: statusMessage,
       };
     }
 
     if (result.status === "provisioning") {
-      const nextData = writeFusionApp(data, {
-        ...fusionApp,
-        status: "building",
-        statusMessage: result.message ?? "Container is still starting",
-        updatedAt: now,
+      const statusMessage = result.message ?? "Container is still starting";
+      await mutateDesignData({
+        designId,
+        mutate: (current) =>
+          writeFusionApp(current, {
+            ...(readFusionApp(current) ?? fusionApp),
+            status: "building",
+            statusMessage,
+            updatedAt: now,
+          }),
+        isApplied: (current) => {
+          const persisted = readFusionApp(current);
+          return (
+            persisted?.status === "building" &&
+            persisted.statusMessage === statusMessage
+          );
+        },
       });
-      await db
-        .update(schema.designs)
-        .set({ data: JSON.stringify(nextData), updatedAt: now })
-        .where(eq(schema.designs.id, designId));
       return {
         status: "building" as const,
-        message: result.message ?? "Container is still starting",
+        message: statusMessage,
       };
     }
 
@@ -159,25 +176,26 @@ export default defineAction({
       height: DEFAULT_FUSION_SCREEN_HEIGHT,
     });
 
-    // Re-read the design's data since upsertFusionScreens just wrote it, then
-    // layer the fusionApp update on top so we don't clobber the screen writes.
-    const [refreshed] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
-    const refreshedData = parseDesignDataBlob(refreshed?.data);
-    const nextData = writeFusionApp(refreshedData, {
-      ...fusionApp,
-      previewUrl,
-      status: "ready",
-      statusMessage: result.message ?? "Container is ready",
-      updatedAt: now,
+    const statusMessage = result.message ?? "Container is ready";
+    await mutateDesignData({
+      designId,
+      mutate: (current) =>
+        writeFusionApp(current, {
+          ...(readFusionApp(current) ?? fusionApp),
+          previewUrl,
+          status: "ready",
+          statusMessage,
+          updatedAt: now,
+        }),
+      isApplied: (current) => {
+        const persisted = readFusionApp(current);
+        return (
+          persisted?.previewUrl === previewUrl &&
+          persisted.status === "ready" &&
+          persisted.statusMessage === statusMessage
+        );
+      },
     });
-    await db
-      .update(schema.designs)
-      .set({ data: JSON.stringify(nextData), updatedAt: now })
-      .where(eq(schema.designs.id, designId));
 
     const pendingEditCount = await countPendingEdits(design);
 

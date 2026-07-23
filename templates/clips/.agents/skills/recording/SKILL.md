@@ -32,7 +32,32 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 5. **Upload each chunk.** `ondataavailable` POSTs the chunk bytes to `/api/uploads/chunk` with headers `X-Recording-Id` and `X-Chunk-Index`. Don't retry inline — buffer failed chunks in `IndexedDB` and let a background worker re-send.
 6. **Live transcription.** Alongside the MediaRecorder, `useLiveTranscription` runs the Web Speech API to accumulate transcript text in real time. On stop, the client calls `save-browser-transcript` to persist the result immediately — no API key needed. Desktop recordings use local Whisper/macOS speech first when available, and fall back to Web Speech in the webview on non-mac before relying on upload transcription.
 7. **Finalize.** On stop, send the final chunk to `/api/uploads/:id/chunk?isFinal=1`. The route calls `finalize-recording`, which stitches chunks, makes the media seekable (see below), uploads the finished media when storage is configured, transitions `status` to `ready`, then kicks off `request-transcript` for higher-quality output (see `ai-video-tools`).
-8. **Navigate.** Once the row is `ready` the UI navigates to `/r/:id`.
+8. **Navigate immediately.** Desktop recorders open `/r/:id` as soon as Stop
+   starts finalization. The recording row already exists, so the page can show
+   the title, share link, and upload progress while it polls from `uploading` or
+   `processing` to `ready`. Do not wait for the upload/finalize response before
+   opening the page.
+
+## Mobile companion lifecycle
+
+The Agent Native mobile app uses the same recording rows and binary upload
+routes with native capture primitives:
+
+1. Camera video/import uses `expo-camera` / the system photo picker; meeting
+   audio uses `expo-audio` with background recording enabled.
+2. The native file is copied into the documents directory and a typed
+   AsyncStorage capture job is written before upload starts.
+3. `create-recording` receives a stable client-generated id,
+   `sourceAppName: "Agent Native Mobile"`, and the container MIME type.
+4. Upload reads at most 3 MiB through an Expo FileHandle and persists the next
+   chunk index after every acknowledged POST. The 4 MiB server cap still
+   applies.
+5. Foreground/resume reconciliation polls `/api/uploads/:id/status`; retryable
+   failures back off and never discard the local file. Completion can post a
+   local notification and the recording appears in Clips everywhere.
+
+Mobile audio M4A is an MP4 container and uses the recording route's MP4 MIME
+alias. The bytes are not converted or loaded whole into JavaScript memory.
 
 ## Seekable playback (don't ship raw MediaRecorder output)
 
@@ -40,7 +65,7 @@ Raw `MediaRecorder` files are not friendly to progressive HTTP playback, which
 shows up as "clip takes minutes to load" and "re-buffers every time I seek"
 even though the file downloads fine:
 
-- **MP4** is written with the `moov` metadata atom *after* `mdat`, so a player
+- **MP4** is written with the `moov` metadata atom _after_ `mdat`, so a player
   must fetch the whole file before it can start or seek.
 - **WebM** is a live stream with no Cues (seek index) and an unknown Segment
   duration, so Chrome won't honor `currentTime = X` and has to scan/download.
@@ -62,6 +87,18 @@ re-fetches provider media, rewrites it, re-uploads, and repoints the row. It's
 idempotent (already-seekable clips are skipped unless `--force`) and only touches
 provider-hosted clips owned by the caller. This is the right tool when a user
 reports a specific slow/buffering clip.
+
+Seekability remuxing cannot repair a recording whose audio continues while the
+video track has a large timestamp gap (common when a mobile browser suspends the
+camera after the user switches apps). For a clip that freezes or appears to stop
+before its declared duration, call `reprocess-recording` with
+`--normalizeTimeline=true`. That explicit mode uses the same owner-scoped fetch
+and upload flow but fully transcodes to a constant-30-fps faststart MP4 (H.264 +
+AAC). It preserves audio and duplicates the last decoded video frame through
+missing-frame gaps. The action uploads to a new media object and atomically
+repoints the row only after verified output is stored; any transcode, audio
+verification, upload, or concurrent-update failure leaves the original URL and
+format untouched.
 
 ## Loom import
 
@@ -100,7 +137,12 @@ different listing.
 
 ## Camera bubble
 
-When mode is `screen+camera`, we composite a circular camera feed in the corner. Render the bubble in a separate `<video>` element and record it into a second `MediaRecorder`; the server side stitches them with ffmpeg.wasm during `processing`. Do **not** try to pre-composite in the browser — that burns GPU and drops frames.
+When mode is `screen+camera`, "the bubble" is two different things:
+
+- **On-screen self-view.** `CameraBubble` renders a plain, unrecorded `<video>` element the user drags around to frame themselves during countdown/recording. It is never captured — it's just local framing UI.
+- **Recorded composite.** Display capture can't include that DOM element once the user records another window/app, so the saved video has to bake the camera circle in before `MediaRecorder` ever sees a frame. `createCameraCompositeStream` (`app/lib/camera-composite.ts`) draws the display video plus a clipped, mirrored camera circle onto an offscreen `<canvas>` and feeds `canvas.captureStream()` into a single `MediaRecorder`. There is **no** second `MediaRecorder` and **no** server-side ffmpeg stitching — the composite happens client-side, live, before upload.
+
+Because that draw loop runs continuously for the whole recording, keep its CPU/GPU cost bounded: a Worker-based timer drives the draw loop at the capture frame rate (`SCREEN_CAPTURE_FRAME_RATE`, 24fps — falling back to `requestAnimationFrame` only if Worker creation fails, e.g. under a strict CSP), the canvas is hard-capped to 1080p-class dimensions (1920px on its longest edge) even if the source display track is Retina/4K, and the bubble's drop shadow is pre-rendered into a small cached sprite (keyed by bubble size) instead of re-blurring with `shadowBlur` every frame.
 
 ## Error recovery
 
@@ -170,6 +212,8 @@ export function useRecorder() {
 - **Never** start a `MediaRecorder` without a user gesture (or a user-initiated `record-intent`).
 - **Never** re-prompt for permissions on pause/resume — reuse the stream.
 - **Never** fire the upload from the main thread if the chunks are large — prefer a web worker for anything longer than ~60s.
+- **Never** read a complete mobile recording into JavaScript memory. Use bounded
+  FileHandle reads and checkpoint every acknowledged chunk.
 - The `recordings` row must exist **before** the first chunk is sent.
 - On every lifecycle change, write `navigation` → `{ view: "record" }` → `{ view: "recording", recordingId }` so the agent can see what's happening.
 - All AI generated during/after recording goes through the agent chat — see `ai-video-tools`.

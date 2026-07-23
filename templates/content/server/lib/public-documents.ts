@@ -4,6 +4,54 @@ import { getCookie, getHeader, setCookie, type H3Event } from "h3";
 
 const PUBLIC_VIEWER_COOKIE = "content_public_viewer";
 const PUBLIC_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
+export const PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS = 2_400;
+
+type PublicDocumentPromptInput = {
+  id: string;
+  title: string;
+  description?: string;
+  content: string;
+  updatedAt: string | Date;
+};
+
+function publicDocumentExcerpt(content: string): {
+  excerpt: string;
+  truncated: boolean;
+} {
+  const normalized = content.trim();
+  if (normalized.length <= PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS) {
+    return { excerpt: normalized, truncated: false };
+  }
+
+  const tailChars = Math.floor(PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS / 3);
+  const headChars = PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS - tailChars;
+  return {
+    excerpt: `${normalized.slice(0, headChars)}\n\n... [middle omitted from initial context] ...\n\n${normalized.slice(-tailChars)}`,
+    truncated: true,
+  };
+}
+
+export function buildPublicDocumentPromptContext(
+  doc: PublicDocumentPromptInput,
+): string {
+  const { excerpt, truncated } = publicDocumentExcerpt(doc.content);
+  const fullDocumentGuidance = truncated
+    ? `This is a bounded excerpt of the document. Before answering a question that may depend on omitted content, call \`get-document\` with \`id: "${doc.id}"\` to read the complete document.`
+    : `The complete document fits in this context. Call \`get-document\` with \`id: "${doc.id}"\` if you need a fresh structured copy.`;
+
+  return `<public-shared-document>
+The user is viewing a public, read-only shared Content document. Answer questions using this document as the primary context. Do not create, edit, delete, comment on, share, or otherwise mutate document data for public viewers.
+${fullDocumentGuidance}
+
+Document ID: ${doc.id}
+Title: ${doc.title}
+Description: ${doc.description || "(none)"}
+Updated at: ${doc.updatedAt}
+
+Markdown excerpt:
+${excerpt}
+</public-shared-document>`;
+}
 
 function getAppOrigin(event: H3Event): string | null {
   const proto =
@@ -40,18 +88,25 @@ async function getPublicDocumentForEvent(event: H3Event) {
 
   const { getDb } = await import("../db/index.js");
   const { documents } = await import("../db/schema.js");
-  const { and, eq } = await import("drizzle-orm");
+  const { and, eq, isNull } = await import("drizzle-orm");
 
   const [doc] = await getDb()
     .select({
       id: documents.id,
       title: documents.title,
+      description: documents.description,
       content: documents.content,
       updatedAt: documents.updatedAt,
       visibility: documents.visibility,
     })
     .from(documents)
-    .where(and(eq(documents.id, id), eq(documents.visibility, "public")))
+    .where(
+      and(
+        eq(documents.id, id),
+        eq(documents.visibility, "public"),
+        isNull(documents.trashedAt),
+      ),
+    )
     .limit(1);
 
   return doc ?? null;
@@ -102,14 +157,5 @@ export async function publicDocumentExtraContext(event: H3Event) {
   const doc = await getPublicDocumentForEvent(event);
   if (!doc) return null;
 
-  return `<public-shared-document>
-The user is viewing a public, read-only shared Content document. Answer questions using this document as the primary context. Do not create, edit, delete, comment on, share, or otherwise mutate document data for public viewers.
-
-Document ID: ${doc.id}
-Title: ${doc.title}
-Updated at: ${doc.updatedAt}
-
-Markdown:
-${doc.content}
-</public-shared-document>`;
+  return buildPublicDocumentPromptContext(doc);
 }

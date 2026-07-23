@@ -1,21 +1,21 @@
-import {
-  ChangelogSettingsCard,
-  LanguagePicker,
-  SettingsTabsPage,
-  agentNativePath,
-  useActionQuery,
-  useAgentSettingsTabs,
-  useBuilderConnectFlow,
-  useBuilderStatus,
-  useT,
-  type SettingsSearchEntry,
-} from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
   useOnboarding,
   type OnboardingMethod,
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
 import { TeamPage } from "@agent-native/core/client/org";
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+  type SettingsSearchEntry,
+} from "@agent-native/core/client/settings";
+import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import {
   IconAlertCircle,
   IconCheck,
@@ -112,6 +112,8 @@ export default function SettingsPage() {
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
+            <CreativeContextSettingsLink />
+
             <div>
               <h2 className="text-lg font-semibold tracking-tight">
                 {t("settings.connections")}
@@ -142,7 +144,7 @@ export default function SettingsPage() {
           </div>
         }
         team={
-          <div className="mx-auto w-full max-w-2xl">
+          <div className="mx-auto w-full max-w-3xl">
             <TeamPage
               showTitle={false}
               createOrgDescription={t("team.createOrgDescription")}

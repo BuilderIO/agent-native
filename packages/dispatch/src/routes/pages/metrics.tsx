@@ -1,4 +1,5 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconActivity,
   IconAlertTriangle,
@@ -643,7 +644,6 @@ export default function MetricsRoute() {
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
     { sinceDays },
-    { refetchInterval: 30_000 },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
   const billing = metrics?.billing ?? USD_BILLING;

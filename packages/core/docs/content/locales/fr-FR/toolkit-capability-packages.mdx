@@ -1,0 +1,21 @@
+---
+title: "Packages de capacité"
+description: "Gérez des capacités métier et leur cycle de vie piloté par manifeste sans les intégrer à Toolkit."
+---
+
+# Packages de capacité
+
+Toolkit fournit des fondations produit transversales ; les packages de capacité apportent un domaine borné, des actions, des skills et des métadonnées de cycle de vie. Scheduling et Creative Context restent des packages de capacité séparés, pas des kits Toolkit.
+
+`@agent-native/scheduling` participe au pilote de manifeste générique. Consultez la documentation locale et le manifeste de chaque package pour les points d'extension et la propriété.
+
+- [Documentation du package Scheduling](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Documentation du package Creative Context](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+Consultez [Cycle de vie des packages](/docs/package-lifecycle) pour l'inspection, le mode simulation et l'éjection.

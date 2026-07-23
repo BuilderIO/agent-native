@@ -36,7 +36,7 @@ import {
   type BlockRenderContext,
   type NestedBlock,
 } from "@agent-native/core/blocks";
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { useMemo, type ReactNode } from "react";
 
 import {
@@ -126,7 +126,14 @@ function DocNestedBlock({
   const spec = registry.get(block.type);
   if (!spec) return null;
   void compactVisuals;
-  return <BlockView spec={spec} block={block} editing={false} ctx={ctx} />;
+  const view = (
+    <BlockView spec={spec} block={block} editing={false} ctx={ctx} />
+  );
+  return block.type === "wireframe" ? (
+    <div className="docs-wireframe-frame">{view}</div>
+  ) : (
+    view
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -266,5 +273,12 @@ export function DocBlock({
     data: parsed.data,
   };
 
-  return <BlockView spec={spec} block={block} editing={false} ctx={ctx} />;
+  const view = (
+    <BlockView spec={spec} block={block} editing={false} ctx={ctx} />
+  );
+  return type === "wireframe" ? (
+    <div className="docs-wireframe-frame">{view}</div>
+  ) : (
+    view
+  );
 }

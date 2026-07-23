@@ -28,6 +28,13 @@ export interface RunStuckState {
   heartbeatSinceMs: number | null;
   /** How the run was dispatched/continued, e.g. foreground-self-chain or background-processing. */
   dispatchMode: string | null;
+  /**
+   * Server-authoritative: true when the run holds an open tool call or A2A
+   * `agent_call` delegation (`in_flight_since` marker set). Preferred over the
+   * client-side proxy for deciding whether Retry (which aborts the run) is
+   * safe to offer. Null when the server bundle predates this field.
+   */
+  hasInFlightWork: boolean | null;
 }
 
 export interface UseRunStuckDetectionOptions {
@@ -55,6 +62,13 @@ export interface UseRunStuckDetectionOptions {
    * from the same poll response that computes the elapsed time.
    */
   backgroundStuckThresholdMs?: number;
+  /**
+   * Legacy upper bound for a claimed durable background worker that is still
+   * sending fresh process heartbeats. Informational quiet-run UI is never
+   * delayed past `backgroundStuckThresholdMs`; this option can only request an
+   * earlier notice for live workers. Default 13 minutes.
+   */
+  liveBackgroundStuckThresholdMs?: number;
   /** Poll interval. Default 5_000ms. */
   pollIntervalMs?: number;
   /** API base path. Default `/_agent-native/agent-chat`. */
@@ -63,8 +77,11 @@ export interface UseRunStuckDetectionOptions {
 
 const DEFAULT_STUCK_THRESHOLD_MS = 90_000;
 export const DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS = 180_000;
+export const DEFAULT_LIVE_BACKGROUND_STUCK_THRESHOLD_MS = 13 * 60_000;
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const IDLE_BACKOFF_INTERVAL_MS = 15_000;
+const MAX_POLL_ERROR_BACKOFF_MS = 30_000;
+const FRESH_BACKGROUND_HEARTBEAT_MS = 30_000;
 
 interface ActiveRunResponse {
   active: boolean;
@@ -75,6 +92,8 @@ interface ActiveRunResponse {
   dispatchMode?: string | null;
   /** Server clock at response time, used to compute elapsed server-relative. */
   serverNow?: number;
+  /** True when the run holds an open tool/A2A call (in_flight_since marker). */
+  hasInFlightWork?: boolean;
 }
 
 const EMPTY_STATE: RunStuckState = {
@@ -86,6 +105,7 @@ const EMPTY_STATE: RunStuckState = {
   heartbeatAt: null,
   heartbeatSinceMs: null,
   dispatchMode: null,
+  hasInFlightWork: null,
 };
 
 export function useRunStuckDetection({
@@ -93,6 +113,7 @@ export function useRunStuckDetection({
   enabled = true,
   stuckThresholdMs = DEFAULT_STUCK_THRESHOLD_MS,
   backgroundStuckThresholdMs = DEFAULT_BACKGROUND_STUCK_THRESHOLD_MS,
+  liveBackgroundStuckThresholdMs = DEFAULT_LIVE_BACKGROUND_STUCK_THRESHOLD_MS,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
   apiUrl,
 }: UseRunStuckDetectionOptions): RunStuckState {
@@ -107,6 +128,153 @@ export function useRunStuckDetection({
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let snapshotTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+    let snapshotVersion = 0;
+    let consecutivePollFailures = 0;
+
+    const pollFailureDelay = () => {
+      consecutivePollFailures += 1;
+      return Math.min(
+        Math.max(pollIntervalMs, 1) * 2 ** consecutivePollFailures,
+        MAX_POLL_ERROR_BACKOFF_MS,
+      );
+    };
+
+    const clearObservedRun = () => {
+      snapshotVersion += 1;
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      snapshotTransitionTimer = null;
+      setState(EMPTY_STATE);
+    };
+
+    type RunHealthSnapshot = {
+      active: boolean;
+      runId: string | null;
+      status: string | null;
+      lastProgressAt: number | null;
+      stuckSinceMs: number | null;
+      heartbeatAt: number | null;
+      heartbeatSinceMs: number | null;
+      dispatchMode: string | null;
+    };
+
+    const effectiveThresholdFor = (
+      dispatchMode: string | null,
+      heartbeatSinceMs: number | null,
+    ) => {
+      const liveBackgroundWorker =
+        dispatchMode === "background-processing" &&
+        heartbeatSinceMs != null &&
+        heartbeatSinceMs >= 0 &&
+        heartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
+      const serverContinued =
+        dispatchMode === "foreground-self-chain" ||
+        dispatchMode?.startsWith("background") === true;
+      return liveBackgroundWorker
+        ? Math.min(backgroundStuckThresholdMs, liveBackgroundStuckThresholdMs)
+        : serverContinued
+          ? backgroundStuckThresholdMs
+          : stuckThresholdMs;
+    };
+
+    const scheduleSnapshotTransition = (
+      snapshot: RunHealthSnapshot,
+      observedAtMs: number,
+      version: number,
+    ) => {
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      snapshotTransitionTimer = null;
+      if (
+        cancelled ||
+        version !== snapshotVersion ||
+        !snapshot.active ||
+        snapshot.status !== "running" ||
+        snapshot.runId == null
+      ) {
+        return;
+      }
+
+      const currentElapsedMs = Math.max(0, Date.now() - observedAtMs);
+      const currentHeartbeatSinceMs =
+        snapshot.heartbeatSinceMs == null
+          ? null
+          : snapshot.heartbeatSinceMs + currentElapsedMs;
+      const currentStuckSinceMs =
+        snapshot.stuckSinceMs == null
+          ? null
+          : snapshot.stuckSinceMs + currentElapsedMs;
+      const effectiveThresholdMs = effectiveThresholdFor(
+        snapshot.dispatchMode,
+        currentHeartbeatSinceMs,
+      );
+      const currentlyStuck = Boolean(
+        currentStuckSinceMs != null &&
+        currentStuckSinceMs > effectiveThresholdMs,
+      );
+      const transitionDelaysMs: number[] = [];
+      if (
+        currentHeartbeatSinceMs != null &&
+        currentHeartbeatSinceMs >= 0 &&
+        currentHeartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS
+      ) {
+        transitionDelaysMs.push(
+          FRESH_BACKGROUND_HEARTBEAT_MS - currentHeartbeatSinceMs + 1,
+        );
+      }
+      if (currentStuckSinceMs != null && !currentlyStuck) {
+        transitionDelaysMs.push(
+          Math.max(1, effectiveThresholdMs - currentStuckSinceMs + 1),
+        );
+      }
+      if (transitionDelaysMs.length === 0) return;
+
+      // Both ages originate from the server clock. Advance those snapshots by
+      // only a local elapsed duration, which remains safe when client/server
+      // wall clocks differ. Wake at the earlier semantic boundary, then
+      // reschedule if the other boundary is still ahead.
+      const delayMs = Math.max(1, Math.min(...transitionDelaysMs));
+      snapshotTransitionTimer = setTimeout(() => {
+        snapshotTransitionTimer = null;
+        if (cancelled || version !== snapshotVersion) return;
+        const elapsedSinceObservationMs = Math.max(
+          0,
+          Date.now() - observedAtMs,
+        );
+        const nextHeartbeatSinceMs =
+          snapshot.heartbeatSinceMs == null
+            ? null
+            : snapshot.heartbeatSinceMs + elapsedSinceObservationMs;
+        const nextStuckSinceMs =
+          snapshot.stuckSinceMs == null
+            ? null
+            : snapshot.stuckSinceMs + elapsedSinceObservationMs;
+        const nextEffectiveThresholdMs = effectiveThresholdFor(
+          snapshot.dispatchMode,
+          nextHeartbeatSinceMs,
+        );
+        const nextIsStuck = Boolean(
+          nextStuckSinceMs != null &&
+          nextStuckSinceMs > nextEffectiveThresholdMs,
+        );
+        setState((current) => {
+          if (
+            version !== snapshotVersion ||
+            current.runId !== snapshot.runId ||
+            current.lastProgressAt !== snapshot.lastProgressAt ||
+            current.heartbeatAt !== snapshot.heartbeatAt
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            isStuck: nextIsStuck,
+            stuckSinceMs: nextStuckSinceMs,
+            heartbeatSinceMs: nextHeartbeatSinceMs,
+          };
+        });
+        scheduleSnapshotTransition(snapshot, observedAtMs, version);
+      }, delayMs);
+    };
 
     const poll = async () => {
       if (cancelled) return;
@@ -118,6 +286,7 @@ export function useRunStuckDetection({
         );
         if (cancelled) return;
         if (res.ok) {
+          consecutivePollFailures = 0;
           const data = (await res.json()) as ActiveRunResponse;
           const lastProgressAt = data.lastProgressAt ?? null;
           // Measure elapsed against the SERVER clock (serverNow) rather than the
@@ -133,20 +302,37 @@ export function useRunStuckDetection({
             heartbeatAt != null ? nowMs - heartbeatAt : null;
           const dispatchMode =
             typeof data.dispatchMode === "string" ? data.dispatchMode : null;
-          // Server-continued runs get the wider threshold: the server's own
-          // recovery (150s no-progress backstop + chained continuations) must
-          // get its chance before the user sees a "stuck" affordance.
-          const serverContinued =
-            dispatchMode === "foreground-self-chain" ||
-            dispatchMode?.startsWith("background") === true;
-          const effectiveThresholdMs = serverContinued
-            ? backgroundStuckThresholdMs
-            : stuckThresholdMs;
+          // A claimed durable worker with a fresh heartbeat can legitimately
+          // be waiting on a bounded long-running tool/sub-agent call. Still
+          // surface informational status at the normal background threshold;
+          // RunStuckBanner uses the fresh heartbeat to withhold Retry while
+          // keeping an explicit Cancel available. The legacy live-worker
+          // threshold may make that notice earlier, but never later.
+          const effectiveThresholdMs = effectiveThresholdFor(
+            dispatchMode,
+            heartbeatSinceMs,
+          );
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&
             stuckSinceMs != null &&
             stuckSinceMs > effectiveThresholdMs,
+          );
+          const observedAtMs = Date.now();
+          const version = ++snapshotVersion;
+          scheduleSnapshotTransition(
+            {
+              active: data.active,
+              runId: data.runId ?? null,
+              status: data.status ?? null,
+              lastProgressAt,
+              stuckSinceMs,
+              heartbeatAt,
+              heartbeatSinceMs,
+              dispatchMode,
+            },
+            observedAtMs,
+            version,
           );
           setState({
             isStuck,
@@ -157,6 +343,10 @@ export function useRunStuckDetection({
             heartbeatAt,
             heartbeatSinceMs,
             dispatchMode,
+            hasInFlightWork:
+              typeof data.hasInFlightWork === "boolean"
+                ? data.hasInFlightWork
+                : null,
           });
           // Back off polling when nothing is in flight — there's no point
           // hammering the endpoint while the chat is idle. We still poll
@@ -164,9 +354,17 @@ export function useRunStuckDetection({
           if (!data.active || data.status !== "running") {
             nextDelay = IDLE_BACKOFF_INTERVAL_MS;
           }
+        } else if (res.status === 429 || res.status >= 500) {
+          nextDelay = pollFailureDelay();
+        } else {
+          consecutivePollFailures = 0;
+          clearObservedRun();
+          nextDelay = MAX_POLL_ERROR_BACKOFF_MS;
         }
       } catch {
-        // Network blip — leave previous state. Next tick will retry.
+        // Network/503 blip — leave previous state and ease polling pressure
+        // while the server or database recovers.
+        nextDelay = pollFailureDelay();
       }
       if (!cancelled) {
         timer = setTimeout(poll, nextDelay);
@@ -180,13 +378,16 @@ export function useRunStuckDetection({
 
     return () => {
       cancelled = true;
+      snapshotVersion += 1;
       if (timer) clearTimeout(timer);
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
     };
   }, [
     threadId,
     enabled,
     stuckThresholdMs,
     backgroundStuckThresholdMs,
+    liveBackgroundStuckThresholdMs,
     pollIntervalMs,
     apiUrl,
   ]);

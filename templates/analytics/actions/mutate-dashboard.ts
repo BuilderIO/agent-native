@@ -11,13 +11,18 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboardWithRetry,
+  type DashboardRecord,
+} from "../server/lib/dashboards-store";
 import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,
   DASHBOARD_MUTATION_EXAMPLES,
   parseDashboardMutationScript,
   type DashboardMutationOperation,
+  type DashboardMutationResult,
 } from "./dashboard-mutation-api";
 import { compactDashboardResult } from "./dashboard-panel-order";
 import { validateDashboardConfig, validatePanelSql } from "./update-dashboard";
@@ -80,6 +85,11 @@ const mutationOperationSchema = z.discriminatedUnion("op", [
     op: z.literal("setDashboard"),
     patch: z.record(z.string(), z.unknown()),
   }),
+  z.object({
+    op: z.literal("setFilterDefault"),
+    filterId: z.string().min(1),
+    value: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+  }),
 ]);
 
 function parseJsonArrayString(
@@ -107,17 +117,40 @@ function parseJsonArrayString(
 const operationsInputSchema = z
   .union([
     z.array(mutationOperationSchema),
-    z.string().transform((value) => parseJsonArrayString(value, "operations")),
+    z.string().transform((value) => {
+      const trimmed = value.trim();
+      return trimmed ? parseJsonArrayString(trimmed, "operations") : undefined;
+    }),
   ])
   .optional();
+
+function nonEmptyCode(value: string | undefined): string | undefined {
+  return value?.trim() ? value : undefined;
+}
+
+function nonEmptyOperations(
+  value: DashboardMutationOperation[] | undefined,
+): DashboardMutationOperation[] | undefined {
+  return value && value.length > 0 ? value : undefined;
+}
 
 const apiHelp =
   "Constrained TypeScript-like dashboard mutation script. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
   "No variables, imports, loops, functions, templates, network, filesystem, or DB access. Arguments must be JSON-compatible literals, so quote object keys. " +
-  "Subjects: dashboard.set, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
-  "Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, moveNextTo, moveToRow, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. " +
+  "Subjects: dashboard.set, dashboard.setFilterDefault, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
+  'For a simple default-filter change, use `dashboard.setFilterDefault("emailFilter","exclude_builder");`; it verifies the filter and option value without resending every filter or revalidating unchanged panel SQL. ' +
+  'Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, moveNextTo, moveToRow, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. Duplicate supports one chained placement method, for example `dashboard.panel("source").duplicate("copy", {"chartType":"bar"}).nextTo("source");`. ' +
   "Inserted panels support atTop, atBottom, before, after, atIndex, nextTo, atRow, atRowStart, and atRowEnd. Use nextTo(panelId) or atRow(rowNumber) for visible row placement. " +
+  "AI-generated first-party panels are dashboard-time-bound by default: set config.timeScope to dashboard and include a matching dashboard time filter in SQL. Allowed values are dashboard, fixed-window, cohort-history, and all-time; use all-time only when the user requests full available history and put all-time, lifetime, or historical in the title or description. A {{timeRange}} token requires the timeRange select filter; {{<id>Start}}/{{<id>End}} require a matching date-range filter. Server validation rejects unbound first-party SQL. " +
   `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 5).join(" ")}`;
+
+const agentInputSchema = z.object({
+  dashboardId: z
+    .string()
+    .min(1)
+    .describe("Dashboard id, e.g. 'agent-native-templates-first-party'."),
+  code: z.string().min(1).describe(apiHelp),
+});
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -156,17 +189,52 @@ async function syncToCollab(
   }
 }
 
-function mutationCanChangePanelSql(op: DashboardMutationOperation): boolean {
-  if (op.op === "insertPanel" || op.op === "duplicatePanel") return true;
-  if (op.op === "setDashboard") {
-    return Object.keys(op.patch).some((key) =>
-      ["filters", "variables"].includes(key),
-    );
+function sqlValidationScope(
+  operations: DashboardMutationOperation[],
+): ReadonlySet<string> | "all" | null {
+  const panelIds = new Set<string>();
+  for (const op of operations) {
+    if (op.op === "setDashboard") {
+      if (
+        Object.keys(op.patch).some((key) =>
+          ["filters", "variables", "panels"].includes(key),
+        )
+      ) {
+        return "all";
+      }
+      continue;
+    }
+    if (op.op === "insertPanel") {
+      if (typeof op.panel.id === "string") panelIds.add(op.panel.id);
+      continue;
+    }
+    if (op.op === "duplicatePanel") {
+      panelIds.add(op.newPanelId);
+      continue;
+    }
+    if (op.op === "updatePanelPath") {
+      panelIds.add(op.panelId);
+      continue;
+    }
+    if (
+      op.op === "updatePanel" &&
+      Object.keys(op.patch).some((key) =>
+        ["sql", "source", "chartType", "config"].includes(key),
+      )
+    ) {
+      panelIds.add(op.panelId);
+    }
   }
-  if (op.op !== "updatePanel") return false;
-  return Object.keys(op.patch).some((key) =>
-    ["sql", "source", "chartType"].includes(key),
-  );
+  return panelIds.size > 0 ? panelIds : null;
+}
+
+async function validateMutationSql(
+  config: Record<string, unknown>,
+  operations: DashboardMutationOperation[],
+): Promise<string | null> {
+  const scope = sqlValidationScope(operations);
+  if (scope === null) return null;
+  return validatePanelSql(config, scope === "all" ? undefined : scope);
 }
 
 function movedPanelIdsFrom(operations: DashboardMutationOperation[]): string[] {
@@ -193,7 +261,7 @@ export default defineAction({
     "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. " +
     "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
     "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
-    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. " +
+    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. First-party SQL must be explicitly time-bound as described in the API help; server validation rejects unbound first-party SQL. " +
     "The main code argument is a string, so it avoids brittle JSON-pointer indexes and native-array serialization issues. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
   schema: z.object({
@@ -208,7 +276,7 @@ export default defineAction({
     code: z.string().optional().describe(apiHelp),
     operations: operationsInputSchema.describe(
       "Structured equivalent of the typed script. Native callers should pass an array of mutation ops; shell/legacy callers may pass a JSON string. " +
-        "Supported ops: movePanels, removePanels, updatePanel, updatePanelPath, insertPanel, duplicatePanel, setDashboard.",
+        "Supported ops: movePanels, removePanels, updatePanel, updatePanelPath, insertPanel, duplicatePanel, setDashboard, setFilterDefault.",
     ),
     dryRun: z
       .boolean()
@@ -227,6 +295,7 @@ export default defineAction({
       .optional()
       .describe("If true, include the allowed TypeScript API and examples."),
   }),
+  agentInputSchema,
   http: { method: "POST" },
   mcpApp: {
     compactCatalog: true,
@@ -239,18 +308,18 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    const code = nonEmptyCode(args.code);
+    const requestedOperations = nonEmptyOperations(args.operations);
     const wantsHelpOnly =
       args.returnTypes === true &&
       !args.dashboardId &&
       !args.id &&
-      !args.code &&
-      !args.operations;
+      !code &&
+      !requestedOperations;
     if (wantsHelpOnly) return helpResult();
 
     const dashboardId = resolveDashboardId(args);
-    const suppliedModes = [args.code, args.operations].filter(
-      (value) => value !== undefined,
-    ).length;
+    const suppliedModes = [code, requestedOperations].filter(Boolean).length;
     if (suppliedModes === 0) {
       throw new Error("provide `code` or `operations`.");
     }
@@ -260,33 +329,76 @@ export default defineAction({
 
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
-    const existing = await getDashboard(dashboardId, ctx);
-    if (!existing) {
-      throw new Error(
-        `dashboard "${dashboardId}" not found (or you don't have access).`,
+
+    // Recomputes the mutation from whatever dashboard state is passed in.
+    // `operations` sourced from `args.operations` are already concrete panel
+    // ids, safe to replay verbatim; `args.code` is re-parsed against `existing`
+    // every time because selectors like `panelsMatching(...)` resolve against
+    // the config at parse time, so a retry must re-resolve them against the
+    // fresh state, not reuse ids resolved from a now-stale config.
+    function computeMutation(
+      existing: Pick<DashboardRecord, "kind" | "config">,
+    ) {
+      if (existing.kind !== "sql") {
+        throw new Error(
+          `mutate-dashboard only supports SQL dashboards; "${dashboardId}" is ${existing.kind}.`,
+        );
+      }
+      const nextRoot = cloneConfig(existing.config as Record<string, unknown>);
+      const nextOperations = requestedOperations
+        ? requestedOperations
+        : parseDashboardMutationScript(nextRoot, code!);
+      const nextMutation = applyDashboardMutationOperations(
+        nextRoot,
+        nextOperations,
       );
-    }
-    if (existing.kind !== "sql") {
-      throw new Error(
-        `mutate-dashboard only supports SQL dashboards; "${dashboardId}" is ${existing.kind}.`,
-      );
+      const validation = validateDashboardConfig(nextRoot);
+      if (validation) throw new Error(validation);
+      return { nextRoot, nextOperations, nextMutation };
     }
 
-    const root = cloneConfig(existing.config as Record<string, unknown>);
-    const operations = args.operations
-      ? (args.operations as DashboardMutationOperation[])
-      : parseDashboardMutationScript(root, args.code!);
-    const mutation = applyDashboardMutationOperations(root, operations);
+    // Assigned inside `computeMutation`'s caller (directly for dry-run, inside
+    // the retry callback for a real save); always assigned at least once
+    // before use below, since `upsertDashboardWithRetry` only resolves after
+    // its callback has run.
+    let root: Record<string, unknown>;
+    let operations!: DashboardMutationOperation[];
+    let mutation!: DashboardMutationResult;
 
-    const validation = validateDashboardConfig(root);
-    if (validation) throw new Error(validation);
-    if (operations.some(mutationCanChangePanelSql)) {
-      const sqlError = await validatePanelSql(root);
+    if (args.dryRun === true) {
+      const existing = await getDashboard(dashboardId, ctx);
+      if (!existing) {
+        throw new Error(
+          `dashboard "${dashboardId}" not found (or you don't have access).`,
+        );
+      }
+      const computed = computeMutation(existing);
+      root = computed.nextRoot;
+      operations = computed.nextOperations;
+      mutation = computed.nextMutation;
+      const sqlError = await validateMutationSql(root, operations);
       if (sqlError) throw new Error(sqlError);
-    }
-
-    if (args.dryRun !== true) {
-      await upsertDashboard(dashboardId, existing.kind, root, ctx);
+    } else {
+      const saved = await upsertDashboardWithRetry(
+        dashboardId,
+        ctx,
+        async (existing) => {
+          const computed = computeMutation(existing);
+          const sqlError = await validateMutationSql(
+            computed.nextRoot,
+            computed.nextOperations,
+          );
+          if (sqlError) throw new Error(sqlError);
+          root = computed.nextRoot;
+          operations = computed.nextOperations;
+          mutation = computed.nextMutation;
+          return { kind: "sql" as const, body: computed.nextRoot };
+        },
+      );
+      // Use the persisted config as the source of truth for the response —
+      // structurally identical to the winning attempt's `root`, but reflects
+      // exactly what was saved.
+      root = saved.config as Record<string, unknown>;
       await syncToCollab(dashboardId, root);
     }
 

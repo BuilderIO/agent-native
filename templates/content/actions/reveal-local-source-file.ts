@@ -9,10 +9,6 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import {
-  getLocalFileDocument,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
 
 async function revealPath(absolutePath: string) {
   const target = path.resolve(absolutePath);
@@ -46,19 +42,12 @@ export default defineAction({
     id: z.string().describe("Document ID"),
   }),
   run: async ({ id }) => {
-    let absolutePath: string | undefined;
-
-    if (await isContentLocalFileMode()) {
-      const doc = await getLocalFileDocument(id);
-      absolutePath = doc.source?.absolutePath;
-    } else {
-      const access = await assertAccess("document", id, "viewer");
-      const [doc] = await getDb()
-        .select()
-        .from(schema.documents)
-        .where(eq(schema.documents.id, access.resource.id));
-      absolutePath = serializeDocumentSource(doc)?.absolutePath;
-    }
+    const access = await assertAccess("document", id, "viewer");
+    const [doc] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, access.resource.id));
+    const absolutePath = serializeDocumentSource(doc)?.absolutePath;
 
     if (!absolutePath) {
       throw new Error(

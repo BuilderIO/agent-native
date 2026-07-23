@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
 import { Link } from "react-router";
 
@@ -161,6 +161,8 @@ export default function DispatchTemplate() {
             <img
               src={template.screenshot}
               alt={t("templateLanding.dispatch.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>

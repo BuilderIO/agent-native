@@ -44,6 +44,111 @@ export interface BuilderCmsEntryLiveState {
   id: string | null;
 }
 
+export interface BuilderCmsEntryFidelitySummary {
+  topLevelBlockCount: number;
+  componentCount: number;
+  textBlockCount: number;
+  imageBlockCount: number;
+  htmlImageCount: number;
+  markdownImageSyntaxCount: number;
+  videoBlockCount: number;
+  headingCount: number;
+  unorderedListCount: number;
+  orderedListCount: number;
+  listItemCount: number;
+  linkCount: number;
+  tableCount: number;
+  escapedTableMarkupCount: number;
+  codeCount: number;
+  blockquoteCount: number;
+  escapedBlockquoteMarkupCount: number;
+  hasYouTubeLink: boolean;
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return value.match(pattern)?.length ?? 0;
+}
+
+export function summarizeBuilderCmsEntryFidelity(
+  entry: BuilderCmsSourceEntry,
+): BuilderCmsEntryFidelitySummary {
+  const blocks = entry.rawEntry ? builderEntryBlocks(entry.rawEntry) : [];
+  const summary: BuilderCmsEntryFidelitySummary = {
+    topLevelBlockCount: blocks.length,
+    componentCount: 0,
+    textBlockCount: 0,
+    imageBlockCount: 0,
+    htmlImageCount: 0,
+    markdownImageSyntaxCount: 0,
+    videoBlockCount: 0,
+    headingCount: 0,
+    unorderedListCount: 0,
+    orderedListCount: 0,
+    listItemCount: 0,
+    linkCount: 0,
+    tableCount: 0,
+    escapedTableMarkupCount: 0,
+    codeCount: 0,
+    blockquoteCount: 0,
+    escapedBlockquoteMarkupCount: 0,
+    hasYouTubeLink: false,
+  };
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const component =
+      record.component &&
+      typeof record.component === "object" &&
+      !Array.isArray(record.component)
+        ? (record.component as Record<string, unknown>)
+        : null;
+    if (component) {
+      summary.componentCount += 1;
+      const name = typeof component.name === "string" ? component.name : "";
+      if (name === "Image") summary.imageBlockCount += 1;
+      if (name === "Video") summary.videoBlockCount += 1;
+      if (name === "Text") {
+        summary.textBlockCount += 1;
+        const options =
+          component.options &&
+          typeof component.options === "object" &&
+          !Array.isArray(component.options)
+            ? (component.options as Record<string, unknown>)
+            : {};
+        const html = typeof options.text === "string" ? options.text : "";
+        summary.headingCount += countMatches(html, /<h[1-6]\b/gi);
+        summary.htmlImageCount += countMatches(html, /<img\b/gi);
+        summary.markdownImageSyntaxCount += countMatches(
+          html,
+          /!\[[^\]]*\]\(/g,
+        );
+        summary.unorderedListCount += countMatches(html, /<ul\b/gi);
+        summary.orderedListCount += countMatches(html, /<ol\b/gi);
+        summary.listItemCount += countMatches(html, /<li\b/gi);
+        summary.linkCount += countMatches(html, /<a\b/gi);
+        summary.tableCount += countMatches(html, /<table\b/gi);
+        summary.escapedTableMarkupCount += countMatches(html, /&lt;table\b/gi);
+        summary.codeCount += countMatches(html, /<code\b/gi);
+        summary.blockquoteCount += countMatches(html, /<blockquote\b/gi);
+        summary.escapedBlockquoteMarkupCount += countMatches(
+          html,
+          /&lt;blockquote\b/gi,
+        );
+        if (/youtube\.com|youtu\.be/i.test(html)) {
+          summary.hasYouTubeLink = true;
+        }
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(blocks);
+  return summary;
+}
+
 type FetchLike = typeof fetch;
 
 type BuilderMcpContentPart = {
@@ -56,12 +161,87 @@ type BuilderMcpToolResult = {
 };
 
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
-const BUILDER_CMS_MAX_READ_LIMIT = 1000;
+const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
 const BUILDER_CMS_READ_RETRIES = 2;
-const BUILDER_CMS_METADATA_ENTRY_FIELDS =
-  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image";
-const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},data.blocks,data.blocksString`;
+const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
+  "id",
+  "name",
+  "published",
+  "lastUpdated",
+  "createdDate",
+  "data.title",
+  "data.handle",
+  "data.url",
+  "data.slug",
+  "data.date",
+  "data.description",
+  "data.status",
+  "data.author",
+  "data.image",
+] as const;
+const BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS = new Set(
+  BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS.filter(
+    (fieldPath) => !fieldPath.startsWith("data."),
+  ).map((fieldPath) => fieldPath.toLowerCase()),
+);
+const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
+  "data.blocks",
+  "data.blocksString",
+] as const;
+const BUILDER_CMS_FIELD_PATH_PATTERN =
+  /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
+
+function normalizeBuilderCmsListFieldPath(fieldPath: string) {
+  const trimmed = fieldPath.trim();
+  if (!trimmed || !BUILDER_CMS_FIELD_PATH_PATTERN.test(trimmed)) return null;
+  const normalized = trimmed.includes(".")
+    ? trimmed
+    : BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(trimmed.toLowerCase())
+      ? trimmed
+      : `data.${trimmed}`;
+  const lower = normalized.toLowerCase();
+  if (
+    BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.some((heavyFieldPath) => {
+      const heavyLower = heavyFieldPath.toLowerCase();
+      return lower === heavyLower || lower.startsWith(`${heavyLower}.`);
+    })
+  ) {
+    return null;
+  }
+  if (
+    normalized.includes(".") &&
+    !normalized.toLowerCase().startsWith("data.")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
+  const fields = new Map<string, string>();
+  for (const fieldPath of [
+    ...BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS,
+    ...fieldPaths,
+  ]) {
+    const normalized = normalizeBuilderCmsListFieldPath(fieldPath);
+    if (!normalized) continue;
+    if (!fields.has(normalized)) fields.set(normalized, normalized);
+  }
+  return Array.from(fields.values()).join(",");
+}
+
+const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
+const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
+
+function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+}
 
 function builderContentApiHost() {
   return (
@@ -184,13 +364,14 @@ function sleep(ms: number) {
 async function fetchBuilderContentPage(args: {
   fetchImpl: FetchLike;
   url: URL;
+  privateKey?: string;
 }): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
     try {
-      const response = await args.fetchImpl(args.url, {
-        headers: { accept: "application/json" },
-      });
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
+      const response = await args.fetchImpl(args.url, { headers });
       if (
         !retryableBuilderReadStatus(response.status) ||
         attempt === BUILDER_CMS_READ_RETRIES
@@ -337,6 +518,10 @@ function normalizeBuilderCmsModel(
                   fieldRecord.friendlyName.trim()
                 ? fieldRecord.friendlyName.trim()
                 : undefined;
+          const model =
+            typeof fieldRecord.model === "string" && fieldRecord.model.trim()
+              ? fieldRecord.model.trim()
+              : undefined;
           const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
           const options = stringOptionsFromUnknown(
             fieldRecord.options ?? fieldRecord.allowedValues,
@@ -349,6 +534,7 @@ function normalizeBuilderCmsModel(
                 ? fieldRecord.type.trim()
                 : "unknown",
             ...(inputType ? { inputType } : {}),
+            ...(model ? { model } : {}),
             ...(enumOptions ? { enum: enumOptions } : {}),
             ...(options ? { options } : {}),
             required: fieldRecord.required === true,
@@ -444,6 +630,8 @@ async function initializeBuilderMcp(args: {
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
+  fieldPaths?: readonly string[];
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -464,17 +652,18 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       ? Math.max(0, Math.floor(args.offset))
       : 0;
   const contentEntries: BuilderCmsSourceEntry[] = [];
+  const fields = args.rawData
+    ? undefined
+    : builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
   for (
     let offset = startOffset;
-    startOffset + contentEntries.length < limit;
+    contentEntries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
-    const pageLimit = readPageLimit(
-      limit - startOffset - contentEntries.length,
-    );
+    const pageLimit = readPageLimit(limit - contentEntries.length);
     const contentResult = await postBuilderMcp({
       endpoint,
       privateKey: args.privateKey,
@@ -490,8 +679,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: pageLimit,
             offset,
-            fields: BUILDER_CMS_METADATA_ENTRY_FIELDS,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -507,10 +696,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageEntries,
     );
     pagesRead += 1;
-    hasMore =
-      pageEntries.length >= pageLimit &&
-      appended > 0 &&
-      contentEntries.length < limit;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
     if (args.maxPages && pagesRead >= args.maxPages) break;
     if (!hasMore) break;
   }
@@ -527,7 +713,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         nextOffset: startOffset + contentEntries.length,
         fetchedEntryCount: startOffset + contentEntries.length,
         hasMore,
-        partial: hasMore && Boolean(args.maxPages),
+        partial: hasMore,
         readMode: "mcp",
       },
     };
@@ -549,7 +735,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         pageSize: BUILDER_CMS_PAGE_SIZE,
         startOffset,
         nextOffset: startOffset,
-        fetchedEntryCount: 0,
+        fetchedEntryCount: startOffset,
         hasMore: false,
         partial: false,
         readMode: "mcp",
@@ -600,8 +786,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields: BUILDER_CMS_METADATA_ENTRY_FIELDS,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -633,11 +819,14 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
+  fieldPaths?: readonly string[];
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
   fetchImpl: FetchLike;
   publicKey: string;
+  privateKey?: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const url = new URL(
@@ -645,12 +834,19 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     builderContentApiHost(),
   );
   url.searchParams.set("apiKey", args.publicKey);
-  // Enrich expands reference fields (e.g. blog-article -> blog-author) inline so
-  // mapped source columns can show the referenced entry's name instead of a
-  // bare reference id.
-  url.searchParams.set("enrich", "true");
+  // Normal list reads enrich references and project away heavyweight bodies.
+  // Fidelity reads intentionally do neither: Builder's raw data object is the
+  // clone contract, including unresolved references and every nested field.
+  url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
   url.searchParams.set("noCache", "true");
-  url.searchParams.set("fields", BUILDER_CMS_METADATA_ENTRY_FIELDS);
+  url.searchParams.set(
+    "cachebust",
+    args.rawData === true ? String(Date.now()) : "true",
+  );
+  url.searchParams.set("includeUnpublished", "true");
+  if (args.rawData !== true) {
+    url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+  }
 
   const limit = readLimit(args.limit);
   const startOffset =
@@ -663,11 +859,11 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   let hasMore = false;
   for (
     let offset = startOffset;
-    startOffset + entries.length < limit;
+    entries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
     const pageUrl = new URL(url);
-    const pageLimit = readPageLimit(limit - startOffset - entries.length);
+    const pageLimit = readPageLimit(limit - entries.length);
     pageUrl.searchParams.set("limit", String(pageLimit));
     pageUrl.searchParams.set("offset", String(offset));
 
@@ -676,6 +872,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       response = await fetchBuilderContentPage({
         fetchImpl: args.fetchImpl,
         url: pageUrl,
+        privateKey: args.privateKey,
       });
     } catch (error) {
       return {
@@ -724,8 +921,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
     const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
     pagesRead += 1;
-    hasMore =
-      pageEntries.length >= pageLimit && appended > 0 && entries.length < limit;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
     if (args.maxPages && pagesRead >= args.maxPages) break;
     if (!hasMore) break;
   }
@@ -742,7 +938,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       nextOffset: startOffset + entries.length,
       fetchedEntryCount: startOffset + entries.length,
       hasMore,
-      partial: hasMore && Boolean(args.maxPages),
+      partial: hasMore,
       readMode: "builder-api",
     },
   };
@@ -766,9 +962,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -811,12 +1005,7 @@ export async function readBuilderCmsContentEntry(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("enrich", "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -902,7 +1091,10 @@ export async function readBuilderCmsModelFields(args: {
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsModelFieldSummary[]> {
   const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
-  if (models.state !== "live") return [];
+  if (models.state === "unconfigured") return [];
+  if (models.state === "error") {
+    throw new Error(models.message ?? "Builder CMS model discovery failed.");
+  }
   const modelName = args.model.trim().toLowerCase();
   return (
     models.models.find((model) => {
@@ -917,6 +1109,9 @@ export async function readBuilderCmsModelFields(args: {
 
 export async function readBuilderCmsContentEntries(args: {
   model: string;
+  fieldPaths?: readonly string[];
+  rawData?: boolean;
+  requirePrivateKey?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -926,18 +1121,38 @@ export async function readBuilderCmsContentEntries(args: {
   const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (args.requirePrivateKey === true && !privateKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder CMS authenticated read skipped because BUILDER_PRIVATE_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
   if (publicKey) {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
+      fieldPaths: args.fieldPaths,
+      rawData: args.rawData,
       limit: args.limit,
       maxPages: args.maxPages,
       offset: args.offset,
       fetchImpl,
       publicKey,
+      privateKey: privateKey ?? undefined,
     });
-    if (contentApiRead.state === "live" && contentApiRead.entries.length > 0) {
-      return contentApiRead;
-    }
+    if (contentApiRead.state === "live") return contentApiRead;
     if (!privateKey) return contentApiRead;
   }
 
@@ -945,6 +1160,8 @@ export async function readBuilderCmsContentEntries(args: {
     try {
       return await readBuilderCmsContentEntriesViaMcp({
         model: args.model,
+        fieldPaths: args.fieldPaths,
+        rawData: args.rawData,
         limit: args.limit,
         maxPages: args.maxPages,
         offset: args.offset,

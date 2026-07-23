@@ -15,7 +15,7 @@ export const STANDARD_SETTINGS_TABS = {
   providers: "providers",
   connections: "connections",
   secrets: "secrets",
-  team: "team",
+  team: "organization",
   usage: "usage",
   language: "language",
   whatsNew: "whats-new",

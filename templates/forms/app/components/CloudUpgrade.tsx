@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconCheck,
   IconLoader2,
@@ -168,7 +168,7 @@ export function CloudUpgrade({
               key={p.id}
               onClick={() => setSelectedProvider(p.id)}
               className={cn(
-                "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left min-h-[44px]",
+                "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left min-h-[44px] transition-[border-color,background-color,scale] duration-150 ease-out active:scale-[0.96] motion-reduce:active:scale-100",
                 selectedProvider === p.id
                   ? "border-primary bg-primary/5"
                   : "border-border hover:border-primary/30",

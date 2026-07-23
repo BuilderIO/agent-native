@@ -5,9 +5,13 @@ description: "How the agent knows what the user is looking at: navigation state,
 
 # Context Awareness
 
-> **Developer page.** This page is for developers wiring the app's context layer. For the end-user experience — how the agent uses that context in conversation — see [Using Your Agent](/docs/using-your-agent).
+<Callout tone="info">
 
-How the agent knows what the user is looking at -- and how the agent can control what the user sees.
+**Developer page.** This page is for developers wiring the app's context layer. For the end-user experience — how the agent uses that context in conversation — see [Using Your Agent](/docs/using-your-agent).
+
+</Callout>
+
+How the agent knows what the user is looking at — and how the agent can control what the user sees.
 
 ## Overview {#overview}
 
@@ -17,12 +21,12 @@ To understand what to put in which surface (AGENTS.md vs. skills vs. application
 
 Six patterns solve this:
 
-1. **Navigation state** -- the UI writes a `navigation` key to application-state on every route change
-2. **Current URL** -- the framework writes `__url__` so query params are visible and editable by the agent
-3. **Selection state** -- the UI writes a `selection` key when the user focuses, selects, or multi-selects something meaningful
-4. **`view-screen`** -- an action that reads application state, fetches contextual data, and returns a snapshot of what the user sees
-5. **Prompt handoff** -- UI controls call `sendToAgentChat()` when a click should become an agent turn
-6. **`navigate`** -- a one-shot command from the agent that tells the UI where to go
+1. **Navigation state** — the UI writes a `navigation` key to application-state on every route change
+2. **Current URL** — the framework writes `__url__` so query params are visible and editable by the agent
+3. **Selection state** — the UI writes a `selection` key when the user focuses, selects, or multi-selects something meaningful
+4. **`view-screen`** — an action that reads application state, fetches contextual data, and returns a snapshot of what the user sees
+5. **Prompt handoff** — UI controls call `sendToAgentChat()` when a click should become an agent turn
+6. **`navigate`** — a one-shot command from the agent that tells the UI where to go
 
 <Diagram id="doc-block-1jsrbbk" title="How the agent sees what you see" summary={"The UI writes lightweight state keys; view-screen hydrates them into real records; the agent can write navigate back to move the UI."}>
 
@@ -116,10 +120,10 @@ The UI writes a `navigation` key to application-state on every route change. Thi
 
 What to include in navigation state:
 
-- `view` -- the current page/section, such as "inbox", "form-builder", or "dashboard"
-- Item IDs -- the selected/open item, such as `threadId` or `formId`
-- Semantic aliases -- active tab, label name, or other stable app concepts that help the agent reason
-- Light focus state -- focused row, active tab, current panel
+- `view` — the current page/section, such as "inbox", "form-builder", or "dashboard"
+- Item IDs — the selected/open item, such as `threadId` or `formId`
+- Semantic aliases — active tab, label name, or other stable app concepts that help the agent reason
+- Light focus state — focused row, active tab, current panel
 
 Keep `navigation` small and semantic. It should identify the current screen, not duplicate whole records or mirror every query param. Fetch records in `view-screen` so the agent always gets fresh data.
 
@@ -196,8 +200,7 @@ Use the `selection` app-state key for durable selection that should survive a mo
 Write it from the UI when the user selects, focuses, or multi-selects meaningful objects:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import { setClientAppState } from "@agent-native/core/client/hooks";
 async function syncSelection(selection: unknown | null) {
   await setClientAppState("selection", selection, { keepalive: true });
 }
@@ -226,8 +229,7 @@ The production agent injects that key into the next turn as immediate selection 
 Custom editors can write the same key when their selection is not represented by native browser selection:
 
 ```tsx
-import { setClientAppState } from "@agent-native/core/client";
-
+import { setClientAppState } from "@agent-native/core/client/hooks";
 await setClientAppState(
   "pending-selection-context",
   {
@@ -289,8 +291,7 @@ The agent should call `pnpm action view-screen` before acting on the current UI.
 Sometimes context should not just sit in app state. A user clicks a button, drops a comment pin, selects an item and chooses "Ask agent", or presses an AI command in a toolbar. That click is an instruction. In browser UI, hand it to the agent with `sendToAgentChat()`.
 
 ```tsx
-import { sendToAgentChat } from "@agent-native/core/client";
-
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 function askAgentAboutSelection(selection: {
   documentId: string;
   blockId: string;
@@ -349,7 +350,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
 ```
 
-On the UI side you never poll or delete this key by hand. Both directions -- writing `navigation` on every route change and consuming the agent's `navigate` command -- are handled by a single hook, [`useNavigationState`](#use-navigation-state), covered in the next section.
+On the UI side you never poll or delete this key by hand. Both directions — writing `navigation` on every route change and consuming the agent's `navigate` command — are handled by a single hook, [`useNavigationState`](#use-navigation-state), covered in the next section.
 
 The `navigation` key belongs to the UI; the agent must never write to it directly. The agent writes `navigate`, the UI performs the move, and that move is what updates `navigation`.
 
@@ -373,7 +374,7 @@ It stays short because it is a thin wrapper around the real framework primitive,
 
 ```tsx
 // app/hooks/use-navigation-state.ts -- this file lives in YOUR app
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 interface NavigationState {
@@ -409,7 +410,7 @@ export function useNavigationState() {
 | `getNavigationState` — map the URL to semantic state   | `navigation` writes, tab-scoped plus a global fallback key                               |
 | `getCommandPath` — map a `navigate` command to a route | command polling, delete-after-read, duplicate-command protection, request-source tagging |
 
-`useAgentRouteState` assumes React Router. When navigation does not live in the URL -- a wizard step, a canvas selection, a non-router shell -- drop down to the lower-level `useSemanticNavigationState` instead: you hand it a ready-made `state` value plus `navigationKeys`/`commandKeys` and an `onCommand` callback, and it stays completely agnostic about React Router.
+`useAgentRouteState` assumes React Router. When navigation does not live in the URL — a wizard step, a canvas selection, a non-router shell — drop down to the lower-level `useSemanticNavigationState` instead: you hand it a ready-made `state` value plus `navigationKeys`/`commandKeys` and an `onCommand` callback, and it stays completely agnostic about React Router.
 
 ## Jitter prevention {#jitter-prevention}
 
@@ -432,7 +433,7 @@ How it works:
 - Agent writes are tagged with `requestSource: "agent"` (the action helpers do this automatically)
 - UI writes include the tab's unique ID via `X-Request-Source` header
 - The server stores the source on each event
-- When processing sync events, the UI filters out events matching its own `ignoreSource` value -- so it doesn't refetch data it just wrote
+- When processing sync events, the UI filters out events matching its own `ignoreSource` value — so it doesn't refetch data it just wrote
 - Events from agents, other tabs, and actions still come through normally
 
 <Diagram id="doc-block-t8sq6j" title="Source tagging stops self-refetch jitter" summary="A tab ignores sync events stamped with its own TAB_ID, but still reacts to agent and other-tab writes.">
@@ -478,3 +479,11 @@ How it works:
 ```
 
 </Diagram>
+
+## What's next {#whats-next}
+
+- [**Using Your Agent**](/docs/using-your-agent) — how end users experience the context the agent sees
+- [**Agent Mentions**](/docs/agent-mentions) — `@`-mention files and agents into a turn instead of relying on ambient context
+- [**Drop-in Agent**](/docs/drop-in-agent) — mount the panel that reads and writes this state
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — keep app state in sync when the agent and users edit together
+- [**Client Methods**](/docs/client) — the full `application-state` and client helper reference

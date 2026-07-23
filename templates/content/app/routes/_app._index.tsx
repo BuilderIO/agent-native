@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { EmptyState } from "@/components/EmptyState";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDocuments } from "@/hooks/use-documents";
 
@@ -68,5 +69,14 @@ export default function IndexRoute() {
   // show a skeleton instead of the "no page selected" empty state.
   const showSkeleton = isLoading || (documents && documents.length > 0);
 
-  return showSkeleton ? <DocumentSkeleton /> : <EmptyState />;
+  if (showSkeleton) return <DocumentSkeleton />;
+  if (documentsQuery.isError) {
+    return (
+      <QueryErrorState
+        onRetry={() => void documentsQuery.refetch()}
+        retrying={documentsQuery.isFetching}
+      />
+    );
+  }
+  return <EmptyState />;
 }

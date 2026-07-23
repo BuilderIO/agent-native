@@ -1,5 +1,6 @@
 import type { Icon } from "@tabler/icons-react";
 import {
+  IconHierarchy2,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -16,6 +17,7 @@ export type BrainView =
   | "review"
   | "sources"
   | "ops"
+  | "agent"
   | "settings";
 
 export type KnowledgeStatus = "approved" | "needs_review" | "draft" | "stale";
@@ -95,7 +97,13 @@ export interface ReviewItem {
     url?: string | null;
     timestampMs?: number | null;
   }>;
-  status?: "pending" | "queued" | "approved" | "rejected" | "needs_changes";
+  status?:
+    | "pending"
+    | "queued"
+    | "approved"
+    | "rejected"
+    | "needs_changes"
+    | "quarantine";
   visibility?: string;
   reviewerNotes?: string | null;
   createdBy?: string | null;
@@ -132,6 +140,11 @@ export interface BrainSource {
     startedAt?: string | null;
     completedAt?: string | null;
   } | null;
+}
+
+export interface CreateSourceResponse {
+  source: BrainSource;
+  ingestToken?: string;
 }
 
 export interface BrainOverviewResponse {
@@ -180,6 +193,8 @@ export interface SearchEverythingResult {
   confidence?: number | null;
   updatedAt?: string | null;
   score?: number | null;
+  matchLane?: "semantic" | "keyword" | "hybrid" | string | null;
+  retrievalReason?: string | null;
 }
 
 export interface SearchEverythingResponse {
@@ -193,6 +208,20 @@ export interface SearchEverythingResponse {
     providers?: string[];
     statuses?: string[];
   };
+}
+
+export interface BrainProject {
+  id: string;
+  title: string;
+  description?: string | null;
+  visibility?: string | null;
+  sourceIds?: string[];
+  isDefault?: boolean;
+  updatedAt?: string | null;
+}
+
+export interface BrainProjectsResponse {
+  projects?: BrainProject[];
 }
 
 export interface ReviewQueueResponse {
@@ -280,6 +309,25 @@ export interface BrainHealthResponse {
     lastCapturedAt?: string | null;
     counts?: Record<string, number>;
   };
+  privacy: {
+    classifier: {
+      configured: boolean;
+      model: string | null;
+      engine: string | null;
+      warning: string | null;
+    };
+    events: {
+      total: number;
+      suppressed: number;
+      quarantined: number;
+      released: number;
+      discarded: number;
+      expired: number;
+      counts?: Record<string, number>;
+      confidenceCounts?: Record<string, number>;
+    };
+    policyVersion: string;
+  };
   proposals: {
     pending: number;
     approved: number;
@@ -301,6 +349,37 @@ export interface BrainHealthResponse {
     stale: number;
     total: number;
     counts?: Record<string, number>;
+  };
+  searchIndex: {
+    indexVersion: string;
+    coverage: {
+      eligibleCaptures: number;
+      activeArtifacts: number;
+      indexedCaptures: number;
+      missingCaptures: number;
+      percent: number;
+    };
+    artifacts: {
+      total: number;
+      active: number;
+      stale: number;
+      deleted: number;
+      counts?: Record<string, number>;
+    };
+    embeddings: {
+      total: number;
+      active: number;
+      stale: number;
+      deleted: number;
+      counts?: Record<string, number>;
+    };
+    queue: {
+      pending: number;
+      failed: number;
+      stale: number;
+      total: number;
+      counts?: Record<string, number>;
+    };
   };
   retrieval: {
     lastEval?: {
@@ -865,6 +944,11 @@ export interface BrainSettings {
   requireCitations?: boolean;
   autoArchiveResolved?: boolean;
   notifyOnSourceErrors?: boolean;
+  privacyClassifierModel?: string;
+  privacyClassifierEngine?: string;
+  sensitivityCustomInstructions?: string;
+  publicChannelExclusionPatterns?: string[];
+  quarantineRetentionHours?: number;
 }
 
 export interface SettingsResponse {
@@ -923,6 +1007,12 @@ export const navItems: Array<{
     href: "/settings",
     icon: IconSettings,
   },
+  {
+    view: "agent",
+    label: "Manage agent",
+    href: "/agent",
+    icon: IconHierarchy2,
+  },
 ];
 
 export const defaultSettings: BrainSettings = {
@@ -943,6 +1033,11 @@ export const defaultSettings: BrainSettings = {
   requireCitations: true,
   autoArchiveResolved: true,
   notifyOnSourceErrors: true,
+  privacyClassifierModel: "",
+  privacyClassifierEngine: "",
+  sensitivityCustomInstructions: "",
+  publicChannelExclusionPatterns: [],
+  quarantineRetentionHours: 72,
 };
 
 export function viewFromPath(pathname: string): BrainView {
@@ -952,6 +1047,7 @@ export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/sources")) return "sources";
   if (pathname.startsWith("/ops")) return "ops";
+  if (pathname.startsWith("/agent")) return "agent";
   if (pathname.startsWith("/settings")) return "settings";
   return "ask";
 }
@@ -970,6 +1066,8 @@ export function pathFromView(view?: string): string {
       return "/sources";
     case "ops":
       return "/ops";
+    case "agent":
+      return "/agent";
     case "settings":
       return "/settings";
     case "ask":

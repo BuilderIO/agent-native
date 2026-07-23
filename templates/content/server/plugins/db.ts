@@ -4,6 +4,7 @@ import {
   runMigrations,
 } from "@agent-native/core/db";
 
+import { repairFilesSystemPropertyDefinitions } from "../../actions/_files-system-properties.js";
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 import * as schema from "../db/schema.js";
 
@@ -635,6 +636,278 @@ const runContentMigrations = runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
         CREATE INDEX IF NOT EXISTS document_property_values_property_document_idx ON document_property_values (property_id, document_id)`,
     },
+    {
+      version: 65,
+      name: "content-owned-descriptions",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+        ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 66,
+      name: "document-preview-drafts-private-cas",
+      sql: `CREATE TABLE IF NOT EXISTS document_preview_drafts (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        document_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        base_document_updated_at TEXT,
+        loaded_content_was_empty INTEGER NOT NULL DEFAULT 0,
+        deferred_reason TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_unique ON document_preview_drafts (owner_email, org_id, document_id);
+      CREATE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_idx ON document_preview_drafts (owner_email, org_id, document_id)`,
+    },
+    {
+      version: 67,
+      name: "builder-source-execution-attempt-token",
+      sql: `ALTER TABLE content_database_source_executions ADD COLUMN IF NOT EXISTS attempt_token TEXT`,
+    },
+    {
+      version: 68,
+      name: "builder-source-execution-claims",
+      // Non-destructive concurrency fence. Existing duplicate execution rows
+      // remain intact as ambiguity evidence; the claim chooses one canonical
+      // row for every future prepare/execute path.
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_execution_claims (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        source_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_source_execution_claims_source_key_unique
+        ON content_database_source_execution_claims (source_id, idempotency_key)`,
+    },
+    {
+      version: 69,
+      name: "builder-source-execution-claims-owner-scope",
+      sql: `ALTER TABLE content_database_source_execution_claims ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+      UPDATE content_database_source_execution_claims
+        SET owner_email = COALESCE(
+          (SELECT owner_email FROM content_database_source_executions
+            WHERE content_database_source_executions.id = content_database_source_execution_claims.execution_id),
+          owner_email
+        )`,
+    },
+    {
+      version: 70,
+      name: "content-spaces-table",
+      sql: `CREATE TABLE IF NOT EXISTS content_spaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        files_database_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        archived_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+    {
+      version: 71,
+      name: "content-space-catalog-items-table",
+      sql: `CREATE TABLE IF NOT EXISTS content_space_catalog_items (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        catalog_database_id TEXT NOT NULL,
+        database_item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        space_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+    {
+      version: 72,
+      name: "content-space-columns",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS space_id TEXT;
+        ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS space_id TEXT;
+        ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS system_role TEXT`,
+    },
+    {
+      version: 73,
+      name: "content-space-hot-path-indexes",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS content_spaces_files_database_unique ON content_spaces (files_database_id);
+        CREATE INDEX IF NOT EXISTS content_spaces_owner_org_idx ON content_spaces (owner_email, org_id);
+        CREATE INDEX IF NOT EXISTS content_spaces_org_idx ON content_spaces (org_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS content_space_catalog_items_catalog_space_unique ON content_space_catalog_items (catalog_database_id, space_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS content_space_catalog_items_catalog_item_unique ON content_space_catalog_items (catalog_database_id, database_item_id);
+        CREATE INDEX IF NOT EXISTS content_space_catalog_items_owner_catalog_idx ON content_space_catalog_items (owner_email, catalog_database_id);
+        CREATE INDEX IF NOT EXISTS content_space_catalog_items_space_idx ON content_space_catalog_items (space_id);
+        CREATE INDEX IF NOT EXISTS documents_space_idx ON documents (space_id);
+        CREATE INDEX IF NOT EXISTS content_databases_space_idx ON content_databases (space_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS content_databases_space_system_role_unique ON content_databases (space_id, system_role)`,
+    },
+    {
+      version: 74,
+      name: "content-database-items-canonical-membership",
+      sql: `DROP INDEX IF EXISTS content_space_catalog_items_catalog_item_unique;
+        DROP INDEX IF EXISTS content_database_body_hydration_queue_item_idx;
+        UPDATE content_space_catalog_items
+        SET database_item_id = (
+          SELECT MIN(canonical.id)
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_space_catalog_items.database_item_id
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_space_catalog_items.database_item_id
+            AND canonical.id < original.id
+        );
+        UPDATE content_database_body_hydration_queue
+        SET database_item_id = (
+          SELECT MIN(canonical.id)
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_database_body_hydration_queue.database_item_id
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_database_body_hydration_queue.database_item_id
+            AND canonical.id < original.id
+        );
+        UPDATE content_database_source_rows
+        SET database_item_id = (
+          SELECT MIN(canonical.id)
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_database_source_rows.database_item_id
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_database_source_rows.database_item_id
+            AND canonical.id < original.id
+        );
+        UPDATE content_database_source_change_sets
+        SET database_item_id = (
+          SELECT MIN(canonical.id)
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_database_source_change_sets.database_item_id
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM content_database_items original
+          INNER JOIN content_database_items canonical
+            ON canonical.database_id = original.database_id
+           AND canonical.document_id = original.document_id
+          WHERE original.id = content_database_source_change_sets.database_item_id
+            AND canonical.id < original.id
+        );
+        DELETE FROM content_space_catalog_items
+        WHERE id NOT IN (
+          SELECT MIN(id)
+          FROM content_space_catalog_items
+          GROUP BY catalog_database_id, database_item_id
+        );
+        DELETE FROM content_database_body_hydration_queue
+        WHERE id NOT IN (
+          SELECT MIN(id)
+          FROM content_database_body_hydration_queue
+          GROUP BY database_item_id
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS content_space_catalog_items_catalog_item_unique
+          ON content_space_catalog_items (catalog_database_id, database_item_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx
+          ON content_database_body_hydration_queue (database_item_id);
+        DELETE FROM content_database_items
+        WHERE id NOT IN (
+          SELECT MIN(id)
+          FROM content_database_items
+          GROUP BY database_id, document_id
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS content_database_items_database_document_unique
+          ON content_database_items (database_id, document_id)`,
+    },
+    {
+      version: 75,
+      name: "content-files-system-properties",
+      sql: `ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS system_role TEXT;
+        ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS files_system_properties_seeded INTEGER NOT NULL DEFAULT 0;
+        CREATE UNIQUE INDEX IF NOT EXISTS document_property_definitions_database_system_role_unique
+          ON document_property_definitions (database_id, system_role)`,
+    },
+    {
+      version: 76,
+      name: "document-trash-lifecycle",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT;
+        ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT;
+        CREATE INDEX IF NOT EXISTS documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)`,
+    },
+    {
+      version: 77,
+      name: "backfill-database-trash-roots",
+      // guard:allow-unscoped — boot migration claims only archived database trees that predate document Trash metadata.
+      sql: `WITH RECURSIVE legacy_database_trash(document_id, root_id, deleted_at) AS (
+          SELECT documents.id, documents.id, MIN(content_databases.deleted_at)
+          FROM documents
+          INNER JOIN content_databases
+            ON content_databases.document_id = documents.id
+          WHERE documents.trashed_at IS NULL
+            AND content_databases.deleted_at IS NOT NULL
+          GROUP BY documents.id
+          UNION
+          SELECT child.id, legacy_database_trash.root_id, legacy_database_trash.deleted_at
+          FROM documents child
+          INNER JOIN legacy_database_trash
+            ON child.parent_id = legacy_database_trash.document_id
+          WHERE child.trashed_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM content_databases child_database
+              WHERE child_database.document_id = child.id
+                AND child_database.deleted_at IS NOT NULL
+            )
+        )
+        UPDATE documents
+        SET trashed_at = (
+          SELECT legacy_database_trash.deleted_at
+          FROM legacy_database_trash
+          WHERE legacy_database_trash.document_id = documents.id
+          LIMIT 1
+        ),
+        trash_root_id = (
+          SELECT legacy_database_trash.root_id
+          FROM legacy_database_trash
+          WHERE legacy_database_trash.document_id = documents.id
+          LIMIT 1
+        )
+        WHERE documents.trashed_at IS NULL
+          AND EXISTS (
+            SELECT 1
+            FROM legacy_database_trash
+            WHERE legacy_database_trash.document_id = documents.id
+          )`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -709,5 +982,13 @@ export default async function contentDatabasePlugin(
     // Retry in-process so a transient boot-time repair failure does not leave
     // legacy databases without their primary Blocks field until a full reboot.
     scheduleBlocksRepairRetry();
+  }
+  try {
+    await repairFilesSystemPropertyDefinitions();
+  } catch (err) {
+    console.warn(
+      "[db] Files system-property repair failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
   }
 }

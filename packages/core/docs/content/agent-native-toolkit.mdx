@@ -1,20 +1,24 @@
 ---
-title: "Toolkits"
-description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
+title: "Toolkit"
+description: "One catalog of reusable foundations, editors and canvases, agent context, governance, workspace chrome, operations, and install-on-demand capability modules."
 ---
 
-# Toolkits
+# Toolkit
 
-Toolkits are reusable, battle-tested building blocks for high-quality agentic
-applications. They turn the hard product work that repeats across apps into
-standard surfaces: realtime collaboration between humans and agents, sharing
-with humans and agents, settings, teams, setup, resources, history, review, and
-observability.
+Toolkit is the reusable, battle-tested building-block shelf for high-quality
+agentic applications. It turns the hard product work that repeats across apps
+into standard surfaces without making one app pattern the center of the catalog.
+
+This section is the single discovery shelf for reusable app-building UI. A
+surface belongs in these docs because it is reusable, even when its current
+implementation owner is Core or a template. Ownership labels and import paths
+make that boundary explicit without scattering related UI guidance across the
+site.
 
 Each kit packages the UI patterns, action contracts, app-state expectations,
 access boundaries, and agent-visible behavior that users expect to work
-consistently. Apps still own their domain model and visual identity; toolkits
-make the common product systems feel complete from the first version instead of
+consistently. Apps still own their domain model and visual identity; Toolkit
+makes the common product systems feel complete from the first version instead of
 being rebuilt in slightly different ways every time.
 
 <WireframeBlock id="doc-block-toolkits-index">
@@ -26,7 +30,7 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkit turns those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
 
 ```html
 <div class="diagram-row">
@@ -36,7 +40,7 @@ being rebuilt in slightly different ways every time.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Toolkits</span><br />
+    <span class="diagram-pill accent">Toolkit</span><br />
     collaboration, sharing, setup, review, history, observability
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -66,7 +70,19 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
-## The Kits {#the-kits}
+## Catalog {#catalog}
+
+| Area                       | Start here                                                      | What it covers                                                                  |
+| -------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Foundations                | [UI Primitives](/docs/toolkit-ui)                               | Shared controls, hooks, app adapters, and shell seams.                          |
+| Editors & canvases         | [Editors & Canvases](/docs/toolkit-editors-canvases)            | Rich editing, structured blocks, reusable canvas controls, and Design patterns. |
+| Agent experience & context | [Context & Knowledge](/docs/toolkit-context-knowledge)          | Context X-Ray, resources, knowledge, composer context, and agent-visible state. |
+| Collaboration & governance | [Collaboration](/docs/toolkit-collaboration)                    | Sharing, presence, review, history, audit, and organization boundaries.         |
+| Workspace chrome           | [App Chrome](/docs/toolkit-settings)                            | Settings, teams, setup, navigation, resources, and agent UX.                    |
+| Operations                 | [Observability](/docs/toolkit-observability)                    | Usage, feedback, replay, diagnostics, and operational visibility.               |
+| Capability modules         | [Toolkit Capability Modules](/docs/toolkit-capability-packages) | Scheduling, Creative Context, and Pinpoint as install-on-demand packages.       |
+
+## Product kits {#product-kits}
 
 | Kit                                                      | Use it for                                                                                                                       |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -82,8 +98,39 @@ being rebuilt in slightly different ways every time.
 | [Comments & Review](/docs/toolkit-comments-review)       | Registered reviewable resources, comment actions, feedback queues, thread panels, mentions, resolved threads, and review status. |
 | [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                                     |
 
+## Package maturity and ownership {#package-maturity-and-ownership}
+
+- The rich editor is **Toolkit-owned**. Existing Core editor imports remain thin
+  compatibility re-exports during migration.
+- Design is a **template pattern** with reusable `design-tweaks`; it is not a
+  full drop-in editor or canvas package.
+- Blocks remain **Core-owned** in this phase.
+- The Context X-Ray engine remains **Core-owned**; its reusable presentation is
+  Toolkit-owned.
+- Scheduling, Creative Context, and Pinpoint are **Toolkit capability modules,
+  installed on demand**. They remain separate npm packages so each domain can
+  keep an independent lifecycle manifest, dependency graph, and release cadence.
+- Dispatch remains a **separate product**, not a Toolkit capability module.
+
+## Dashboard kit {#dashboard-kit}
+
+`@agent-native/toolkit/dashboard` is an ejectable, presentation-only unit for
+metric and stats cards, data tables, date-range controls, panel ordering and
+layout, and generic chart rendering. It receives rows and callbacks from an
+app-owned adapter: it never fetches data, resolves credentials, or owns a
+dashboard's state.
+
+Use `agent-native eject inspect toolkit/dashboard` before applying
+`toolkit/dashboard` to an app. Keep durable dashboards in that app with
+`@agent-native/core/dashboard-storage`: instantiate its access-scoped schema
+and store per app, not in a cross-app dashboard table. Panel data flows through
+a `PanelSourceResolver`; the built-in `program` source runs an app-owned data
+program and is the canonical no-provider default. Provider resolvers belong in
+the app that owns their connection and query policy.
+
 ## Implementation Boundary {#implementation-boundary}
 
+Toolkit docs are organized by reusable product capability, not npm package.
 Kits are product surfaces first. Some pieces are runtime-backed
 (`@agent-native/core`), some are presentation primitives
 (`@agent-native/toolkit`), and apps usually wrap both through local adapters.
@@ -91,14 +138,50 @@ Use the package path that owns the needed behavior, but design the user-facing
 settings, collaboration, sharing, team, review, and setup experiences as one
 coherent kit instead of exposing package boundaries in the app.
 
+## Customize or eject a kit {#customize-or-eject}
+
+Adopt shared behavior in this order: configure the public component or adapter,
+compose public primitives behind an app-owned wrapper, eject the smallest
+supported unit, then propose a new shared seam when the same override appears in
+multiple apps.
+
+Toolkit publishes readable, version-matched source and an ejection manifest that
+covers every public entry point. Inspect a unit before taking ownership:
+
+```bash
+agent-native eject --list
+agent-native eject inspect <unit>
+agent-native eject <unit> --app <app>
+agent-native eject <unit> --app <app> --apply
+```
+
+The dry run reports all files and consumer imports that will change. Applying
+the plan copies the complete source closure into the app, rewrites only the
+declared imports, and records package version, manifest digest, file hashes, and
+rewrites in the committed `agent-native.ejections.json`. Chat history is one
+such unit: an app can own its presentation while Core continues to own thread
+state, access, persistence, and chat transport.
+
+Use `agent-native eject diff <unit> --app <app>` to inspect drift. Use
+`agent-native eject restore <unit> --app <app>` to preview a return to the
+package implementation, then add `--apply`. Restore refuses when any ejected
+file or rewritten import has local edits, so app-owned changes are never
+silently discarded.
+
+The same unit contract covers first-party integration surfaces: remote MCP
+presets, workspace-connection providers, provider API definitions,
+messaging/channel adapters, setup and readiness UI, and domain packages. The
+catalog is complete by construction; a missing first-party unit fails the
+release guard. Unknown third-party packages receive an add-style blueprint.
+Protected runtime contracts are not ejectable and instead route to their public
+configuration, adapter, or extension seam.
+
 ## Foundation Pieces {#foundation-pieces}
 
-- [UI Primitives](/docs/toolkit-ui) cover shared shadcn-style primitives under
-  `@agent-native/toolkit/ui/*`.
-- [App Adapters](/docs/toolkit-app-adapters) show how apps wrap Toolkit pieces
-  through local `@/components/*` adapters.
-- [Shell & Hooks](/docs/toolkit-shell-hooks) cover header actions, mobile hooks,
-  toasts, and small app-shell helpers.
+- [UI Primitives](/docs/toolkit-ui) covers the shared shadcn-style primitives
+  under `@agent-native/toolkit/ui/*`, the local app-adapter pattern every
+  template wraps them in, and the shared shell hooks (header actions, mobile
+  detection, toasts).
 - [Component API](/docs/components) remains the lower-level reference for the
   public React exports.
 
@@ -108,3 +191,16 @@ Use a toolkit when the behavior repeats across apps and users expect it to feel
 standard: sharing, settings, teams, comments, history, and agent progress should
 not be slightly different in every template. Keep domain-specific data,
 workflows, labels, and visual styling in the app.
+
+## What's next
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — the shared primitives, app
+  adapters, and shell hooks every kit builds on.
+- [**Sharing Kit**](/docs/toolkit-sharing) — a good first kit to adopt: ownable
+  resources, share dialogs, and visibility.
+- [**Creating Templates**](/docs/creating-templates) — build a template end to
+  end and see where kits fit alongside your own domain model.
+- [**Component API**](/docs/components) — the generated reference for every
+  public React export, including kit components.
+- [**Package Lifecycle**](/docs/package-lifecycle) — inspect, add, and eject
+  manifest-driven capability packages safely.

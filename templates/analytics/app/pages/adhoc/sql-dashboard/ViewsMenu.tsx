@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
   IconDeviceFloppy,
@@ -7,7 +7,9 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
+import { toast } from "sonner";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,7 +94,8 @@ function filtersMatch(
 export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { views, saveView, deleteView } = useDashboardViews(dashboardId);
+  const { views, error, refetch, saveView, deleteView } =
+    useDashboardViews(dashboardId);
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
@@ -145,6 +148,15 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
       });
       setViewName("");
       setSaveDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        t("sqlDashboard.saveFailedWithMessage", {
+          message:
+            error instanceof Error
+              ? error.message
+              : t("sqlDashboard.saveFailed"),
+        }),
+      );
     } finally {
       setSavingView(false);
     }
@@ -177,7 +189,14 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             {t("sqlDashboard.savedViews")}
           </DropdownMenuLabel>
-          {views.length === 0 ? (
+          {error ? (
+            <ResourceLoadError
+              inline
+              message={t("commandPalette.loadFailed")}
+              retryLabel={t("sidebar.retry")}
+              onRetry={() => void refetch()}
+            />
+          ) : views.length === 0 ? (
             <div className="px-2 py-2 text-xs text-muted-foreground">
               {t("sqlDashboard.noSavedViews")}
             </div>

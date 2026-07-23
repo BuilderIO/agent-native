@@ -1,15 +1,17 @@
+import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
+import {
+  usePresence,
+  useRecentEdits,
+  type AttributedRecentEdit,
+} from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
+import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
+import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   createSharedEditorExtensions,
   useCollabReconcile,
-  usePresence,
-  useRecentEdits,
-  RecentEditHighlights,
-  RegistryBlockDataProvider,
-  useT,
-  type AttributedRecentEdit,
-  type RegistryBlockSideMapBlock,
   type UseCollabReconcileResult,
-} from "@agent-native/core/client";
+} from "@agent-native/toolkit/editor";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
   serializeRegistryBlockToMdx,
@@ -353,8 +355,7 @@ const NotionBlockquote = Blockquote.extend({
   },
 });
 
-const DEFAULT_EMPTY_BLOCK_PLACEHOLDER =
-  "Press ‘space’ for AI or ‘/’ for commands";
+const DEFAULT_EMPTY_BLOCK_PLACEHOLDER = "Press ‘/’ for commands";
 
 const CONTENT_RECENT_EDIT_TTL_MS = 6_000;
 const RECENT_EDIT_MARKER_WIDTH = 2;
@@ -822,6 +823,28 @@ export function shouldSeedCollaborativeContent({
   return !!content.trim() && (fragmentLength === 0 || !semanticMarkdown);
 }
 
+/**
+ * Parse authoritative Content NFM with Content's exact NFM parser before the
+ * shared reconcile computes its top-level surgical diff.
+ *
+ * Falling back to the shared CommonMark parser is lossy here: canonical NFM
+ * stores one Notion block per line without blank paragraph separators, while
+ * CommonMark merges those consecutive lines into one paragraph. That made
+ * external replacements such as Notion conflict resolution and version
+ * restores look correct in the non-collaborative history preview, then collapse
+ * into one wrapped paragraph when reconciled into the live Y.Doc.
+ */
+export function parseNfmForCollabReconcile(
+  editor: CoreEditor,
+  value: string,
+): ProseMirrorNode | null {
+  try {
+    return editor.schema.nodeFromJSON(nfmToDoc(value) as any);
+  } catch {
+    return null;
+  }
+}
+
 export function shouldApplyExternalContentSync({
   docChanged,
   content,
@@ -902,6 +925,28 @@ export function shouldPersistLocalFileEditorUpdate({
   return Boolean(transactionUiEvent);
 }
 
+function isEffectivelyEmptyEditorContent(value: string): boolean {
+  const normalized = value.trim();
+  return normalized === "" || normalized === "<empty-block/>";
+}
+
+export function shouldPersistEffectivelyEmptyEditorUpdate({
+  nextContent,
+  userInitiated,
+}: {
+  nextContent: string;
+  userInitiated: boolean;
+}): boolean {
+  if (!isEffectivelyEmptyEditorContent(nextContent)) return true;
+  // Empty editor state is never worth persisting without a user gesture. This
+  // also covers the preview remount window where `content` can briefly be an
+  // empty list snapshot even though its retained save controller still has a
+  // rich confirmed baseline. Comparing only to this render's prop would let
+  // that mount-time filler mark the retained controller dirty and its
+  // flush-on-release path would then overwrite SQL.
+  return userInitiated;
+}
+
 function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
   const { state } = editor;
   if (!state.selection.empty) return false;
@@ -929,6 +974,7 @@ interface VisualEditorExtensionOptions {
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
   referenceDepth?: number;
+  emptyBlockPlaceholder?: string;
 }
 
 function hasAncestorType(
@@ -1042,19 +1088,21 @@ function getVisualEditorPlaceholder({
   node,
   pos,
   hasAnchor,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: {
   editor: CoreEditor;
   node: ProseMirrorNode;
   pos: number;
   hasAnchor: boolean;
+  emptyBlockPlaceholder?: string;
 }): string {
   const isToggleBody =
     node.type.name === "paragraph" &&
     hasAncestorType(editor, pos, "notionToggle");
 
   if (isToggleBody) {
-    return hasAnchor
-      ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER
+    return hasAnchor && editor.isFocused
+      ? emptyBlockPlaceholder
       : EMPTY_TOGGLE_BODY_PLACEHOLDER;
   }
 
@@ -1064,7 +1112,9 @@ function getVisualEditorPlaceholder({
     if (level === 1) return "Heading 1";
     if (level === 2) return "Heading 2";
     if (level === 3) return "Heading 3";
-    return "Heading 4";
+    if (level === 4) return "Heading 4";
+    if (level === 5) return "Heading 5";
+    return "Heading 6";
   }
 
   if (
@@ -1074,7 +1124,7 @@ function getVisualEditorPlaceholder({
     return hasAnchor ? "Empty quote" : "";
   }
 
-  // Skip the long "Press 'space' for AI…" hint inside table cells — it wraps
+  // Skip the command hint inside table cells — it wraps
   // awkwardly in narrow columns and the cell itself is already an affordance.
   if (
     node.type.name === "paragraph" &&
@@ -1084,7 +1134,7 @@ function getVisualEditorPlaceholder({
     return "";
   }
 
-  return hasAnchor ? DEFAULT_EMPTY_BLOCK_PLACEHOLDER : "";
+  return hasAnchor && editor.isFocused ? emptyBlockPlaceholder : "";
 }
 
 export async function uploadAndInsertImageFiles(
@@ -1254,6 +1304,7 @@ export function createVisualEditorExtensions({
   onOpenNotionPageLink,
   localFilePath,
   referenceDepth = 0,
+  emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
 }: VisualEditorExtensionOptions = {}): Extensions {
   // Build on the SHARED editor core (StarterKit base + the Collaboration /
   // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
@@ -1278,6 +1329,7 @@ export function createVisualEditorExtensions({
     starterKit: {
       blockquote: false,
       paragraph: false,
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
       dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
     },
@@ -1288,7 +1340,8 @@ export function createVisualEditorExtensions({
       NotionBlockquote,
       CodeBlock,
       Placeholder.configure({
-        placeholder: getVisualEditorPlaceholder,
+        placeholder: (options) =>
+          getVisualEditorPlaceholder({ ...options, emptyBlockPlaceholder }),
         showOnlyWhenEditable: true,
         showOnlyCurrent: true,
         includeChildren: true,
@@ -1669,10 +1722,14 @@ export function VisualEditor({
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
-      localAwareness?.setLocalState(null);
+      // Only the fallback instance is owned by this editor. A provided
+      // awareness belongs to the shared useCollaborativeDoc connection; clearing
+      // it here races StrictMode/remounts and can erase the tab's durable
+      // presence while the shared connection is still active.
+      fallbackAwareness?.setLocalState(null);
       fallbackAwareness?.destroy();
     };
-  }, [fallbackAwareness, localAwareness]);
+  }, [fallbackAwareness]);
 
   const extensions = useMemo(
     () =>
@@ -1687,6 +1744,7 @@ export function VisualEditor({
         onOpenNotionPageLink,
         localFilePath,
         referenceDepth,
+        emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
       }),
     [
       documentId,
@@ -1701,6 +1759,7 @@ export function VisualEditor({
       onOpenNotionPageLink,
       localFilePath,
       referenceDepth,
+      t,
     ],
   );
 
@@ -1716,7 +1775,11 @@ export function VisualEditor({
   const persistEditorContent = useCallback(
     (
       editorToPersist: CoreEditor,
-      options?: { markdown?: string; immediate?: boolean },
+      options?: {
+        markdown?: string;
+        immediate?: boolean;
+        userInitiated?: boolean;
+      },
     ) => {
       const guards = guardsRef.current;
       if (!guards) return false;
@@ -1724,6 +1787,20 @@ export function VisualEditor({
         const normalized =
           options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
         if (localFileMode && normalized === content) return true;
+        // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
+        // an editor is mounting or reconciling. Content serializes that filler
+        // as `<empty-block/>`, so the generic whitespace-only collab guard does
+        // not catch it. Never let that lifecycle normalization clear a saved
+        // body. A real Select All/Delete (or Cut) records user intent through
+        // the DOM handlers below and is still allowed to persist normally.
+        if (
+          !shouldPersistEffectivelyEmptyEditorUpdate({
+            nextContent: normalized,
+            userInitiated: options?.userInitiated === true,
+          })
+        ) {
+          return true;
+        }
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
@@ -1897,7 +1974,12 @@ export function VisualEditor({
         return;
       }
       if (isActiveSlashCommandDraft(editor)) return;
-      persistEditorContent(editor);
+      persistEditorContent(editor, {
+        userInitiated:
+          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||
+          Date.now() - lastUserEditIntentAtRef.current < 2000 ||
+          Boolean(transaction.getMeta("uiEvent")),
+      });
     },
   });
 
@@ -1941,6 +2023,10 @@ export function VisualEditor({
       e.commands.setContent(doc);
     },
     normalizeValue: canonicalizeNfm,
+    // The shared fallback parser is CommonMark. Content stores canonical NFM,
+    // whose adjacent lines are separate Notion blocks, so always provide the
+    // exact NFM parser for the surgical reconcile path.
+    parseValue: parseNfmForCollabReconcile,
     shouldSeed: ({ value, currentMarkdown, fragmentLength }) =>
       editable &&
       shouldSeedCollaborativeContent({
@@ -2209,10 +2295,14 @@ export function VisualEditor({
           documentId={documentId}
           notionPageId={notionPageId}
           onDraftCommitted={() => {
-            void persistEditorContent(editor);
+            void persistEditorContent(editor, { userInitiated: true });
           }}
           onDraftPersisted={(markdown) =>
-            persistEditorContent(editor, { markdown, immediate: true })
+            persistEditorContent(editor, {
+              markdown,
+              immediate: true,
+              userInitiated: true,
+            })
           }
         />
       ) : null}

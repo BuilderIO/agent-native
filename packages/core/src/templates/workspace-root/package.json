@@ -8,6 +8,7 @@
     "typecheck": "pnpm -r typecheck",
     "repair:workspace-org": "tsx scripts/repair-workspace-org.ts",
     "skills:update": "agent-native skills update scaffold --project",
+    "upgrade:agent-native": "agent-native upgrade",
     "fmt:check": "oxfmt --check .",
     "lint": "pnpm fmt:check"
   },
@@ -19,7 +20,6 @@
     "@types/node": "^24.2.1",
     "oxfmt": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:",
     "typescript-7": "catalog:"
   },
   "packageManager": "pnpm@10.14.0",

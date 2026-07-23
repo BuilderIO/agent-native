@@ -2,6 +2,8 @@
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
 // RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
 
+import { isPastedTextAttachmentName } from "@agent-native/toolkit/composer/pasted-text";
+import { PastedTextChip } from "@agent-native/toolkit/composer/PastedTextChip";
 import {
   useThread,
   useMessageRuntime,
@@ -10,6 +12,9 @@ import {
   ActionBarPrimitive,
   BranchPickerPrimitive,
   ComposerPrimitive,
+  useMessagePartReasoning,
+  useMessagePartRuntime,
+  useAuiState,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
 import {
@@ -56,16 +61,28 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
-import { PastedTextChip } from "../composer/PastedTextChip.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
+import { McpConnectionSuggestion } from "../resources/McpConnectionSuggestion.js";
 import type { ContentPart } from "../sse-event-processor.js";
+import {
+  isCallAgentToolCallShadowed,
+  shadowedCallAgentToolCallIds,
+} from "../tool-display.js";
 import { cn } from "../utils.js";
-import { MarkdownText } from "./markdown-renderer.js";
+import {
+  MarkdownText,
+  renderMarkdownToClipboardHtml,
+} from "./markdown-renderer.js";
 import {
   ToolCallFallback,
+  ToolActivityPresentation,
   FilesChangedSummary,
+  ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
   ChatRunningContext,
+  ChatRunDurationContext,
+  RanToolsSummary,
+  ReasoningCell,
+  WorkedForSummary,
 } from "./tool-call-display.js";
 
 // ─── Pending selection context key ───────────────────────────────────────────
@@ -104,6 +121,9 @@ interface FormattedMessageTimestamp {
   short: string;
   full: string;
 }
+
+const messageFooterFadeClassName =
+  "opacity-0 transition-[color,opacity] duration-150 group-hover:opacity-100 group-focus-within:opacity-100";
 
 function coerceMessageDate(value: unknown): Date | null {
   if (value instanceof Date) {
@@ -521,7 +541,10 @@ export function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    void writeClipboardText(text).then((ok) => {
+    // Rich flavor keeps formatting in targets that read text/html (e.g. Slack);
+    // null when the markdown renderer isn't ready yet, so we copy plain markdown.
+    const html = renderMarkdownToClipboardHtml(text);
+    void writeClipboardText(text, html ? { html } : undefined).then((ok) => {
       if (!ok) return;
       setCopied("message");
       setTimeout(() => {
@@ -773,7 +796,7 @@ export function UserMessage() {
           {timestamp && (
             <MessageTimestamp
               timestamp={timestamp}
-              className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+              className={messageFooterFadeClassName}
             />
           )}
         </div>
@@ -793,7 +816,7 @@ function assistantMessageHasRenderableContent(message: {
   return content.some((part) => {
     if (!part || typeof part !== "object") return false;
     const type = (part as { type?: unknown }).type;
-    if (type === "text") {
+    if (type === "text" || type === "reasoning") {
       const text = (part as { text?: unknown }).text;
       return typeof text === "string" && text.trim().length > 0;
     }
@@ -808,6 +831,54 @@ function assistantMessageStatusIsTerminal(message: {
   return statusType === "complete" || statusType === "incomplete";
 }
 
+export function messageTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const record = part as {
+        type?: unknown;
+        text?: unknown;
+      };
+      return record.type === "text" && typeof record.text === "string"
+        ? [record.text]
+        : [];
+    })
+    .join("\n");
+}
+
+export function latestUserMessageText(messages: readonly unknown[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
+  }
+  return "";
+}
+
+export function userMessageTextBeforeAssistant(
+  messages: readonly unknown[],
+  assistantMessageId: string,
+): string {
+  const assistantIndex = messages.findIndex((message) => {
+    if (!message || typeof message !== "object") return false;
+    return (message as { id?: unknown }).id === assistantMessageId;
+  });
+  if (assistantIndex < 1) return "";
+
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
+  }
+  return "";
+}
+
 export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   return content.some((part): boolean => {
@@ -815,6 +886,86 @@ export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
     const record = part as { type?: unknown; result?: unknown };
     return record.type === "tool-call" && record.result === undefined;
   });
+}
+
+export function assistantMessageHasCompletedCustomUi(
+  content: unknown,
+): boolean {
+  if (!Array.isArray(content)) return false;
+  let lastTextIndex = -1;
+  for (let index = 0; index < content.length; index++) {
+    const part = content[index];
+    if (
+      part &&
+      typeof part === "object" &&
+      (part as { type?: unknown }).type === "text"
+    ) {
+      lastTextIndex = index;
+    }
+  }
+  let hasCompletedTool = false;
+  let lastCompletedToolIsCustomUi = false;
+  for (let index = lastTextIndex + 1; index < content.length; index++) {
+    const part = content[index];
+    if (!part || typeof part !== "object") continue;
+    const record = part as {
+      type?: unknown;
+      result?: unknown;
+      isError?: unknown;
+      activity?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    if (
+      record.type !== "tool-call" ||
+      record.activity === true ||
+      record.result === undefined ||
+      record.isError === true
+    ) {
+      continue;
+    }
+    hasCompletedTool = true;
+    lastCompletedToolIsCustomUi =
+      record.chatUI !== undefined || record.mcpApp !== undefined;
+  }
+  return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
+export function assistantMessageHasCustomUi(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as {
+      type?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    return (
+      record.type === "tool-call" &&
+      (record.chatUI !== undefined || record.mcpApp !== undefined)
+    );
+  });
+}
+
+// Only the last assistant message may shimmer as "the currently running
+// tool" — an older message's dangling unresolved tool-call must never
+// shimmer once a later run is active.
+export function computeActiveTailToolCallId(
+  content: ContentPart[] | undefined,
+  { chatRunning, isLast }: { chatRunning: boolean; isLast: boolean },
+): string | null {
+  if (!isLast) return null;
+  return (
+    content?.reduce(
+      (latestToolCallId, part, index) =>
+        part.type === "tool-call" &&
+        !isCallAgentToolCallShadowed(content, index) &&
+        (chatRunning || part.activity === true)
+          ? part.toolCallId
+          : latestToolCallId,
+      null as string | null,
+    ) ?? null
+  );
 }
 
 export function shouldShowAssistantMessageFooter({
@@ -831,10 +982,215 @@ export function shouldShowAssistantMessageFooter({
   hasUnresolvedTool?: boolean;
 }): boolean {
   if (!hasRenderableContent) return false;
-  if (chatRunning) return false;
   if (!isLast) return true;
+  if (chatRunning) return false;
   if (hasUnresolvedTool) return false;
-  return !chatRunning && statusIsTerminal;
+  return statusIsTerminal;
+}
+
+export function shouldShowMissingFinalResponse({
+  statusIsTerminal,
+  hasAssistantText,
+  hasUnresolvedTool,
+  hasCompletedCustomUi,
+}: {
+  statusIsTerminal: boolean;
+  hasAssistantText: boolean;
+  hasUnresolvedTool: boolean;
+  hasCompletedCustomUi?: boolean;
+}): boolean {
+  return (
+    statusIsTerminal &&
+    !hasAssistantText &&
+    !hasUnresolvedTool &&
+    !hasCompletedCustomUi
+  );
+}
+
+export function shouldShowAssistantWorkSummary({
+  isLast,
+  isComplete,
+  hasCollapsibleWork,
+  hasUnresolvedTool,
+}: {
+  isLast: boolean;
+  isComplete: boolean;
+  hasCollapsibleWork: boolean;
+  hasUnresolvedTool: boolean;
+}): boolean {
+  if (!hasCollapsibleWork || hasUnresolvedTool) return false;
+
+  // Keep completed historical work wrapped while a later turn is running.
+  // Removing the wrapper exposes/remounts ReasoningCell and resets its
+  // disclosure state to the default-open value on every new submission.
+  return isComplete || !isLast;
+}
+
+function ReasoningMessagePart() {
+  const part = useMessagePartReasoning();
+  const partRuntime = useMessagePartRuntime();
+  const messageParts = useAuiState((state) => state.message.parts);
+  const isStreaming = part.status?.type === "running";
+  const partIndex =
+    partRuntime.path.messagePartSelector.type === "index"
+      ? partRuntime.path.messagePartSelector.index
+      : -1;
+  const latestReasoningPartIndex = messageParts.reduce(
+    (latestIndex, messagePart, index) =>
+      messagePart.type === "reasoning" ? index : latestIndex,
+    -1,
+  );
+  // Time thinking client-side: record the moment streaming first starts and
+  // the moment it stops so the cell can show "Thought for Xs". Historical
+  // messages that were never observed streaming in this session never get a
+  // start time, so they correctly fall back to a plain "Thought" label.
+  const startedAtRef = useRef<number | null>(null);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (isStreaming) {
+      startedAtRef.current ??= Date.now();
+      return;
+    }
+    if (startedAtRef.current != null) {
+      setDurationMs(Date.now() - startedAtRef.current);
+      startedAtRef.current = null;
+    }
+  }, [isStreaming]);
+  return (
+    <ReasoningCell
+      text={part.text}
+      isStreaming={isStreaming}
+      resetKey={`message-reasoning-${partIndex}`}
+      durationMs={durationMs}
+      defaultOpen={partIndex === latestReasoningPartIndex}
+      collapseWhenReplaced={partIndex < latestReasoningPartIndex}
+    />
+  );
+}
+
+const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
+
+export function isCollapsibleAssistantWorkPart(part: {
+  type?: string;
+  toolName?: string;
+  chatUI?: unknown;
+  mcpApp?: unknown;
+}): boolean {
+  if (part.type === "reasoning") return true;
+  return (
+    part.type === "tool-call" &&
+    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "") &&
+    part.chatUI === undefined &&
+    part.mcpApp === undefined
+  );
+}
+
+export function getAssistantToolSummaryInfo(
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
+): { startIndex: number; hiddenToolCount: number } {
+  const toolCallIndices = parts.reduce<number[]>((indices, part, index) => {
+    if (
+      part.type === "tool-call" &&
+      !isCallAgentToolCallShadowed(parts, index) &&
+      isCollapsibleAssistantWorkPart(part)
+    ) {
+      indices.push(index);
+    }
+    return indices;
+  }, []);
+
+  if (toolCallIndices.length <= ASSISTANT_VISIBLE_TOOL_CALL_LIMIT) {
+    return { startIndex: -1, hiddenToolCount: 0 };
+  }
+
+  const startIndex =
+    toolCallIndices[
+      toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT
+    ]!;
+  return {
+    startIndex,
+    hiddenToolCount: toolCallIndices.length - ASSISTANT_VISIBLE_TOOL_CALL_LIMIT,
+  };
+}
+
+function groupAssistantWorkParts(
+  part: {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  },
+  index: number,
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
+): ["group-work"] | ["group-work", "group-ran-tools"] | null {
+  if (isCallAgentToolCallShadowed(parts, index)) return null;
+  if (isCollapsibleAssistantWorkPart(part)) {
+    const { startIndex } = getAssistantToolSummaryInfo(parts);
+    if (isAssistantToolSummaryPart(parts, index, startIndex)) {
+      return ["group-work", "group-ran-tools"];
+    }
+    return ["group-work"];
+  }
+  return null;
+}
+
+function isAssistantToolSummaryPart(
+  parts: readonly {
+    type?: string;
+    toolCallId?: string;
+    toolName?: string;
+    args?: Record<string, unknown>;
+    chatUI?: unknown;
+    mcpApp?: unknown;
+  }[],
+  index: number,
+  startIndex: number,
+): boolean {
+  if (startIndex < 0 || index >= startIndex) return false;
+  if (
+    isCallAgentToolCallShadowed(parts, index) ||
+    !isCollapsibleAssistantWorkPart(parts[index]!)
+  ) {
+    return false;
+  }
+
+  let segmentStart = index;
+  while (
+    segmentStart > 0 &&
+    !isCallAgentToolCallShadowed(parts, segmentStart - 1) &&
+    isCollapsibleAssistantWorkPart(parts[segmentStart - 1]!)
+  ) {
+    segmentStart--;
+  }
+
+  let segmentEnd = index + 1;
+  while (
+    segmentEnd < startIndex &&
+    !isCallAgentToolCallShadowed(parts, segmentEnd) &&
+    isCollapsibleAssistantWorkPart(parts[segmentEnd]!)
+  ) {
+    segmentEnd++;
+  }
+
+  return parts
+    .slice(segmentStart, segmentEnd)
+    .some((candidate) => candidate.type === "tool-call");
 }
 
 export function AssistantMessage() {
@@ -844,6 +1200,7 @@ export function AssistantMessage() {
   const messageRuntime = useMessageRuntime();
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
+  const lastRunDurationMs = React.useContext(ChatRunDurationContext);
   const msg = messageRuntime.getState();
   const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
@@ -851,14 +1208,64 @@ export function AssistantMessage() {
     thread.messages[thread.messages.length - 1].id === msg.id;
   const hasRenderableContent = assistantMessageHasRenderableContent(msg);
   const hasUnresolvedTool = assistantMessageHasUnresolvedTool(msg.content);
+  const responseConnectionText = messageTextFromContent(msg.content);
+  const statusIsTerminal = assistantMessageStatusIsTerminal(msg);
+  const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
+    msg.content,
+  );
+  const hasCustomUi = assistantMessageHasCustomUi(msg.content);
+  const showMissingFinalResponse = shouldShowMissingFinalResponse({
+    statusIsTerminal,
+    hasAssistantText: responseConnectionText.trim().length > 0,
+    hasUnresolvedTool,
+    hasCompletedCustomUi,
+  });
+  const responseConnectionContext = userMessageTextBeforeAssistant(
+    thread.messages,
+    msg.id,
+  );
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
     hasRenderableContent,
-    statusIsTerminal: assistantMessageStatusIsTerminal(msg),
+    statusIsTerminal,
     hasUnresolvedTool,
   });
   const cpCtx = React.useContext(CheckpointContext);
+
+  // Capture live run duration when this message finishes streaming.
+  const runStartedAtRef = useRef<number | null>(null);
+  const [capturedDurationMs, setCapturedDurationMs] = useState<number | null>(
+    null,
+  );
+  useEffect(() => {
+    if (chatRunning && isLast) {
+      if (runStartedAtRef.current == null) {
+        runStartedAtRef.current = Date.now();
+      }
+      return;
+    }
+    if (!chatRunning && isLast && capturedDurationMs == null) {
+      const durationMs =
+        lastRunDurationMs ??
+        (runStartedAtRef.current == null
+          ? null
+          : Date.now() - runStartedAtRef.current);
+      if (durationMs == null) return;
+      setCapturedDurationMs(durationMs);
+      runStartedAtRef.current = null;
+    }
+  }, [chatRunning, isLast, capturedDurationMs, lastRunDurationMs]);
+
+  // Animate collapse only when this message just finished running in-session.
+  const wasRunningRef = useRef(false);
+  const [animateCollapse, setAnimateCollapse] = useState(false);
+  useEffect(() => {
+    if (wasRunningRef.current && !chatRunning && isComplete && isLast) {
+      setAnimateCollapse(true);
+    }
+    wasRunningRef.current = chatRunning && isLast;
+  }, [chatRunning, isComplete, isLast]);
 
   const handleRestore = useCallback(async () => {
     if (restoreState === "idle") {
@@ -926,6 +1333,21 @@ export function AssistantMessage() {
         (p.structuredMeta.toolKind === "edit" ||
           p.structuredMeta.toolKind === "write"),
     );
+  const hasCollapsibleWork =
+    Array.isArray(msgContent) &&
+    msgContent.some(
+      (p, index) =>
+        !isCallAgentToolCallShadowed(msgContent, index) &&
+        (p.type !== "tool-call" || p.activity !== true) &&
+        isCollapsibleAssistantWorkPart(p),
+    );
+  const shadowedToolCallIds = Array.isArray(msgContent)
+    ? shadowedCallAgentToolCallIds(msgContent)
+    : new Set<string>();
+  const activeTailToolCallId = computeActiveTailToolCallId(msgContent, {
+    chatRunning,
+    isLast,
+  });
 
   if (!hasRenderableContent) return null;
 
@@ -935,16 +1357,77 @@ export function AssistantMessage() {
       style={{ contentVisibility: isComplete ? "auto" : "visible" }}
     >
       <div className="w-full max-w-[95%] text-sm leading-relaxed text-foreground">
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownText,
-            tools: {
-              Fallback: ToolCallFallback,
-            },
+        <MessagePrimitive.GroupedParts groupBy={groupAssistantWorkParts}>
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-work": {
+                const showSummary = shouldShowAssistantWorkSummary({
+                  isLast,
+                  isComplete,
+                  hasCollapsibleWork,
+                  hasUnresolvedTool,
+                });
+                if (!showSummary) return <>{children}</>;
+                return (
+                  <WorkedForSummary
+                    durationMs={capturedDurationMs}
+                    defaultOpen={hasCustomUi}
+                    autoCollapse={animateCollapse && !hasCustomUi}
+                  >
+                    {children}
+                  </WorkedForSummary>
+                );
+              }
+              case "group-ran-tools": {
+                const toolCount = part.indices.filter(
+                  (index) => msgContent?.[index]?.type === "tool-call",
+                ).length;
+                return (
+                  <RanToolsSummary toolCount={toolCount}>
+                    {children}
+                  </RanToolsSummary>
+                );
+              }
+              case "text":
+                return <MarkdownText />;
+              case "reasoning":
+                return <ReasoningMessagePart />;
+              case "tool-call":
+                if (shadowedToolCallIds.has(part.toolCallId)) return null;
+                return part.toolUI ? (
+                  <ToolActivityPresentation
+                    toolName={part.toolName}
+                    isRunning={part.status?.type === "running"}
+                    isActiveTail={part.toolCallId === activeTailToolCallId}
+                  >
+                    {part.toolUI}
+                  </ToolActivityPresentation>
+                ) : (
+                  <ToolCallFallback
+                    {...part}
+                    isActiveTail={part.toolCallId === activeTailToolCallId}
+                  />
+                );
+              default:
+                return null;
+            }
           }}
-        />
+        </MessagePrimitive.GroupedParts>
+        {showMissingFinalResponse && (
+          <p role="status" className="text-muted-foreground">
+            The agent stopped without sending a final message. Ask it to
+            continue or retry.
+          </p>
+        )}
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
+        )}
+        {isComplete && (
+          <McpConnectionSuggestion
+            text={responseConnectionText}
+            contextText={responseConnectionContext}
+            variant="response"
+          />
         )}
         {isLast && hasUnresolvedTool && !chatRunning && (
           <RunningActivityStatus label="Thinking" />
@@ -966,7 +1449,7 @@ export function AssistantMessage() {
                       <button
                         type="button"
                         aria-label="Regenerate response"
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                        className={`flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 hover:bg-accent hover:text-foreground ${messageFooterFadeClassName} disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         <IconRefresh className="h-3.5 w-3.5" />
                       </button>
@@ -982,7 +1465,7 @@ export function AssistantMessage() {
             {timestamp && (
               <MessageTimestamp
                 timestamp={timestamp}
-                className="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                className={messageFooterFadeClassName}
               />
             )}
           </div>

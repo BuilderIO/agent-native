@@ -25,6 +25,7 @@
 @import "./agent-conversation.css";
 @import "./rich-markdown-editor.css";
 @import "./blocks.css";
+@import "./chat-history-list.css";
 
 /* Scan @agent-native/core's compiled client output for Tailwind classes.
    Path is resolved relative to THIS file. After build, this CSS lives at
@@ -67,12 +68,7 @@
   );
   --agent-native-raised-surface: hsl(var(--background));
   --agent-native-card-surface: hsl(var(--card));
-  --agent-native-raised-border: hsl(var(--border));
   --agent-native-raised-radius: 8px;
-  --agent-native-raised-outline: inset 0 0 0 1px
-    var(--agent-native-raised-border);
-  --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
-  --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
   height: var(--agent-native-viewport-height);
   min-height: 0;
   background: var(--agent-native-lower-surface);
@@ -85,11 +81,6 @@
       in srgb,
       hsl(var(--sidebar-background, var(--background))) 98%,
       black
-    );
-    --agent-native-raised-border: color-mix(
-      in srgb,
-      hsl(var(--border)) 84%,
-      transparent
     );
   }
 
@@ -118,8 +109,7 @@
 .agent-layout-left-drawer[data-collapsed] {
   overflow: clip;
   width: var(--agent-layout-left-drawer-width, auto);
-  will-change: width;
-  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: width 260ms var(--ease-drawer);
 }
 
 .agent-layout-left-drawer[data-collapsed="true"] {
@@ -160,9 +150,14 @@
   container: agent-native-main / inline-size;
   background: var(--agent-native-raised-surface);
   transition:
-    border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
-    border-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
-    box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+    border-radius 260ms var(--ease-drawer),
+    border-color 260ms var(--ease-drawer),
+    box-shadow 260ms var(--ease-drawer);
+}
+
+.agent-sidebar-shell[data-agent-sidebar-resizing="true"],
+.agent-sidebar-shell[data-agent-sidebar-resizing="true"] * {
+  transition: none !important;
 }
 
 .agent-native-app-main {
@@ -222,19 +217,19 @@
   .agent-layout-shell > .agent-sidebar-shell > .agent-sidebar-main-surface {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    box-shadow: var(--agent-native-raised-shadow-left);
+    box-shadow: none;
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
     border-start-end-radius: var(--agent-native-raised-radius);
     border-end-end-radius: var(--agent-native-raised-radius);
-    box-shadow: var(--agent-native-raised-shadow-right);
+    box-shadow: none;
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    box-shadow: var(--agent-native-raised-shadow-left);
+    box-shadow: none;
   }
 }
 
@@ -244,8 +239,11 @@
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
   width: 0;
   overflow: clip;
-  will-change: width;
-  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: width 260ms var(--ease-drawer);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-resizing="true"] {
+  transition: none;
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
@@ -260,7 +258,7 @@
   height: 100%;
   transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
   will-change: transform;
-  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 260ms var(--ease-drawer);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"]
@@ -274,7 +272,7 @@
     translateX(calc(100% + 1px))
   );
   will-change: transform;
-  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: transform 260ms var(--ease-drawer);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
@@ -366,6 +364,9 @@
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-bounce-once: bounce-once 0.55s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-collapse: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
 
   @keyframes accordion-down {
     from {
@@ -513,6 +514,84 @@
   --muted: 215 10% 12%;
   --primary: 215 15% 75%;
   --ring: 215 12% 60%;
+}
+
+/* Settings sections: animate between closed and intrinsic open height. */
+.agent-native-settings-section-body {
+  display: flow-root;
+  height: auto;
+  overflow: hidden;
+  overflow: clip;
+  opacity: 1;
+  clip-path: inset(0);
+  interpolate-size: allow-keywords;
+  transition:
+    height 200ms var(--ease-collapse),
+    opacity 150ms ease,
+    clip-path 200ms var(--ease-collapse);
+}
+
+.agent-native-settings-section-body[data-state="closed"] {
+  height: 0;
+  opacity: 0;
+  clip-path: inset(0 0 100% 0);
+  pointer-events: none;
+}
+
+@starting-style {
+  .agent-native-settings-section-body[data-state="open"] {
+    height: 0;
+    opacity: 0;
+    clip-path: inset(0 0 100% 0);
+  }
+}
+
+@supports not (interpolate-size: allow-keywords) {
+  .agent-native-settings-section-body {
+    height: auto;
+    max-height: 64rem;
+    transition:
+      max-height 200ms var(--ease-collapse),
+      opacity 150ms ease,
+      clip-path 200ms var(--ease-collapse);
+  }
+
+  .agent-native-settings-section-body[data-state="closed"] {
+    max-height: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-native-settings-section-body {
+    transition: opacity 150ms ease;
+  }
+}
+
+/* Full settings page section bodies.
+   The framework's shared settings sections (LLM, App model defaults, Agent
+   limits, Email, Account, Secrets, Usage, Voice, Automations, A2A, hosting
+   cards, etc.) are authored dense for the compact agent sidebar. On the
+   full-width settings page they render inside polished shadcn-style cards
+   (PageSettingsSection), so bump the smallest fixed type up to a comfortable,
+   consistent reading size that matches the app-owned General/Team cards.
+   Scoped to `[data-agent-native-settings-page]` (only PageSettingsSection's
+   body) so app-owned tab content is never affected. The `.text-[…px]` classes
+   are Tailwind arbitrary values; the double-class specificity here wins. */
+[data-agent-native-settings-page] .text-\[10px\] {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+[data-agent-native-settings-page] .text-\[11px\] {
+  font-size: 0.8125rem;
+  line-height: 1.15rem;
+}
+[data-agent-native-settings-page] .text-\[12px\] {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+[data-agent-native-settings-page] .text-\[13px\] {
+  font-size: 0.9375rem;
+  line-height: 1.4rem;
 }
 
 /* Composer toolbar: keep the model name + version readable on narrow
@@ -663,7 +742,7 @@
 }
 
 .agent-composer-root--hero {
-  min-height: 7.5rem;
+  min-height: 5.625rem;
   border-radius: 1rem;
   border-color: hsl(var(--border) / 0.75);
   background: hsl(var(--muted) / 0.62);
@@ -681,9 +760,109 @@
 }
 
 .agent-composer-root--hero [data-agent-composer-slot="editor-input"] {
-  min-height: 4rem;
+  min-height: 3rem;
   font-size: 1rem;
   line-height: 1.75rem;
+}
+
+.agent-composer-root--missing-key {
+  overflow: visible;
+}
+
+.agent-composer-missing-key-trigger {
+  display: flex;
+  cursor: pointer;
+  min-height: 4.5rem;
+  width: 100%;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  padding: 0.875rem;
+  text-align: start;
+  color: hsl(var(--foreground));
+  outline: none;
+  transition:
+    background-color 150ms ease-out,
+    box-shadow 150ms ease-out;
+}
+
+.agent-composer-missing-key-trigger:hover {
+  background: hsl(var(--accent) / 0.45);
+}
+
+.agent-composer-missing-key-trigger:focus-visible {
+  box-shadow: inset 0 0 0 2px hsl(var(--ring));
+}
+
+.agent-composer-missing-key-content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.agent-composer-missing-key-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.agent-composer-missing-key-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.agent-composer-missing-key-description {
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.agent-composer-missing-key-cta {
+  display: inline-flex;
+  min-height: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  background: hsl(var(--foreground));
+  padding: 0.5rem 0.75rem;
+  color: hsl(var(--background));
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+  transition:
+    opacity 150ms ease-out,
+    transform 150ms ease-out;
+}
+
+.agent-composer-missing-key-trigger:hover .agent-composer-missing-key-cta {
+  opacity: 0.9;
+}
+
+.agent-composer-missing-key-trigger:active .agent-composer-missing-key-cta {
+  transform: scale(0.98);
+}
+
+.agent-composer-root--hero .agent-composer-missing-key-trigger {
+  min-height: 7.5rem;
+  justify-content: center;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.agent-composer-root--hero .agent-composer-missing-key-title {
+  font-size: 0.9375rem;
+  line-height: 1.375rem;
+}
+
+.agent-composer-root--hero .agent-composer-missing-key-content {
+  align-items: center;
 }
 
 .agent-composer-stack {
@@ -697,10 +876,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-}
-
-.agent-composer-setup-card {
-  width: 100%;
 }
 
 /* Plan-mode callout pill: lives inside .agent-composer-stack directly above
@@ -718,33 +893,6 @@
 [data-agent-empty-state="centered"] > .agent-chat-scroll {
   flex: 0 0 auto;
   overflow: visible;
-}
-
-[data-agent-empty-state="centered"]
-  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
-    :has(.agent-selection-attached-pill)
-  )
-  > .agent-composer-setup-card {
-  position: absolute;
-  left: 0;
-  right: 0;
-  z-index: 3;
-}
-
-[data-agent-empty-state="centered"]
-  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
-    :has(.agent-selection-attached-pill)
-  )
-  > .agent-composer-setup-card[data-agent-composer-setup-position="above"] {
-  bottom: calc(100% + 0.5rem);
-}
-
-[data-agent-empty-state="centered"]
-  > .agent-composer-stack:not([data-agent-composer-adjacent-ui="true"]):not(
-    :has(.agent-selection-attached-pill)
-  )
-  > .agent-composer-setup-card[data-agent-composer-setup-position="below"] {
-  top: calc(100% + 0.5rem);
 }
 
 [data-agent-empty-state="compact-setup"] .agent-empty-state {
@@ -774,13 +922,19 @@
   line-height: 1.125rem;
 }
 
-.agent-thinking-indicator__text {
+.agent-thinking-indicator__text,
+.agent-running-shimmer {
   display: inline-block;
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .agent-tool-call--entering {
+    animation: agent-tool-call-enter 220ms var(--ease-out-strong) both;
+  }
+
   @supports ((background-clip: text) or (-webkit-background-clip: text)) {
-    .agent-thinking-indicator__text {
+    .agent-thinking-indicator__text,
+    .agent-running-shimmer {
       color: transparent;
       background: linear-gradient(
         90deg,
@@ -807,6 +961,18 @@
 
     100% {
       background-position: 14rem 0;
+    }
+  }
+
+  @keyframes agent-tool-call-enter {
+    from {
+      opacity: 0;
+      transform: translateY(0.375rem);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
