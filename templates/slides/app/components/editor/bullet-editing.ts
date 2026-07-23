@@ -63,9 +63,9 @@ export function isBulletList(el: HTMLElement): boolean {
 }
 
 /**
- * Walk up from a text leaf to the nearest enclosing list container — either a
- * native <ul>/<ol> or a styled bullet-row container — so Enter can add a new
- * item to the whole list instead of being trapped inside one item.
+ * Walk up from a text leaf to the nearest enclosing styled bullet-row
+ * container, so Enter can add a new item to the whole list instead of being
+ * trapped inside one item.
  */
 export function findEnclosingList(
   el: HTMLElement,
@@ -75,12 +75,6 @@ export function findEnclosingList(
   while (node && root.contains(node)) {
     const parent = node.parentElement;
     if (!parent) break;
-    if (
-      node.tagName === "LI" &&
-      (parent.tagName === "UL" || parent.tagName === "OL")
-    ) {
-      return parent;
-    }
     if (isBulletRow(node) && isBulletList(parent)) return parent;
     // Even from a bullet row whose siblings aren't all bullets, treat the
     // parent as a list once it holds two or more bullet rows.

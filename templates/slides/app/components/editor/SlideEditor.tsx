@@ -1231,13 +1231,9 @@ export default function SlideEditor({
     // mid-edit and incorrectly commit the user out of the block. The user's
     // intent (rich-block edit vs single-line commit) doesn't change while
     // they're editing the same node, so latch it.
-    const editingBulletList =
-      isBulletList(editingEl) ||
-      ((editingEl.tagName === "UL" || editingEl.tagName === "OL") &&
-        isSmartGroup(editingEl));
     const isMultiLineLeaf =
       (isTextLeaf(editingEl) && RICH_BLOCK_TAGS.has(editingEl.tagName)) ||
-      editingBulletList;
+      isBulletList(editingEl);
     const onKey = (e: KeyboardEvent) => {
       // Ignore keys from outside the slide (e.g. the style dock's font-size
       // input). Guard against the LIVE slide content, not `editingEl`, which a
