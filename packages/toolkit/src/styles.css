@@ -22,13 +22,17 @@
 
 .agent-realtime-voice-glow {
   --agent-realtime-voice-glow-opacity: 0.42;
+  --agent-realtime-voice-glow-pulse-opacity: 0.29;
   --agent-realtime-voice-halo-opacity: 0.18;
+  --agent-realtime-voice-halo-pulse-opacity: 0.12;
   --agent-realtime-voice-rotation-duration: 11s;
 }
 
 .agent-realtime-voice-working {
   --agent-realtime-voice-glow-opacity: 0.66;
+  --agent-realtime-voice-glow-pulse-opacity: 0.45;
   --agent-realtime-voice-halo-opacity: 0.3;
+  --agent-realtime-voice-halo-pulse-opacity: 0.2;
   --agent-realtime-voice-rotation-duration: 7s;
 }
 
@@ -52,6 +56,9 @@
   --agent-realtime-voice-element-opacity: var(
     --agent-realtime-voice-glow-opacity
   );
+  --agent-realtime-voice-element-pulse-opacity: var(
+    --agent-realtime-voice-glow-pulse-opacity
+  );
   opacity: var(--agent-realtime-voice-element-opacity);
   padding: 2px;
   -webkit-mask:
@@ -67,6 +74,9 @@
 .agent-realtime-voice-glow::before {
   --agent-realtime-voice-element-opacity: var(
     --agent-realtime-voice-halo-opacity
+  );
+  --agent-realtime-voice-element-pulse-opacity: var(
+    --agent-realtime-voice-halo-pulse-opacity
   );
   filter: blur(7px);
 }
@@ -92,7 +102,7 @@
 
   @keyframes agent-realtime-voice-glow-pulse {
     50% {
-      opacity: calc(var(--agent-realtime-voice-element-opacity) * 0.68);
+      opacity: var(--agent-realtime-voice-element-pulse-opacity);
     }
   }
 }
