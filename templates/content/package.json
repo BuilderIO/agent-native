@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "agent-native dev",
+    "dev": "agent-native dev --inspect",
     "dev:database": "node scripts/check-native-deps.mjs && node scripts/dev-database.mjs",
     "build": "agent-native build",
     "start": "agent-native start",
