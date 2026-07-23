@@ -22,6 +22,7 @@ import {
 import {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
+  registerActionChatRenderer,
   registerToolRenderer,
   type ToolRendererProps,
 } from "./tool-render-registry.js";
@@ -162,6 +163,7 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Recent rows");
     expect(container.textContent).toContain("Ada");
     expect(container.textContent).not.toContain("Responses by day");
+    expect(container.querySelector("[data-agent-native-custom-ui]")).toBeNull();
   });
 
   it("falls back for malformed widget payloads", () => {
@@ -483,6 +485,9 @@ describe("ToolCallDisplay native renderers", () => {
       });
 
       expect(container.textContent).toContain("App renderer wins");
+      expect(
+        container.querySelector("[data-agent-native-custom-ui]"),
+      ).toBeNull();
       expect(container.textContent).not.toContain(
         "Large updates can take a minute or two.",
       );
@@ -721,6 +726,11 @@ describe("ToolCallDisplay native renderers", () => {
         />,
       );
     });
+    const loadingSurface = container.querySelector(
+      "[data-agent-native-custom-ui]",
+    );
+    expect(loadingSurface).toBeTruthy();
+    expect(loadingSurface?.querySelector(".border")).toBeNull();
     await settleLazyRender();
 
     const frame = container.querySelector(
@@ -732,7 +742,62 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Sensitivity controls");
     expect(container.textContent).not.toContain("render inline extension");
     expect(container.querySelector('[aria-label="Open extension"]')).toBeNull();
-    expect(container.querySelector(".border")).toBeNull();
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("my-3");
+    expect(surface?.className).toContain("rounded-lg");
+    expect(surface?.className).toContain("border");
+    expect(surface?.className).not.toContain("p-3");
+  });
+
+  it("pads app action UI inside the shared custom UI card", async () => {
+    registerActionChatRenderer({
+      id: "todo-list-inline",
+      renderer: "todo-demo.todo-list-inline",
+      Component: () => <button type="button">Add todo</button>,
+    });
+
+    await act(async () => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-todo-list-inline"
+          args={{}}
+          result={'{"ok":true}'}
+          chatUI={{ renderer: "todo-demo.todo-list-inline" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("p-3");
+    expect(container.querySelector("button")?.textContent).toBe("Add todo");
+  });
+
+  it("hides an empty action UI card while its renderer is still running", () => {
+    registerActionChatRenderer({
+      id: "todo-list-loading",
+      renderer: "todo-demo.todo-list-loading",
+      Component: ({ context }) =>
+        context.isRunning ? null : <div>Todo list</div>,
+    });
+
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-todo-list-inline"
+          args={{}}
+          chatUI={{ renderer: "todo-demo.todo-list-loading" }}
+          isRunning
+        />,
+      );
+    });
+
+    const surface = container.querySelector("[data-agent-native-custom-ui]");
+    expect(surface).toBeTruthy();
+    expect(surface?.className).toContain("empty:hidden");
+    expect(surface?.childElementCount).toBe(0);
   });
 
   it("keeps built-in data widget renderer identities stable across resolves", () => {
@@ -1306,6 +1371,40 @@ describe("WorkedForSummary", () => {
     });
 
     expect(container.textContent).toContain("Worked for 5m");
+  });
+
+  it("starts open when completed work contains interactive UI", () => {
+    act(() => {
+      root.render(
+        <WorkedForSummary durationMs={7_000} defaultOpen>
+          <div>Interactive todo list</div>
+        </WorkedForSummary>,
+      );
+    });
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(container.textContent).toContain("Interactive todo list");
+  });
+
+  it("reopens when custom UI metadata arrives after the summary mounts", () => {
+    const renderSummary = (defaultOpen: boolean) => (
+      <WorkedForSummary durationMs={7_000} defaultOpen={defaultOpen}>
+        <div>Late interactive UI</div>
+      </WorkedForSummary>
+    );
+
+    act(() => root.render(renderSummary(false)));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    act(() => root.render(renderSummary(true)));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(container.textContent).toContain("Late interactive UI");
   });
 });
 

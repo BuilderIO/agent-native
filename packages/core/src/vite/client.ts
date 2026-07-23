@@ -732,7 +732,6 @@ function findCorePackageRoot(cwd: string): string | null {
   const candidates = [
     path.resolve(cwd, "../../packages/core"), // templates/<name>/
     path.resolve(cwd, "../core"), // packages/<name>/
-    path.resolve(cwd, "node_modules/@agent-native/core"),
   ];
   for (const candidate of candidates) {
     try {

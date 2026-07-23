@@ -54,6 +54,9 @@ describe("generate command affordances", () => {
     const source = readSlashCommandMenuSource();
 
     expect(source).toContain("import { PromptComposer }");
+    expect(source).toMatch(
+      /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
+    );
     expect(source).toContain("icon: IconHierarchy2");
     expect(source).not.toContain("shouldOpenGenerateOnSpace");
     expect(source).not.toContain('e.code === "Space"');

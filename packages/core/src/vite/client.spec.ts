@@ -1532,6 +1532,47 @@ describe("local-core dev aliases and router dedupe", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
+  it("does not treat a published core package with source files as a local checkout", () => {
+    const tmpDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-vite-published-core-"),
+    );
+    const installedCore = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    fs.mkdirSync(path.join(installedCore, "src"), { recursive: true });
+    fs.writeFileSync(path.join(installedCore, "src/index.ts"), "export {};\n");
+    fs.writeFileSync(
+      path.join(installedCore, "package.json"),
+      JSON.stringify({
+        name: "@agent-native/core",
+        devDependencies: {
+          "@excalidraw/excalidraw": "0.18.1",
+          mermaid: "11.15.0",
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({
+        dependencies: { "@agent-native/core": "^0.118.0" },
+      }),
+    );
+
+    expect(_findCorePackageRoot(tmpDir)).toBeNull();
+    expect(_getDefaultOptimizeDeps(tmpDir)).toContain("@agent-native/core");
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/core > @excalidraw/excalidraw",
+    );
+    expect(_getDefaultOptimizeDeps(tmpDir)).not.toContain(
+      "@agent-native/core > mermaid",
+    );
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
   it("aliases file:@agent-native/toolkit conditional exports to source", () => {
     const previousCwd = process.cwd();
     const toolkitRoot = path.resolve(

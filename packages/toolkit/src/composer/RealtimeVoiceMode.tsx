@@ -900,6 +900,7 @@ export function RealtimeVoiceModeDock({
               className={cn(
                 "relative isolate size-16 overflow-visible rounded-full ring-1 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
+                connected && "agent-realtime-voice-glow",
                 state === "working" && "agent-realtime-voice-working",
               )}
             >

@@ -20,37 +20,79 @@
  */
 @source "./**/*.{js,ts,tsx}";
 
-.agent-realtime-voice-working::after {
+.agent-realtime-voice-glow {
+  --agent-realtime-voice-glow-opacity: 0.42;
+  --agent-realtime-voice-halo-opacity: 0.18;
+  --agent-realtime-voice-rotation-duration: 11s;
+}
+
+.agent-realtime-voice-working {
+  --agent-realtime-voice-glow-opacity: 0.66;
+  --agent-realtime-voice-halo-opacity: 0.3;
+  --agent-realtime-voice-rotation-duration: 7s;
+}
+
+.agent-realtime-voice-glow::before,
+.agent-realtime-voice-glow::after {
   position: absolute;
   z-index: 0;
-  inset: 0;
+  inset: -3px;
   border-radius: inherit;
   pointer-events: none;
   content: "";
+  background: conic-gradient(
+    from 0deg,
+    oklch(0.7 0.15 246 / 0.12),
+    oklch(0.76 0.17 238 / 0.9) 14%,
+    oklch(0.68 0.2 255 / 0.42) 27%,
+    transparent 48%,
+    oklch(0.72 0.17 248 / 0.16) 76%,
+    oklch(0.7 0.15 246 / 0.12)
+  );
+  --agent-realtime-voice-element-opacity: var(
+    --agent-realtime-voice-glow-opacity
+  );
+  opacity: var(--agent-realtime-voice-element-opacity);
+  padding: 2px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+.agent-realtime-voice-glow::before {
+  --agent-realtime-voice-element-opacity: var(
+    --agent-realtime-voice-halo-opacity
+  );
+  filter: blur(7px);
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .agent-realtime-voice-working::after {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      transparent 36%,
-      hsl(var(--foreground) / 0.14) 50%,
-      transparent 64%,
-      transparent 100%
-    );
-    background-repeat: repeat;
-    background-size: 14rem 100%;
-    animation: agent-realtime-voice-shine 2.6s linear infinite;
+  .agent-realtime-voice-glow::before,
+  .agent-realtime-voice-glow::after {
+    animation:
+      agent-realtime-voice-glow-rotate
+        var(--agent-realtime-voice-rotation-duration) linear infinite,
+      agent-realtime-voice-glow-pulse 3.6s ease-in-out infinite;
   }
 
-  @keyframes agent-realtime-voice-shine {
+  @keyframes agent-realtime-voice-glow-rotate {
     from {
-      background-position: 0 0;
+      transform: rotate(0deg);
     }
 
     to {
-      background-position: 14rem 0;
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes agent-realtime-voice-glow-pulse {
+    50% {
+      opacity: calc(var(--agent-realtime-voice-element-opacity) * 0.68);
     }
   }
 }

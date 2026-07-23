@@ -766,7 +766,28 @@ describe("RealtimeVoiceMode", () => {
     },
   );
 
-  it("shines only while the agent is working", () => {
+  it.each(["listening", "speaking"] as const)(
+    "keeps a soft session glow while %s",
+    (state) => {
+      render(
+        <RealtimeVoiceModeDock
+          state={state}
+          copy={copy}
+          chatVisible={false}
+          onToggleChat={vi.fn()}
+          onEndVoiceMode={vi.fn()}
+        />,
+      );
+      expect(
+        document.querySelector(".agent-realtime-voice-glow"),
+      ).not.toBeNull();
+      expect(
+        document.querySelector(".agent-realtime-voice-working"),
+      ).toBeNull();
+    },
+  );
+
+  it("brightens the live glow while working", () => {
     render(
       <RealtimeVoiceModeDock
         state="working"
@@ -776,21 +797,30 @@ describe("RealtimeVoiceMode", () => {
         onEndVoiceMode={vi.fn()}
       />,
     );
+    expect(document.querySelector(".agent-realtime-voice-glow")).not.toBeNull();
     expect(
       document.querySelector(".agent-realtime-voice-working"),
     ).not.toBeNull();
-
-    render(
-      <RealtimeVoiceModeDock
-        state="listening"
-        copy={copy}
-        chatVisible={false}
-        onToggleChat={vi.fn()}
-        onEndVoiceMode={vi.fn()}
-      />,
-    );
-    expect(document.querySelector(".agent-realtime-voice-working")).toBeNull();
   });
+
+  it.each(["connecting", "error", "ending"] as const)(
+    "does not show the live glow while %s",
+    (state) => {
+      render(
+        <RealtimeVoiceModeDock
+          state={state}
+          copy={copy}
+          chatVisible={false}
+          onToggleChat={vi.fn()}
+          onEndVoiceMode={vi.fn()}
+        />,
+      );
+      expect(document.querySelector(".agent-realtime-voice-glow")).toBeNull();
+      expect(
+        document.querySelector(".agent-realtime-voice-working"),
+      ).toBeNull();
+    },
+  );
 
   it("shows an unmistakable loader and ignores early audio until connected", () => {
     const audioLevels = createRealtimeVoiceAudioLevelStore();

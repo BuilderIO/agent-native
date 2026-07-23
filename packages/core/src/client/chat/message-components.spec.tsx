@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasCompletedCustomUi,
+  assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
@@ -16,6 +17,7 @@ import {
   shouldShowAssistantMessageFooter,
   shouldShowMissingFinalResponse,
   ThinkingIndicator,
+  userMessageTextBeforeAssistant,
   isHiddenUserMessage,
 } from "./message-components.js";
 
@@ -177,6 +179,33 @@ describe("assistantMessageHasCompletedCustomUi", () => {
   });
 });
 
+describe("assistantMessageHasCustomUi", () => {
+  it("keeps turns with action-declared or MCP UI expanded", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        { type: "reasoning", text: "Loading todos" },
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+        { type: "text", text: "Here are your todos." },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        { type: "tool-call", result: "done", mcpApp: { uri: "ui://todo" } },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        { type: "reasoning", text: "Checking" },
+        { type: "tool-call", toolName: "list-todos", result: "done" },
+      ]),
+    ).toBe(false);
+  });
+});
+
 describe("messageTextFromContent", () => {
   it("uses visible text only so tool payloads cannot trigger provider suggestions", () => {
     expect(
@@ -218,6 +247,43 @@ describe("latestUserMessageText", () => {
         },
       ]),
     ).toBe("Open Notion");
+  });
+});
+
+describe("userMessageTextBeforeAssistant", () => {
+  it("keeps a response connection suggestion tied to its own user turn", () => {
+    expect(
+      userMessageTextBeforeAssistant(
+        [
+          { id: "user-1", role: "user", content: "Connect Granola" },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "I cannot read it.",
+          },
+          {
+            id: "user-2",
+            role: "user",
+            content: "Make the slide title larger",
+          },
+          { id: "assistant-2", role: "assistant", content: "Done." },
+        ],
+        "assistant-1",
+      ),
+    ).toBe("Connect Granola");
+    expect(
+      userMessageTextBeforeAssistant(
+        [
+          { id: "user-1", role: "user", content: "Connect Granola" },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "I cannot read it.",
+          },
+        ],
+        "assistant-2",
+      ),
+    ).toBe("");
   });
 });
 

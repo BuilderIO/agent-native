@@ -859,6 +859,26 @@ export function latestUserMessageText(messages: readonly unknown[]): string {
   return "";
 }
 
+export function userMessageTextBeforeAssistant(
+  messages: readonly unknown[],
+  assistantMessageId: string,
+): string {
+  const assistantIndex = messages.findIndex((message) => {
+    if (!message || typeof message !== "object") return false;
+    return (message as { id?: unknown }).id === assistantMessageId;
+  });
+  if (assistantIndex < 1) return "";
+
+  for (let index = assistantIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role !== "user" || isHiddenUserMessage(message)) continue;
+    return displayableUserMessageText(messageTextFromContent(record.content));
+  }
+  return "";
+}
+
 export function assistantMessageHasUnresolvedTool(content: unknown): boolean {
   if (!Array.isArray(content)) return false;
   return content.some((part): boolean => {
@@ -909,6 +929,22 @@ export function assistantMessageHasCompletedCustomUi(
       record.chatUI !== undefined || record.mcpApp !== undefined;
   }
   return hasCompletedTool && lastCompletedToolIsCustomUi;
+}
+
+export function assistantMessageHasCustomUi(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  return content.some((part) => {
+    if (!part || typeof part !== "object") return false;
+    const record = part as {
+      type?: unknown;
+      chatUI?: unknown;
+      mcpApp?: unknown;
+    };
+    return (
+      record.type === "tool-call" &&
+      (record.chatUI !== undefined || record.mcpApp !== undefined)
+    );
+  });
 }
 
 // Only the last assistant message may shimmer as "the currently running
@@ -1177,13 +1213,17 @@ export function AssistantMessage() {
   const hasCompletedCustomUi = assistantMessageHasCompletedCustomUi(
     msg.content,
   );
+  const hasCustomUi = assistantMessageHasCustomUi(msg.content);
   const showMissingFinalResponse = shouldShowMissingFinalResponse({
     statusIsTerminal,
     hasAssistantText: responseConnectionText.trim().length > 0,
     hasUnresolvedTool,
     hasCompletedCustomUi,
   });
-  const responseConnectionContext = latestUserMessageText(thread.messages);
+  const responseConnectionContext = userMessageTextBeforeAssistant(
+    thread.messages,
+    msg.id,
+  );
   const isComplete = shouldShowAssistantMessageFooter({
     isLast,
     chatRunning,
@@ -1331,7 +1371,8 @@ export function AssistantMessage() {
                 return (
                   <WorkedForSummary
                     durationMs={capturedDurationMs}
-                    autoCollapse={animateCollapse}
+                    defaultOpen={hasCustomUi}
+                    autoCollapse={animateCollapse && !hasCustomUi}
                   >
                     {children}
                   </WorkedForSummary>
@@ -1381,7 +1422,7 @@ export function AssistantMessage() {
         {isComplete && hasCodeAgentTools && msgContent && (
           <FilesChangedSummary parts={msgContent} />
         )}
-        {isComplete && isLast && (
+        {isComplete && (
           <McpConnectionSuggestion
             text={responseConnectionText}
             contextText={responseConnectionContext}

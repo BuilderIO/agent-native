@@ -200,6 +200,44 @@ describe("resolveDispatchOwner", () => {
     );
   });
 
+  it("does not resolve a sender with a legacy token from another Slack app", async () => {
+    mocks.resolveSecret.mockResolvedValue("fusion-token-example");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T123", bot_id: "BFUSION" }),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return new Response(
+            JSON.stringify({ ok: true, bot: { app_id: "AFUSION" } }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }));
+      }),
+    );
+
+    const incoming = slackIncoming({
+      platformContext: {
+        teamId: "T123",
+        apiAppId: "A123",
+        channelId: "C1",
+      },
+    });
+
+    const owner = await resolveDispatchOwner(incoming);
+
+    expect(owner).toMatch(/@integration\.local$/);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      "https://slack.com/api/users.info?user=U123",
+      expect.anything(),
+    );
+  });
+
   it("falls back to the configured Slack owner when the sender is not an org member", async () => {
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-token");
     vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "default@example.test");
