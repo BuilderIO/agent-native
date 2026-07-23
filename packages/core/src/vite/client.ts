@@ -253,6 +253,9 @@ function nitroVitePlugin(
  * rate-limits an unrelated client-reload nudge); keep the two independent.
  */
 const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
+const OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS = 2_000;
+const OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS = 30_000;
+const OPTIMIZE_DEP_MAX_FULL_RELOADS = 3;
 
 /**
  * Wraps a single Nitro-provided Vite plugin so that, if it defines a
@@ -1500,7 +1503,8 @@ function fullReloadOnOptimizeDep504(): Plugin {
     name: "agent-native-full-reload-optimize-dep-504",
     apply: "serve",
     configureServer(server) {
-      let lastReloadAt = 0;
+      let lastReloadAt: number | null = null;
+      let reloadHistory: number[] = [];
       server.middlewares.use((req, res, next) => {
         const originalEnd = res.end;
         (res as unknown as { end: (...args: unknown[]) => unknown }).end = (
@@ -1512,8 +1516,17 @@ function fullReloadOnOptimizeDep504(): Plugin {
             statusMessage === "Outdated Optimize Dep"
           ) {
             const now = Date.now();
-            if (now - lastReloadAt > 500) {
+            reloadHistory = reloadHistory.filter(
+              (timestamp) =>
+                now - timestamp < OPTIMIZE_DEP_FULL_RELOAD_WINDOW_MS,
+            );
+            if (
+              (lastReloadAt === null ||
+                now - lastReloadAt >= OPTIMIZE_DEP_FULL_RELOAD_COOLDOWN_MS) &&
+              reloadHistory.length < OPTIMIZE_DEP_MAX_FULL_RELOADS
+            ) {
               lastReloadAt = now;
+              reloadHistory.push(now);
               server.ws.send({ type: "full-reload" });
               server.config.logger.info(
                 `[agent-native] Vite optimized deps changed while loading ${

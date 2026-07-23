@@ -440,6 +440,9 @@ describe("Vite optimized dependency recovery", () => {
     const script = tags?.[0]?.children ?? "";
 
     expect(tags?.[0]?.injectTo).toBe("head-prepend");
+    expect(script).toContain("__agentNativeViteDevRecoveryInstalled");
+    expect(script).toContain("MIN_RELOAD_INTERVAL_MS = 2000");
+    expect(script).toContain('"vite:beforeFullReload"');
     expect(script).toContain("vite:preloadError");
     expect(script).toContain("PerformanceObserver");
     expect(script).toContain("Outdated Optimize Dep");
@@ -477,6 +480,60 @@ describe("Vite optimized dependency recovery", () => {
     expect(server.ws.send).toHaveBeenCalledWith({ type: "full-reload" });
     expect(server.config.logger.info).toHaveBeenCalledOnce();
     expect(originalEnd).toHaveBeenCalledOnce();
+  });
+
+  it("spaces out and caps repeated optimized dep reloads", () => {
+    vi.useFakeTimers();
+    try {
+      const plugin = findPlugin("agent-native-full-reload-optimize-dep-504");
+      let middleware: Function | null = null;
+      const server = {
+        middlewares: {
+          use: vi.fn((fn: Function) => {
+            middleware = fn;
+          }),
+        },
+        ws: { send: vi.fn() },
+        config: { logger: { info: vi.fn() } },
+      };
+
+      plugin.configureServer(server);
+      const next = vi.fn();
+      const sendFailure = () => {
+        const res = {
+          statusCode: 504,
+          statusMessage: "Outdated Optimize Dep",
+          end: vi.fn(),
+        };
+        middleware!(
+          { url: "/node_modules/.vite/deps/react.js?v=stale" },
+          res,
+          next,
+        );
+        res.end();
+      };
+
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1_999);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(1);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(2);
+
+      vi.advanceTimersByTime(4_000);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(3);
+
+      vi.advanceTimersByTime(2_000);
+      sendFailure();
+      expect(server.ws.send).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
