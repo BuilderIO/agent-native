@@ -186,7 +186,10 @@ describe("A2AClient", () => {
           init?.method === "POST" &&
           JSON.parse(String(init.body)).method === "tasks/get",
       );
-    while (!hasTaskRead()) await vi.advanceTimersByTimeAsync(1);
+    // Coarse steps: the first poll lands at pollIntervalMs (1s of fake time),
+    // and 1ms steps are ~1000 queue drains — enough to blow the real-time test
+    // timeout on a loaded CI worker. Overshooting the poll instant is harmless.
+    while (!hasTaskRead()) await vi.advanceTimersByTimeAsync(50);
     await vi.advanceTimersByTimeAsync(5_000);
     await assertion;
     expect(hasTaskRead()).toBe(true);
@@ -249,7 +252,8 @@ describe("A2AClient", () => {
       },
     });
 
-    while (taskReads === 0) await vi.advanceTimersByTimeAsync(1);
+    // Coarse steps for the same CI-load reason as the hung-poll test above.
+    while (taskReads === 0) await vi.advanceTimersByTimeAsync(50);
     await vi.advanceTimersByTimeAsync(16_000);
     await assertion;
     expect(firstPollSignal?.aborted).toBe(true);
