@@ -879,9 +879,7 @@ function assertCleanServerLogs(logs: string[]): void {
     offenders.push("render outside router context");
   }
   if (
-    text.includes(
-      'NitroViteError]: Vite environment "nitro" is unavailable',
-    )
+    text.includes('NitroViteError]: Vite environment "nitro" is unavailable')
   ) {
     offenders.push("Nitro environment unavailable");
   }
@@ -956,9 +954,7 @@ async function main(): Promise<void> {
     console.log(
       "  checked:  scaffold → install → dev server → auto-login → /agent → / (Chat)",
     );
-    console.log(
-      "  checked:  no Nitro startup noise or SSR errors in dev logs",
-    );
+    console.log("  checked:  no Nitro startup noise or SSR errors in dev logs");
     console.log("  checked:  no browser console/page errors after warmup");
   } catch (err) {
     const logs = running.logs.slice(-160).join("");
