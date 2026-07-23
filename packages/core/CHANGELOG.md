@@ -1,5 +1,196 @@
 # @agent-native/core
 
+## 0.119.2
+
+### Patch Changes
+
+- 2254362: Show only the Go home action on 404 error screens.
+- 2254362: Allow idempotent database reads to set a per-query timeout and retry budget, and let email callers bound provider delivery time.
+- 2254362: Keep Cloudflare Pages SSR builds working when shared chat components use the assistant UI state hook.
+- 2254362: Preserve ordered fallback bearer tokens for connected A2A agent calls during key rotation.
+- 2254362: Center full-page empty chat surfaces consistently and quiet the shared chat history rail.
+- 2254362: Polish the Manage agent resources layout with aligned empty states and whitespace-based section spacing.
+- 2254362: Space out and cap Vite optimized-dependency recovery reloads so dev startup does not thrash when the optimizer stays out of sync.
+- 2254362: Use a background-independent mask for the scrolled chat fade so it matches each host surface.
+- Updated dependencies [2254362]
+  - @agent-native/toolkit@0.10.2
+
+## 0.119.1
+
+### Patch Changes
+
+- c015dc7: Export shared Figma paint math (gradient geometry from transforms/handles,
+  blend-mode mapping, linear stop remapping) from `@agent-native/core/ingestion`
+  so the REST and `.fig`/clipboard import renderers derive gradients identically.
+
+## 0.119.0
+
+### Minor Changes
+
+- 6f485ac: Remove the redundant Done action from shared share popovers and dialogs.
+- 6f485ac: Stream delegated A2A agent activity into an indented chat run with live reasoning, tool status, elapsed time, and a scroll-free final response.
+
+### Patch Changes
+
+- 6f485ac: Use GPT-5.6 Luna as the default for Builder Gateway and OpenAI connections, keep Claude Sonnet 5 for Anthropic connections, and order the model picker from lowest to highest cost.
+
+## 0.118.1
+
+### Patch Changes
+
+- c15d20f: Only show in-chat connection suggestions for exact provider brands or provider-owned URLs found in user-authored text.
+- c15d20f: Harden browser and CLI error handling and hide editor commands for disabled features.
+- c15d20f: Keep remote MCP OAuth flow state in browser-safe cookie chunks and show Granola's official provider icon.
+- c15d20f: Keep completed chat turns with interactive custom UI expanded and frame custom action UI in a padded card.
+- c15d20f: Pin Slack delivery to the app that received the event and reject legacy bot tokens from a different Slack app.
+- c15d20f: Keep healthy long-running tool and agent calls out of the stuck-run warning, add space below long-running tool hints, and prevent a hung remote status request from bypassing the A2A call timeout.
+- c15d20f: Wait for Nitro's Vite environment before serving initial development requests, and keep published Core installs from enabling framework-monorepo dependency optimization.
+- c15d20f: Consume agent-authored URL navigation commands from full-page chat surfaces.
+- c15d20f: Remove the obsolete active-tool row selector so stale styles cannot paint the shine outside the label text.
+- c15d20f: Shorten the MCP OAuth connection action label to Connect.
+- c15d20f: Show a soft rotating blue glow for live realtime voice sessions and brighten it while the agent is working.
+- c15d20f: Synchronize the chat response regenerate control and timestamp fade transitions.
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+- Updated dependencies [c15d20f]
+  - @agent-native/toolkit@0.10.1
+
+## 0.118.0
+
+### Minor Changes
+
+- f0da2e0: Add the styling-runtime-agnostic custom design system contract, safe component adapters, semantic theme tokens, and build-time theme CSS generation. New scaffolded apps now include the explicit design-system module, ToolkitProvider seam, and toolkit dependency so custom adapters can be registered from the first render.
+
+### Patch Changes
+
+- f0da2e0: Harden custom design system color gamut handling, semantic default-adapter behavior, sharing controller reuse, and build-time theme cascade ordering. Add complete MUI and Ant Design Chat examples that exercise the public conformance contract, and route normalized settings, sharing, sidebar, and agent-panel chrome through the registered semantic adapters.
+- f0da2e0: Preserve staged cookies across MCP OAuth redirects so browser callbacks retain their authorization flow state.
+- f0da2e0: Add horizontal breathing room around in-chat MCP connection suggestions.
+- f0da2e0: Keep parent chats alive while a delegated A2A task is actively processing.
+- f0da2e0: Clip the active tool-call shine to the tool label instead of painting it across the full row.
+- f0da2e0: Preserve normalized core control icon sizing and semantic button styling while keeping settings defaults and sharing overlays consistent.
+- f0da2e0: Preserve the active chat when page chat and sidebar chat share a thread store.
+- f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
+- f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.
+- f0da2e0: Route the Builder connection card and chat history rail through semantic design-system components while preserving their default presentation and shared controller paths.
+- f0da2e0: Consolidate sharing query, mutation, member-search, optimistic-cache, and
+  error-handling primitives behind the ShareButton and ShareDialog controllers.
+- f0da2e0: ShareButton and ShareDialog controllers now share optimistic updates, rollback handling, organization-member search, and error reporting while preserving pending state across close and reopen.
+- f0da2e0: Show a pending spinner while an MCP OAuth connection is preparing its redirect.
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+- Updated dependencies [f0da2e0]
+  - @agent-native/toolkit@0.10.0
+
+## 0.117.2
+
+### Patch Changes
+
+- bc91e11: Archive extensions without deleting their history, data, or sharing configuration.
+- bc91e11: Add a shared editable user profile to settings and the workspace switcher.
+- bc91e11: Render transactional email branding with a SendGrid-compatible inline logo and text fallback.
+- bc91e11: Bound foreground serverless database pools to one connection and retry transient connection-exhaustion errors.
+- bc91e11: Render the default Share trigger as a text-only button without a visibility icon.
+
+## 0.117.1
+
+### Patch Changes
+
+- c9e48ca: Fix Vercel workspace serverless functions crashing on every request. The generated Vercel function wrapper now exports the `{ fetch }` web-handler shape so Vercel invokes it web-style with a Web `Request`, and requires a Web `fetch` handler from `main.mjs` rather than forwarding a Web `Request` to a Node-style `(req, res)` handler (fixes #2324).
+
+## 0.117.0
+
+### Minor Changes
+
+- d73eda3: Realtime sync: framework prerequisites for the hosted Realtime Sync Gateway. All new behavior is opt-in — apps without hosted-realtime config are unchanged.
+  - Refactor `poll.ts` into an `AppSyncState` class holding all previously module-global change-tracking state (version counter, ring buffer, poll emitter, watermarks, and the access cache). Module-level exports (`recordChange`, `getVersion`, `getPollEmitter`, `getChangesSinceForUser`, `canSeeChangeForUser`, `createPollHandler`, `invalidateCollabAccessCache`) delegate to a lazily-created default instance bound to the process DB, so self-hosted apps are unchanged. `createPollHandler` and `createPollEventsHandler` accept an optional injected `AppSyncState`.
+  - `AppSyncState` accepts an injected DB accessor, Postgres check, and access resolver, and exposes `getCombinedChangesSinceForUser`/`checkExternalDbChanges`/`persistSyncEvent` for reuse. `ddl-guard` helpers accept a `dialectIsPostgres` override so injected per-app clients get the guarded Postgres DDL path regardless of the process-global DB.
+  - The per-user access cache key now includes the active `orgId`, so a decision cached in one org is never reused under another org's session.
+  - Add `readMinSyncEventVersion()` (oldest retained durable version) for stale-cursor detection, and an opt-in `deterministicEventIds` mode so multiple processes detecting the same out-of-band write collapse to one durable row. Both off/unused by default.
+  - New public export subpaths: `./server/poll`, `./server/sse`, `./server/short-lived-token`.
+  - New realtime subscribe tokens: `signRealtimeSubscribeToken`/`verifyRealtimeSubscribeToken` — per-project HMAC key, identity-bearing claims (`owner`/`orgId` required), `projectId` channel binding, and a `typ` discriminator so they are not interchangeable with media tokens. Existing `signShortLivedToken`/`verifyShortLivedToken` are untouched.
+  - New session-gated, same-origin endpoint `GET /_agent-native/realtime-token` mounted by core-routes. Fail-closed: responds 404 unless the app is provisioned with a per-project signing secret (`AGENT_NATIVE_REALTIME_HMAC_SECRET`) and a Builder project id; responses are `Cache-Control: private, no-store`.
+  - New shared realtime wire protocol (`realtime-protocol.ts`, re-exported from `./server/sse`): named SSE `handshake`/`token` control frames; data/batch frames unchanged.
+  - Client transport (`useDbSync`/`subscribeSyncEvents`) gains an opt-in hosted-gateway mode, enabled only when the SSR config sets `realtime.transport = "hosted"` with an explicit gateway URL: token mint/rotation, jittered reconnects, and automatic health-gated fallback to the app's own `/poll` + `/events`. `onSseStateChange` callbacks now also receive the negotiated capability list (optional second parameter; existing callbacks are unaffected), which collab uses to keep its fast presence cadence on `no-awareness` streams.
+
+## 0.116.0
+
+### Minor Changes
+
+- 03a043e: Improve Agent Resources settings with contextual documentation links, cleaner file empty states, and file-name creation that defaults extensionless files to Markdown.
+- 03a043e: Add explicit collaboration access modes for resource-scoped and intentionally
+  deployment-wide authenticated documents, with legacy compatibility and Doctor
+  guidance for implicit configurations.
+- 03a043e: Add a catalog-driven in-chat MCP connection suggestion that recognizes Granola
+  and resumes the pending chat request after OAuth or direct connection setup.
+
+### Patch Changes
+
+- 03a043e: Expose the Google Drive workspace connection and provider API to Analytics for Google Sheets exports.
+- 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
+- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
+- 03a043e: Improve the MCP device authorization success message hierarchy by separating the confirmation title from the follow-up connection guidance.
+- 03a043e: Keep page-chat controls clear of messages, continue shared sync in background tabs at a relaxed cadence, and make the latest tool visibly active until the turn finishes.
+- 03a043e: Trim the MCP connection authorization page by removing redundant branding and status pills.
+- 03a043e: Make template feedback controls opt in through `VITE_AGENT_NATIVE_FEEDBACK_URL` so cloned apps do not send feedback to Agent Native by default.
+- 03a043e: Ensure interrupted or empty agent runs always end with a visible final response instead of a bare tool call.
+- 03a043e: Keep the active chat tab fully visible while the right sidebar opens and its tab strip expands.
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+- Updated dependencies [03a043e]
+  - @agent-native/toolkit@0.9.1
+  - @agent-native/recap-cli@0.5.1
+
+## 0.115.4
+
+### Patch Changes
+
+- 2154ad1: Fix Builder preview credential relay failing behind a proxy. The relay handler now derives the request origin from `x-forwarded-host`/`x-forwarded-proto` (via `getBuilderBrowserOriginForEvent`) instead of the internal loopback host, so `targetOrigin` verification passes on hosted preview deployments.
+
+## 0.115.3
+
+### Patch Changes
+
+- a841109: Teach visual-plan agents to create and promote full-fidelity design surfaces without losing scoped CSS or duplicating an existing plan.
+
+## 0.115.2
+
+### Patch Changes
+
+- f0601ec: Collapse duplicate assistant tool-call ids in the shared agent loop so providers do not reject replayed tool-call history.
+
+## 0.115.1
+
+### Patch Changes
+
+- 321567c: Add `app-branding` and `app-permissions` to the default framework skill set. `app-branding` is layout-aware — it handles both the centralized `app/lib/app-config.ts` source-of-truth layout and the inlined layout where the name/title live across `package.json`, route `meta()`, and `app/root.tsx`. Generated apps using `frameworkSkills: "default"` now receive both skills on scaffold and `skills update`.
+
+## 0.115.0
+
+### Minor Changes
+
+- 0341a7d: Allow the published CLI to scaffold the hidden CRM template explicitly, and include factory-backed actions in production static registries.
+- 0341a7d: Pass trusted trigger automation lineage and a stored policy id to action runs.
+- 0341a7d: Add reusable per-app dashboard storage factories, bounded revision history, and provider-neutral panel source resolvers.
+- 0341a7d: Add Salesforce workspace connections and CRM reader metadata for template-owned integrations.
+
+### Patch Changes
+
+- 0341a7d: Allow hosted authenticated requests to use deployment-level transactional email configuration.
+- 0341a7d: Keep Netlify-hosted apps and their databases warm with site-local scheduled health checks.
+- 0341a7d: Prevent duplicate Thinking statuses and scroll bounce during streamed reasoning, while giving active tool rows a clear live state and new tool rows a subtle entrance.
+- 0341a7d: Require an explicit workspace connection when making Salesforce provider API requests, so each request uses a matched instance URL and OAuth account.
+- 0341a7d: Prevent model gateways from breaking extension edits by using a compact required update contract and normalizing optional placeholder arguments before validation.
+- 0341a7d: Fix Salesforce token refresh when configured with Consumer Key/Secret.
+- 0341a7d: Allow recurring jobs to bind an explicit MCP tool allowlist and resolve those connected capabilities with the job's existing user/org OAuth context.
+- 0341a7d: Teach the agent-native-docs skill to reuse node_modules reference source with rg and cp: version-matched installed source beats web docs, and every first-party template's corpus is fair game to copy and adapt, not just runtime internals that need the customizing-agent-native ladder.
+- 0341a7d: Make the missing-AI composer state visibly actionable with a Connect AI button.
+- Updated dependencies [0341a7d]
+  - @agent-native/toolkit@0.9.0
+
 ## 0.114.16
 
 ### Patch Changes

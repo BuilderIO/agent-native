@@ -13,7 +13,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import {
-  IconBrain,
+  IconHierarchy2,
   IconMoon,
   IconScribble,
   IconShape2,
@@ -180,7 +180,7 @@ function AppContent() {
             onSelect={() => go("/agent")}
             keywords={["agent", "context", "connections", "jobs", "access"]}
           >
-            <IconBrain size={16} />
+            <IconHierarchy2 size={16} />
             {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>

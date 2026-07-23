@@ -14,6 +14,11 @@ import {
 } from "h3";
 
 import {
+  applyA2AAgentActivityEvent,
+  buildA2AAgentActivityPart,
+  createA2AAgentActivityState,
+} from "../a2a/activity.js";
+import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   type A2AToolResultSummary,
@@ -124,6 +129,7 @@ import {
   verifyInternalToken,
   extractBearerToken,
 } from "../integrations/internal-token.js";
+import type { RecurringJobContext } from "../jobs/scheduler.js";
 import {
   McpClientManager,
   loadMcpConfig,
@@ -399,6 +405,8 @@ export function createSerializedA2ATaskStatusWriter(
   };
 }
 
+const A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS = 2_000;
+
 export async function resolveA2ARecoverableArtifactSecret(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<string | undefined> {
@@ -575,6 +583,22 @@ export function createAgentChatPlugin(
       }
       setGlobalMcpManager(mcpManager);
       const mcpActionEntries = mcpToolsToActionEntries(mcpManager);
+      const getJobMcpActionEntries = (
+        job?: RecurringJobContext,
+      ): Record<string, ActionEntry> => {
+        const requested = job?.meta.mcpTools ?? [];
+        if (requested.length === 0) return {};
+        const entries = mcpToolsToActionEntries(mcpManager, {
+          toolNames: requested,
+        });
+        const missing = requested.filter((toolName) => !entries[toolName]);
+        if (missing.length > 0) {
+          throw new Error(
+            `Configured MCP tools are unavailable in this run: ${missing.join(", ")}. Reconnect the MCP server or update the job's capability list.`,
+          );
+        }
+        return entries;
+      };
 
       // Mount status + management routes so the settings UI can list / add /
       // remove remote MCP servers and hot-reload the running manager.
@@ -1639,10 +1663,36 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
+          let activityState = createA2AAgentActivityState();
+          let lastActivityCheckpointAt = 0;
           const recoverableArtifactSecret =
             await resolveA2ARecoverableArtifactSecret();
           const recoverableArtifactStatusWriter =
             createSerializedA2ATaskStatusWriter(context.taskId);
+          const activityStatusMessage = (): A2AMessage => ({
+            role: "agent",
+            ...(lastRecoverableArtifactText
+              ? { metadata: { agentNativeRecoverableArtifacts: true } }
+              : {}),
+            parts: [
+              buildA2AAgentActivityPart(activityState),
+              ...(lastRecoverableArtifactText
+                ? [{ type: "text" as const, text: lastRecoverableArtifactText }]
+                : []),
+            ],
+          });
+          const checkpointActivity = (force = false) => {
+            const now = Date.now();
+            if (
+              !force &&
+              now - lastActivityCheckpointAt <
+                A2A_ACTIVITY_CHECKPOINT_MIN_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastActivityCheckpointAt = now;
+            recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
+          };
           const controller = new AbortController();
           const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
@@ -1680,6 +1730,12 @@ export function createAgentChatPlugin(
               turnId: context.taskId,
               send: (event) => {
                 a2aEvents.push(event);
+                const nextActivityState = applyA2AAgentActivityEvent(
+                  activityState,
+                  event,
+                );
+                const activityChanged = nextActivityState !== activityState;
+                activityState = nextActivityState;
                 if (event.type === "tool_start") {
                   console.log(`[A2A] Tool call: ${event.tool}`);
                 } else if (event.type === "tool_done") {
@@ -1710,21 +1766,19 @@ export function createAgentChatPlugin(
                     recoverableArtifactText !== lastRecoverableArtifactText
                   ) {
                     lastRecoverableArtifactText = recoverableArtifactText;
-                    recoverableArtifactStatusWriter.enqueue({
-                      role: "agent",
-                      metadata: { agentNativeRecoverableArtifacts: true },
-                      parts: [
-                        {
-                          type: "text",
-                          text: recoverableArtifactText,
-                        },
-                      ],
-                    });
                   }
                 } else if (event.type === "error") {
                   console.error(`[A2A] Error: ${event.error}`);
                 } else if (event.type === "done") {
                   console.log(`[A2A] Done. Events: ${a2aEvents.length}`);
+                }
+                if (activityChanged) {
+                  checkpointActivity(
+                    event.type === "tool_start" ||
+                      event.type === "tool_done" ||
+                      event.type === "error" ||
+                      event.type === "done",
+                  );
                 }
               },
               signal: controller.signal,
@@ -1762,6 +1816,7 @@ export function createAgentChatPlugin(
 
           // The continuation can observe terminal output immediately, so make
           // its latest mutation checkpoint durable first.
+          checkpointActivity(true);
           await recoverableArtifactStatusWriter.flush();
 
           const approval = [...a2aEvents]
@@ -1800,6 +1855,7 @@ export function createAgentChatPlugin(
                 },
               },
               parts: [
+                buildA2AAgentActivityPart(activityState),
                 {
                   type: "text" as const,
                   text:
@@ -1834,6 +1890,7 @@ export function createAgentChatPlugin(
           yield {
             role: "agent" as const,
             parts: [
+              buildA2AAgentActivityPart(activityState),
               {
                 type: "text" as const,
                 text: finalText || "(no response)",
@@ -2632,6 +2689,7 @@ export function createAgentChatPlugin(
       // through the settings UI). getEngineTools() in production-agent re-reads
       // the registry per request, so updates here propagate without restart.
       mcpManager.onChange(() => {
+        syncMcpActionEntries(mcpManager, mcpActionEntries);
         syncMcpActionEntries(mcpManager, prodActions);
       });
 
@@ -5524,7 +5582,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const { processRecurringJobs } = await import("../jobs/scheduler.js");
 
           const schedulerDeps = {
-            getActions: () => ({
+            getActions: (job?: RecurringJobContext) => ({
               ...templateScripts,
               ...resourceScripts,
               ...docsScripts,
@@ -5537,6 +5595,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               ...fetchTool,
               ...webSearchTool,
               ...toolActions,
+              ...getJobMcpActionEntries(job),
             }),
             getSystemPrompt: async (owner: string) => {
               const resources = await loadResourcesForPrompt(
@@ -5557,10 +5616,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // first request on the same compact surface as interactive chat
             // instead of the full jobTools/automationTools/notificationTools/
             // fetchTool/webSearchTool/toolActions catalog every tick.
-            getInitialToolNames: () => [
+            getInitialToolNames: (job?: RecurringJobContext) => [
               ...effectiveInitialToolNames,
               "manage-jobs",
               "manage-progress",
+              ...(job?.meta.mcpTools ?? []),
             ],
             apiKey: options?.apiKey,
             model: options?.model,

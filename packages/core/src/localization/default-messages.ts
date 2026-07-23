@@ -18,6 +18,7 @@ const messages = {
   },
   settings: {
     title: "Settings",
+    pageTitle: "Settings",
     description: "Language and workspace preferences for this app.",
     languageTitle: "Language",
     languageDescription:
@@ -32,6 +33,68 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    mcpConnectionsTitle: "MCP connections",
+    mcpConnectionsDescription:
+      "Connect remote MCP servers so the agent can use their tools.",
+    openMcpConnections: "Manage MCP connections",
+    profileTitle: "Account",
+    profileDescription: "Your name, profile photo, and signed-in identity.",
+    profileLoading: "Loading...",
+    profileSignedOut: "Signed out",
+    profilePhotoUpdated: "Photo updated",
+    profilePhotoError: "Could not update photo",
+    profileUploading: "Uploading...",
+    profileChangePhoto: "Change photo",
+    profileNameLabel: "Name",
+    profileNamePlaceholder: "Your name",
+    profileNameDescription:
+      "This name is used when referring to you across Agent-Native apps.",
+    profileSave: "Save changes",
+    profileSaving: "Saving...",
+    profileSaved: "Profile updated",
+    profileSaveError: "Could not update profile",
+    profileMenuItem: "Profile",
+  },
+  agentResources: {
+    openDocs: "Open {{section}} documentation",
+    backToResources: "Back to agent resources",
+    createFile: {
+      nameLabel: "File name",
+      namePlaceholder: "notes/ideas",
+      menuDescription: "Add a new file by name",
+    },
+    files: {
+      title: "Files",
+      description: "Files the agent can read and write.",
+    },
+    instructions: {
+      title: "Instructions",
+      description:
+        "The rules, preferences, and project guidance that steer the agent.",
+    },
+    agents: {
+      title: "Agents",
+      description:
+        "Reusable profiles for focused sub-agents and delegated work.",
+    },
+    memory: {
+      title: "Memory",
+      description: "Durable notes the agent can retrieve across conversations.",
+    },
+    skills: {
+      title: "Skills",
+      description:
+        "Specialized instructions that give the agent repeatable abilities.",
+    },
+    learnings: {
+      title: "Learnings",
+      description:
+        "Corrections and patterns worth carrying forward for future work.",
+    },
+    remoteAgents: {
+      title: "Remote agents",
+      description: "Other agents this agent can call through A2A.",
+    },
   },
   featureFlags: {
     title: "Feature flags",
@@ -274,9 +337,16 @@ const messages = {
     addOwnKeys: "Add your own keys",
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
+    connectionUnavailable: "Unable to check AI connection. Click to retry.",
+    delegatedAgent: {
+      asking: "Asking {{name}}...",
+      asked: "Asked {{name}}",
+      error: "Error asking {{name}}",
+      elapsed: "{{duration}} elapsed",
+    },
     voiceMode: {
       entryButtonLabel: "Use microphone",
-      promptTitle: "Talk to your app",
+      promptTitle: "Use your voice",
       promptDescription:
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
@@ -285,8 +355,9 @@ const messages = {
       connectBuilder: "Connect Builder.io",
       useOpenAiKey: "Add your own keys",
       startWithOpenAiKey: "Start with OpenAI key",
-      start: "Start voice mode",
-      keepDictating: "Keep dictating",
+      start: "Real-time voice",
+      keepDictating: "Dictate",
+      rememberPreference: "Remember my preference",
       showChat: "Show chat",
       hideChat: "Hide chat",
       end: "End voice mode",
@@ -453,6 +524,7 @@ const messages = {
     cancel: "Cancel",
     recurringDetails: "Recurring job details",
     instructions: "Instructions",
+    mcpTools: "Connected MCP tools",
     automationsLoadError: "Could not load automations.",
     automationsEmpty: "No automations yet.",
     automationEventTrigger: "On {{event}}",
@@ -591,23 +663,23 @@ const messages = {
     hideEveryone: "Hide from everyone",
     localFileDescription:
       "This extension is backed by {{entryPath}}. Edit or remove it from the workspace.",
-    deleteQuestion: "Delete {{name}}?",
+    deleteQuestion: "Archive {{name}}?",
     removeQuestion: "Remove {{name}}?",
     hideForYouDescription:
       "This hides it from your Extensions list without deleting it for anyone else.",
-    removeEverywhereDescription: "This removes it everywhere it is shared.",
+    removeEverywhereDescription: "This archives it everywhere it is shared.",
     cancel: "Cancel",
     remove: "Remove",
     removing: "Removing...",
-    delete: "Delete",
-    deleting: "Deleting...",
+    delete: "Archive",
+    deleting: "Archiving...",
     openFullView: "Open full view",
     removeFromWidgetArea: "Remove from this widget area",
-    deleteExtensionEllipsis: "Delete extension...",
+    deleteExtensionEllipsis: "Archive extension...",
     removeFromMyListEllipsis: "Remove from my list...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
     deleteEverywhereConfirmation:
-      "This removes the extension everywhere, for everyone it's shared with.",
+      "This archives the extension everywhere, for everyone it's shared with.",
     addWidget: "Add widget",
     loading: "Loading...",
     noWidgetsAvailable: "No widgets available for this slot yet.",
@@ -741,11 +813,11 @@ const messages = {
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
-    connectWithOAuth: "Connect with OAuth",
+    connectWithOAuth: "Connect",
     useApiToken: "Use API token",
-    connectSuggestion: "Connect {{name}} to use this link in chat",
+    connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:
-      "Connect {{name}} with an API token to use this link in chat",
+      "Connect {{name}} with an API token to use it in chat",
     dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
@@ -793,6 +865,13 @@ const messages = {
         useCase: "Documentation, knowledge management, notes, content creation",
         setupNote:
           "Notion MCP uses user OAuth. Enterprise workspaces can audit MCP usage and allow or block clients; reconnect after admin policy changes.",
+      },
+      granola: {
+        description: "Search meeting notes, transcripts, and action items.",
+        useCase:
+          "Meeting notes, recordings, transcripts, action items, follow-ups",
+        setupNote:
+          "Granola MCP uses browser OAuth. Authorize the signed-in Granola account and review which meeting notes and transcripts the agent can access.",
       },
       semgrep: {
         description: "Scan code for security findings.",

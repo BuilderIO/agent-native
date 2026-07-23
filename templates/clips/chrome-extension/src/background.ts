@@ -1,4 +1,6 @@
 import {
+  restartUploadModeFromResponse,
+  restartUploadResetBody,
   shouldReconcilePersistedRecording,
   type OffscreenRecordingState,
 } from "./native-recording-state";
@@ -166,6 +168,7 @@ type NativeRecording = {
   // fallback so it is never lost; these describe that saved file.
   savedToDisk?: boolean;
   savedFilename?: string;
+  mimeType?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -179,6 +182,7 @@ type OffscreenStatusMessage = {
   savedToDisk?: boolean;
   savedFilename?: string;
   recordingStep?: string;
+  mimeType?: string;
 };
 
 type ExtensionErrorMessage = {
@@ -1512,8 +1516,8 @@ async function handleOverlayRestart() {
   // so we must not leave the overlay stuck mid-recording/paused with no
   // recorder behind it — tear the overlay back down and release those streams,
   // matching the re-arm failure handling just below.
-  const chunksReset = await resetRecordingChunks(recording);
-  if (!chunksReset) {
+  const uploadMode = await resetRecordingChunks(recording);
+  if (!uploadMode) {
     recording.status = "error";
     recording.error =
       "Could not clear the previous take before restarting. Stop and start a new recording.";
@@ -1530,6 +1534,7 @@ async function handleOverlayRestart() {
       error: recording.error,
     };
   }
+  recording.uploadMode = uploadMode;
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -1579,18 +1584,25 @@ async function handleOverlayRestart() {
 
 async function resetRecordingChunks(
   recording: NativeRecording,
-): Promise<boolean> {
+): Promise<UploadMode | null> {
   const url = `${recording.clipsBaseUrl}/api/uploads/${encodeURIComponent(
     recording.recordingId,
   )}/reset-chunks`;
-  const headers = await authHeaders(settingsFromRecording(recording));
+  const headers = {
+    ...(await authHeaders(settingsFromRecording(recording))),
+    "Content-Type": "application/json",
+  };
   const response = await fetch(url, {
     method: "POST",
     headers,
     credentials: "include",
     cache: "no-store",
+    body: JSON.stringify(
+      restartUploadResetBody(recording.mimeType ?? "video/webm"),
+    ),
   }).catch(() => undefined);
-  return Boolean(response?.ok);
+  if (!response?.ok) return null;
+  return restartUploadModeFromResponse(await response.json().catch(() => null));
 }
 
 // Finalize a successful save: open the clip and tear down the "Saving…" overlay.
@@ -2398,6 +2410,9 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
         activeNativeRecording.recordingUrl = recordingUrl(
           activeNativeRecording,
         );
+      }
+      if (typeof status.mimeType === "string") {
+        activeNativeRecording.mimeType = status.mimeType;
       }
       if (status.status === "error") {
         activeNativeRecording.savedToDisk = status.savedToDisk === true;

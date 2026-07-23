@@ -35,6 +35,34 @@ Then implement working code that is cohesive, accessible, responsive, and polish
 
 Default to Apple/Linear-level restraint: make the primary workflow obvious, then remove everything that does not help that workflow right now. A polished UI often has fewer visible controls, fewer borders, fewer labels, and fewer explanatory surfaces than the first reasonable implementation.
 
+### Progressive Disclosure Is A Design Requirement
+
+Treat an all-at-once interface as a defect to fix during design, not as a
+styling preference. Before coding, inventory every piece of content and action
+on the surface, then assign each one to the smallest useful visibility level:
+
+1. **Immediate** — the page title, current state, one primary action, and the
+   compact context needed to choose what to do next.
+2. **Expanded** — the details needed for the selected item or active workflow.
+3. **On demand** — advanced settings, diagnostics, credentials, metadata,
+   destructive actions, documentation, and rarely used tools.
+
+Use single-select accordions or simple disclosure rows for sibling panels when
+the user is choosing one item at a time. Inside an expanded panel, keep another
+layer for independent concerns instead of dumping every form, explanation, and
+secondary action into the first reveal. Prefer one flat panel with alignment,
+dividers, and whitespace over nested cards; provider or product icons should
+not receive decorative borders or containers unless the container communicates
+state or interaction. A collapsed row should still show the item name, status,
+and a concise summary so the user can scan the whole surface without opening
+everything.
+
+Before shipping, ask: “What can disappear until the user asks for it?” Then
+verify collapsed, expanded, loading, empty, error, and narrow-width states.
+If the first viewport contains multiple forms, repeated explanatory copy,
+documentation links, and controls for unrelated tasks, the surface has not
+passed this requirement yet.
+
 - **Start by subtracting**: Before adding a visible control, banner, toolbar row, card, or explanatory block, ask what can be removed, merged, renamed, or moved into an existing affordance.
 - **One primary action**: Each surface should have one dominant next action. Secondary actions belong in menus, popovers, command palettes, disclosure rows, or contextual hover/focus states unless they are used constantly.
 - **Progressively disclose rare work**: Advanced options, diagnostics, metadata, settings, import/export, destructive actions, and inspection tools should stay tucked away until requested. Prefer small icon triggers with tooltips, popovers, drawers, or detail panels over permanent chrome.
@@ -57,10 +85,26 @@ Default to Apple/Linear-level restraint: make the primary workflow obvious, then
 
 ## Agent-Native UI Rules
 
-- Agent-native apps use React, Vite, Tailwind CSS, shadcn/ui, and `@tabler/icons-react`.
-- **Use shadcn/ui primitives for standard UI**: `DropdownMenu`, `Popover`, `Dialog`, `AlertDialog`, `Sheet`, `Tabs`, `Tooltip`, `Select`, `Command`, `Sidebar`, `Table`, `Card`, `Badge`, `Skeleton`, and related primitives.
+- Agent-native apps use React and Vite. The default adapter uses Tailwind CSS,
+  shadcn/ui, and `@tabler/icons-react`, but an app may register a different
+  company design system in `app/design-system.ts`.
+- **Use the app's design-system seam for standard UI.** Inspect
+  `app/design-system.ts`, `ToolkitProvider`, and the local UI adapter directory
+  before choosing a primitive. Use shadcn primitives when they are the active
+  adapter; use the registered company components when they are not.
 - **When touching shadcn/ui components, also read `shadcn-ui` if it exists.** That skill covers `components.json`, CLI docs, component composition, theming, and registry workflows.
 - Check `app/components/ui/` before importing a shadcn component. If a primitive is missing, add it from the app root with `pnpm dlx shadcn@latest add <component>`, then review the generated file.
+- Pages, routes, and domain components must import controls through the app's
+  local adapter path, usually `@/components/ui/*`. Never import
+  `@agent-native/toolkit/ui/*` directly in app product code.
+- Toolkit/Core feature presentation flows through the semantic components from
+  `@agent-native/toolkit/design-system`. Their props express intent, emphasis,
+  size, controlled values, and behavior; they do not require Tailwind, CVA, or
+  `className`.
+- For deeper feature customization, consume the feature-level headless
+  controller through its product render slot. The same controller must power
+  the default and custom views. Eject the smallest supported unit only after
+  tokens, semantic components, controllers, and slots are insufficient.
 - Do not build custom dropdowns, menus, popovers, modals, or confirmations with manual absolute positioning and click-outside effects.
 - Never use browser dialogs (`window.alert`, `window.confirm`, `window.prompt`). Use `AlertDialog`, `Dialog`, or app-specific confirmation UI.
 - Use Tabler icons for all first-party UI icons. Do not add Lucide, Heroicons, inline SVG icon sets, or emoji icons.
@@ -103,10 +147,14 @@ For substantial frontend work:
 2. Start the dev server when the app needs one.
 3. Verify with browser screenshots at desktop and mobile widths.
 4. Check interactive states: hover, focus, loading, empty, error, and destructive confirmations.
+5. When registering or changing a company adapter, run
+   `@agent-native/toolkit/conformance`, including mixed-overlay focus,
+   `portalContainer`, and z-index stacking checks.
 
 ## Related Skills
 
 - **shadcn-ui** — shadcn CLI, component docs, composition rules, theming, and registries
+- **customizing-agent-native** — Design-system registration, feature controllers, product slots, conformance, and ejection
 - **self-modifying-code** — The agent can edit source code to apply design changes
 - **storing-data** — All data lives in SQL; use actions for data access
 - **actions** — `useActionQuery`/`useActionMutation` hooks for frontend data fetching

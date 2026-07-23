@@ -44,7 +44,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
     activePath: location.pathname,
     enabled: !isAskRoute,
   });
-  useAgentChatHomeHandoffLinks({ storageKey: "brain", chatPath: "/" });
+  useAgentChatHomeHandoffLinks({
+    storageKey: "brain",
+    chatPath: "/",
+    requireActiveHandoff: true,
+  });
 
   useEffect(() => {
     setMobileSidebarOpen(false);

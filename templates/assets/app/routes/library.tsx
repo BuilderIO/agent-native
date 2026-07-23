@@ -59,7 +59,6 @@ import {
 import { toast } from "sonner";
 
 import { AssetPreviewDialog as SharedAssetPreviewDialog } from "@/components/asset/AssetPreviewDialog";
-import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -2002,7 +2001,7 @@ export function LibraryWorkspace({
   const t = useT();
   const navigate = useNavigate();
   const routeSelectedLibraryId = useLibraryRouteSelectedId(selectedLibraryId);
-  const [createOpen, setCreateOpen] = useState(false);
+  const createLibrary = useActionMutation("create-library");
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
     "list-libraries",
     {
@@ -2046,6 +2045,20 @@ export function LibraryWorkspace({
     });
   }, [currentLibrary?.title, routeSelectedLibraryId]);
 
+  const handleCreateKit = useCallback(() => {
+    createLibrary.mutate(
+      { title: t("brandKits.newBrandKit") },
+      {
+        onSuccess: (library: any) => {
+          void navigate(`/brand-kits/${library.id}/settings`);
+        },
+        onError: (error: Error) => {
+          toast.error(error.message);
+        },
+      },
+    );
+  }, [createLibrary, navigate, t]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -2054,7 +2067,7 @@ export function LibraryWorkspace({
             selectedLibraryId={routeSelectedLibraryId}
             libraries={libraries}
             isLoading={isLoading}
-            onCreateKit={() => setCreateOpen(true)}
+            onCreateKit={handleCreateKit}
           />
           {isError ? (
             <div className="flex min-h-80 flex-col items-center justify-center gap-3 px-6 text-center">
@@ -2083,15 +2096,10 @@ export function LibraryWorkspace({
               )}
             </div>
           ) : (
-            <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
+            <EmptyLibraryStarter onCreateBlank={handleCreateKit} />
           )}
         </div>
       </section>
-      <CreateLibraryDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={(library) => navigate(`/library/${library.id}`)}
-      />
     </div>
   );
 }

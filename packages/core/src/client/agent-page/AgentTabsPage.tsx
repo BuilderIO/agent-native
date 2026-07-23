@@ -10,6 +10,7 @@ import {
   IconPlugConnected,
   IconTopologyRing2,
   IconSearch,
+  IconSettings,
   IconShieldLock,
   IconX,
 } from "@tabler/icons-react";
@@ -49,6 +50,11 @@ import {
   type McpServer,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
+import {
+  AGENT_SETTINGS_SECTIONS,
+  buildSectionSearchEntries,
+} from "../settings/agent-settings-search.js";
+import { AgentSettingsContent } from "../settings/SettingsPanel.js";
 import type {
   SettingsSearchEntry,
   SettingsTabItem,
@@ -133,40 +139,48 @@ function EmptySlot({ label }: { label: string }) {
   );
 }
 
+export const AGENT_RESOURCE_DOCS_HREF: Record<ResourceView, string> = {
+  files: "https://agent-native.com/docs/agent-resources#resources-tab",
+  instructions: "https://agent-native.com/docs/agent-resources#agents-md",
+  agents: "https://agent-native.com/docs/agent-resources#custom-agents",
+  memory: "https://agent-native.com/docs/agent-resources#memory",
+  skills: "https://agent-native.com/docs/skills-guide",
+  learnings: "https://agent-native.com/docs/agent-resources#memory",
+  "remote-agents":
+    "https://agent-native.com/docs/agent-resources#remote-vs-custom-agents",
+};
+
 const RESOURCE_TAB_COPY: Record<
   ResourceView,
-  { title: string; description: string }
+  { titleKey: string; descriptionKey: string }
 > = {
   files: {
-    title: "Files",
-    description: "Plain workspace files the agent can read and write.",
+    titleKey: "agentResources.files.title",
+    descriptionKey: "agentResources.files.description",
   },
   instructions: {
-    title: "Instructions",
-    description:
-      "The rules, preferences, and project guidance that steer the agent.",
+    titleKey: "agentResources.instructions.title",
+    descriptionKey: "agentResources.instructions.description",
   },
   agents: {
-    title: "Agents",
-    description: "Reusable profiles for focused sub-agents and delegated work.",
+    titleKey: "agentResources.agents.title",
+    descriptionKey: "agentResources.agents.description",
   },
   memory: {
-    title: "Memory",
-    description: "Durable notes the agent can retrieve across conversations.",
+    titleKey: "agentResources.memory.title",
+    descriptionKey: "agentResources.memory.description",
   },
   skills: {
-    title: "Skills",
-    description:
-      "Specialized instructions that give the agent repeatable abilities.",
+    titleKey: "agentResources.skills.title",
+    descriptionKey: "agentResources.skills.description",
   },
   learnings: {
-    title: "Learnings",
-    description:
-      "Corrections and patterns worth carrying forward for future work.",
+    titleKey: "agentResources.learnings.title",
+    descriptionKey: "agentResources.learnings.description",
   },
   "remote-agents": {
-    title: "Remote agents",
-    description: "Other agents this workspace can call through A2A.",
+    titleKey: "agentResources.remoteAgents.title",
+    descriptionKey: "agentResources.remoteAgents.description",
   },
 };
 
@@ -174,9 +188,16 @@ function AgentResourceTab({
   scope,
   view,
 }: AgentPageTabProps & { view: ResourceView }) {
+  const t = useT();
   const copy = RESOURCE_TAB_COPY[view];
+  const title = t(copy.titleKey);
   return (
-    <AgentTabFrame title={copy.title} description={copy.description}>
+    <AgentTabFrame
+      title={title}
+      description={t(copy.descriptionKey)}
+      helpHref={AGENT_RESOURCE_DOCS_HREF[view]}
+      helpLabel={t("agentResources.openDocs", { section: title })}
+    >
       <div className="min-h-[480px]">
         <ResourcesPanel
           key={`${scope}-${view}`}
@@ -670,6 +691,7 @@ export function AgentTabsPage({
   value,
   onValueChange,
 }: AgentTabsPageProps) {
+  const t = useT();
   const { data: org } = useOrg();
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
@@ -809,6 +831,22 @@ export function AgentTabsPage({
           <Suspense fallback={<TabLoading />}>
             <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
           </Suspense>
+        ),
+      },
+      {
+        id: "settings",
+        label: t("settings.agentTitle"),
+        icon: IconSettings,
+        group: "agent",
+        keywords: "agent settings model llm api keys limits voice automations",
+        searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
+        content: (
+          <AgentTabFrame
+            title={t("settings.agentTitle")}
+            description={t("settings.agentDescription")}
+          >
+            <AgentSettingsContent />
+          </AgentTabFrame>
         ),
       },
       {

@@ -5,9 +5,9 @@ import {
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
+  useAgentChatHomeHandoffLinks,
   useGuidedQuestionFlow,
 } from "@agent-native/core/client/agent-chat";
-import { appBasePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
 import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
@@ -17,17 +17,12 @@ import { useLocation, useNavigate } from "react-router";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   ANALYTICS_CHAT_STORAGE_KEY,
-  hasRecentAnalyticsChat,
   markAnalyticsChatActivity,
 } from "@/lib/chat-handoff";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import {
-  isAnalyticsSessionsRoute,
-  shouldDefaultOpenAnalyticsSidebar,
-} from "./layout-route-policy";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -36,59 +31,6 @@ interface LayoutProps {
 }
 
 const BARE_ROUTES = new Set(["/chart"]);
-
-function stripBasePath(path: string): string {
-  const basePath = appBasePath();
-  if (!basePath) return path;
-  if (path === basePath) return "/";
-  if (path.startsWith(`${basePath}/`)) return path.slice(basePath.length);
-  if (path.startsWith(`${basePath}?`) || path.startsWith(`${basePath}#`)) {
-    return `/${path.slice(basePath.length)}`;
-  }
-  return path;
-}
-
-function pathnameFromLocalPath(path: string): string {
-  return path.split(/[?#]/, 1)[0] || "/";
-}
-
-function isFrameworkOrApiPath(pathname: string): boolean {
-  return (
-    pathname === "/_agent-native" ||
-    pathname.startsWith("/_agent-native/") ||
-    pathname === "/api" ||
-    pathname.startsWith("/api/")
-  );
-}
-
-function isStaticAssetPath(pathname: string): boolean {
-  const lastSegment = pathname.split("/").pop() ?? "";
-  return /\.[A-Za-z0-9]{1,12}$/.test(lastSegment);
-}
-
-function localPathFromAnchor(anchor: HTMLAnchorElement): string | null {
-  if (!anchor.href) return null;
-  try {
-    const url = new URL(anchor.href);
-    if (url.origin !== window.location.origin) return null;
-    return stripBasePath(`${url.pathname}${url.search}${url.hash}`);
-  } catch {
-    return null;
-  }
-}
-
-function shouldHandleAnchorClick(
-  event: MouseEvent,
-  anchor: HTMLAnchorElement,
-): boolean {
-  if (event.defaultPrevented || event.button !== 0) return false;
-  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-    return false;
-  }
-  if (anchor.target && anchor.target !== "_self") return false;
-  if (anchor.hasAttribute("download")) return false;
-  return true;
-}
 
 export function Layout({ children }: LayoutProps) {
   useNavigationState();
@@ -149,7 +91,6 @@ export function Layout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const isSessionsRoute = isAnalyticsSessionsRoute(location.pathname);
   const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
   // Monitoring renders its own header row (section tabs / "Back to monitors"
   // + the relocated agent toggle), so skip the framework Header to avoid a
@@ -163,50 +104,27 @@ export function Layout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isAskRoute && !reportScreenshot,
   });
+  useAgentChatHomeHandoffLinks({
+    storageKey: ANALYTICS_CHAT_STORAGE_KEY,
+    chatPath: "/ask",
+    enabled: !reportScreenshot,
+    requireActiveHandoff: true,
+  });
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (typeof detail?.isRunning === "boolean") {
+      if (isAskRoute && typeof detail?.isRunning === "boolean") {
         markAnalyticsChatActivity();
+        if (detail.isRunning === true) {
+          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+        }
       }
     }
 
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
     return () =>
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
-
-  useEffect(() => {
-    if (!isAskRoute) return;
-
-    function handleClick(event: MouseEvent) {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const anchor = target.closest("a[href]");
-      if (!(anchor instanceof HTMLAnchorElement)) return;
-      if (!shouldHandleAnchorClick(event, anchor)) return;
-      if (anchor.closest(".agent-panel-root")) return;
-
-      const path = localPathFromAnchor(anchor);
-      const pathname = path ? pathnameFromLocalPath(path) : "";
-      if (
-        !path ||
-        pathname === "/ask" ||
-        isFrameworkOrApiPath(pathname) ||
-        isStaticAssetPath(pathname) ||
-        !hasRecentAnalyticsChat()
-      ) {
-        return;
-      }
-
-      event.preventDefault();
-      markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
-      navigateWithAgentChatViewTransition(navigate, path);
-    }
-
-    document.addEventListener("click", handleClick, true);
-    return () => document.removeEventListener("click", handleClick, true);
-  }, [isAskRoute, navigate]);
+  }, [isAskRoute]);
 
   function openAskAgentFullscreen() {
     focusAgentChat();
@@ -275,14 +193,11 @@ export function Layout({ children }: LayoutProps) {
         ) : (
           <AgentSidebar
             position="right"
-            defaultOpen={
-              chatHomeHandoffActive &&
-              shouldDefaultOpenAnalyticsSidebar(location.pathname)
-            }
+            defaultOpen={false}
             chatViewTransition
             storageKey={ANALYTICS_CHAT_STORAGE_KEY}
             browserTabId={TAB_ID}
-            openOnChatRunning={chatHomeHandoffActive && !isSessionsRoute}
+            openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.emptyState")}
             agentPageHref="/agent"

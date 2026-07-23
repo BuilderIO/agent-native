@@ -42,6 +42,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
       ({
+        "messaging.managed.title": "Managed Slack workspaces",
+        "messaging.managed.description":
+          "Install managed Slack workspaces with channel identities.",
         "messaging.managed.agentManifest": "Agent manifest",
         "messaging.managed.agentManifestDescription":
           "The Agent manifest enables Slack's Agent view and direct messages.",
@@ -136,6 +139,33 @@ describe("MessagingSetupPanel", () => {
     expect(
       container.querySelector(
         'a[href="/_agent-native/integrations/slack/manifest"]',
+      ),
+    ).toBeNull();
+    const slackTrigger = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Slack"),
+    );
+    expect(slackTrigger).toBeDefined();
+    await act(async () => {
+      slackTrigger?.click();
+      await Promise.resolve();
+    });
+    const managedTrigger = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Managed Slack workspaces"),
+    );
+    await act(async () => {
+      managedTrigger?.click();
+      await Promise.resolve();
+    });
+    const credentialsTrigger = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Credentials"),
+    );
+    await act(async () => {
+      credentialsTrigger?.click();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector(
+        'a[href="/_agent-native/integrations/slack/manifest"]',
       )?.textContent,
     ).toContain("Agent manifest");
     expect(container.textContent).toContain(
@@ -198,6 +228,27 @@ describe("MessagingSetupPanel", () => {
     });
 
     expect(container.textContent).toContain("Connected");
+    const slackTrigger = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Slack"),
+    );
+    await act(async () => {
+      slackTrigger?.click();
+      await Promise.resolve();
+    });
+    const managedTrigger = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Managed Slack workspaces"),
+    );
+    await act(async () => {
+      managedTrigger?.click();
+      await Promise.resolve();
+    });
+    const credentialsTrigger = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.includes("Credentials"),
+    );
+    await act(async () => {
+      credentialsTrigger?.click();
+      await Promise.resolve();
+    });
     expect(container.textContent).toContain("Saved");
     expect(
       container.querySelector(

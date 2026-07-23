@@ -114,7 +114,6 @@ const LIVE_UPLOAD_CHUNK_MS = 2_000;
 const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
 const NATIVE_FULLSCREEN_MIME_TYPE = "video/mp4";
 const MEDIA_RECORDER_STOP_TIMEOUT_MS = 15_000;
-const THUMBNAIL_UPLOAD_TIMEOUT_MS = 8_000;
 // GCS resumable uploads require every non-final chunk to be a multiple of
 // 256 KiB. MediaRecorder emits arbitrary blob sizes, so on the streaming path
 // we buffer raw blobs and only PUT aligned slices; the unaligned remainder is
@@ -1460,146 +1459,6 @@ async function saveRecordingTranscriptFailure(
     );
     return false;
   }
-}
-
-const THUMBNAIL_PROBE_WIDTH = 40;
-const THUMBNAIL_MIN_MEAN_LUMA = 8;
-const THUMBNAIL_MIN_MAX_LUMA = 28;
-const THUMBNAIL_MIN_VISIBLE_PIXEL_RATIO = 0.005;
-
-function canvasHasVisibleContent(canvas: HTMLCanvasElement): boolean {
-  if (!canvas.width || !canvas.height) return false;
-
-  const width = THUMBNAIL_PROBE_WIDTH;
-  const height = Math.max(
-    1,
-    Math.round((canvas.height / canvas.width) * width),
-  );
-  const probe = document.createElement("canvas");
-  probe.width = width;
-  probe.height = height;
-
-  const ctx = probe.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return true;
-
-  try {
-    ctx.drawImage(canvas, 0, 0, width, height);
-    const data = ctx.getImageData(0, 0, width, height).data;
-    let totalLuma = 0;
-    let maxLuma = 0;
-    let visiblePixels = 0;
-    const pixels = data.length / 4;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const alpha = data[i + 3] / 255;
-      const luma =
-        (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) *
-        alpha;
-      totalLuma += luma;
-      maxLuma = Math.max(maxLuma, luma);
-      if (luma >= THUMBNAIL_MIN_MAX_LUMA) visiblePixels++;
-    }
-
-    const meanLuma = totalLuma / Math.max(1, pixels);
-    const visibleRatio = visiblePixels / Math.max(1, pixels);
-    return (
-      meanLuma >= THUMBNAIL_MIN_MEAN_LUMA ||
-      (maxLuma >= THUMBNAIL_MIN_MAX_LUMA &&
-        visibleRatio >= THUMBNAIL_MIN_VISIBLE_PIXEL_RATIO)
-    );
-  } catch {
-    return true;
-  }
-}
-
-async function waitForVideoDimensions(
-  video: HTMLVideoElement,
-  timeoutMs = 1600,
-): Promise<boolean> {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    if (video.videoWidth > 0 && video.videoHeight > 0) return true;
-    await new Promise((resolve) => window.setTimeout(resolve, 80));
-  }
-  return video.videoWidth > 0 && video.videoHeight > 0;
-}
-
-async function captureStreamThumbnailBlob(
-  stream: MediaStream | null,
-): Promise<Blob | null> {
-  if (!stream?.getVideoTracks().some((track) => track.readyState === "live")) {
-    return null;
-  }
-
-  const video = document.createElement("video");
-  video.muted = true;
-  video.playsInline = true;
-  video.autoplay = true;
-  video.srcObject = stream;
-  video.style.position = "fixed";
-  video.style.left = "-10000px";
-  video.style.top = "0";
-  video.style.width = "1px";
-  video.style.height = "1px";
-  video.style.opacity = "0";
-
-  try {
-    document.body.appendChild(video);
-    await video.play().catch(() => {});
-    if (!(await waitForVideoDimensions(video))) return null;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    if (!canvasHasVisibleContent(canvas)) return null;
-
-    return await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
-    });
-  } finally {
-    video.pause();
-    video.srcObject = null;
-    video.remove();
-  }
-}
-
-async function captureAndUploadRecordingThumbnail(params: {
-  serverUrl: string;
-  recordingId: string;
-  stream: MediaStream | null;
-  authToken?: string;
-}): Promise<void> {
-  const blob = await captureStreamThumbnailBlob(params.stream);
-  if (!blob) {
-    console.warn("[clips-recorder] no visible thumbnail frame captured");
-    return;
-  }
-
-  const url = `${params.serverUrl.replace(
-    /\/+$/,
-    "",
-  )}/api/recordings/${params.recordingId}/thumbnail`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: buildRetryHeaders(blob.type || "image/jpeg", params.authToken),
-    credentials: "include",
-    body: blob,
-    signal: AbortSignal.timeout(THUMBNAIL_UPLOAD_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(
-      `Thumbnail upload failed (${res.status}): ${body.slice(0, 200)}`,
-    );
-  }
-  console.log("[clips-recorder] thumbnail uploaded", {
-    recordingId: params.recordingId,
-    bytes: blob.size,
-  });
 }
 
 /**
@@ -3120,18 +2979,8 @@ async function startNativeFullscreenRecording(
               err,
             ),
           );
-          await invoke("native_fullscreen_capture_thumbnail", {
-            serverUrl: params.serverUrl,
-            recordingId: id,
-            authToken: params.authToken ?? "",
-            cookie: params.cookie ?? "",
-          }).catch((err) => {
-            console.warn(
-              "[clips-recorder] native thumbnail capture/upload failed:",
-              err,
-            );
-          });
-
+          // The owner player captures the poster from decoded recording media.
+          // Never screen-capture this post-stop window: it may show upload UI.
           try {
             uploadResult = await uploadPromise;
           } catch (err) {
@@ -4294,8 +4143,8 @@ async function startRecordingInner(
       stopped = true;
       // Stamped right after the recorder fully stops below (see stoppedAt).
       // Duration must measure recorded content — through the final flushed
-      // chunk — but NOT the transcript-finalize + thumbnail + upload awaits that
-      // follow, which add ~seconds and would overstate the saved duration.
+      // chunk — but NOT the transcript-finalize + upload awaits that follow,
+      // which add ~seconds and would overstate the saved duration.
       let stoppedAt = 0;
       const viewUrl = `/r/${id}`;
       const absoluteViewUrl = `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`;
@@ -4412,18 +4261,6 @@ async function startRecordingInner(
       }
 
       if (!recorderStopTimedOut) {
-        void captureAndUploadRecordingThumbnail({
-          serverUrl: params.serverUrl,
-          recordingId: id,
-          stream: primaryVideo,
-          authToken: params.authToken,
-        }).catch((err) => {
-          console.warn(
-            "[clips-recorder] thumbnail capture/upload failed:",
-            err,
-          );
-        });
-
         const capturedTranscript = await transcriptionCapture
           ?.stop()
           .catch((err) => {

@@ -740,8 +740,8 @@ export function getBetterAuthSync(): BetterAuthInstance | undefined {
  * The subset of Better Auth's internal adapter we use for federated-SSO
  * JIT account linking. Better Auth owns these writes (id + timestamp +
  * schema handling), so callers never hand-roll SQL against `user`/`account`.
- * Read-only lookups + strictly-additive `linkAccount`/`createUser` only — no
- * update/delete of existing identity rows.
+ * Read-only lookups plus account-linking and profile-update operations used by
+ * shared Core surfaces. Better Auth owns the actual identity writes.
  */
 export interface BetterAuthInternalAdapter {
   findUserByEmail: (
@@ -761,6 +761,11 @@ export interface BetterAuthInternalAdapter {
     name: string;
     emailVerified?: boolean;
   }) => Promise<{ id: string }>;
+  /** Optional because older/custom adapter shapes may not expose mutations. */
+  updateUser?: (
+    userId: string,
+    data: { name?: string; image?: string | null },
+  ) => Promise<unknown>;
 }
 
 /**

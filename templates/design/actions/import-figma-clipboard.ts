@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
+import { importFigmaClipboardFromBuffer } from "../server/lib/figma-clipboard-local-decode.js";
 import {
   buildFigmaNodeCandidates,
   extractVisibleTexts,
@@ -19,7 +20,13 @@ import { parseFigmaFileKey } from "../shared/figma-url.js";
 
 const NODE_STRUCTURE_DEPTH = 3;
 
-const CREDENTIAL_MISSING_RE = /credential not configured/i;
+// Also matches a Figma 403 that occurs when the token is saved but lacks
+// file_content:read scope — the validator only checks current_user:read.
+const CREDENTIAL_MISSING_RE =
+  /credential not configured|figma.*request failed:.*403|figma.*request failed:.*forbidden/i;
+// Transient errors should not block local-kiwi fallback when the buffer is present.
+const TRANSIENT_ERROR_RE =
+  /quota cooldown|provider.*quota|rate.?limit|fetch failed|network.*error|timeout|ECONNRESET|ENOTFOUND|ERR_NETWORK/i;
 const DURABLE_STORAGE_REQUIRED_RE =
   /authenticated user so assets can be stored durably|could not store a Figma image durably|needs durable file storage/i;
 
@@ -69,6 +76,13 @@ export default defineAction({
       .describe(
         "Figma clipboard HTML used for fallback matching. When exact node ids are present, the client removes the large private data-buffer while retaining figmeta and visible HTML.",
       ),
+    clipboardBuffer: z
+      .string()
+      .max(15_000_000)
+      .optional()
+      .describe(
+        "Base64-encoded fig-kiwi binary from the clipboard's data-buffer. Present when the client used the local-kiwi strategy (no Figma access token). The server decodes this to build editable HTML from geometry, text, and fills without a REST call.",
+      ),
     originalName: z.string().optional(),
   }),
   run: async ({
@@ -77,6 +91,7 @@ export default defineAction({
     selectedNodeIds,
     selectedNodeIdsTruncated,
     clipboardHtml,
+    clipboardBuffer,
     originalName,
   }) => {
     const fileKey = parseFigmaFileKey(figmetaFileKey);
@@ -98,10 +113,8 @@ export default defineAction({
     try {
       if (selectedNodeIds?.length) {
         const nodesById = await fetchFigmaNodes(fileKey, selectedNodeIds);
-        const { files, fidelityEntries } = await buildScreenFilesFromFigmaNodes(
-          fileKey,
-          nodesById,
-        );
+        const { files, fidelityEntries, missingImageFillCount } =
+          await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
         const saved = await saveImportedDesignFiles({
           designId,
           sourceType: "figma-clipboard-rest",
@@ -110,9 +123,15 @@ export default defineAction({
         const selectionWarnings = selectedNodeIdsTruncated
           ? [SELECTION_TRUNCATED_GUIDANCE]
           : [];
+        const fillWarnings =
+          missingImageFillCount > 0
+            ? [
+                `${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted. This can happen for deleted images or very large assets.`,
+              ]
+            : [];
         return {
           ...saved,
-          warnings: [...saved.warnings, ...selectionWarnings],
+          warnings: [...saved.warnings, ...selectionWarnings, ...fillWarnings],
           strategy: "restNodes" as const,
           figma: {
             fileKey,
@@ -142,17 +161,22 @@ export default defineAction({
       if (matchResult.status === "matched") {
         const nodeIds = matchResult.matches.map((match) => match.id);
         const nodesById = await fetchFigmaNodes(fileKey, nodeIds);
-        const { files, fidelityEntries } = await buildScreenFilesFromFigmaNodes(
-          fileKey,
-          nodesById,
-        );
+        const { files, fidelityEntries, missingImageFillCount } =
+          await buildScreenFilesFromFigmaNodes(fileKey, nodesById);
         const saved = await saveImportedDesignFiles({
           designId,
           sourceType: "figma-clipboard-rest",
           files,
         });
+        const fillWarnings =
+          missingImageFillCount > 0
+            ? [
+                `${missingImageFillCount} image fill${missingImageFillCount === 1 ? "" : "s"} could not be fetched from Figma and were omitted.`,
+              ]
+            : [];
         return {
           ...saved,
+          warnings: [...(saved.warnings ?? []), ...fillWarnings],
           strategy: "restNodes" as const,
           figma: {
             fileKey,
@@ -174,23 +198,64 @@ export default defineAction({
         throw error;
       }
       figmaApiKeyMissing = CREDENTIAL_MISSING_RE.test(errorMessage);
+      const isTransient = TRANSIENT_ERROR_RE.test(errorMessage);
       if (
         selectedNodeIds?.length &&
         !parsedClipboard.fallbackHtml &&
-        !figmaApiKeyMissing
+        !figmaApiKeyMissing &&
+        (!isTransient || !clipboardBuffer)
       ) {
         // Exact ids prove this was a current Figma clipboard. With no visible
-        // fallback, a real REST/import failure must remain truthful and
-        // actionable rather than being mislabeled as a clipboard format that
-        // omitted ids.
+        // fallback, a permanent REST failure must surface as a real error rather
+        // than silently degrading. Transient errors fall through to local-kiwi
+        // only when a buffer is present to decode; without a buffer there is
+        // nothing to fall back to, so even transient errors must propagate.
         throw error;
       }
       if (!figmaApiKeyMissing) {
-        // A real (non-credential) REST failure — network error, revoked
-        // token, file access issue, etc. Still fall back to the honest
-        // clipboard preview rather than losing the paste entirely, but this
-        // isn't a "no confident match" case, so don't claim ambiguity.
         matchStatus = "error";
+      }
+    }
+
+    // Local-kiwi fallback: decode the binary buffer when REST failed for any
+    // reason (missing token, 403, quota cooldown, network error) and the buffer
+    // is present. Always produces editable geometry, text, and auto-layout.
+    // IMAGE fills land as about:blank placeholders that hydrate-figma-paste-images
+    // resolves retroactively once the quota clears or the token is configured.
+    if ((figmaApiKeyMissing || matchStatus === "error") && clipboardBuffer) {
+      try {
+        const localResult = await importFigmaClipboardFromBuffer({
+          bufferBase64: clipboardBuffer,
+          fileKey,
+          originalName,
+        });
+        if (localResult.files.length > 0) {
+          const saved = await saveImportedDesignFiles({
+            designId,
+            sourceType: "figma-clipboard-local-kiwi",
+            files: localResult.files,
+          });
+          return {
+            ...saved,
+            warnings: [...saved.warnings, ...localResult.warnings],
+            strategy: "localKiwi" as const,
+            figmaApiKeyMissing,
+            figma: { fileKey, selectedNodeIds },
+            unresolvedImages: localResult.unresolvedImageRefs.length,
+            fidelityReport: {
+              exactCount: 0,
+              approximated: [],
+              imageFallbacks: [],
+              unresolvedImages: localResult.unresolvedImageRefs.length,
+            },
+            guidance:
+              localResult.unresolvedImageRefs.length > 0
+                ? `Imported from Figma using local decode — geometry, text, and styles are editable. ${localResult.unresolvedImageRefs.length} image${localResult.unresolvedImageRefs.length === 1 ? "" : "s"} need a Figma access token to load. Connect Figma in Settings to fill them in, or use "Copy as PNG" for individual images.`
+                : "Imported from Figma using local decode — geometry, text, and styles are fully editable. Connect Figma in Settings for highest-fidelity REST imports.",
+          };
+        }
+      } catch {
+        // Local decode failed — fall through to html-fallback below.
       }
     }
 

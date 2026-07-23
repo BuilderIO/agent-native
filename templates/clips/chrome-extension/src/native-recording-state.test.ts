@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasLiveOffscreenSession,
+  restartUploadModeFromResponse,
+  restartUploadResetBody,
   shouldReconcilePersistedRecording,
 } from "./native-recording-state";
 
@@ -34,5 +36,23 @@ describe("persisted native recording state", () => {
     expect(shouldReconcilePersistedRecording("complete", "session-1", {})).toBe(
       false,
     );
+  });
+
+  it("requests a new resumable session when restarting a recording", () => {
+    expect(restartUploadResetBody("video/mp4")).toEqual({
+      requestStreaming: true,
+      mimeType: "video/mp4",
+    });
+  });
+
+  it("accepts only server-provided upload modes after reset", () => {
+    expect(restartUploadModeFromResponse({ uploadMode: "streaming" })).toBe(
+      "streaming",
+    );
+    expect(restartUploadModeFromResponse({ uploadMode: "buffered" })).toBe(
+      "buffered",
+    );
+    expect(restartUploadModeFromResponse({ uploadMode: "unknown" })).toBeNull();
+    expect(restartUploadModeFromResponse(null)).toBeNull();
   });
 });

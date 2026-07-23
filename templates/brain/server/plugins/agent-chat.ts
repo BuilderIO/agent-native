@@ -10,6 +10,8 @@ import { and, desc, like, or } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { tryAnswerBrainA2AQuestion } from "../lib/a2a-fallback.js";
 
+const BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
 const INITIAL_TOOL_NAMES = [
   "get-brain-settings",
   "ask-brain",
@@ -39,6 +41,8 @@ export default createAgentChatPlugin({
   appId: "brain",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  durableBackgroundRuns: true,
+  runSoftTimeoutMs: BRAIN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   codeExecution: { production: "sandboxed" },
   systemPrompt: `You are the Brain institutional-knowledge agent.

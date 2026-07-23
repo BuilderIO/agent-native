@@ -2612,7 +2612,7 @@ fn source_asbd(
 }
 
 /// Decode one audio buffer's raw bytes into f32 samples according to the
-/// stream's sample format (float32/float64 or signed int16/int32).
+/// stream's sample format (float32/float64 or signed int16/int24/int32).
 fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
     match (is_float, bits) {
         (true, 32) => bytes_to_f32_vec(bytes),
@@ -2623,6 +2623,19 @@ fn decode_samples_to_f32(bytes: &[u8], is_float: bool, bits: u32) -> Vec<f32> {
         (false, 16) => bytes
             .chunks_exact(2)
             .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+            .collect(),
+        (false, 24) => bytes
+            .chunks_exact(3)
+            .map(|c| {
+                // Reconstruct a 24-bit little-endian signed integer and sign-extend to i32.
+                let raw = (c[0] as i32) | ((c[1] as i32) << 8) | ((c[2] as i32) << 16);
+                let signed = if raw & 0x800000 != 0 {
+                    raw | !0x00FF_FFFFi32
+                } else {
+                    raw
+                };
+                signed as f32 / 8_388_608.0
+            })
             .collect(),
         (false, 32) => bytes
             .chunks_exact(4)

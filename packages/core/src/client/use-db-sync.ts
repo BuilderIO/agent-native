@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import { ensureDemoModeFetchInterceptor } from "../demo/fetch-interceptor.js";
+import {
+  parseHandshakeFrame,
+  parseTokenFrame,
+  REALTIME_PROTOCOL_VERSION,
+  REALTIME_SSE_HANDSHAKE_EVENT,
+  REALTIME_SSE_TOKEN_EVENT,
+} from "../realtime-protocol.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
@@ -33,6 +40,7 @@ const POLL_ABORT_MIN_MS = 10_000;
 // four times per minute forever. Focus and active agent work still poll now.
 const SSE_FALLBACK_INTERVAL_MS = 60_000;
 const IDLE_POLL_INTERVAL_MS = 60_000;
+const HIDDEN_POLL_INTERVAL_MS = 10_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
@@ -85,6 +93,64 @@ function resolveSseUrl(sseUrl: string | false | undefined): string | false {
   if (sseUrl === false) return false;
   if (isEmbedAuthActive()) return false;
   return agentNativePath(sseUrl ?? "/_agent-native/events");
+}
+
+// --- Hosted Realtime Gateway binding ----------------------------------------
+//
+// When the app is configured for the hosted gateway, the transport connects to
+// the gateway (cross-origin) instead of the Netlify app, carrying a short-lived
+// subscribe token minted from the app's own same-origin endpoint. All of this
+// is gated on a non-null binding — apps without hosted config keep the exact
+// local behavior below.
+
+const REALTIME_GATEWAY_SSE_PATH = "/stream";
+const REALTIME_GATEWAY_POLL_PATH = "/poll";
+const REALTIME_TOKEN_MINT_PATH = "/_agent-native/realtime-token";
+/** Consecutive gateway failures before health-gating back to the local app. */
+const HOSTED_UNHEALTHY_THRESHOLD = 3;
+
+interface RealtimeGatewayBinding {
+  /** Gateway SSE URL (token appended per connect). */
+  sseUrl: string;
+  /** Gateway poll URL (token appended per request). */
+  pollUrl: string;
+  /** Same-origin app endpoint that mints the subscribe token. */
+  tokenMintUrl: string;
+}
+
+function getRealtimeConfig():
+  | { transport?: string; gatewayBaseUrl?: string }
+  | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.__AGENT_NATIVE_CONFIG__?.realtime;
+}
+
+/**
+ * Resolve the hosted-gateway binding, or null to stay on the local app. Gated
+ * on: SSE enabled (the gateway is push-first), not embed auth (needs the
+ * same-origin session to mint), and `transport: "hosted"` with a base URL in
+ * the impersonal SSR config.
+ */
+function resolveGatewayBinding(
+  localSseUrl: string | false,
+): RealtimeGatewayBinding | null {
+  if (localSseUrl === false) return null;
+  if (isEmbedAuthActive()) return null;
+  const config = getRealtimeConfig();
+  if (config?.transport !== "hosted") return null;
+  const base = config.gatewayBaseUrl?.replace(/\/+$/, "");
+  if (!base) return null;
+  return {
+    sseUrl: `${base}${REALTIME_GATEWAY_SSE_PATH}`,
+    pollUrl: `${base}${REALTIME_GATEWAY_POLL_PATH}`,
+    tokenMintUrl: agentNativePath(REALTIME_TOKEN_MINT_PATH),
+  };
+}
+
+/** ±20% jitter so gateway timeout/deploy-driven reconnects don't stampede. */
+function applyReconnectJitter(delay: number): number {
+  const jitter = delay * 0.2 * (Math.random() * 2 - 1);
+  return Math.max(0, Math.round(delay + jitter));
 }
 
 function normalizeEventPayload(payload: unknown): SyncEvent[] {
@@ -157,6 +223,7 @@ async function fetchPollJson<T>(
   pollUrl: string,
   since: number,
   interval: number,
+  token?: string,
 ): Promise<T> {
   const controller =
     typeof AbortController === "undefined" ? null : new AbortController();
@@ -164,9 +231,16 @@ async function fetchPollJson<T>(
     ? setTimeout(() => controller.abort(), getPollAbortMs(interval))
     : null;
 
+  // Local path stays exactly `?since=N`; the hosted gateway also carries the
+  // subscribe token on the query string (a cross-origin fetch can't set the
+  // Authorization header for the SSE sibling either, so both use the query).
+  const url = token
+    ? `${pollUrl}${pollUrl.includes("?") ? "&" : "?"}since=${since}&token=${encodeURIComponent(token)}`
+    : `${pollUrl}?since=${since}`;
+
   try {
     const res = await fetch(
-      `${pollUrl}?since=${since}`,
+      url,
       controller ? { signal: controller.signal } : undefined,
     );
     if (!res.ok) throw new HttpStatusError(res.status);
@@ -214,7 +288,10 @@ interface TransportSubscription {
    * subscribers with their own fallback loops (e.g. the collab doc poll)
    * relax their cadence while the push path is healthy.
    */
-  onSseStateChange?: (connected: boolean) => void;
+  onSseStateChange?: (
+    connected: boolean,
+    capabilities?: readonly string[],
+  ) => void;
 }
 
 class SyncTransport {
@@ -228,11 +305,148 @@ class SyncTransport {
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
   private activeChatIds = new Set<string>();
+  // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
+  // flips to "local" on health-gate revert; `token` is the current subscribe
+  // token (minted from the app, rotated over the stream), never part of any
+  // registry key.
+  private mode: "hosted" | "local";
+  private token: string | null = null;
+  private tokenMintInFlight: Promise<boolean> | null = null;
+  private gatewayReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private capabilities: string[] = [];
 
   constructor(
     private readonly pollUrl: string,
     private readonly sseUrl: string | false,
-  ) {}
+    private readonly gateway: RealtimeGatewayBinding | null = null,
+  ) {
+    this.mode = gateway ? "hosted" : "local";
+  }
+
+  /** Capabilities advertised by the gateway handshake (e.g. `no-awareness`). */
+  getCapabilities(): readonly string[] {
+    return this.capabilities;
+  }
+
+  private get activeSseUrl(): string | false {
+    if (this.mode === "hosted" && this.gateway) {
+      return this.token
+        ? `${this.gateway.sseUrl}?token=${encodeURIComponent(this.token)}`
+        : this.gateway.sseUrl;
+    }
+    return this.sseUrl;
+  }
+
+  private get activePollUrl(): string {
+    return this.mode === "hosted" && this.gateway
+      ? this.gateway.pollUrl
+      : this.pollUrl;
+  }
+
+  /**
+   * Mint a subscribe token from the app's same-origin endpoint.
+   *
+   * Only TERMINAL outcomes health-gate to local: 404 (gateway not provisioned)
+   * and 401/403 (not authorized) — retrying those for this tab is pointless.
+   * TRANSIENT failures (5xx/429 from a cold Netlify function, network errors)
+   * keep the hosted intent and ride the jittered reconnect + unhealthy-threshold
+   * path, so a deploy / scale-to-zero blip doesn't permanently abandon the
+   * gateway for the tab.
+   */
+  private mintToken(): Promise<boolean> {
+    if (!this.gateway || this.mode !== "hosted") return Promise.resolve(false);
+    if (this.tokenMintInFlight) return this.tokenMintInFlight;
+    const mintUrl = this.gateway.tokenMintUrl;
+    this.tokenMintInFlight = (async () => {
+      // Bound the mint like fetchPollJson bounds polls: a black-holed request
+      // must resolve as a transient failure, not hang tokenMintInFlight forever
+      // (poll() awaits this while holding inFlight, so a hung mint would stall
+      // the whole transport with no timer pending).
+      const controller =
+        typeof AbortController === "undefined" ? null : new AbortController();
+      const timeout = controller
+        ? setTimeout(() => controller.abort(), POLL_ABORT_MIN_MS)
+        : null;
+      try {
+        const res = await fetch(mintUrl, {
+          credentials: "same-origin",
+          ...(controller ? { signal: controller.signal } : {}),
+        });
+        if (res.ok) {
+          const data = (await res.json()) as { token?: unknown };
+          if (typeof data?.token === "string" && data.token) {
+            this.token = data.token;
+            // Deliberately NOT resetting consecutiveFailures here: minting
+            // succeeds via the app origin even when the GATEWAY is down, so a
+            // reset would let a mint-ok -> stream-fail loop run forever below
+            // the unhealthy threshold. Only real gateway connectivity (stream
+            // onopen / poll success) clears the count.
+            return true;
+          }
+          // 2xx without a token is a terminal misconfiguration.
+          this.revertToLocal();
+          return false;
+        }
+        if (res.status === 404 || res.status === 401 || res.status === 403) {
+          this.revertToLocal();
+          return false;
+        }
+        this.onGatewayTransientFailure();
+        return false;
+      } catch {
+        this.onGatewayTransientFailure();
+        return false;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        this.tokenMintInFlight = null;
+      }
+    })();
+    return this.tokenMintInFlight;
+  }
+
+  /**
+   * A transient gateway failure (mint 5xx/429, network). Keep hosted intent but
+   * count toward the unhealthy threshold; revert to local only once it trips.
+   */
+  private onGatewayTransientFailure(): void {
+    this.consecutiveFailures++;
+    if (this.consecutiveFailures >= HOSTED_UNHEALTHY_THRESHOLD) {
+      this.revertToLocal();
+    }
+  }
+
+  /**
+   * Health-gate back to the app's own /poll + /events with the cursor intact
+   * (versionRef is untouched), so delivery stays poll-equivalent — never a
+   * silent stall.
+   */
+  private revertToLocal(): void {
+    if (this.mode === "local") return;
+    this.mode = "local";
+    this.token = null;
+    // The local in-process SSE path sends no handshake, so hosted capabilities
+    // (e.g. no-awareness) must not survive the fallback — stale caps would keep
+    // collab on its fast presence cadence against the local stream. Subscribers
+    // are re-notified via the close/connect cycle below.
+    this.capabilities = [];
+    if (this.gatewayReconnectTimer) {
+      clearTimeout(this.gatewayReconnectTimer);
+      this.gatewayReconnectTimer = null;
+    }
+    this.closeEvents();
+    if (!this.stopped) {
+      this.connectEvents();
+      this.schedulePoll();
+    }
+  }
+
+  private scheduleGatewayReconnect(): void {
+    if (this.stopped || this.gatewayReconnectTimer) return;
+    this.gatewayReconnectTimer = setTimeout(() => {
+      this.gatewayReconnectTimer = null;
+      if (!this.stopped && !this.eventSource) this.connectEvents();
+    }, applyReconnectJitter(1000));
+  }
 
   // -------------------------------------------------------------------------
   // Subscriber management
@@ -252,7 +466,7 @@ class SyncTransport {
     } else {
       this.reschedule();
     }
-    sub.onSseStateChange?.(this.sseConnected);
+    sub.onSseStateChange?.(this.sseConnected, this.capabilities);
   }
 
   remove(id: symbol): void {
@@ -319,8 +533,18 @@ class SyncTransport {
   private setSseConnected(connected: boolean): void {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
+    this.notifySseState();
+  }
+
+  /**
+   * Notify subscribers of the current SSE state AND the negotiated gateway
+   * capabilities. Called on connect/disconnect and again once the handshake
+   * arrives, so a consumer (e.g. collab) can decide — for instance — not to
+   * relax its presence cadence on a `no-awareness` hosted stream.
+   */
+  private notifySseState(): void {
     for (const sub of this.subscribers.values()) {
-      sub.onSseStateChange?.(connected);
+      sub.onSseStateChange?.(this.sseConnected, this.capabilities);
     }
   }
 
@@ -344,19 +568,26 @@ class SyncTransport {
       }, authDelay);
       return;
     }
-    const base = this.isActive
+    const visibleBase = this.isActive
       ? this.effectiveInterval
       : this.sseConnected
         ? this.effectiveFallbackInterval
         : this.effectiveIdleInterval;
+    const base = isDocumentHidden()
+      ? Math.max(visibleBase, HIDDEN_POLL_INTERVAL_MS)
+      : visibleBase;
     // Exponential backoff while polls keep failing (500s during a deploy,
     // DNS blips, a struggling DB). Auth failures have their own cooldown
     // above; this covers everything else so a down server isn't hammered at
     // full cadence. Resets on the first successful poll.
-    const delay =
+    const backoff =
       this.consecutiveFailures > 0
         ? Math.min(base * 2 ** Math.min(this.consecutiveFailures, 5), 300_000)
         : base;
+    // Jitter only for gateway-capable transports so reconnect/poll retries
+    // don't stampede a gateway deploy; apps with no gateway config keep the
+    // exact deterministic cadence.
+    const delay = this.gateway ? applyReconnectJitter(backoff) : backoff;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.poll();
@@ -383,7 +614,6 @@ class SyncTransport {
   private connectEvents(): void {
     if (
       this.stopped ||
-      !this.sseUrl ||
       this.eventSource ||
       typeof EventSource === "undefined" ||
       (this.effectivePauseWhenHidden && isDocumentHidden())
@@ -391,10 +621,38 @@ class SyncTransport {
       return;
     }
 
-    const source = new EventSource(this.sseUrl);
+    // Hosted gateway needs a subscribe token before the stream can open.
+    // EventSource can't set headers, so the token rides the connect query
+    // string (see activeSseUrl). Mint first, then connect.
+    if (this.mode === "hosted" && this.gateway && !this.token) {
+      void this.mintToken().then((ok) => {
+        if (this.stopped) return;
+        if (ok && !this.eventSource) {
+          this.connectEvents();
+        } else if (!ok && this.mode === "hosted") {
+          // Transient mint failure (terminal ones already reverted to local,
+          // flipping mode). Without a retry timer nothing would ever reopen
+          // SSE — connectEvents is only reachable from focus/visibility/run
+          // events — leaving the tab poll-only at the idle cadence.
+          this.scheduleGatewayReconnect();
+        }
+      });
+      return;
+    }
+
+    const url = this.activeSseUrl;
+    if (!url) return;
+
+    const source = new EventSource(url);
     this.eventSource = source;
     source.onopen = () => {
       this.setSseConnected(true);
+      if (this.mode === "hosted") {
+        // A live gateway stream is the real health signal: clear failure
+        // counts accumulated by mint/stream retries. Local mode keeps main's
+        // semantics (only a successful poll resets the poll backoff).
+        this.consecutiveFailures = 0;
+      }
       this.schedulePoll();
     };
     source.onerror = () => {
@@ -406,6 +664,19 @@ class SyncTransport {
       // we'd be stuck on polling-only forever.
       if (source.readyState === EventSource.CLOSED) {
         this.eventSource = null;
+        if (this.mode === "hosted" && this.gateway) {
+          // A closed gateway stream is most likely an expired token or a
+          // request-timeout/deploy cycle. Re-mint and reconnect with jitter;
+          // this is NOT the poll-401 cooldown path. Each closed stream counts
+          // toward the unhealthy threshold so a hard-down gateway (or one
+          // rejecting our tokens) health-gates to local instead of looping
+          // mint+connect forever; a successful reconnect resets the count in
+          // onopen above.
+          this.token = null;
+          this.onGatewayTransientFailure();
+          if (this.mode === "hosted") this.scheduleGatewayReconnect();
+          return;
+        }
       }
       this.schedulePoll();
     };
@@ -421,6 +692,38 @@ class SyncTransport {
         // Ignore malformed SSE frames; polling is the safety net.
       }
     };
+
+    if (this.mode === "hosted" && this.gateway) {
+      // Control frames ride NAMED SSE events so they never reach onmessage /
+      // normalizeEventPayload as spurious data events.
+      source.addEventListener(REALTIME_SSE_HANDSHAKE_EVENT, (e) => {
+        const hs = parseHandshakeFrame((e as MessageEvent).data);
+        if (!hs) return;
+        if (hs.protocol !== REALTIME_PROTOCOL_VERSION) {
+          // Surface an unexpected protocol rather than silently adopting its
+          // capabilities; keep the conservative (no advertised capabilities)
+          // stance so downstream (collab) does not relax on assumptions.
+          console.warn(
+            `[agent-native] unsupported realtime protocol ${hs.protocol} (expected ${REALTIME_PROTOCOL_VERSION})`,
+          );
+          return;
+        }
+        this.capabilities = hs.capabilities;
+        // Re-notify subscribers now that capabilities are known — the initial
+        // connected notification fired before the handshake arrived.
+        this.notifySseState();
+      });
+      source.addEventListener(REALTIME_SSE_TOKEN_EVENT, (e) => {
+        const frame = parseTokenFrame((e as MessageEvent).data);
+        if (!frame?.token) return;
+        this.token = frame.token;
+        // EventSource can't change a live stream's URL, and its auto-reconnect
+        // reuses the original (old-token) URL. Close and reconnect (jittered) so
+        // the rotated token is actually used on the next connect.
+        this.closeEvents();
+        this.scheduleGatewayReconnect();
+      });
+    }
   }
 
   /**
@@ -442,10 +745,17 @@ class SyncTransport {
     if (this.stopped || this.inFlight) return;
     this.inFlight = true;
     try {
+      if (this.mode === "hosted" && this.gateway && !this.token) {
+        // No token yet — mint before polling the gateway. A failed mint has
+        // already reverted us to local; a scheduled poll will pick it up.
+        const ok = await this.mintToken();
+        if (!ok || this.stopped) return;
+      }
       const data = await fetchPollJson<PollResponse>(
-        this.pollUrl,
+        this.activePollUrl,
         this.versionRef,
         this.effectiveInterval,
+        this.mode === "hosted" ? (this.token ?? undefined) : undefined,
       );
       if (this.stopped) return;
       this.consecutiveFailures = 0;
@@ -455,7 +765,18 @@ class SyncTransport {
     } catch (err) {
       if (this.stopped) return;
       this.consecutiveFailures++;
-      if (isAuthFailure(err)) {
+      if (this.mode === "hosted" && this.gateway) {
+        // Gateway auth failure → re-mint (expired/rotated token), WITHOUT
+        // tripping the poll-401 cooldown. Persistent failures of any kind
+        // health-gate back to the local app.
+        if (isAuthFailure(err)) {
+          this.token = null;
+          void this.mintToken();
+        }
+        if (this.consecutiveFailures >= HOSTED_UNHEALTHY_THRESHOLD) {
+          this.revertToLocal();
+        }
+      } else if (isAuthFailure(err)) {
         this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
         this.closeEvents();
       }
@@ -490,6 +811,11 @@ class SyncTransport {
         clearTimeout(this.timer);
         this.timer = null;
       }
+    } else {
+      // Keep push connected and the polling safety net alive in backgrounded
+      // tabs, but relax an active chat's cadence so hidden work stays current
+      // without polling as aggressively as the visible surface.
+      this.reschedule();
     }
   };
 
@@ -554,6 +880,10 @@ class SyncTransport {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    if (this.gatewayReconnectTimer) {
+      clearTimeout(this.gatewayReconnectTimer);
+      this.gatewayReconnectTimer = null;
+    }
     window.removeEventListener("focus", this.handleFocus);
     window.removeEventListener(
       "agentNative.chatRunning",
@@ -576,11 +906,14 @@ const transportRegistry = new Map<string, SyncTransport>();
 function getOrCreateTransport(
   pollUrl: string,
   sseUrl: string | false,
+  gateway: RealtimeGatewayBinding | null = null,
 ): SyncTransport {
+  // Key on the LOCAL urls only — a transport may flip hosted→local at runtime,
+  // and the token must never fragment the registry, so neither is in the key.
   const key = `${pollUrl}\0${String(sseUrl)}`;
   let transport = transportRegistry.get(key);
   if (!transport) {
-    transport = new SyncTransport(pollUrl, sseUrl);
+    transport = new SyncTransport(pollUrl, sseUrl, gateway);
     transportRegistry.set(key, transport);
   }
   return transport;
@@ -607,7 +940,10 @@ export interface SubscribeSyncEventsOptions {
   /** Receives every batch of change events (SSE push or poll). */
   onEvents: (events: SyncEvent[], version: number | undefined) => void;
   /** Notified when the shared SSE connection opens/closes (and once on join). */
-  onSseStateChange?: (connected: boolean) => void;
+  onSseStateChange?: (
+    connected: boolean,
+    capabilities?: readonly string[],
+  ) => void;
   pollUrl?: string;
   sseUrl?: string | false;
   pauseWhenHidden?: boolean;
@@ -636,12 +972,16 @@ export function subscribeSyncEvents(
 ): () => void {
   const pollUrl = agentNativePath(options.pollUrl ?? "/_agent-native/poll");
   const sseUrl = resolveSseUrl(options.sseUrl);
-  const transport = getOrCreateTransport(pollUrl, sseUrl);
+  const transport = getOrCreateTransport(
+    pollUrl,
+    sseUrl,
+    resolveGatewayBinding(sseUrl),
+  );
   const id = Symbol("subscribeSyncEvents");
   transport.add(id, {
     onEvents: options.onEvents,
     onSseStateChange: options.onSseStateChange,
-    pauseWhenHidden: options.pauseWhenHidden ?? true,
+    pauseWhenHidden: options.pauseWhenHidden ?? false,
     interval: options.interval ?? 60_000,
     idleInterval: options.interval ?? 60_000,
     fallbackInterval: options.fallbackInterval ?? 60_000,
@@ -675,8 +1015,9 @@ export function subscribeSyncEvents(
  * @param options.interval - Poll interval in ms. Default: 2000
  * @param options.fallbackInterval - Poll interval while SSE is connected.
  *   Default: 60000
- * @param options.pauseWhenHidden - Pause polling while the tab is hidden.
- *   Default: true
+ * @param options.pauseWhenHidden - Pause sync while the tab is hidden.
+ *   Default: false. Hidden tabs keep SSE connected and poll no faster than
+ *   every 10 seconds while active; idle polling remains at 60 seconds.
  * @param options.ignoreSource - Skip events whose `requestSource` matches this
  *   value. Use a per-tab ID so the UI ignores its own writes while still
  *   picking up changes from other tabs, agents, and scripts.
@@ -714,7 +1055,7 @@ export function useDbSync(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
-    pauseWhenHidden = true,
+    pauseWhenHidden = false,
   } = options;
   const idleInterval =
     options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
@@ -978,7 +1319,11 @@ export function useDbSync(
       );
     }
 
-    const transport = getOrCreateTransport(pollUrl, sseUrl);
+    const transport = getOrCreateTransport(
+      pollUrl,
+      sseUrl,
+      resolveGatewayBinding(sseUrl),
+    );
     transport.add(id, {
       onEvents,
       pauseWhenHidden,
@@ -1053,7 +1398,7 @@ export function useScreenRefreshKey(
       options.fallbackInterval ?? SSE_FALLBACK_INTERVAL_MS,
       interval,
     ),
-    pauseWhenHidden = true,
+    pauseWhenHidden = false,
   } = options;
   const idleInterval =
     options.interval === undefined ? IDLE_POLL_INTERVAL_MS : interval;
@@ -1084,7 +1429,11 @@ export function useScreenRefreshKey(
       );
     }
 
-    const transport = getOrCreateTransport(pollUrl, sseUrl);
+    const transport = getOrCreateTransport(
+      pollUrl,
+      sseUrl,
+      resolveGatewayBinding(sseUrl),
+    );
     transport.add(id, {
       onEvents,
       pauseWhenHidden,

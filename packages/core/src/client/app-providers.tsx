@@ -48,11 +48,11 @@
  *                              intentionally animates theme changes (e.g. content).
  */
 
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { ThemeProvider, type Attribute } from "next-themes";
 import React from "react";
-import { Toaster } from "sonner";
 
 import { ClientOnly } from "./ClientOnly.js";
 import { DefaultSpinner } from "./DefaultSpinner.js";

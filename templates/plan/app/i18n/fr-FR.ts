@@ -298,6 +298,8 @@ const messages = {
       agentMissing:
         "Connectez l'agent à exécuter - ajoutez une clé API ou utilisez Builder.",
       assessment: {
+        design:
+          "Une demande haute fidélité a été détectée automatiquement ; l'agent créera des écrans de marque aboutis.",
         ui: "États ou flux d'interface utilisateur détectés automatiquement ; l'agent élaborera d'abord un plan filaire.",
         visual:
           "Auto demandera à l'agent un plan technique riche avec des schémas et des détails de mise en œuvre.",
@@ -320,6 +322,10 @@ const messages = {
         ui: {
           description: "Flux d'interface utilisateur - wireframes et états",
           label: "Flux d'interface utilisateur",
+        },
+        design: {
+          description: "Design haute fidélité – écrans de marque aboutis",
+          label: "Design haute fidélité",
         },
         visual: {
           description: "Visuel général – diagrammes et notes",

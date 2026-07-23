@@ -14,7 +14,7 @@ Agent Teams runs on the core run-manager: events stream and persist, aborts prop
 ## The mental model {#mental-model}
 
 - **Main chat** — the orchestrator. Reads your request, delegates. Rarely does heavy work itself.
-- **Sub-agents** — run with their own thread, their own system prompt, their own tool set. Each maps to a "custom agent" profile in [Agent Resources](/docs/workspace).
+- **Sub-agents** — run with their own thread, their own system prompt, their own tool set. Each maps to a "custom agent" profile in [Agent Resources](/docs/agent-resources).
 - **Chips** — the rich preview card that appears inline in the main chat, showing the sub-agent's current step, streaming output, and final summary. Collapsed by default; expands to the full conversation on click.
 - **Bidirectional messaging** — the main agent can send follow-ups to a running sub-agent; a sub-agent can message back when it hits an ambiguous point.
 
@@ -105,7 +105,7 @@ Three ways to kick off a sub-agent, from least to most explicit:
 
 The user types `@agent-name` in the chat composer. A dropdown of workspace sub-agents appears. Selecting one inserts a chip; on submit the main agent delegates the message to that sub-agent.
 
-Custom agents live in agent resources at `agents/<slug>.md` — a Markdown file with YAML frontmatter. See [Custom Agents](/docs/workspace#custom-agents) for the format.
+Custom agents live in agent resources at `agents/<slug>.md` — a Markdown file with YAML frontmatter. See [Custom Agents](/docs/agent-resources#custom-agents) for the format.
 
 ### 2. The main agent delegates automatically {#auto-delegate}
 
@@ -247,7 +247,7 @@ interface AgentTask {
 
 ## Custom agent profiles {#profiles}
 
-Sub-agents map to custom agent profiles — Markdown files at `agents/<slug>.md` in agent resources that appear in the `@mention` dropdown and serve as delegation targets. [Agent Resources — Custom Agents](/docs/workspace#custom-agents) owns the full format (frontmatter, `tools`, `delegate-default`, model overrides).
+Sub-agents map to custom agent profiles — Markdown files at `agents/<slug>.md` in agent resources that appear in the `@mention` dropdown and serve as delegation targets. [Agent Resources — Custom Agents](/docs/agent-resources#custom-agents) owns the full format (frontmatter, `tools`, `delegate-default`, model overrides).
 
 ## Delegation depth guard {#depth-guard}
 
@@ -326,6 +326,6 @@ When a sub-agent is at or below the cap, the framework injects a line into its r
 
 ## What's next
 
-- [**Agent Resources — Custom Agents**](/docs/workspace#custom-agents) — the profile format
+- [**Agent Resources — Custom Agents**](/docs/agent-resources#custom-agents) — the profile format
 - [**A2A Protocol**](/docs/a2a-protocol) — when the "sub-agent" lives in a different app entirely
 - [**Actions**](/docs/actions) — the tools a sub-agent calls

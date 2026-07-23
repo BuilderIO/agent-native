@@ -432,6 +432,25 @@ export function AgentJobsTab({ canManageOrg = false }: AgentPageTabProps) {
               <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
                 {detailsTarget.instructions}
               </p>
+              {detailsTarget.mcpTools.length > 0 ? (
+                <div className="mt-4">
+                  <p className="text-xs font-medium text-foreground">
+                    {t("jobs.mcpTools", {
+                      defaultValue: "Connected MCP tools",
+                    })}
+                  </p>
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {detailsTarget.mcpTools.map((toolName) => (
+                      <code
+                        key={toolName}
+                        className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                      >
+                        {toolName}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </DialogContent>

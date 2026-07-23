@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.114.16",
+  "version": "0.119.2",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -68,6 +68,9 @@
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
+    "./server/poll": "./dist/server/poll.js",
+    "./server/sse": "./dist/server/sse.js",
+    "./server/short-lived-token": "./dist/server/short-lived-token.js",
     "./integrations": "./dist/integrations/index.js",
     "./integrations/runtime": "./dist/integrations/runtime.js",
     "./ingestion": "./dist/ingestion/index.js",
@@ -159,6 +162,7 @@
     },
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
+    "./user-profile": "./dist/user-profile/index.js",
     "./feature-flags": "./dist/feature-flags/index.js",
     "./feature-flags/registry": "./dist/feature-flags/registry.js",
     "./feature-flags/actions/get-feature-flags": "./dist/feature-flags/actions/get-feature-flags.js",
@@ -275,6 +279,10 @@
     "./data-programs": {
       "types": "./dist/data-programs/index.d.ts",
       "default": "./dist/data-programs/index.js"
+    },
+    "./dashboard-storage": {
+      "types": "./dist/dashboard-storage/index.d.ts",
+      "default": "./dist/dashboard-storage/index.js"
     },
     "./local-artifacts": {
       "types": "./dist/local-artifacts/index.d.ts",

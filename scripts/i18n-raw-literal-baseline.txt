@@ -3,7 +3,6 @@
 # Format: relative/source/path.tsx|Visible string
 packages/docs/app/components/docBlocks.tsx|| Extract
 templates/clips/app/components/editor/waveform.tsx|VISUAL_SILENCE_FLOOR && botY - topY
-templates/clips/app/components/player/transcript-panel.tsx|gsk_…
 templates/clips/app/components/recorder/storage-setup-card.tsx|AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
 templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
 templates/design/app/components/design/DesignCanvas.tsx|handle ? [

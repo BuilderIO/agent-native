@@ -771,7 +771,7 @@ export function ResourceTree({
 
       {variant === "collection"
         ? leafResources.length > 0 && (
-            <div className="divide-y divide-border/60">
+            <div className="space-y-1">
               {leafResources.map((node) => (
                 <CollectionResourceRow
                   key={node.resource.id}
@@ -849,16 +849,13 @@ export function ResourceTree({
       )}
 
       {isEmpty && !creating && !isLoading && (
-        <div className="flex items-start gap-2 border-y border-border/60 px-2 py-4">
-          <IconFile className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-          <div className="flex flex-col items-start gap-2">
-            <p className="text-xs text-muted-foreground">
-              {variant === "collection"
-                ? "No resources in this collection yet"
-                : "No files yet"}
-            </p>
-            {emptyStateAction}
-          </div>
+        <div className="flex flex-col items-start px-2 py-5">
+          <p className="text-xs text-muted-foreground">
+            {variant === "collection"
+              ? "No resources in this collection yet"
+              : "No files yet"}
+          </p>
+          {emptyStateAction && <div className="mt-4">{emptyStateAction}</div>}
         </div>
       )}
     </div>

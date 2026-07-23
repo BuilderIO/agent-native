@@ -69,7 +69,7 @@
   --muted-foreground: 0 0% 60%;
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --destructive: 0 63% 51%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -177,11 +177,6 @@
 
 .forms-ask-chat-panel {
   width: 100%;
-}
-
-.forms-ask-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(2rem, 6vh, 4rem);
 }
 
 .forms-ask-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {

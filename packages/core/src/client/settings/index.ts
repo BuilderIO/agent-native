@@ -1,4 +1,5 @@
 export {
+  AgentSettingsContent,
   SettingsPanel,
   useAgentSettingsTabs,
   type SettingsPanelProps,
@@ -14,6 +15,12 @@ export {
   type SettingsTabsPageProps,
 } from "./SettingsTabsPage.js";
 export {
+  AccountSettingsCard,
+  AccountSettingsForm,
+  type AccountSettingsCardProps,
+  type AccountSettingsFormProps,
+} from "./AccountSettingsCard.js";
+export {
   openBuilderConnectPopup,
   useBuilderConnectFlow,
   useBuilderStatus,
@@ -25,3 +32,10 @@ export {
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
+export {
+  normalizeSettingsSection,
+  settingsSectionDomId,
+  useSettingsPanelController,
+  type SettingsPanelController,
+  type SettingsPanelControllerOptions,
+} from "./useSettingsPanelController.js";
