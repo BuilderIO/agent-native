@@ -551,6 +551,11 @@ For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that
 
 ### Long-running agent requests
 
+When `ask_app` returns a `taskHandle`, pass that opaque value back unchanged to
+`ask_app_status`; it preserves the original task route even if app discovery
+changes between calls. The older `app` plus `taskId` arguments remain accepted
+during migration.
+
 MCP hosts and gateways do not share one long tool-call timeout; some enforce a
 five-minute ceiling and others are configurable. Do not design an external
 agent integration around a ten-minute blocking `tools/call`. `ask-agent` and

@@ -528,6 +528,11 @@ Für schnelle ChatGPT/Claude-Übergaben ist der ideale Pfad direkt: Rufen Sie di
 
 ### Lang laufende Agent-Anfragen
 
+Wenn `ask_app` ein `taskHandle` zurückgibt, übergeben Sie diesen undurchsichtigen
+Wert unverändert an `ask_app_status`. Er bewahrt die ursprüngliche Task-Route,
+auch wenn sich die App-Erkennung zwischen Aufrufen ändert. Die älteren Argumente
+`app` und `taskId` bleiben während der Migration gültig.
+
 MCP-Hosts und -Gateways teilen sich kein einheitliches Zeitlimit für Tool-Aufrufe; manche erzwingen eine Obergrenze von fünf Minuten, andere sind konfigurierbar. Planen Sie eine externe Agentenintegration nicht um einen zehnminütigen, blockierenden `tools/call` herum. `ask-agent` und `ask_app` bestätigen gehostete Arbeit schnell und geben dann eine dauerhafte `taskId` zurück, sobald die Inline-Wartezeit abläuft. Fragen Sie mit `ask_app_status` unter Verwendung der zurückgegebenen `app` und `taskId` ab; das Ergebnis enthält `pollAfterMs` als host-freundliches Intervall. Die Aufgabe muss erstellt werden, bevor die erste Antwort in ein Timeout laufen kann – eine Polling-URL, die erst nach einem langen Aufruf zurückgegeben wird, ist kein zuverlässiger Recovery-Vertrag.
 
 Ist ein begrenzter, vorübergehender Statusabruf nicht verfügbar, kann
