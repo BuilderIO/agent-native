@@ -11,6 +11,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useRef, useState } from "react";
 
+import { dismissMeetingNotification } from "../lib/meeting-notification-dismissal";
 import {
   detectMeetingJoinProvider,
   joinProviderLabel,
@@ -308,6 +309,14 @@ export function MeetingNotification() {
     dataRef.current = null;
   }
 
+  function dismissNotification() {
+    const current = dataRef.current;
+    hideNotification();
+    if (current) {
+      void dismissMeetingNotification(current);
+    }
+  }
+
   async function takeNotes() {
     if (!data || pending) return;
     setPending(true);
@@ -447,7 +456,7 @@ export function MeetingNotification() {
         {showClose ? (
           <button
             className="meeting-notification-close"
-            onClick={hideNotification}
+            onClick={dismissNotification}
             aria-label="Dismiss"
             data-no-drag
           >

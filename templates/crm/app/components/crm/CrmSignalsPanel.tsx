@@ -4,8 +4,6 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
 import {
   IconCheck,
   IconExternalLink,
@@ -13,6 +11,9 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useState } from "react";
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface Signal {
   id: string;

@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  assistantMessageHasCompletedCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
@@ -136,6 +137,42 @@ describe("shouldShowMissingFinalResponse", () => {
         hasUnresolvedTool: false,
       }),
     ).toBe(false);
+    expect(
+      shouldShowMissingFinalResponse({
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        hasCompletedCustomUi: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasCompletedCustomUi", () => {
+  it("recognizes a completed action-declared renderer as a response", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+        {
+          type: "tool-call",
+          result: "done",
+          toolName: "list-todos",
+        },
+      ]),
+    ).toBe(false);
   });
 });
 
@@ -214,6 +251,16 @@ describe("isCollapsibleAssistantWorkPart", () => {
     ).toBe(true);
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
+
+  it("keeps custom UI outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "render-todo-list-inline",
+        chatUI: { renderer: "todo-demo.todo-list-inline" },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("getAssistantToolSummaryInfo", () => {
@@ -236,6 +283,27 @@ describe("getAssistantToolSummaryInfo", () => {
         { type: "tool-call", toolName: "read-file" },
         { type: "tool-call", toolName: "read-file" },
         { type: "tool-call", toolName: "read-file" },
+      ]),
+    ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
+  });
+
+  it("does not count a call-agent row shadowed by agent progress", () => {
+    expect(
+      getAssistantToolSummaryInfo([
+        {
+          type: "tool-call",
+          toolCallId: "call-analytics",
+          toolName: "call-agent",
+          args: { agent: "analytics" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "agent-analytics",
+          toolName: "agent:Analytics",
+          args: {},
+        },
+        { type: "tool-call", toolName: "query", args: {} },
+        { type: "tool-call", toolName: "summarize", args: {} },
       ]),
     ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
   });

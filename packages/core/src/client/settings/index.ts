@@ -25,3 +25,10 @@ export {
   type OpenBuilderConnectPopupOptions,
 } from "./useBuilderStatus.js";
 export { SecretsSection, type SecretsSectionProps } from "./SecretsSection.js";
+export {
+  normalizeSettingsSection,
+  settingsSectionDomId,
+  useSettingsPanelController,
+  type SettingsPanelController,
+  type SettingsPanelControllerOptions,
+} from "./useSettingsPanelController.js";

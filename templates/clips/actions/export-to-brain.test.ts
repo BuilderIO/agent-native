@@ -201,9 +201,34 @@ describe("export-to-brain", () => {
       expect.objectContaining({
         recordingId: "recording-1",
         status: "failed",
-        attempts: 0,
+        attempts: 1,
         reason: "missing-ingest-token",
         nextAttemptAt: expect.any(String),
+      }),
+    );
+  });
+
+  it("preserves the retry attempt when credentials are still missing", async () => {
+    mocks.getCredentialContext.mockReturnValue({
+      userEmail: "person@example.com",
+      orgId: "org-example",
+    });
+    mocks.resolveCredential.mockResolvedValue(undefined);
+
+    await action.run({
+      recordingId: recording.id,
+      lookbackDays: 28,
+      limit: 100,
+      concurrency: 4,
+      retryAttempt: 4,
+    });
+
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "clips-brain-export-recording-1",
+      expect.objectContaining({
+        status: "failed",
+        attempts: 4,
+        reason: "missing-ingest-url",
       }),
     );
   });

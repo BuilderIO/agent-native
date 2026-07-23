@@ -1,11 +1,3 @@
-import { Badge } from "@agent-native/toolkit/ui/badge";
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@agent-native/toolkit/ui/tabs";
 import {
   IconChecklist,
   IconExternalLink,
@@ -19,6 +11,9 @@ import { Link } from "react-router";
 
 import { CrmSignalsPanel } from "@/components/crm/CrmSignalsPanel";
 import { LoadingRows, SetupEmptyState } from "@/components/crm/Surface";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   asText,
   normalizeTasks,

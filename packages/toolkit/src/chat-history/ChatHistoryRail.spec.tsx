@@ -4,6 +4,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ActionButton, IconButton } from "../design-system/components.js";
+import { defineDesignSystem } from "../design-system/definition.js";
+import { ToolkitProvider } from "../provider.js";
 import type { ChatHistoryItem } from "./ChatHistoryList.js";
 import { ChatHistoryRail } from "./ChatHistoryRail.js";
 
@@ -134,5 +137,176 @@ describe("ChatHistoryRail", () => {
     );
     act(() => rows[5]?.click());
     expect(onSelect).toHaveBeenCalledWith("thread-6");
+  });
+
+  it("lets a design system replace the whole view without replacing its controller", () => {
+    const onNewChat = vi.fn();
+    const CustomActionButton = vi.fn(
+      ({ children, onPress }: Parameters<typeof ActionButton>[0]) => (
+        <button
+          data-acme-action
+          type="button"
+          onClick={(event) => onPress?.(event)}
+        >
+          {children}
+        </button>
+      ),
+    );
+    const designSystem = defineDesignSystem({
+      name: "Acme",
+      components: { ActionButton: CustomActionButton },
+    });
+
+    act(() => {
+      root.render(
+        <ToolkitProvider designSystem={designSystem}>
+          <ChatHistoryRail
+            items={makeItems(20)}
+            onSelect={() => {}}
+            onNewChat={onNewChat}
+            railLabels={railLabels}
+            renderRail={({ controller }) => (
+              <section data-acme-rail>
+                <output>{controller.visibleItems.length}</output>
+                <ActionButton onPress={controller.onNewChat}>
+                  {controller.newChatLabel}
+                </ActionButton>
+                <ActionButton onPress={controller.toggleExpanded}>
+                  {controller.disclosureLabel}
+                </ActionButton>
+              </section>
+            )}
+          />
+        </ToolkitProvider>,
+      );
+    });
+
+    const actions =
+      container.querySelectorAll<HTMLButtonElement>("[data-acme-action]");
+    expect(container.querySelector("[data-acme-rail]")).not.toBeNull();
+    expect(container.querySelector("output")?.textContent).toBe("5");
+    expect(actions[1]?.textContent).toBe("Show more chats");
+
+    act(() => actions[1]?.click());
+    expect(container.querySelector("output")?.textContent).toBe("15");
+    expect(actions[1]?.textContent).toBe("Show fewer chats");
+
+    act(() => actions[0]?.click());
+    expect(onNewChat).toHaveBeenCalledOnce();
+    expect(CustomActionButton).toHaveBeenCalled();
+  });
+
+  it("routes the default footer through the semantic action bridge", () => {
+    const onNewChat = vi.fn();
+    const CustomActionButton = vi.fn(
+      ({ children, onPress }: Parameters<typeof ActionButton>[0]) => (
+        <button
+          data-semantic-action
+          type="button"
+          onClick={(event) => onPress?.(event)}
+        >
+          {children}
+        </button>
+      ),
+    );
+    const CustomIconButton = vi.fn(
+      ({ icon, label, onPress }: Parameters<typeof IconButton>[0]) => (
+        <button
+          data-semantic-icon
+          type="button"
+          aria-label={label}
+          onClick={(event) => onPress?.(event)}
+        >
+          {icon}
+        </button>
+      ),
+    );
+    const designSystem = defineDesignSystem({
+      name: "Acme",
+      components: {
+        ActionButton: CustomActionButton,
+        IconButton: CustomIconButton,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <ToolkitProvider designSystem={designSystem}>
+          <ChatHistoryRail
+            items={makeItems(6)}
+            onSelect={() => {}}
+            onNewChat={onNewChat}
+            railLabels={railLabels}
+          />
+        </ToolkitProvider>,
+      );
+    });
+
+    const newChat = container.querySelector<HTMLButtonElement>(
+      "[data-semantic-action]",
+    );
+    const disclosure = container.querySelector<HTMLButtonElement>(
+      "[data-semantic-icon]",
+    );
+    expect(newChat).not.toBeNull();
+    expect(disclosure?.getAttribute("aria-label")).toBe("Show more chats");
+    expect(CustomActionButton.mock.calls[0]?.[0]).toMatchObject({
+      emphasis: "ghost",
+      size: "compact",
+      leadingIcon: expect.anything(),
+    });
+    expect(CustomIconButton.mock.calls[0]?.[0]).toMatchObject({
+      size: "compact",
+      "aria-expanded": false,
+      label: "Show more chats",
+    });
+
+    act(() => newChat?.click());
+    expect(onNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("keeps native button semantics and focus in the default view", () => {
+    const onNewChat = vi.fn();
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={makeItems(6)}
+          onSelect={() => {}}
+          onNewChat={onNewChat}
+          railLabels={railLabels}
+        />,
+      );
+    });
+
+    const newChat = container.querySelector<HTMLButtonElement>(
+      ".an-chat-history-rail__new-chat",
+    );
+    newChat?.focus();
+    act(() => newChat?.click());
+
+    expect(newChat?.type).toBe("button");
+    expect(document.activeElement).toBe(newChat);
+    expect(onNewChat).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the default rail when a product renderer fails", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    act(() => {
+      root.render(
+        <ChatHistoryRail
+          items={makeItems(6)}
+          onSelect={() => {}}
+          onNewChat={() => {}}
+          railLabels={railLabels}
+          renderRail={() => {
+            throw new Error("broken company rail");
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(".an-chat-history-rail__new-chat"),
+    ).not.toBeNull();
   });
 });
