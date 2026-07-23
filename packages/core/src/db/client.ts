@@ -1209,6 +1209,7 @@ async function createDbExecInternal(
       async function queryNeonClient(
         client: any,
         sql: Parameters<DbExec["execute"]>[0],
+        timeoutOverrideMs?: number,
       ) {
         const { rawSql, args } = sqlAndArgs(sql);
         const { timeoutMs } = dbExecQueryBudget(sql);
@@ -1220,7 +1221,7 @@ async function createDbExecInternal(
               rows: unknown[];
               rowCount?: number;
             }>,
-          timeoutMs,
+          timeoutOverrideMs ?? timeoutMs,
         );
         return {
           rows: result.rows,
@@ -1229,7 +1230,7 @@ async function createDbExecInternal(
       }
       return {
         async execute(sql) {
-          const { maxAttempts } = dbExecQueryBudget(sql);
+          const { timeoutMs, maxAttempts } = dbExecQueryBudget(sql);
           if (bgHttp) {
             // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
             // persistent socket to stall. queryNeonClient calls pool.query(),
@@ -1243,6 +1244,9 @@ async function createDbExecInternal(
             rows: unknown[];
             rowsAffected: number;
           }>(async () => {
+            const attemptStartedAt = Date.now();
+            const remainingAttemptMs = () =>
+              Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
             // Bound the pooled-connection ACQUIRE, not just the query below.
             // Neon's pooler can stall on `connect()` when cold or exhausted,
             // and that happens BEFORE `client.query`, so the query-level
@@ -1260,7 +1264,7 @@ async function createDbExecInternal(
                   if (acquireTimedOut) c.release();
                   return c;
                 }),
-              dbOpTimeoutMs(),
+              remainingAttemptMs(),
               () => {
                 acquireTimedOut = true;
               },
@@ -1273,7 +1277,11 @@ async function createDbExecInternal(
             };
 
             try {
-              const result = await queryNeonClient(client, sql);
+              const result = await queryNeonClient(
+                client,
+                sql,
+                remainingAttemptMs(),
+              );
               releaseClient();
               return result;
             } catch (err) {
