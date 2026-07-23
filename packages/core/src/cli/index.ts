@@ -272,15 +272,6 @@ function findViteBin(): string {
   return findBinUpwards("vite") ?? "vite";
 }
 
-/**
- * Resolve Vite's JS entry so it can be run as `node <flag> <entry>`. The
- * `node_modules/.bin/vite` shim is a shell script on POSIX (pnpm) and a `.CMD`
- * on Windows — neither is directly executable by `node` — so the inspect path
- * needs the real JS file. Vite's `exports` map blocks resolving `./bin/vite.js`
- * directly, so resolve `vite/package.json` (which is exported) and read its
- * `bin` field. Returns null if it cannot be resolved, in which case callers
- * fall back to spawning the shim without the debugger.
- */
 function findViteJsEntry(): string | null {
   try {
     const require = createRequire(path.join(process.cwd(), "package.json"));
@@ -407,13 +398,6 @@ function isWorkspaceRoot(): boolean {
   }
 }
 
-/**
- * Pull a Node `--inspect` / `--inspect-brk` flag (with optional `=[host:]port`)
- * out of a dev arg list. Vite does not understand it, so it is stripped from the
- * args and instead applied to the Vite child's `NODE_OPTIONS`. Setting it only
- * on the child avoids the parent `pnpm`/`agent-native` Node processes grabbing
- * the inspector port first.
- */
 function extractNodeInspectFlag(args: string[]): {
   inspectFlag: string | null;
   rest: string[];
@@ -603,16 +587,7 @@ switch (command) {
       run(vite, rest);
       break;
     }
-    // API route handlers do NOT run in the Vite process — Nitro runs them in a
-    // separate process spawned by env-runner's node-process runner. To make
-    // exactly that process (and nothing else in the pnpm/CLI/Vite chain)
-    // inspectable on a single known port, we:
-    //   1. select the node-process dev runner (so the server is a real,
-    //      attachable process rather than a worker thread), and
-    //   2. inject NODE_OPTIONS via a preload that runs INSIDE Vite before its
-    //      main module. Vite itself booted without --inspect so it never opens
-    //      an inspector, but the server process it later forks inherits the
-    //      flag and opens the only inspector — on <target>.
+    // Attach inspect flag to server process (not Vite or Nitro process)
     const parsed = inspectFlag.match(/^--(inspect(?:-brk)?)(?:=(.+))?$/);
     const kind = parsed?.[1] ?? "inspect";
     const target = parsed?.[2] ?? "9229";
