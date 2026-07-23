@@ -174,6 +174,12 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toMatch(
+      /databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
+    expect(source).toMatch(
+      /<DocumentBlockFields[\s\S]*?databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+    );
     expect(source).not.toContain("<DescriptionField");
     expect(source).not.toContain("<DocumentProperties");
   });

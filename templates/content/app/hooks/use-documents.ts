@@ -342,7 +342,9 @@ export function useUpdatePreviewDocumentDraft() {
         expectedTitle: string;
         expectedContent: string;
       }
-  >("update-preview-document-draft");
+  >("update-preview-document-draft", {
+    skipActionQueryInvalidation: true,
+  });
 }
 
 export function useCreateDocument() {
