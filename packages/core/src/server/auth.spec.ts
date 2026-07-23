@@ -901,6 +901,7 @@ describe("server/auth", () => {
 
       for (const path of [
         "/dispatch/_agent-native/integrations/process-task",
+        "/dispatch/_agent-native/integrations/retry-stuck-tasks",
         "/dispatch/_agent-native/integrations/process-a2a-continuation",
       ]) {
         const event = createMockEvent({ path });

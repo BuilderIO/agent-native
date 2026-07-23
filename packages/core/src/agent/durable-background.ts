@@ -85,6 +85,7 @@ export const AGENT_BACKGROUND_FUNCTION_URL_PATH = `/.netlify/functions/${AGENT_B
  */
 export const AGENT_BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor";
 export const AGENT_BACKGROUND_PROCESSOR_A2A = "a2a";
+export const AGENT_BACKGROUND_PROCESSOR_INTEGRATION = "integration";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE = "route";
 export const AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD =
   "__agentNativeProcessorRoute";

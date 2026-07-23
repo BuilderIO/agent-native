@@ -1740,6 +1740,12 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // External durable-recovery scheduler. The route verifies a short-lived
+    // HMAC token bound to its fixed sweep subject before touching the queue.
+    if (p === "/_agent-native/integrations/retry-stuck-tasks") {
+      return;
+    }
+
     // Internal processor endpoint for deferred A2A continuations created by
     // integration tasks. It uses the same HMAC internal-token scheme as the
     // primary integration processor, so it must bypass cookie/session auth.
