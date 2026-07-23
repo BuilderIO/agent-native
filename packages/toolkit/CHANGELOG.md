@@ -1,5 +1,12 @@
 # @agent-native/toolkit
 
+## 0.10.4
+
+### Patch Changes
+
+- 4b734be: Give `SharedRichEditor` Notion-style block grips by default and keep the caret
+  inside blocks created through the shared slash-command menu.
+
 ## 0.10.3
 
 ### Patch Changes
