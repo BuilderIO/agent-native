@@ -563,7 +563,6 @@ function UseBuilderCard({
 // ─── Manual setup card ──────────────────────────────────────────────────────
 
 function ManualSetupCard({
-  id,
   hint,
   docsUrl,
   docsLabel = "Read the docs",
@@ -571,7 +570,6 @@ function ManualSetupCard({
   dim,
   sourceBadge,
 }: {
-  id?: string;
   hint?: string;
   docsUrl?: string;
   docsLabel?: string;
@@ -585,7 +583,6 @@ function ManualSetupCard({
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
   return (
     <div
-      id={id}
       className={cn(
         "rounded-md border border-border",
         isPage ? "px-3.5 py-3" : "px-2.5 py-2",
@@ -1149,11 +1146,11 @@ function LLMSectionInner({
             </Button>
           )}
           {(!builderConnected || manualSetupOpen) && (
-            <ManualSetupCard
-              id="llm-manual-setup"
-              hint={manualSetupHint}
-              sourceBadge={builderConnected ? undefined : sourceBadge}
-            >
+            <div id="llm-manual-setup">
+              <ManualSetupCard
+                hint={manualSetupHint}
+                sourceBadge={builderConnected ? undefined : sourceBadge}
+              >
               <div className="space-y-2 mb-1">
                 <SettingsSelect
                   label="Provider"
@@ -1447,7 +1444,8 @@ function LLMSectionInner({
                   </p>
                 )}
               </div>
-            </ManualSetupCard>
+              </ManualSetupCard>
+            </div>
           )}
         </div>
       )}
