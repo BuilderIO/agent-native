@@ -46,6 +46,8 @@ export {
   closeDbExec,
   type DbExec,
   type DbExecConfig,
+  type DbExecQuery,
+  type DbExecStatement,
   type Dialect,
 } from "./client.js";
 export { table, text, integer, now } from "./schema.js";

@@ -472,6 +472,18 @@ describe("slackAdapter", () => {
       "fetch",
       vi.fn((url: string) => {
         const parsed = new URL(String(url));
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ ok: true, team_id: "T123", bot_id: "B123" }),
+            ),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ ok: true, bot: { app_id: "A123" } })),
+          );
+        }
         expect(parsed.pathname).toBe("/api/chat.getPermalink");
         expect(parsed.searchParams.get("channel")).toBe("C123");
         expect(parsed.searchParams.get("message_ts")).toBe("111.222");
@@ -508,19 +520,29 @@ describe("slackAdapter", () => {
 
   it("ignores non-Slack permalink responses", async () => {
     process.env.NODE_ENV = "development";
-    process.env.SLACK_BOT_TOKEN = "slack-token-example";
+    process.env.SLACK_BOT_TOKEN = "slack-token-invalid-example";
     process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              ok: true,
-              permalink: "https://example.invalid/archives/C123/p123456",
-            }),
-          ),
-      ),
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T123", bot_id: "B123" }),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return new Response(
+            JSON.stringify({ ok: true, bot: { app_id: "A123" } }),
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            permalink: "https://example.invalid/archives/C123/p123456",
+          }),
+        );
+      }),
     );
 
     const parsed = await slackAdapter().parseIncomingMessage(slackEvent());
@@ -557,6 +579,40 @@ describe("slackAdapter", () => {
     );
     expect(authorizations).toContain("Bearer managed-token");
     expect(authorizations).not.toContain("Bearer legacy-token");
+  });
+
+  it("does not let a legacy token from another Slack app answer the event", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_BOT_TOKEN = "fusion-token-example";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    process.env.SLACK_ALLOWED_API_APP_IDS = "A123";
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        const parsed = new URL(url);
+        calls.push(parsed.pathname);
+        if (parsed.pathname.endsWith("/auth.test")) {
+          return new Response(
+            JSON.stringify({ ok: true, team_id: "T123", bot_id: "BFUSION" }),
+          );
+        }
+        if (parsed.pathname.endsWith("/bots.info")) {
+          return new Response(
+            JSON.stringify({ ok: true, bot: { app_id: "AFUSION" } }),
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }));
+      }),
+    );
+
+    const adapter = slackAdapter();
+    const parsed = await adapter.parseIncomingMessage(slackEvent());
+
+    await expect(
+      adapter.sendResponse({ text: "done", platformContext: {} }, parsed!),
+    ).rejects.toThrow("no Slack bot token is configured");
+    expect(calls).toEqual(["/api/auth.test", "/api/bots.info"]);
   });
 
   it("hydrates bounded thread context, reactions, file references, and trust", async () => {

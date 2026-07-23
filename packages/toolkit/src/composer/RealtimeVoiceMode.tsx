@@ -10,10 +10,12 @@ import {
 import {
   IconAlertTriangle,
   IconBrain,
+  IconKey,
   IconLanguage,
   IconLoader2,
   IconMicrophone,
   IconPhoneOff,
+  IconPlugConnected,
   IconSettings,
   IconVolume,
 } from "@tabler/icons-react";
@@ -225,63 +227,55 @@ export function RealtimeVoiceModeEntry({
         collisionPadding={16}
         data-collision-boundary={collisionBoundary ? "agent-panel" : "viewport"}
         className={cn(
-          setupRequired ? "p-4" : "p-3",
+          setupRequired ? "p-3.5" : "p-3",
           setupRequired
-            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]"
+            ? "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,24rem),24rem)]"
             : "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,18rem),18rem)]",
         )}
         aria-labelledby={titleId}
         aria-describedby={setupRequired ? descriptionId : undefined}
       >
-        <div className={cn("grid", setupRequired ? "gap-3" : "gap-2.5")}>
-          <div className="grid gap-1">
-            <h2 id={titleId} className="text-sm font-semibold text-foreground">
-              {setupRequired ? copy.setupTitle : copy.promptTitle}
-            </h2>
+        <div className={cn("grid", setupRequired ? "gap-3.5" : "gap-2.5")}>
+          <div
+            className={cn(
+              setupRequired ? "flex items-start gap-3" : "grid gap-1",
+            )}
+          >
             {setupRequired ? (
-              <p
-                id={descriptionId}
-                className="text-sm leading-relaxed text-muted-foreground"
-              >
-                {copy.setupDescription}
-              </p>
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <IconMicrophone aria-hidden="true" />
+              </div>
             ) : null}
+            <div className="grid gap-1">
+              <h2
+                id={titleId}
+                className="text-sm font-semibold leading-5 text-foreground"
+              >
+                {setupRequired ? copy.setupTitle : copy.promptTitle}
+              </h2>
+              {setupRequired ? (
+                <p
+                  id={descriptionId}
+                  className="text-xs leading-5 text-muted-foreground"
+                >
+                  {copy.setupDescription}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div
             className={cn(
-              "gap-2",
-              setupRequired
-                ? "flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-end"
-                : "grid",
+              "grid gap-2",
+              setupRequired ? "rounded-lg bg-muted/30 p-1" : null,
             )}
           >
             {setupRequired ? (
               <>
                 <Button
                   type="button"
-                  variant="ghost"
                   size="sm"
-                  onClick={() => choose("dictation", onKeepDictating)}
-                >
-                  {copy.keepDictating}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    choose("realtime", onUseOpenAiKey ?? onStartVoiceMode)
-                  }
-                >
-                  {openAiConfigured
-                    ? copy.startWithOpenAiKey
-                    : copy.useOpenAiKey}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="whitespace-nowrap"
+                  className="w-full justify-start px-3"
                   disabled={connectingBuilder}
                   onClick={() =>
                     choose("realtime", onConnectBuilder ?? onStartVoiceMode)
@@ -289,8 +283,34 @@ export function RealtimeVoiceModeEntry({
                 >
                   {connectingBuilder ? (
                     <IconLoader2 className="animate-spin" />
-                  ) : null}
+                  ) : (
+                    <IconPlugConnected aria-hidden="true" />
+                  )}
                   {copy.connectBuilder}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-start bg-background px-3"
+                  onClick={() =>
+                    choose("realtime", onUseOpenAiKey ?? onStartVoiceMode)
+                  }
+                >
+                  <IconKey aria-hidden="true" />
+                  {openAiConfigured
+                    ? copy.startWithOpenAiKey
+                    : copy.useOpenAiKey}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start px-3 text-muted-foreground"
+                  onClick={() => choose("dictation", onKeepDictating)}
+                >
+                  <IconMicrophone aria-hidden="true" />
+                  {copy.keepDictating}
                 </Button>
               </>
             ) : (
@@ -382,9 +402,14 @@ export interface RealtimeVoiceModeInlineSettings {
 const SILENT_AUDIO_LEVELS = createRealtimeVoiceAudioLevelStore();
 const WAVEFORM_WEIGHTS = [0.55, 0.82, 1, 0.82, 0.55];
 const AUDIO_ACTIVITY_THRESHOLD = 0.1;
+const WORKING_GLOW_HOLD_MS = 800;
 
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false);
+  const [reduced, setReduced] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
+  );
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -697,6 +722,9 @@ export function RealtimeVoiceModeDock({
   const controlsId = useId();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [workingGlowHeld, setWorkingGlowHeld] = useState(state === "working");
+  const glowRef = useRef<HTMLSpanElement>(null);
+  const glowAnimationRef = useRef<Animation | null>(null);
   const selectInteractionRef = useRef(false);
   const selectInteractionFrameRef = useRef<number | null>(null);
   const levels = useSyncExternalStore(
@@ -724,6 +752,59 @@ export function RealtimeVoiceModeDock({
   const errorDetailVisible = state === "error" && Boolean(errorMessage);
   const controlsVisible = controlsOpen || settingsOpen;
   const chatPanelTranslation = useChatPanelTranslation(chatVisible);
+  const workingGlowActive = state === "working" || workingGlowHeld;
+
+  useEffect(() => {
+    if (state === "working") {
+      setWorkingGlowHeld(true);
+      return;
+    }
+    if (!workingGlowHeld) return;
+    const timer = window.setTimeout(
+      () => setWorkingGlowHeld(false),
+      WORKING_GLOW_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [state, workingGlowHeld]);
+
+  useEffect(() => {
+    if (!connected || reducedMotion || !glowRef.current) {
+      glowAnimationRef.current?.cancel();
+      glowAnimationRef.current = null;
+      return;
+    }
+
+    const animation = glowRef.current.animate(
+      [
+        { "--agent-realtime-voice-angle": "0deg" },
+        { "--agent-realtime-voice-angle": "360deg" },
+      ] as Keyframe[],
+      {
+        duration: 12_000,
+        easing: "linear",
+        iterations: Number.POSITIVE_INFINITY,
+      },
+    );
+    glowAnimationRef.current = animation;
+
+    return () => {
+      animation.cancel();
+      if (glowAnimationRef.current === animation) {
+        glowAnimationRef.current = null;
+      }
+    };
+  }, [connected, reducedMotion]);
+
+  useEffect(() => {
+    const animation = glowAnimationRef.current;
+    if (!animation) return;
+    const playbackRate = workingGlowActive ? 2.4 : 1;
+    if (typeof animation.updatePlaybackRate === "function") {
+      animation.updatePlaybackRate(playbackRate);
+    } else {
+      animation.playbackRate = playbackRate;
+    }
+  }, [workingGlowActive]);
 
   const handleSelectOpenChange = useCallback((open: boolean) => {
     if (selectInteractionFrameRef.current !== null) {
@@ -900,9 +981,21 @@ export function RealtimeVoiceModeDock({
               className={cn(
                 "relative isolate size-16 overflow-visible rounded-full ring-1 backdrop-blur-xl transition-transform duration-150 ease-out focus-visible:ring-offset-2 active:scale-[0.97] motion-reduce:transition-none",
                 ORB_STATE_CLASSES[state],
-                state === "working" && "agent-realtime-voice-working",
               )}
             >
+              {connected ? (
+                <span
+                  ref={glowRef}
+                  aria-hidden="true"
+                  data-realtime-voice-glow="true"
+                  className={cn(
+                    "agent-realtime-voice-glow",
+                    workingGlowActive && "agent-realtime-voice-working",
+                  )}
+                >
+                  <span className="agent-realtime-voice-edge-light" />
+                </span>
+              ) : null}
               <span className="relative z-10 flex items-center justify-center">
                 {state === "connecting" ? (
                   <VoiceConnectingIndicator />

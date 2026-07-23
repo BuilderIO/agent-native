@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import {
   A2ATaskTimeoutError,
   callAgent,
@@ -271,8 +272,15 @@ export async function run(
       : undefined;
 
   if (action) {
+    const agentCallId = randomUUID();
+    const startedAt = Date.now();
     if (context?.send) {
-      context.send({ type: "agent_call", agent: agent.name, status: "start" });
+      context.send({
+        type: "agent_call",
+        agent: agent.name,
+        status: "start",
+        agentCallId,
+      });
     }
     try {
       const output = await invokeReadOnlyAppAction(
@@ -281,10 +289,24 @@ export async function run(
         input as Record<string, unknown>,
         buildDelegationCorrelation(context, selfAppId, randomUUID()),
       );
+      if (context?.send && output) {
+        context.send({
+          type: "agent_call_text",
+          agent: agent.name,
+          text: output,
+          agentCallId,
+        });
+      }
       return output;
     } finally {
       if (context?.send) {
-        context.send({ type: "agent_call", agent: agent.name, status: "done" });
+        context.send({
+          type: "agent_call",
+          agent: agent.name,
+          status: "done",
+          agentCallId,
+          durationMs: Date.now() - startedAt,
+        });
       }
     }
   }
@@ -363,6 +385,7 @@ export async function run(
 
       let responseText = "";
       let lastSentLength = 0;
+      const agentCallId = randomUUID();
       const existingContinuationText = taskId
         ? null
         : await formatExistingIntegrationContinuationIfRetry(agent, message);
@@ -372,6 +395,7 @@ export async function run(
         type: "agent_call",
         agent: agent.name,
         status: "start",
+        agentCallId,
       });
 
       const emitNewText = (newText: string) => {
@@ -380,6 +404,7 @@ export async function run(
             type: "agent_call_text",
             agent: agent.name,
             text: newText.slice(lastSentLength),
+            agentCallId,
           });
           lastSentLength = newText.length;
         }
@@ -395,9 +420,10 @@ export async function run(
       // time we get to the sync fallback, Lambda is dead and the second fetch
       // errors out as "fetch failed". Async+poll has its own short fetches
       // with their own budgets, so it works reliably across hosts. The
-      // trade-off is we lose progressive in-UI text streaming for cross-app
-      // A2A calls, but the receiving agent's full response still surfaces via
-      // the tool_result event below.
+      // trade-off is that cross-app activity arrives at the poll cadence rather
+      // than token-by-token. Agent Native peers attach their current reasoning,
+      // tool status, and response preview to each task checkpoint, and the
+      // receiver's full response still surfaces below.
       //
       // That trade-off has a second-order cost: callAgent()'s poll (see
       // A2AClient.sendAndWait in a2a/client.ts) can legitimately run for
@@ -443,11 +469,29 @@ export async function run(
       // Terminal states resolve the poll; "input-required" means the remote is
       // blocked waiting on us, not making progress. Only actively-working
       // states count as liveness worth surfacing.
-      const ACTIVELY_WORKING_STATES = new Set(["working", "submitted"]);
+      const ACTIVELY_WORKING_STATES = new Set([
+        "working",
+        "submitted",
+        "processing",
+      ]);
       const callStartedAt = Date.now();
       let lastProgressEmitAt = callStartedAt;
+      let lastActivitySequence = -1;
       const onRemotePollUpdate = (task: Task) => {
         const state = task?.status?.state;
+        const parts = task.status?.message?.parts;
+        const snapshot = Array.isArray(parts)
+          ? parts.map(parseA2AAgentActivityPart).find((value) => value !== null)
+          : undefined;
+        if (snapshot && snapshot.sequence > lastActivitySequence) {
+          lastActivitySequence = snapshot.sequence;
+          context.send!({
+            type: "agent_call_activity",
+            agent: agent.name,
+            agentCallId,
+            snapshot,
+          });
+        }
         if (!state || !ACTIVELY_WORKING_STATES.has(state)) return;
         const now = Date.now();
         if (now - lastProgressEmitAt < PROGRESS_MIN_INTERVAL_MS) return;
@@ -458,6 +502,7 @@ export async function run(
           agent: agent.name,
           state,
           elapsedSeconds: Math.round((now - callStartedAt) / 1000),
+          agentCallId,
           ...(detail ? { detail } : {}),
         });
       };
@@ -545,6 +590,8 @@ export async function run(
         type: "agent_call",
         agent: agent.name,
         status: "done",
+        agentCallId,
+        durationMs: Date.now() - callStartedAt,
       });
 
       return responseText || "(empty response)";
@@ -714,7 +761,7 @@ async function enqueueIntegrationContinuationIfPossible(
 const MAX_PROGRESS_DETAIL_CHARS = 200;
 function extractRemoteProgressDetail(task: Task): string | undefined {
   const parts = task.status?.message?.parts;
-  if (!parts) return undefined;
+  if (!Array.isArray(parts)) return undefined;
   const text = parts
     .filter((p): p is { type: "text"; text: string } => p.type === "text")
     .map((p) => p.text)

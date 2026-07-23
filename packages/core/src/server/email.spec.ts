@@ -4,6 +4,7 @@ import { sendEmail } from "./email";
 
 describe("sendEmail", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -94,5 +95,39 @@ describe("sendEmail", () => {
         content_id: "dashboard_png",
       },
     ]);
+  });
+
+  it("aborts provider requests at the caller's delivery deadline", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent Native <reports@example.com>");
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (_url: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            requestSignal = init?.signal ?? undefined;
+            requestSignal?.addEventListener(
+              "abort",
+              () => reject(requestSignal?.reason),
+              { once: true },
+            );
+          }),
+      ),
+    );
+
+    const pending = expect(
+      sendEmail({
+        to: "reader@example.com",
+        subject: "Dashboard",
+        html: "<p>Report</p>",
+        timeoutMs: 25,
+      }),
+    ).rejects.toThrow("Email send timed out after 25ms");
+    await vi.advanceTimersByTimeAsync(25);
+
+    await pending;
+    expect(requestSignal?.aborted).toBe(true);
   });
 });

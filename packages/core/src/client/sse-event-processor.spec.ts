@@ -673,6 +673,159 @@ describe("SSE replay render pacing", () => {
       },
     ]);
   });
+
+  it("marks synthetic agent-call cards as presentation-only activity", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            id: "call-analytics",
+            tool: "call-agent",
+            input: { agent: "analytics", message: "Count signups" },
+          },
+          { type: "agent_call", agent: "Analytics", status: "start" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results[1].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+      }),
+      expect.objectContaining({
+        toolName: "agent:Analytics",
+        activity: true,
+      }),
+    ]);
+  });
+
+  it("correlates concurrent same-name agent activity by call id", async () => {
+    const snapshot = {
+      kind: "agent-native/agent-activity",
+      version: 1,
+      sequence: 1,
+      startedAt: 1_000,
+      updatedAt: 2_000,
+      durationMs: 1_000,
+      activePhase: "tool",
+      reasoning: [],
+      toolCalls: [{ id: "query-1", name: "query-data", status: "running" }],
+    };
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-a",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            status: "start",
+          },
+          {
+            type: "agent_call_activity",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            snapshot,
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            status: "done",
+            durationMs: 1_000,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    const agentRows = results
+      .at(-1)
+      ?.content.filter((part: any) => part.toolName === "agent:Analytics");
+    expect(agentRows).toEqual([
+      expect.objectContaining({
+        toolCallId: "analytics-a",
+        result: "Stopped before this action started.",
+        isError: true,
+      }),
+      expect.objectContaining({
+        toolCallId: "analytics-b",
+        result: "Done",
+        structuredMeta: {
+          agentActivity: snapshot,
+          agentDurationMs: 1_000,
+        },
+      }),
+    ]);
+  });
+
+  it("stores generic A2A progress on only the matching agent call", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-a",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            status: "start",
+          },
+          {
+            type: "agent_call_progress",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            state: "working",
+            elapsedSeconds: 30,
+            detail: "Querying the warehouse",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    const agentRows = results[2]?.content.filter(
+      (part: any) => part.toolName === "agent:Analytics",
+    );
+    expect(agentRows).toHaveLength(2);
+    expect(agentRows?.[0]).toEqual(
+      expect.objectContaining({ toolCallId: "analytics-a" }),
+    );
+    expect(agentRows?.[0]).not.toHaveProperty("structuredMeta");
+    expect(agentRows?.[1]).toEqual(
+      expect.objectContaining({
+        toolCallId: "analytics-b",
+        structuredMeta: {
+          agentProgress: {
+            state: "working",
+            elapsedSeconds: 30,
+            detail: "Querying the warehouse",
+          },
+        },
+      }),
+    );
+  });
 });
 
 describe("SSE event processor no-progress recovery", () => {
@@ -2664,6 +2817,45 @@ describe("SSE event processor error classification", () => {
         text: "The agent completed the generate design action, but stopped before sending a final message. Review the completed tool card above or ask the agent to continue.",
       },
     ]);
+  });
+
+  it("treats a completed custom UI as the final response", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "render-todo-list-inline",
+            input: {},
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          {
+            type: "tool_done",
+            tool: "render-todo-list-inline",
+            result: '{"ok":true}',
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-custom-ui",
+        undefined,
+        "run-custom-ui",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "render-todo-list-inline",
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        }),
+      ],
+    });
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
   });
 
   it("does not add a missing-final warning when text arrives after the last completed tool", async () => {

@@ -89,9 +89,28 @@ const copy: RealtimeVoiceModeCopy = {
 describe("RealtimeVoiceMode", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let animate: ReturnType<typeof vi.fn>;
+  let cancelGlowAnimation: ReturnType<typeof vi.fn>;
+  let updateGlowPlaybackRate: ReturnType<typeof vi.fn>;
+  let originalAnimate: typeof HTMLElement.prototype.animate | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    originalAnimate = HTMLElement.prototype.animate;
+    cancelGlowAnimation = vi.fn();
+    updateGlowPlaybackRate = vi.fn();
+    animate = vi.fn(
+      () =>
+        ({
+          cancel: cancelGlowAnimation,
+          playbackRate: 1,
+          updatePlaybackRate: updateGlowPlaybackRate,
+        }) as unknown as Animation,
+    );
+    Object.defineProperty(HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: animate,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -100,6 +119,14 @@ describe("RealtimeVoiceMode", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    if (originalAnimate) {
+      Object.defineProperty(HTMLElement.prototype, "animate", {
+        configurable: true,
+        value: originalAnimate,
+      });
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "animate");
+    }
     vi.unstubAllGlobals();
   });
 
@@ -291,22 +318,21 @@ describe("RealtimeVoiceMode", () => {
     expect(document.body.textContent).toContain("Set up voice mode");
     const prompt = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(prompt?.className).toContain(
-      "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,30rem),30rem)]",
+      "w-[min(calc(100vw-2rem),var(--radix-popover-content-available-width,24rem),24rem)]",
     );
     expect(prompt?.dataset.collisionBoundary).toBe("agent-panel");
     const actions = Array.from(prompt?.querySelectorAll("div") ?? []).find(
-      (element) => element.className.includes("sm:flex-row"),
+      (element) => element.className.includes("bg-muted/30"),
     );
     const actionClasses = actions?.className.split(/\s+/) ?? [];
-    expect(actionClasses).toContain("sm:flex-wrap");
-    expect(actionClasses).not.toContain("sm:flex-nowrap");
+    expect(actionClasses).toContain("grid");
+    expect(actionClasses).toContain("rounded-lg");
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
     expect(
-      buttons.find((button) => button.textContent === "Connect Builder.io")
-        ?.className,
-    ).toContain("whitespace-nowrap");
+      buttons.find((button) => button.textContent === "Connect Builder.io"),
+    ).toBeDefined();
     act(() =>
       buttons
         .find((button) => button.textContent === "Connect Builder.io")
@@ -766,7 +792,31 @@ describe("RealtimeVoiceMode", () => {
     },
   );
 
-  it("shines only while the agent is working", () => {
+  it.each(["listening", "speaking"] as const)(
+    "keeps a soft session glow while %s",
+    (state) => {
+      render(
+        <RealtimeVoiceModeDock
+          state={state}
+          copy={copy}
+          chatVisible={false}
+          onToggleChat={vi.fn()}
+          onEndVoiceMode={vi.fn()}
+        />,
+      );
+      expect(
+        document.querySelector(".agent-realtime-voice-glow"),
+      ).not.toBeNull();
+      expect(
+        document.querySelector(".agent-realtime-voice-edge-light"),
+      ).not.toBeNull();
+      expect(
+        document.querySelector(".agent-realtime-voice-working"),
+      ).toBeNull();
+    },
+  );
+
+  it("brightens the live glow while working", () => {
     render(
       <RealtimeVoiceModeDock
         state="working"
@@ -776,10 +826,14 @@ describe("RealtimeVoiceMode", () => {
         onEndVoiceMode={vi.fn()}
       />,
     );
+    expect(document.querySelector(".agent-realtime-voice-glow")).not.toBeNull();
     expect(
       document.querySelector(".agent-realtime-voice-working"),
     ).not.toBeNull();
+  });
 
+  it("changes glow speed without restarting or jumping its rotation", () => {
+    vi.useFakeTimers();
     render(
       <RealtimeVoiceModeDock
         state="listening"
@@ -789,8 +843,76 @@ describe("RealtimeVoiceMode", () => {
         onEndVoiceMode={vi.fn()}
       />,
     );
-    expect(document.querySelector(".agent-realtime-voice-working")).toBeNull();
+    const glow = document.querySelector('[data-realtime-voice-glow="true"]');
+
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(animate).toHaveBeenCalledWith(
+      [
+        { "--agent-realtime-voice-angle": "0deg" },
+        { "--agent-realtime-voice-angle": "360deg" },
+      ],
+      {
+        duration: 12_000,
+        easing: "linear",
+        iterations: Number.POSITIVE_INFINITY,
+      },
+    );
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(1);
+
+    render(
+      <RealtimeVoiceModeDock
+        state="working"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector('[data-realtime-voice-glow="true"]')).toBe(
+      glow,
+    );
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(cancelGlowAnimation).not.toHaveBeenCalled();
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(2.4);
+
+    render(
+      <RealtimeVoiceModeDock
+        state="speaking"
+        copy={copy}
+        chatVisible={false}
+        onToggleChat={vi.fn()}
+        onEndVoiceMode={vi.fn()}
+      />,
+    );
+
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(cancelGlowAnimation).not.toHaveBeenCalled();
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(2.4);
+
+    act(() => vi.advanceTimersByTime(800));
+    expect(updateGlowPlaybackRate).toHaveBeenLastCalledWith(1);
+    vi.useRealTimers();
   });
+
+  it.each(["connecting", "error", "ending"] as const)(
+    "does not show the live glow while %s",
+    (state) => {
+      render(
+        <RealtimeVoiceModeDock
+          state={state}
+          copy={copy}
+          chatVisible={false}
+          onToggleChat={vi.fn()}
+          onEndVoiceMode={vi.fn()}
+        />,
+      );
+      expect(document.querySelector(".agent-realtime-voice-glow")).toBeNull();
+      expect(
+        document.querySelector(".agent-realtime-voice-working"),
+      ).toBeNull();
+    },
+  );
 
   it("shows an unmistakable loader and ignores early audio until connected", () => {
     const audioLevels = createRealtimeVoiceAudioLevelStore();

@@ -113,12 +113,14 @@
   justify-content: center;
   flex: 0 0 auto;
   width: 30px;
+  height: auto;
   min-height: 30px;
 }
 
 .an-chat-history-rail__new-chat {
   flex: 1 1 auto;
   gap: 8px;
+  height: auto;
   min-width: 0;
   min-height: 30px;
   padding: 6px 10px;
@@ -209,7 +211,7 @@
   white-space: nowrap;
   font-size: 12px;
   font-weight: 500;
-  color: hsl(var(--foreground));
+  color: hsl(var(--muted-foreground));
 }
 
 .an-chat-history-row--active .an-chat-history-row__title {
@@ -225,7 +227,7 @@
 .an-chat-history--rail
   .an-chat-history-row--pinned:not(.an-chat-history-row--active)
   .an-chat-history-row__title {
-  color: hsl(var(--foreground));
+  color: hsl(var(--muted-foreground));
 }
 
 .an-chat-history-row__timestamp {

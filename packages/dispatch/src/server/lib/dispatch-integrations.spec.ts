@@ -5,12 +5,23 @@ const mocks = vi.hoisted(() => ({
   resolveLinkedOwner: vi.fn(),
   resolveOrgIdForEmail: vi.fn(),
   resolveSecret: vi.fn(),
+  resolveSlackBotTokenForIncoming: vi.fn(),
 }));
 
 vi.mock("./dispatch-store.js", () => ({
   consumeLinkToken: mocks.consumeLinkToken,
   resolveLinkedOwner: mocks.resolveLinkedOwner,
 }));
+
+vi.mock("@agent-native/core/integrations", async () => {
+  const actual = await vi.importActual<
+    typeof import("@agent-native/core/integrations")
+  >("@agent-native/core/integrations");
+  return {
+    ...actual,
+    resolveSlackBotTokenForIncoming: mocks.resolveSlackBotTokenForIncoming,
+  };
+});
 
 vi.mock("@agent-native/core/org", () => ({
   resolveOrgIdForEmail: mocks.resolveOrgIdForEmail,
@@ -106,6 +117,7 @@ beforeEach(() => {
   mocks.resolveLinkedOwner.mockResolvedValue(null);
   mocks.consumeLinkToken.mockResolvedValue("owner@example.test");
   mocks.resolveOrgIdForEmail.mockResolvedValue(null);
+  mocks.resolveSlackBotTokenForIncoming.mockResolvedValue(null);
   mocks.resolveSecret.mockImplementation(
     async (key: string) => process.env[key] ?? null,
   );
@@ -145,6 +157,7 @@ describe("resolveDispatchOwner", () => {
 
   it("uses the verified Slack email for org members", async () => {
     vi.stubEnv("SLACK_BOT_TOKEN", "xoxb-token");
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce("xoxb-token");
     mocks.resolveSecret.mockResolvedValueOnce(null);
     mocks.resolveOrgIdForEmail.mockResolvedValueOnce("org_123");
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
@@ -170,6 +183,9 @@ describe("resolveDispatchOwner", () => {
   });
 
   it("uses the request-scoped Slack token when no env token exists", async () => {
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "configured-slack-token",
+    );
     mocks.resolveSecret.mockResolvedValueOnce("configured-slack-token");
     mocks.resolveOrgIdForEmail.mockResolvedValueOnce("org_123");
     vi.mocked(globalThis.fetch).mockResolvedValueOnce(
@@ -191,12 +207,34 @@ describe("resolveDispatchOwner", () => {
         }),
       ),
     ).resolves.toBe("member@example.test");
-    expect(mocks.resolveSecret).toHaveBeenCalledWith("SLACK_BOT_TOKEN");
+    expect(mocks.resolveSlackBotTokenForIncoming).toHaveBeenCalledWith(
+      expect.objectContaining({ senderId: "U999" }),
+    );
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "https://slack.com/api/users.info?user=U999",
       {
         headers: { Authorization: "Bearer configured-slack-token" },
       },
+    );
+  });
+
+  it("does not resolve a sender with a legacy token from another Slack app", async () => {
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(null);
+
+    const incoming = slackIncoming({
+      platformContext: {
+        teamId: "T123",
+        apiAppId: "A123",
+        channelId: "C1",
+      },
+    });
+
+    const owner = await resolveDispatchOwner(incoming);
+
+    expect(owner).toMatch(/@integration\.local$/);
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      "https://slack.com/api/users.info?user=U123",
+      expect.anything(),
     );
   });
 

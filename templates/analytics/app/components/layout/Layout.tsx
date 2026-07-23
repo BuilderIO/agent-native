@@ -2,6 +2,7 @@ import {
   AgentSidebar,
   GuidedQuestionFlow,
   focusAgentChat,
+  markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
@@ -22,10 +23,6 @@ import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
 import { HeaderActionsProvider } from "./HeaderActions";
-import {
-  isAnalyticsSessionsRoute,
-  shouldDefaultOpenAnalyticsSidebar,
-} from "./layout-route-policy";
 import { MobileNav } from "./MobileNav";
 import { Sidebar } from "./Sidebar";
 
@@ -94,7 +91,6 @@ export function Layout({ children }: LayoutProps) {
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
-  const isSessionsRoute = isAnalyticsSessionsRoute(location.pathname);
   const isSessionDetailRoute = /^\/sessions\/[^/]+/.test(location.pathname);
   // Monitoring renders its own header row (section tabs / "Back to monitors"
   // + the relocated agent toggle), so skip the framework Header to avoid a
@@ -112,20 +108,23 @@ export function Layout({ children }: LayoutProps) {
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     chatPath: "/ask",
     enabled: !reportScreenshot,
-    requireActiveHandoff: false,
+    requireActiveHandoff: true,
   });
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
-      if (typeof detail?.isRunning === "boolean") {
+      if (isAskRoute && typeof detail?.isRunning === "boolean") {
         markAnalyticsChatActivity();
+        if (detail.isRunning === true) {
+          markAgentChatHomeHandoff(ANALYTICS_CHAT_STORAGE_KEY);
+        }
       }
     }
 
     window.addEventListener("agentNative.chatRunning", handleChatRunning);
     return () =>
       window.removeEventListener("agentNative.chatRunning", handleChatRunning);
-  }, []);
+  }, [isAskRoute]);
 
   function openAskAgentFullscreen() {
     focusAgentChat();
@@ -194,14 +193,11 @@ export function Layout({ children }: LayoutProps) {
         ) : (
           <AgentSidebar
             position="right"
-            defaultOpen={
-              chatHomeHandoffActive &&
-              shouldDefaultOpenAnalyticsSidebar(location.pathname)
-            }
+            defaultOpen={false}
             chatViewTransition
             storageKey={ANALYTICS_CHAT_STORAGE_KEY}
             browserTabId={TAB_ID}
-            openOnChatRunning={chatHomeHandoffActive && !isSessionsRoute}
+            openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.emptyState")}
             agentPageHref="/agent"

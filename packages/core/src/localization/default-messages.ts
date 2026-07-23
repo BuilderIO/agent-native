@@ -18,6 +18,7 @@ const messages = {
   },
   settings: {
     title: "Settings",
+    pageTitle: "Settings",
     description: "Language and workspace preferences for this app.",
     languageTitle: "Language",
     languageDescription:
@@ -32,6 +33,10 @@ const messages = {
     openTeamSettings: "Open team settings",
     openResourceSettings: "Open resource settings",
     backHome: "Back to home",
+    mcpConnectionsTitle: "MCP connections",
+    mcpConnectionsDescription:
+      "Connect remote MCP servers so the agent can use their tools.",
+    openMcpConnections: "Manage MCP connections",
     profileTitle: "Account",
     profileDescription: "Your name, profile photo, and signed-in identity.",
     profileLoading: "Loading...",
@@ -332,6 +337,13 @@ const messages = {
     addOwnKeys: "Add your own keys",
     configureProviderKeys: "Configure Anthropic, OpenAI, or another provider",
     checkingAiConnection: "Checking AI connection...",
+    connectionUnavailable: "Unable to check AI connection. Click to retry.",
+    delegatedAgent: {
+      asking: "Asking {{name}}...",
+      asked: "Asked {{name}}",
+      error: "Error asking {{name}}",
+      elapsed: "{{duration}} elapsed",
+    },
     voiceMode: {
       entryButtonLabel: "Use microphone",
       promptTitle: "Use your voice",
@@ -801,7 +813,7 @@ const messages = {
     connected: "Connected",
     configure: "Configure",
     connect: "Connect",
-    connectWithOAuth: "Connect with OAuth",
+    connectWithOAuth: "Connect",
     useApiToken: "Use API token",
     connectSuggestion: "Connect {{name}} to use it in chat",
     connectSuggestionWithApiToken:

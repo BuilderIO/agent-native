@@ -186,10 +186,7 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
-import {
-  fetchAgentEngineConfiguredState,
-  useAgentEngineConfigured,
-} from "./use-agent-engine-configured.js";
+import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
 import type {
   ChatThreadScope,
   ChatThreadSnapshot,
@@ -292,8 +289,6 @@ const RECONNECT_NO_PROGRESS_CONTINUE_MESSAGE =
 // through transient labels ("Contacting model", "Preparing X action"); past it
 // the live label appears so a genuinely slow step reads as working, not hung.
 const ACTIVITY_LABEL_REVEAL_DELAY_MS = 6_000;
-const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
-
 type ActiveRunLookup = {
   active?: boolean;
   runId?: string;
@@ -806,7 +801,7 @@ export function reconnectActivityFallbackContent(
   toolName: string | null | undefined,
 ): ContentPart[] {
   const tool = toolName?.trim();
-  if (!tool) return [];
+  if (!tool || tool === "call-agent") return [];
   return [
     {
       type: "tool-call",
@@ -2376,9 +2371,16 @@ const AssistantChatInner = forwardRef<
     { tabId, threadId },
   );
   const missingApiKey = agentEngineConfigured.missing;
-  const isProviderStatusChecking =
-    providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
-  const isComposerDisabled = missingApiKey || composerDisabled;
+  const isProviderStatusUnavailable =
+    providerStatusChecksEnabled &&
+    agentEngineConfigured.state === "unavailable";
+  const isComposerDisabled =
+    missingApiKey || isProviderStatusUnavailable || composerDisabled;
+  const retryAgentEngineStatus = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
     setMissingKeySetupOpen(true);
@@ -2387,36 +2389,6 @@ const AssistantChatInner = forwardRef<
     if (agentEngineConfigured.state !== "configured") return;
     setMissingKeySetupOpen(false);
   }, [agentEngineConfigured.state]);
-  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
-    const state =
-      agentEngineConfigured.state === "missing"
-        ? "missing"
-        : await fetchAgentEngineConfiguredState(providerStatusChecksEnabled, {
-            timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
-          });
-    if (state === "configured") return true;
-
-    // Unknown means the readiness endpoint is unavailable or still resolving.
-    // Do not start a run optimistically: that recreates the long failure path
-    // this preflight exists to prevent. The mounted hook retries automatically.
-    if (state === "unknown") return false;
-
-    requestMissingKeySetup();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("agent-chat:missing-api-key", {
-          detail: { tabId, threadId },
-        }),
-      );
-    }
-    return false;
-  }, [
-    agentEngineConfigured.state,
-    providerStatusChecksEnabled,
-    requestMissingKeySetup,
-    tabId,
-    threadId,
-  ]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -4440,7 +4412,7 @@ const AssistantChatInner = forwardRef<
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
       if (agentEngineConfigured.state === "missing") {
-        void ensureAgentEngineReadyForSubmit();
+        requestMissingKeySetup();
         reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
         return;
       }
@@ -4678,12 +4650,12 @@ const AssistantChatInner = forwardRef<
       applyLocalQueuedMessages,
       agentEngineConfigured.state,
       buildComposerContextSubmission,
-      ensureAgentEngineReadyForSubmit,
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
       markOptimisticRunning,
       appendThreadMessage,
+      requestMissingKeySetup,
       updateComposerContextItems,
     ],
   );
@@ -5590,11 +5562,17 @@ const AssistantChatInner = forwardRef<
                           isComposerDisabled &&
                             !showMissingKeySetup &&
                             "opacity-70",
+                          isProviderStatusUnavailable && "cursor-pointer",
                         )}
                         rootClassName={cn(
                           showMissingKeySetup &&
                             "agent-composer-root--missing-key",
                         )}
+                        onClick={
+                          isProviderStatusUnavailable
+                            ? retryAgentEngineStatus
+                            : undefined
+                        }
                       >
                         {showMissingKeySetup ? (
                           <PopoverTrigger asChild>
@@ -5637,8 +5615,8 @@ const AssistantChatInner = forwardRef<
                               placeholder={
                                 missingApiKey
                                   ? "Connect AI to start chatting..."
-                                  : isProviderStatusChecking
-                                    ? t("agentPanel.checkingAiConnection")
+                                  : isProviderStatusUnavailable
+                                    ? t("agentPanel.connectionUnavailable")
                                     : composerDisabled
                                       ? (composerDisabledPlaceholder ??
                                         "Open Desktop to use this chat.")

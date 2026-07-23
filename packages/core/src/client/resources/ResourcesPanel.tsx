@@ -338,7 +338,11 @@ function CreateMenu({
       window.clearTimeout(skillFlyoutCloseTimerRef.current);
       skillFlyoutCloseTimerRef.current = null;
     }
-    if (rowEl && typeof window !== "undefined") {
+    if (
+      rowEl &&
+      typeof window !== "undefined" &&
+      typeof rowEl.getBoundingClientRect === "function"
+    ) {
       const rect = rowEl.getBoundingClientRect();
       const FLYOUT_WIDTH = 248;
       setSkillFlyoutSide(
@@ -1940,68 +1944,72 @@ export function ResourcesPanel({
               />
             )}
             {showPersonalTree && (
-              <ResourceTree
-                tree={displayedPersonalTree}
-                variant={resourceTreeVariant}
-                isLoading={personalTreeQuery.isLoading}
-                deletingId={
-                  deleteResource.isPending
-                    ? (deleteResource.variables as string)
-                    : deleteMcpServer.isPending
-                      ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
-                      : null
-                }
-                selectedId={selectedResourceId}
-                onSelect={handleSelect}
-                onCreateFile={(parentPath, name) =>
-                  handleCreateFile(parentPath, name, "personal")
-                }
-                onCreateFolder={(parentPath, name) =>
-                  handleCreateFolder(parentPath, name, "personal")
-                }
-                onDelete={handleDelete}
-                onRename={handleRename}
-                onDrop={(files) => handleUploadFiles(files, "personal")}
-                title="Personal"
-                titleTooltip="Files visible only to you"
-                sectionAction={renderScopeCreateMenu("personal")}
-                emptyStateAction={renderEmptyStateAction("personal")}
-              />
+              <div className="pt-3">
+                <ResourceTree
+                  tree={displayedPersonalTree}
+                  variant={resourceTreeVariant}
+                  isLoading={personalTreeQuery.isLoading}
+                  deletingId={
+                    deleteResource.isPending
+                      ? (deleteResource.variables as string)
+                      : deleteMcpServer.isPending
+                        ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                        : null
+                  }
+                  selectedId={selectedResourceId}
+                  onSelect={handleSelect}
+                  onCreateFile={(parentPath, name) =>
+                    handleCreateFile(parentPath, name, "personal")
+                  }
+                  onCreateFolder={(parentPath, name) =>
+                    handleCreateFolder(parentPath, name, "personal")
+                  }
+                  onDelete={handleDelete}
+                  onRename={handleRename}
+                  onDrop={(files) => handleUploadFiles(files, "personal")}
+                  title="Personal"
+                  titleTooltip="Files visible only to you"
+                  sectionAction={renderScopeCreateMenu("personal")}
+                  emptyStateAction={renderEmptyStateAction("personal")}
+                />
+              </div>
             )}
             {showSharedTree && (
-              <ResourceTree
-                tree={displayedSharedTree}
-                variant={resourceTreeVariant}
-                isLoading={sharedTreeQuery.isLoading}
-                deletingId={
-                  deleteResource.isPending
-                    ? (deleteResource.variables as string)
-                    : deleteMcpServer.isPending
-                      ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
-                      : null
-                }
-                selectedId={selectedResourceId}
-                onSelect={handleSelect}
-                onCreateFile={(parentPath, name) =>
-                  handleCreateFile(parentPath, name, "shared")
-                }
-                onCreateFolder={(parentPath, name) =>
-                  handleCreateFolder(parentPath, name, "shared")
-                }
-                onDelete={handleDelete}
-                onRename={handleRename}
-                onDrop={(files) => handleUploadFiles(files, "shared")}
-                title="Organization"
-                titleTooltip={
-                  canEditOrg
-                    ? "Files visible to everyone in your organization"
-                    : "Files visible to everyone in your organization. Read-only — only admins can edit."
-                }
-                readOnly={!canEditOrg}
-                headingHint={!canEditOrg ? "Read only" : undefined}
-                sectionAction={renderScopeCreateMenu("shared")}
-                emptyStateAction={renderEmptyStateAction("shared")}
-              />
+              <div className="pt-3">
+                <ResourceTree
+                  tree={displayedSharedTree}
+                  variant={resourceTreeVariant}
+                  isLoading={sharedTreeQuery.isLoading}
+                  deletingId={
+                    deleteResource.isPending
+                      ? (deleteResource.variables as string)
+                      : deleteMcpServer.isPending
+                        ? `mcp:${(deleteMcpServer.variables as { scope: string }).scope}:${(deleteMcpServer.variables as { id: string }).id}`
+                        : null
+                  }
+                  selectedId={selectedResourceId}
+                  onSelect={handleSelect}
+                  onCreateFile={(parentPath, name) =>
+                    handleCreateFile(parentPath, name, "shared")
+                  }
+                  onCreateFolder={(parentPath, name) =>
+                    handleCreateFolder(parentPath, name, "shared")
+                  }
+                  onDelete={handleDelete}
+                  onRename={handleRename}
+                  onDrop={(files) => handleUploadFiles(files, "shared")}
+                  title="Organization"
+                  titleTooltip={
+                    canEditOrg
+                      ? "Files visible to everyone in your organization"
+                      : "Files visible to everyone in your organization. Read-only — only admins can edit."
+                  }
+                  readOnly={!canEditOrg}
+                  headingHint={!canEditOrg ? "Read only" : undefined}
+                  sectionAction={renderScopeCreateMenu("shared")}
+                  emptyStateAction={renderEmptyStateAction("shared")}
+                />
+              </div>
             )}
           </div>
         )}

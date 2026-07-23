@@ -5,15 +5,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  assistantMessageHasCompletedCustomUi,
+  assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
   getAssistantToolSummaryInfo,
   isCollapsibleAssistantWorkPart,
+  latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   shouldShowMissingFinalResponse,
   ThinkingIndicator,
+  userMessageTextBeforeAssistant,
   isHiddenUserMessage,
 } from "./message-components.js";
 
@@ -136,6 +140,69 @@ describe("shouldShowMissingFinalResponse", () => {
         hasUnresolvedTool: false,
       }),
     ).toBe(false);
+    expect(
+      shouldShowMissingFinalResponse({
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        hasCompletedCustomUi: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasCompletedCustomUi", () => {
+  it("recognizes a completed action-declared renderer as a response", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+        {
+          type: "tool-call",
+          result: "done",
+          toolName: "list-todos",
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasCustomUi", () => {
+  it("keeps turns with action-declared or MCP UI expanded", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        { type: "reasoning", text: "Loading todos" },
+        {
+          type: "tool-call",
+          result: '{"ok":true}',
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        },
+        { type: "text", text: "Here are your todos." },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        { type: "tool-call", result: "done", mcpApp: { uri: "ui://todo" } },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        { type: "reasoning", text: "Checking" },
+        { type: "tool-call", toolName: "list-todos", result: "done" },
+      ]),
+    ).toBe(false);
   });
 });
 
@@ -157,6 +224,66 @@ describe("messageTextFromContent", () => {
         },
       ]),
     ).toBe("Stopped because manage-progress failed 3 times.");
+  });
+});
+
+describe("latestUserMessageText", () => {
+  it("uses only visible user-authored text for connection suggestions", () => {
+    expect(
+      latestUserMessageText([
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Open Notion<context>Connect Granola</context>",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: "Connect Granola" }],
+          metadata: { custom: { agentNativeHiddenUserMessage: true } },
+        },
+      ]),
+    ).toBe("Open Notion");
+  });
+});
+
+describe("userMessageTextBeforeAssistant", () => {
+  it("keeps a response connection suggestion tied to its own user turn", () => {
+    expect(
+      userMessageTextBeforeAssistant(
+        [
+          { id: "user-1", role: "user", content: "Connect Granola" },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "I cannot read it.",
+          },
+          {
+            id: "user-2",
+            role: "user",
+            content: "Make the slide title larger",
+          },
+          { id: "assistant-2", role: "assistant", content: "Done." },
+        ],
+        "assistant-1",
+      ),
+    ).toBe("Connect Granola");
+    expect(
+      userMessageTextBeforeAssistant(
+        [
+          { id: "user-1", role: "user", content: "Connect Granola" },
+          {
+            id: "assistant-1",
+            role: "assistant",
+            content: "I cannot read it.",
+          },
+        ],
+        "assistant-2",
+      ),
+    ).toBe("");
   });
 });
 
@@ -214,6 +341,16 @@ describe("isCollapsibleAssistantWorkPart", () => {
     ).toBe(true);
     expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
+
+  it("keeps custom UI outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "render-todo-list-inline",
+        chatUI: { renderer: "todo-demo.todo-list-inline" },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("getAssistantToolSummaryInfo", () => {
@@ -236,6 +373,27 @@ describe("getAssistantToolSummaryInfo", () => {
         { type: "tool-call", toolName: "read-file" },
         { type: "tool-call", toolName: "read-file" },
         { type: "tool-call", toolName: "read-file" },
+      ]),
+    ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
+  });
+
+  it("does not count a call-agent row shadowed by agent progress", () => {
+    expect(
+      getAssistantToolSummaryInfo([
+        {
+          type: "tool-call",
+          toolCallId: "call-analytics",
+          toolName: "call-agent",
+          args: { agent: "analytics" },
+        },
+        {
+          type: "tool-call",
+          toolCallId: "agent-analytics",
+          toolName: "agent:Analytics",
+          args: {},
+        },
+        { type: "tool-call", toolName: "query", args: {} },
+        { type: "tool-call", toolName: "summarize", args: {} },
       ]),
     ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
   });

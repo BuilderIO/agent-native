@@ -921,70 +921,15 @@ export function DocumentToolbar({
             </>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={t("editor.toolbar.copyPageLink")}
-                onClick={() => void handleCopyPageLink()}
-              >
-                <IconLink size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("editor.toolbar.copyPageLink")}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  utilityPanel === "info" && "bg-accent text-foreground",
-                )}
-                aria-label={t("editor.toolbar.info")}
-                aria-pressed={utilityPanel === "info"}
-                onClick={() =>
-                  onUtilityPanelChange(utilityPanel === "info" ? null : "info")
-                }
-              >
-                <IconInfoCircle size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("editor.toolbar.info")}</TooltipContent>
-          </Tooltip>
-
-          {showCommentsControl ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className={cn(
-                    "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    utilityPanel === "comments" && "bg-accent text-foreground",
-                  )}
-                  aria-label={t("comments.title")}
-                  aria-pressed={utilityPanel === "comments"}
-                  onClick={() =>
-                    onUtilityPanelChange(
-                      utilityPanel === "comments" ? null : "comments",
-                    )
-                  }
-                >
-                  <IconMessageCircle size={16} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("comments.title")}</TooltipContent>
-            </Tooltip>
-          ) : null}
-
           <DropdownMenu modal={false}>
             <Tooltip>
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
-                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    className={cn(
+                      "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
+                      utilityPanel && "bg-accent text-foreground",
+                    )}
                     aria-label={t("editor.toolbar.morePageActions")}
                   >
                     <IconDotsVertical size={16} />
@@ -996,6 +941,43 @@ export function DocumentToolbar({
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
+                  <IconLink className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.copyPageLink")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() =>
+                    onUtilityPanelChange(
+                      utilityPanel === "info" ? null : "info",
+                    )
+                  }
+                  className={cn(
+                    utilityPanel === "info" &&
+                      "bg-accent text-accent-foreground",
+                  )}
+                >
+                  <IconInfoCircle className="me-2 h-4 w-4" />
+                  {t("editor.toolbar.info")}
+                </DropdownMenuItem>
+                {showCommentsControl ? (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      onUtilityPanelChange(
+                        utilityPanel === "comments" ? null : "comments",
+                      )
+                    }
+                    className={cn(
+                      utilityPanel === "comments" &&
+                        "bg-accent text-accent-foreground",
+                    )}
+                  >
+                    <IconMessageCircle className="me-2 h-4 w-4" />
+                    {t("comments.title")}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">

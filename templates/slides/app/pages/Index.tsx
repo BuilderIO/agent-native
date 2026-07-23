@@ -469,6 +469,7 @@ export default function Index() {
     agentSubmit(
       `Create deck: ${summarizePromptForChat(trimmedPrompt)}`,
       context,
+      { newTab: true, openSidebar: true },
     );
     navigate(`/deck/${deck.id}?generating=1`);
   };
