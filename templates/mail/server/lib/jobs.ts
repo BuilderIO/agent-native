@@ -776,7 +776,12 @@ export async function markJobProcessing(id: string): Promise<boolean> {
   const result = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "pending"),
+      ),
+    );
   return result.rowsAffected > 0;
 }
 
