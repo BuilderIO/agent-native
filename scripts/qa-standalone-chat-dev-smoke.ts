@@ -862,17 +862,11 @@ async function runBrowserSmoke(
   assert.deepEqual(browserErrors, [], "browser console/page errors");
   assert.deepEqual(httpErrors, [], "browser HTTP errors on app origin");
 
-  log("assertion pass: /chat after /agent");
-  await gotoAndWaitForChatPage(
-    page,
-    running,
-    "/chat",
-    browserErrors,
-    httpErrors,
-  );
+  log("assertion pass: / (Chat surface) after /agent");
+  await gotoAndWaitForChatPage(page, running, "/", browserErrors, httpErrors);
 
-  assert.deepEqual(browserErrors, [], "browser console/page errors on /chat");
-  assert.deepEqual(httpErrors, [], "browser HTTP errors on /chat");
+  assert.deepEqual(browserErrors, [], "browser console/page errors on Chat");
+  assert.deepEqual(httpErrors, [], "browser HTTP errors on Chat");
 }
 
 function assertCleanServerLogs(logs: string[]): void {
@@ -953,7 +947,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → / → /agent → /chat",
+      "  checked:  scaffold → install → dev server → auto-login → /agent → / (Chat)",
     );
     console.log(
       "  checked:  no Unexpected Server Error, no HydratedRouter in dev logs",

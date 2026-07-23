@@ -4368,8 +4368,8 @@ const AssistantChatInner = forwardRef<
         }
         reconnectTailOnlyRef.current = false;
       }
-      threadRuntime.cancelRun();
       settleVisibleInterruptedTools();
+      threadRuntime.cancelRun();
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent("agentNative.chatRunning", {

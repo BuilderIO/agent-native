@@ -1753,10 +1753,17 @@ function getCoreDependencyVersion(): string {
     if (localCore) return localPackageTarball(localCore);
   }
 
-  // Generated apps must install before the current package version is
-  // published. The dist-tag resolves to the newest released core today and to
-  // this package version once the release goes live. Local file deps are
-  // intentionally opt-in so scaffolded repos remain portable by default.
+  // Published CLIs must keep the generated app on the same Core release that
+  // supplied the template. A package-manager policy such as pnpm's minimum
+  // release age can resolve `latest` to an older Core, whose Toolkit range may
+  // not match the exports used by the current template.
+  if (!findLocalPackage("core")) {
+    const version = getCorePackageVersion();
+    if (version && /^\d+\.\d+\.\d+(?:-.+)?$/.test(version)) return version;
+  }
+
+  // Local framework development intentionally remains portable by default;
+  // the explicit local-core flag above is available when linking is desired.
   return "latest";
 }
 
@@ -1773,6 +1780,29 @@ function getToolkitDependencyVersion(): string {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE === "1") {
     const localToolkit = findLocalPackage("toolkit");
     if (localToolkit) return localPackageTarball(localToolkit);
+  }
+
+  // Keep the direct Toolkit dependency compatible with the published Core
+  // package that owns the generated template. Do not resolve it independently
+  // from `latest`, since package-manager release-age policies can otherwise
+  // select a stale Toolkit that lacks Core's imported exports.
+  if (!findLocalPackage("core")) {
+    try {
+      const packageRoot = path.resolve(__dirname, "../..");
+      const packageJson = JSON.parse(
+        fs.readFileSync(path.join(packageRoot, "package.json"), "utf-8"),
+      ) as { dependencies?: Record<string, unknown> };
+      const toolkit = packageJson.dependencies?.["@agent-native/toolkit"];
+      if (
+        typeof toolkit === "string" &&
+        toolkit.length > 0 &&
+        !toolkit.startsWith("workspace:")
+      ) {
+        return toolkit;
+      }
+    } catch {
+      // Fall back to the dist-tag when the package manifest is unavailable.
+    }
   }
 
   return "latest";

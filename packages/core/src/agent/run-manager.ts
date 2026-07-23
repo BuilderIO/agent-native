@@ -44,6 +44,15 @@ export interface ActiveRun {
   startedAt: number;
 }
 
+export interface StartedRun extends ActiveRun {
+  /**
+   * Resolves after the terminal event and final SQL status have been persisted.
+   * Serverless workers must await this before returning or the runtime can
+   * freeze the isolate between onComplete and terminalization.
+   */
+  finalized: Promise<void>;
+}
+
 const activeRuns = new Map<string, ActiveRun>();
 const threadToRun = new Map<string, string>();
 
@@ -447,7 +456,7 @@ export function startRun(
   ) => Promise<void>,
   onComplete?: (run: ActiveRun) => void | Promise<void>,
   options?: StartRunOptions,
-): ActiveRun {
+): StartedRun {
   // If there's already a run for this thread, abort it
   const existingRunId = threadToRun.get(threadId);
   if (existingRunId) {
@@ -456,7 +465,11 @@ export function startRun(
 
   const abort = new AbortController();
   let softTimedOut = false;
-  const run: ActiveRun = {
+  let resolveFinalized: () => void = () => {};
+  const finalized = new Promise<void>((resolve) => {
+    resolveFinalized = resolve;
+  });
+  const run: StartedRun = {
     runId,
     threadId,
     turnId: options?.turnId ?? runId,
@@ -465,6 +478,7 @@ export function startRun(
     subscribers: new Set(),
     abort,
     startedAt: Date.now(),
+    finalized,
   };
 
   activeRuns.set(runId, run);
@@ -1124,6 +1138,7 @@ export function startRun(
         resolveErroredRunRetentionMs(),
       ).catch(() => {});
     });
+  runPromise.then(resolveFinalized, resolveFinalized);
 
   // On Cloudflare Workers, keep the isolate alive for this run
   try {

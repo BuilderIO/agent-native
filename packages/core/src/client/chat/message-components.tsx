@@ -989,17 +989,22 @@ export function shouldShowAssistantMessageFooter({
 }
 
 export function shouldShowMissingFinalResponse({
+  isCurrentTurnRunning,
   statusIsTerminal,
   hasAssistantText,
   hasUnresolvedTool,
   hasCompletedCustomUi,
 }: {
+  isCurrentTurnRunning: boolean;
   statusIsTerminal: boolean;
   hasAssistantText: boolean;
   hasUnresolvedTool: boolean;
   hasCompletedCustomUi?: boolean;
 }): boolean {
+  // A completed tool can make the latest message look terminal before the
+  // active turn attaches its follow-up text.
   return (
+    !isCurrentTurnRunning &&
     statusIsTerminal &&
     !hasAssistantText &&
     !hasUnresolvedTool &&
@@ -1215,6 +1220,7 @@ export function AssistantMessage() {
   );
   const hasCustomUi = assistantMessageHasCustomUi(msg.content);
   const showMissingFinalResponse = shouldShowMissingFinalResponse({
+    isCurrentTurnRunning: isLast && chatRunning,
     statusIsTerminal,
     hasAssistantText: responseConnectionText.trim().length > 0,
     hasUnresolvedTool,

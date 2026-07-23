@@ -976,7 +976,7 @@ describe("workspace add-app scaffold", { timeout: 60000 }, () => {
 });
 
 describe("template/core version compatibility", () => {
-  it("uses the npm latest dist-tag for the generated core dependency", () => {
+  it("uses the npm latest dist-tag for local framework development", () => {
     // Pin the default behaviour even when the headless install e2e has set
     // AGENT_NATIVE_CREATE_USE_LOCAL_CORE in the ambient environment.
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
@@ -992,7 +992,7 @@ describe("template/core version compatibility", () => {
     }
   });
 
-  it("pins the generated toolkit dependency to latest by default", () => {
+  it("uses the npm latest Toolkit dist-tag for local framework development", () => {
     const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
     try {

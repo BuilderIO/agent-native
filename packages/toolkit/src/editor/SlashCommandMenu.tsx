@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import {
   useCallback,
   useEffect,
@@ -25,6 +26,69 @@ export interface SlashCommandItem {
   /** Hide this command when the shared editor feature is disabled. */
   requires?: "tables" | "tasks" | "codeBlock";
   action: (editor: Editor) => void;
+}
+
+/**
+ * Put the caret inside the block a slash command just created or transformed.
+ *
+ * Tiptap commands usually preserve a text selection, but commands that replace
+ * the current paragraph (notably code blocks and horizontal rules) can leave a
+ * node selection or a caret at the following block. Resolving from the slash
+ * range keeps the behavior consistent for built-in and app-provided block
+ * commands: after selecting a block, typing starts in that block immediately.
+ */
+export function focusEditorInInsertedBlock(
+  editor: Editor,
+  anchorPosition?: number,
+): void {
+  if (editor.isDestroyed) return;
+
+  const { state } = editor;
+  const anchor = Math.max(
+    1,
+    Math.min(anchorPosition ?? state.selection.from, state.doc.content.size),
+  );
+  let containingTextblock: number | null = null;
+  let nextTextblock: number | null = null;
+  let previousTextblock: number | null = null;
+
+  state.doc.nodesBetween(0, state.doc.content.size, (node, pos) => {
+    if (!node.isTextblock) return;
+
+    const start = pos + 1;
+    const end = pos + node.nodeSize - 1;
+    if (anchor >= start && anchor <= end) {
+      containingTextblock ??= anchor;
+      return;
+    }
+    if (start > anchor) {
+      if (
+        nextTextblock === null ||
+        start < nextTextblock
+      ) {
+        nextTextblock = start;
+      }
+      return;
+    }
+    if (previousTextblock === null || start > previousTextblock) {
+      previousTextblock = Math.min(anchor, end);
+    }
+  });
+
+  const target = containingTextblock ?? nextTextblock ?? previousTextblock;
+  if (target === null) {
+    editor.commands.focus();
+    return;
+  }
+
+  const transaction = state.tr.setSelection(
+    TextSelection.create(
+      state.doc,
+      Math.max(1, Math.min(target, state.doc.content.size)),
+    ),
+  );
+  editor.view.dispatch(transaction.scrollIntoView());
+  editor.view.focus();
 }
 
 export interface SlashCommandFeatureFlags {
@@ -192,13 +256,18 @@ export function SlashCommandMenu({
     (command: SlashCommandItem) => {
       if (slashPosRef.current !== null) {
         const { from } = editor.state.selection;
+        const anchorPosition = slashPosRef.current;
         editor
           .chain()
           .focus()
-          .deleteRange({ from: slashPosRef.current, to: from })
+          .deleteRange({ from: anchorPosition, to: from })
           .run();
+        command.action(editor);
+        focusEditorInInsertedBlock(editor, anchorPosition);
+      } else {
+        command.action(editor);
+        focusEditorInInsertedBlock(editor);
       }
-      command.action(editor);
       close();
     },
     [close, editor],
