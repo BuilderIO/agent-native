@@ -18,6 +18,7 @@ let updateDocumentAction: typeof import("./update-document.js").default;
 
 const OWNER = "owner@example.com";
 const EDITOR = "editor@example.com";
+const VIEWER = "viewer@example.com";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -292,5 +293,58 @@ describe("update-document compare-and-swap", () => {
       status: "success",
     });
     expect(JSON.stringify(result)).not.toContain(OWNER);
+  });
+
+  it("keeps a viewer's favorite preference in the viewer's private audit trail", async () => {
+    const documentId = await createDocument({ content: "owner body" });
+    await getDb()
+      .insert(schema.documentShares)
+      .values({
+        id: nextId("share"),
+        resourceId: documentId,
+        principalType: "user",
+        principalId: VIEWER,
+        role: "viewer",
+        createdBy: OWNER,
+        createdAt: new Date().toISOString(),
+      });
+
+    await runWithRequestContext({ userEmail: VIEWER }, () =>
+      updateDocumentAction.run(
+        { id: documentId, isFavorite: true },
+        {
+          caller: "frontend",
+          actionName: "update-document",
+          userEmail: VIEWER,
+        },
+      ),
+    );
+    const { queryAuditEvents } = await import("@agent-native/core/audit");
+    const viewerEvents = await queryAuditEvents(
+      { userEmail: VIEWER },
+      {
+        action: "update-document",
+        targetType: "document",
+        targetId: documentId,
+      },
+    );
+    const ownerEvents = await queryAuditEvents(
+      { userEmail: OWNER },
+      {
+        action: "update-document",
+        targetType: "document",
+        targetId: documentId,
+      },
+    );
+
+    expect(viewerEvents).toHaveLength(1);
+    expect(viewerEvents[0]).toMatchObject({
+      actorEmail: VIEWER,
+      ownerEmail: VIEWER,
+      targetType: "document",
+      targetId: documentId,
+      status: "success",
+    });
+    expect(ownerEvents).toHaveLength(0);
   });
 });

@@ -167,6 +167,7 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("data-comments-sidebar");
+    expect(source).toContain("relative w-full min-w-0 shrink-0 pb-16");
     expect(source).not.toContain("w-80 shrink-0 overflow-auto");
     expect(source).not.toContain("overflow-auto relative");
   });

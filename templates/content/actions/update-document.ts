@@ -313,14 +313,24 @@ export default defineAction({
       .describe("Exact item versions that influenced this agent update."),
   }),
   audit: {
-    target: (args, result) => ({
-      type: "document",
-      id: args.id,
-      ownerEmail: (result as DocumentAuditScopedResult | null)?.[
-        documentAuditOwner
-      ],
-      visibility: "private",
-    }),
+    target: (args, result) => {
+      const favoriteOnly =
+        args.isFavorite !== undefined &&
+        args.title === undefined &&
+        args.content === undefined &&
+        args.description === undefined &&
+        args.icon === undefined;
+      return {
+        type: "document",
+        id: args.id,
+        // Favorites are a private preference owned by the actor, even when
+        // the underlying document belongs to somebody else.
+        ownerEmail: favoriteOnly
+          ? undefined
+          : (result as DocumentAuditScopedResult | null)?.[documentAuditOwner],
+        visibility: "private",
+      };
+    },
     summary: (args, result) =>
       (result as DocumentUpdateConflictResponse | null)?.conflict
         ? `Document update conflicted for ${args.id}`

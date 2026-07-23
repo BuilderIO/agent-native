@@ -583,7 +583,7 @@ export function CommentsSidebar({
   return (
     <div
       ref={sidebarRef}
-      className="relative w-80 shrink-0 pb-16"
+      className="relative w-full min-w-0 shrink-0 pb-16"
       data-comments-sidebar
     >
       {!hasContent && !isLoading ? (

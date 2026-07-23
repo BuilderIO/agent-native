@@ -256,6 +256,12 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       "awareness={collabEditorEnabled ? awareness : null}",
     );
+    expect(documentEditorSource).toContain(
+      'collabEditorEnabled && ydoc ? "live-ready"',
+    );
+    expect(documentEditorSource).toContain(
+      'canEdit && !isLocalFileDocument ? "live-pending"',
+    );
     expect(documentEditorSource).toContain("snapshot:${document.updatedAt}");
     expect(documentEditorSource).toContain(
       'awareness.setLocalStateField("canFlushDocument", editorCanEdit)',
@@ -291,6 +297,30 @@ describe("document editor layout", () => {
     expect(activation).toContain('setUtilityPanel("comments")');
     expect(source).toContain("onActivateThread={activateCommentThread}");
     expect(source).not.toContain("? setSelectedThreadId\n");
+  });
+
+  it("does not clear comment focus at the start of a touch or scroll gesture", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain("onPointerDownCapture={(event) => {");
+    expect(source).toContain("onClickCapture={(event) => {");
+  });
+
+  it("keeps the narrow utility sheet width-safe and vertically reachable", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"',
+    );
+    expect(source).toContain(
+      'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
+    );
   });
 
   it("keeps title and content save watermarks independent after partial saves", () => {

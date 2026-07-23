@@ -1602,7 +1602,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       <div
         className="relative flex min-h-0 min-w-0 flex-1"
         data-document-print-root
-        onPointerDownCapture={(event) => {
+        onClickCapture={(event) => {
           const target = event.target as HTMLElement | null;
           if (
             target?.closest("[data-comments-sidebar], [data-comment-thread]")
@@ -1827,7 +1827,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       // fields.
                       const primaryEditor = (
                         <VisualEditor
-                          key={`${documentId}:${canEdit && !isLocalFileDocument ? "live" : `snapshot:${document.updatedAt}`}`}
+                          key={`${documentId}:${collabEditorEnabled && ydoc ? "live-ready" : canEdit && !isLocalFileDocument ? "live-pending" : `snapshot:${document.updatedAt}`}`}
                           documentId={documentId}
                           content={
                             isLocalFileDocument
@@ -1922,13 +1922,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           >
             <SheetContent
               side="right"
-              className="w-[85vw] max-w-sm p-0"
+              className="flex min-h-0 w-[85vw] max-w-sm flex-col overflow-hidden p-0"
               aria-describedby={undefined}
             >
               <SheetHeader className="sr-only">
                 <SheetTitle>{utilityPanelTitle}</SheetTitle>
               </SheetHeader>
-              {utilityPanelContent}
+              <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                {utilityPanelContent}
+              </div>
             </SheetContent>
           </Sheet>
         ) : null}
