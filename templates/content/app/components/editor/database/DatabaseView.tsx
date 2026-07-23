@@ -1652,7 +1652,7 @@ function DatabaseTable({
     });
   }
 
-  const flushPendingPersonalViewSave = useCallback(() => {
+  const flushPendingPersonalViewSave: () => void = useCallback(() => {
     if (unmountingRef.current) return;
     if (personalViewSaveTimerRef.current) {
       clearTimeout(personalViewSaveTimerRef.current);
