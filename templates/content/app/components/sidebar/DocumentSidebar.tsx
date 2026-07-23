@@ -121,7 +121,10 @@ import {
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
-import { markDocumentCreationPending } from "@/lib/optimistic-document";
+import {
+  markDocumentCreationPending,
+  shouldCreateDocumentOptimistically,
+} from "@/lib/optimistic-document";
 import { cn } from "@/lib/utils";
 
 import {
@@ -748,7 +751,12 @@ export function DocumentSidebar({
       optimisticId?: string,
       rootFilesDatabaseId?: string,
     ) => {
-      if (localFileMode) {
+      if (
+        !shouldCreateDocumentOptimistically({
+          localFileMode,
+          filesDatabaseId: rootFilesDatabaseId,
+        })
+      ) {
         try {
           const created = await createDocument.mutateAsync({
             title: "",

@@ -181,6 +181,8 @@ describe("document sidebar layout", () => {
   it("replaces an optimistic page with the persisted document before conversion", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
+    expect(sidebar).toContain("shouldCreateDocumentOptimistically({");
+    expect(sidebar).toContain("filesDatabaseId: rootFilesDatabaseId");
     expect(sidebar).toContain("markDocumentCreationPending({");
     expect(sidebar).toContain(
       '["action", "get-document", { id: nextId }],\n          created',

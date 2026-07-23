@@ -5,6 +5,7 @@ import {
   isDatabaseChoicePending,
   isDocumentCreationPending,
   markDocumentCreationPending,
+  shouldCreateDocumentOptimistically,
 } from "./optimistic-document";
 
 function document(): Document {
@@ -38,5 +39,20 @@ describe("optimistic document creation", () => {
     expect(isDatabaseChoicePending(optimistic, false)).toBe(true);
     expect(isDatabaseChoicePending(persisted, true)).toBe(true);
     expect(isDatabaseChoicePending(persisted, false)).toBe(false);
+  });
+
+  it("keeps database-backed workspace creation optimistic when local files coexist", () => {
+    expect(
+      shouldCreateDocumentOptimistically({
+        localFileMode: true,
+        filesDatabaseId: "files-db-1",
+      }),
+    ).toBe(true);
+    expect(shouldCreateDocumentOptimistically({ localFileMode: true })).toBe(
+      false,
+    );
+    expect(shouldCreateDocumentOptimistically({ localFileMode: false })).toBe(
+      true,
+    );
   });
 });

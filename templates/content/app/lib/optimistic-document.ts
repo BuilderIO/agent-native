@@ -20,3 +20,10 @@ export function isDatabaseChoicePending(
 ): boolean {
   return databaseCreationPending || isDocumentCreationPending(document);
 }
+
+export function shouldCreateDocumentOptimistically(args: {
+  localFileMode: boolean;
+  filesDatabaseId?: string;
+}): boolean {
+  return !args.localFileMode || Boolean(args.filesDatabaseId);
+}
