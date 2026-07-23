@@ -1099,6 +1099,7 @@ describe("VisualEditor markdown round-tripping", () => {
 
   it("only shows the Notion empty-line placeholder while the editor is focused", () => {
     const editor = createFullEditor();
+    document.body.appendChild(editor.view.dom);
 
     try {
       editor.commands.setTextSelection(1);
@@ -1336,6 +1337,7 @@ describe("VisualEditor markdown round-tripping", () => {
         ],
       },
     });
+    document.body.appendChild(editor.view.dom);
 
     try {
       editor.commands.focus();
