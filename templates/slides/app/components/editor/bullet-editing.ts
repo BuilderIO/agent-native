@@ -26,10 +26,57 @@ const BULLET_GLYPHS = new Set([
   "*",
 ]);
 
-/** True if an element is just a bullet marker glyph (e.g. a leading ● span). */
+/** True if an element is a bullet marker — either a text glyph (a leading ●
+ * span) or an empty CSS shape (a small square/dot/box span used as a marker). */
 export function isBulletMarker(el: Element): boolean {
+  return isGlyphMarker(el) || isShapeMarker(el);
+}
+
+/** A leading span whose text is only bullet glyph characters (e.g. "●"). */
+function isGlyphMarker(el: Element): boolean {
   const text = (el.textContent ?? "").trim();
   return text.length > 0 && [...text].every((c) => BULLET_GLYPHS.has(c));
+}
+
+/** An empty, small, roughly-square span drawn as a marker via border/background
+ * (e.g. `<span style="width:21px;height:21px;border:2px solid ...">`), which is
+ * how generated decks often render checkbox/dot bullets with no text glyph. */
+function isShapeMarker(el: Element): boolean {
+  if ((el.textContent ?? "").trim().length > 0) return false;
+  if (el.childElementCount > 0) return false;
+  const w = parseCssPx(styleValue(el, "width"));
+  const h = parseCssPx(styleValue(el, "height"));
+  if (!(w > 0 && h > 0) || w > 48 || h > 48) return false;
+  const ratio = w / h;
+  if (ratio < 0.5 || ratio > 2) return false;
+  const hasBorder =
+    parseCssPx(styleValue(el, "border-top-width")) > 0 ||
+    parseCssPx(styleValue(el, "border-left-width")) > 0 ||
+    parseCssPx(styleValue(el, "border-width")) > 0;
+  const bg = styleValue(el, "background-color");
+  const hasBg = !!bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)";
+  const hasRadius = parseCssPx(styleValue(el, "border-radius")) > 0;
+  return hasBorder || hasBg || hasRadius;
+}
+
+/** Read a style property, preferring inline styles and falling back to computed
+ * styles when available (jsdom-safe). */
+function styleValue(el: Element, prop: string): string {
+  const inline = (el as HTMLElement).style?.getPropertyValue(prop);
+  if (inline) return inline;
+  if (typeof window !== "undefined" && window.getComputedStyle) {
+    try {
+      return window.getComputedStyle(el).getPropertyValue(prop);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function parseCssPx(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** The bullet-marker element enclosing a node (or the node itself), bounded by
