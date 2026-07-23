@@ -466,9 +466,15 @@ export function startRun(
   const abort = new AbortController();
   let softTimedOut = false;
   let resolveFinalized: () => void = () => {};
-  const finalized = new Promise<void>((resolve) => {
+  let rejectFinalized: (reason?: unknown) => void = () => {};
+  const finalized = new Promise<void>((resolve, reject) => {
     resolveFinalized = resolve;
+    rejectFinalized = reject;
   });
+  // Foreground callers do not await this promise, but terminal persistence
+  // failures must still be observable to background workers without creating
+  // an unhandled rejection in the foreground path.
+  void finalized.catch(() => {});
   const run: StartedRun = {
     runId,
     threadId,
@@ -1053,6 +1059,21 @@ export function startRun(
               "[run-manager] terminal event persistence error:",
               err instanceof Error ? err.message : err,
             );
+            try {
+              await insertRunEvent(
+                runId,
+                terminal.seq,
+                JSON.stringify(terminal.event),
+              );
+              terminalPersistenceError = null;
+            } catch (retryError) {
+              terminalPersistenceError = retryError;
+              captureRunError(retryError, "completion");
+              console.error(
+                "[run-manager] terminal event retry persistence error:",
+                retryError instanceof Error ? retryError.message : retryError,
+              );
+            }
           }
         }
       }
@@ -1126,6 +1147,13 @@ export function startRun(
         await setRunError(runId, errorCode ?? "unknown", errorDetail);
       }
 
+      if (terminalPersistenceError) {
+        const reconciled = await reconcileTerminalRunFromEvents(runId).catch(
+          () => false,
+        );
+        if (!reconciled) throw terminalPersistenceError;
+      }
+
       // 6. Schedule in-memory cleanup + opportunistic old-run pruning.
       setTimeout(() => {
         activeRuns.delete(runId);
@@ -1138,7 +1166,7 @@ export function startRun(
         resolveErroredRunRetentionMs(),
       ).catch(() => {});
     });
-  runPromise.then(resolveFinalized, resolveFinalized);
+  runPromise.then(resolveFinalized, rejectFinalized);
 
   // On Cloudflare Workers, keep the isolate alive for this run
   try {
