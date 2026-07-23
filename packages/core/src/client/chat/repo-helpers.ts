@@ -95,9 +95,13 @@ export function withLastAssistantRunDuration<T extends NormalizedRepo>(
     return repo;
   }
 
-  const messageIndex = repo.messages.findLastIndex(
-    (entry) => getRepoMessage(entry)?.role === "assistant",
-  );
+  let messageIndex = -1;
+  for (let index = repo.messages.length - 1; index >= 0; index -= 1) {
+    if (getRepoMessage(repo.messages[index]!)?.role === "assistant") {
+      messageIndex = index;
+      break;
+    }
+  }
   if (messageIndex < 0) return repo;
 
   const entry = repo.messages[messageIndex]!;
