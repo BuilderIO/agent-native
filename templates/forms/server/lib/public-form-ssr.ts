@@ -510,19 +510,40 @@ function renderFormPage(
       var condVal = el.dataset.condVal;
       var depVal = getFieldValue(depId);
       var show = true;
-      if (op === "equals") show = depVal === condVal;
+      if (Array.isArray(depVal)) {
+        if (op === "equals") show = depVal.length === 1 && depVal[0] === condVal;
+        else if (op === "not_equals") show = depVal.indexOf(condVal) < 0;
+        else if (op === "contains") show = depVal.indexOf(condVal) >= 0;
+      } else if (op === "equals") show = depVal === condVal;
       else if (op === "not_equals") show = depVal !== condVal;
       else if (op === "contains") show = depVal.indexOf(condVal) >= 0;
       el.style.display = show ? "" : "none";
       el.dataset.hidden = show ? "" : "1";
+      el.querySelectorAll("input, textarea, select, button").forEach(function(control) {
+        control.disabled = !show;
+      });
     });
   }
 
   function getFieldValue(id) {
-    var el = document.querySelector('[name="' + id + '"]');
-    if (!el) return "";
-    if (el.type === "checkbox" && !el.closest(".ms-group")) return el.checked ? "true" : "";
-    return el.value || "";
+    var controls = document.getElementsByName(id);
+    if (!controls.length) return "";
+    var first = controls[0];
+    if (first.type === "checkbox") {
+      if (controls.length > 1) {
+        return Array.prototype.map.call(controls, function(control) {
+          return control.checked ? control.value : "";
+        }).filter(Boolean);
+      }
+      return first.checked ? "true" : "false";
+    }
+    if (first.type === "radio") {
+      for (var i = 0; i < controls.length; i++) {
+        if (controls[i].checked) return controls[i].value || "";
+      }
+      return "";
+    }
+    return first.value || "";
   }
 
   document.getElementById("mainForm").addEventListener("input", updateVisibility);

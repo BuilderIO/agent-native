@@ -7,6 +7,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
@@ -416,14 +417,18 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
 }
 
 export default function ThreadDebugRoute() {
-  const [sourceId, setSourceId] = useState("current");
-  const [query, setQuery] = useState("");
-  const [ownerEmail, setOwnerEmail] = useState("");
+  const [routeSearchParams] = useSearchParams();
+  const initialSourceId = routeSearchParams.get("source") || "current";
+  const initialQuery = routeSearchParams.get("query") || "";
+  const initialOwnerEmail = routeSearchParams.get("ownerEmail") || "";
+  const [sourceId, setSourceId] = useState(initialSourceId);
+  const [query, setQuery] = useState(initialQuery);
+  const [ownerEmail, setOwnerEmail] = useState(initialOwnerEmail);
   const [threadId, setThreadId] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState({
-    sourceId: "current",
-    query: "",
-    ownerEmail: "",
+    sourceId: initialSourceId,
+    query: initialQuery,
+    ownerEmail: initialOwnerEmail,
   });
   const [selected, setSelected] = useState<{
     sourceId: string;

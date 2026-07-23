@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { wrapWithAnalytics } from "./analytics.js";
+import { injectAnalyticsIntoHtml, wrapWithAnalytics } from "./analytics.js";
 
 const previousGaMeasurementId = process.env.GA_MEASUREMENT_ID;
 const previousBakedGaMeasurementId =
@@ -82,5 +82,22 @@ describe("wrapWithAnalytics", () => {
       "https://www.googletagmanager.com/gtag/js?id=G-BAKED123",
     );
     expect(html).toContain(`gtag('config',"G-BAKED123")`);
+  });
+});
+
+describe("injectAnalyticsIntoHtml", () => {
+  it("injects the configured analytics scripts into auth HTML", () => {
+    process.env.GA_MEASUREMENT_ID = "G-UNITTEST123";
+
+    const html = injectAnalyticsIntoHtml(
+      "<html><head></head><body>signup</body></html>",
+    );
+
+    expect(html).toContain(
+      "https://www.googletagmanager.com/gtag/js?id=G-UNITTEST123",
+    );
+    expect(html.indexOf("googletagmanager.com")).toBeLessThan(
+      html.indexOf("</head>"),
+    );
   });
 });

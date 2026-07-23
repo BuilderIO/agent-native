@@ -283,7 +283,7 @@ function AssetsChatsSection() {
           unpin: t("chat.unpinChat"),
           delete: t("chat.archiveChat"),
         }}
-        className="min-w-0"
+        className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
       />
     </div>
   );

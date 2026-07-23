@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { Turnstile, PoweredByBadge } from "@agent-native/core/client/ui";
+import { isConditionalFieldVisible } from "@shared/conditional";
 import type { FormField, FormSettings } from "@shared/types";
 import { IconCircleCheck, IconRefresh } from "@tabler/icons-react";
 import { useState, useMemo, useEffect } from "react";
@@ -88,21 +89,7 @@ export function FormFillPage() {
 
   // Evaluate conditional visibility
   const visibleFields = useMemo(() => {
-    return fields.filter((field) => {
-      if (!field.conditional) return true;
-      const { fieldId, operator, value: condValue } = field.conditional;
-      const fieldVal = String(values[fieldId] ?? "");
-      switch (operator) {
-        case "equals":
-          return fieldVal === condValue;
-        case "not_equals":
-          return fieldVal !== condValue;
-        case "contains":
-          return fieldVal.includes(condValue);
-        default:
-          return true;
-      }
-    });
+    return fields.filter((field) => isConditionalFieldVisible(field, values));
   }, [fields, values]);
 
   function handleChange(fieldId: string, value: unknown) {
@@ -166,7 +153,11 @@ export function FormFillPage() {
     submitForm.mutate(
       {
         formId: form.id,
-        data: values,
+        data: Object.fromEntries(
+          visibleFields
+            .filter((field) => values[field.id] !== undefined)
+            .map((field) => [field.id, values[field.id]]),
+        ),
         captchaToken,
         _hp: honeypot,
         _t: pageLoadTime,

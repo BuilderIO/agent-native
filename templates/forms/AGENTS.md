@@ -40,7 +40,17 @@ ladder.
 - To email the form owner when someone submits a response, set
   `settings.emailOnNewResponses: true` through `create-form` or `update-form`.
   Delivery uses the configured framework email provider (`RESEND_API_KEY` or
-  `SENDGRID_API_KEY`) and sends to the form owner's account email.
+  `SENDGRID_API_KEY`) in the form owner's request context and sends to the form
+  owner's account email. A public submission can succeed even when delivery
+  fails, so check the server logs and provider configuration when debugging.
+- Conditional fields use `conditional: { fieldId, operator, value }`. The
+  `fieldId` must reference an earlier field; supported operators are `equals`,
+  `not_equals`, and `contains`. Hidden fields and their stale values are not
+  persisted or delivered to integrations.
+- Form integrations are outbound webhooks. Slack requires an Incoming Webhook
+  URL, and Google Sheets requires a deployed Google Apps Script `/exec` URL that
+  parses `JSON.parse(e.postData.contents)` and appends the received values.
+  They are separate from the managed Slack/Messaging connection.
 - Form UX should stay focused: clear labels, sensible validation, minimal
   required fields, and progressive disclosure for advanced settings.
 - Public form submission endpoints must be intentionally public; keep management

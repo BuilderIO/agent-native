@@ -3,6 +3,7 @@ import {
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
+import { OnboardingPanel } from "@agent-native/core/client/onboarding";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -79,13 +80,16 @@ export default function ChatRoute() {
         composerLayoutVariant="hero"
         composerPlaceholder={t("chat.composerPlaceholder")}
         composerSlot={
-          <div className="mx-auto mb-5 max-w-xl px-4 text-center">
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              {t("chat.heroTitle")}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {t("chat.heroDescription")}
-            </p>
+          <div className="mx-auto mb-5 flex max-w-xl flex-col gap-4 px-4 text-center">
+            <OnboardingPanel className="text-start" />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
+                {t("chat.heroTitle")}
+              </h1>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {t("chat.heroDescription")}
+              </p>
+            </div>
           </div>
         }
       />

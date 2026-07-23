@@ -295,6 +295,18 @@ export function FormBuilderPage() {
     [updateForm],
   );
 
+  const saveImmediately = useCallback(
+    async (data: Parameters<typeof updateForm.mutate>[0]) => {
+      clearTimeout(saveTimeout.current);
+      try {
+        await updateForm.mutateAsync(data);
+      } finally {
+        fieldsDirty.current = false;
+      }
+    },
+    [updateForm],
+  );
+
   // Debounced field-op save — uses patch-form-fields (server-side merge) so
   // concurrent edits to different fields both survive.
   const fieldOpTimeout = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -853,8 +865,17 @@ export function FormBuilderPage() {
               key={JSON.stringify(form.settings)}
               form={form}
               onSave={(settings) => {
-                save({ id: form.id, settings });
-                toast.success(t("builder.settingsSaved"));
+                void saveImmediately({ id: form.id, settings })
+                  .then(() => toast.success(t("builder.settingsSaved")))
+                  .catch((error: unknown) => {
+                    toast.error(
+                      error instanceof Error && error.message
+                        ? error.message
+                        : t("builder.saveFailed", {
+                            defaultValue: "Failed to save changes",
+                          }),
+                    );
+                  });
               }}
             />
           </div>
@@ -868,8 +889,17 @@ export function FormBuilderPage() {
               key={JSON.stringify(form.settings?.integrations)}
               form={form}
               onSave={(settings) => {
-                save({ id: form.id, settings });
-                toast.success(t("builder.integrationsSaved"));
+                void saveImmediately({ id: form.id, settings })
+                  .then(() => toast.success(t("builder.integrationsSaved")))
+                  .catch((error: unknown) => {
+                    toast.error(
+                      error instanceof Error && error.message
+                        ? error.message
+                        : t("builder.saveFailed", {
+                            defaultValue: "Failed to save changes",
+                          }),
+                    );
+                  });
               }}
             />
           </div>
@@ -1054,6 +1084,7 @@ function BuilderContent({
                   >
                     <FieldPropertiesPanel
                       field={field}
+                      fields={fields}
                       onChange={onUpdateField}
                       onDelete={() => onDeleteField(field.id)}
                     />

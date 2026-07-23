@@ -74,6 +74,21 @@ function getGaScript(): string | null {
   );
 }
 
+/**
+ * Add the configured analytics scripts to a complete HTML document.
+ *
+ * The normal app document is streamed through `wrapWithAnalytics`, but
+ * framework-owned documents such as `/signup` are returned as strings by the
+ * auth guard and need the same injection path.
+ */
+export function injectAnalyticsIntoHtml(html: string): string {
+  const script = getGaScript();
+  if (!script) return html;
+  const headCloseIdx = html.indexOf("</head>");
+  if (headCloseIdx === -1) return html;
+  return html.slice(0, headCloseIdx) + script + html.slice(headCloseIdx);
+}
+
 export function wrapWithAnalytics(body: ReadableStream): ReadableStream {
   const scripts = [getGaScript()].filter(Boolean).join("");
   if (!scripts) return body;

@@ -13,6 +13,13 @@ export function automationIdentity(
   return `${item.owner}:${item.path}`;
 }
 
+export function automationTroubleshootPath(
+  item: Pick<DispatchAutomationItem, "name">,
+): string {
+  const params = new URLSearchParams({ query: item.name });
+  return `/thread-debug?${params.toString()}`;
+}
+
 export function automationTarget(item: DispatchAutomationItem): string {
   if (item.triggerType === "event" && item.event) return item.event;
   if (item.scheduleDescription) return item.scheduleDescription;
