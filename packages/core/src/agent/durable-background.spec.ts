@@ -173,6 +173,23 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
+
+  it("treats Netlify's runtime-only SITE_ID as hosted", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    expect(isHostedRuntimeForDurableBackground()).toBe(true);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+  });
+
+  it("keeps SITE_ID local under netlify dev", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    process.env.NETLIFY_LOCAL = "true";
+    expect(isHostedRuntimeForDurableBackground()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+  });
 });
 
 describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () => {

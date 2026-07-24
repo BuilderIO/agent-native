@@ -207,6 +207,8 @@ export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
  * what "hosted" means.
  */
 export function isHostedRuntimeForDurableBackground(): boolean {
+  if (process.env.NETLIFY_LOCAL === "true") return false;
+  if (process.env.SITE_ID) return true; // guard:allow-env-credential -- Netlify's read-only public site identifier is a runtime host marker, not a user credential.
   if (
     process.env.NETLIFY &&
     process.env.NETLIFY !== "false" &&

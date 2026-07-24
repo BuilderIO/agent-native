@@ -131,6 +131,7 @@ const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
 const originalErroredRetentionEnv = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
 const originalNetlify = process.env.NETLIFY;
 const originalNetlifyLocal = process.env.NETLIFY_LOCAL;
+const originalSiteId = process.env.SITE_ID;
 const originalCfPages = process.env.CF_PAGES;
 const originalVercel = process.env.VERCEL;
 const originalVercelEnv = process.env.VERCEL_ENV;
@@ -145,6 +146,7 @@ function clearHostedEnvForTest() {
   delete process.env.AGENT_ERRORED_RUN_RETENTION_MS;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
+  delete process.env.SITE_ID;
   delete process.env.CF_PAGES;
   delete process.env.VERCEL;
   delete process.env.VERCEL_ENV;
@@ -168,6 +170,8 @@ function restoreHostedEnvAfterTest() {
   else process.env.NETLIFY = originalNetlify;
   if (originalNetlifyLocal === undefined) delete process.env.NETLIFY_LOCAL;
   else process.env.NETLIFY_LOCAL = originalNetlifyLocal;
+  if (originalSiteId === undefined) delete process.env.SITE_ID;
+  else process.env.SITE_ID = originalSiteId;
   if (originalCfPages === undefined) delete process.env.CF_PAGES;
   else process.env.CF_PAGES = originalCfPages;
   if (originalVercel === undefined) delete process.env.VERCEL;
@@ -365,6 +369,23 @@ describe("run manager soft timeout", () => {
 
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("uses a hosted default with Netlify's runtime-only SITE_ID", () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS,
+    );
+  });
+
+  it("keeps SITE_ID local under netlify dev", () => {
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    process.env.NETLIFY_LOCAL = "true";
+
+    expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
+      0,
     );
   });
 
