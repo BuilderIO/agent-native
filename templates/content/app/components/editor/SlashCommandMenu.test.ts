@@ -125,7 +125,7 @@ describe("slash command pointer activation", () => {
     };
   }
 
-  it("preserves selection and deduplicates deferred pointer clicks", async () => {
+  it("executes on mouse down while preserving selection and deduplicating click", () => {
     const onExecute = vi.fn();
     const { button, cleanup } = renderCommandButton(onExecute);
 
@@ -138,19 +138,16 @@ describe("slash command pointer activation", () => {
         button?.dispatchEvent(mouseDown);
       });
       expect(mouseDown.defaultPrevented).toBe(true);
+      expect(onExecute).toHaveBeenCalledTimes(1);
 
       act(() => {
         button?.dispatchEvent(
-          new MouseEvent("click", { bubbles: true, cancelable: true }),
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 1,
+          }),
         );
-        button?.dispatchEvent(
-          new MouseEvent("click", { bubbles: true, cancelable: true }),
-        );
-      });
-      expect(onExecute).not.toHaveBeenCalled();
-
-      await act(async () => {
-        await Promise.resolve();
       });
       expect(onExecute).toHaveBeenCalledTimes(1);
     } finally {
@@ -158,20 +155,42 @@ describe("slash command pointer activation", () => {
     }
   });
 
-  it("keeps the chosen command alive when closing the menu unmounts it", async () => {
+  it("runs before a pointer selection closes and unmounts the menu", () => {
     const onExecute = vi.fn();
     const { button, cleanup } = renderCommandButton(onExecute);
 
     act(() => {
       button?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true }),
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+        }),
       );
     });
-    cleanup();
-    await act(async () => {
-      await Promise.resolve();
-    });
     expect(onExecute).toHaveBeenCalledTimes(1);
+    cleanup();
+    expect(onExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports keyboard-generated button clicks", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      act(() => {
+        button?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 0,
+          }),
+        );
+      });
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
   });
 });
 

@@ -1320,24 +1320,27 @@ export function CommandButton({
   const onExecuteRef = useRef(onExecute);
   onExecuteRef.current = onExecute;
 
+  const executeOnce = () => {
+    if (pendingExecutionRef.current) return;
+    pendingExecutionRef.current = true;
+    // Pointer selection can close and unmount the menu before the browser
+    // dispatches `click`. Start the command during mouse down, while the
+    // editor selection and button are both still alive. Keep `onClick` as the
+    // keyboard-generated click fallback and dedupe the normal pointer click.
+    onExecuteRef.current();
+    queueMicrotask(() => {
+      pendingExecutionRef.current = false;
+    });
+  };
+
   return (
     <button
       ref={buttonRef}
       onMouseDown={(event) => {
         event.preventDefault();
+        if (event.button === 0) executeOnce();
       }}
-      onClick={() => {
-        if (pendingExecutionRef.current) return;
-        pendingExecutionRef.current = true;
-        // Closing the menu unmounts this button. A component-owned timer is
-        // therefore canceled before it can run in fast hosted renders. A
-        // microtask lets the native click finish while keeping the selected
-        // command alive through that expected unmount.
-        queueMicrotask(() => {
-          pendingExecutionRef.current = false;
-          onExecuteRef.current();
-        });
-      }}
+      onClick={executeOnce}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",
