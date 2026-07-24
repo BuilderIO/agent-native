@@ -44,7 +44,6 @@ es-ES|generative-ui
 es-ES|http-api
 es-ES|integrations
 es-ES|organizations-teams-permissions
-es-ES|syncing-template-changes
 es-ES|toolkit-agent-ux
 es-ES|toolkit-collaboration
 es-ES|toolkit-command-navigation
@@ -63,7 +62,6 @@ fr-FR|generative-ui
 fr-FR|http-api
 fr-FR|integrations
 fr-FR|organizations-teams-permissions
-fr-FR|syncing-template-changes
 fr-FR|toolkit-agent-ux
 fr-FR|toolkit-collaboration
 fr-FR|toolkit-command-navigation
@@ -137,7 +135,6 @@ pt-BR|generative-ui
 pt-BR|http-api
 pt-BR|integrations
 pt-BR|organizations-teams-permissions
-pt-BR|syncing-template-changes
 pt-BR|toolkit-agent-ux
 pt-BR|toolkit-collaboration
 pt-BR|toolkit-command-navigation
