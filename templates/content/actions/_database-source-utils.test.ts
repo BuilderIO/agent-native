@@ -25,6 +25,7 @@ import {
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
   builderReviewBodyCandidateDocumentIds,
+  builderSourcePropertyAssignments,
   builderBodyHydrationVersion,
   builderBodyUnavailableVersion,
   builderBodyHydrationNeedsLiveBaseline,
@@ -102,6 +103,55 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("keeps the provider-bound property when duplicate local labels collide", () => {
+    const existingFields = [
+      {
+        propertyId: "local-blurb",
+        sourceFieldKey: "data.blurb",
+        provenance: "source field",
+      },
+      {
+        propertyId: "builder-blurb",
+        sourceFieldKey: "data.blurb",
+        provenance: "Builder model field",
+      },
+    ];
+    const properties = [
+      {
+        definition: { id: "local-blurb", name: "Blurb", type: "text" },
+      },
+      {
+        definition: { id: "builder-blurb", name: "Blurb", type: "text" },
+      },
+      {
+        definition: { id: "summary", name: "Summary", type: "text" },
+      },
+    ];
+
+    for (const fields of [existingFields, [...existingFields].reverse()]) {
+      const assignments = builderSourcePropertyAssignments({
+        properties,
+        existingFields: fields,
+      });
+
+      expect(
+        assignments.map(({ property, sourceFieldKey }) => ({
+          propertyId: property.definition.id,
+          sourceFieldKey,
+        })),
+      ).toEqual([
+        {
+          propertyId: "builder-blurb",
+          sourceFieldKey: "data.blurb",
+        },
+        {
+          propertyId: "summary",
+          sourceFieldKey: "data.summary",
+        },
+      ]);
+    }
+  });
+
   it("accepts only the persisted Builder continuation offset", () => {
     const metadataJson = JSON.stringify({
       sourceFetchState: "fetching",

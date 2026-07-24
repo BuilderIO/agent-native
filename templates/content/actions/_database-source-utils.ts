@@ -4413,6 +4413,63 @@ export function mergeBuilderCmsModelFieldsPreservingReferenceModels(args: {
   });
 }
 
+function builderSourceFieldPriority(provenance: string | null) {
+  return provenance === "Builder model field"
+    ? 0
+    : provenance === "Builder content field"
+      ? 1
+      : 2;
+}
+
+export function builderSourcePropertyAssignments(args: {
+  properties: Array<{
+    definition: { id: string; name: string; type: string };
+  }>;
+  existingFields?: Array<{
+    propertyId: string | null;
+    sourceFieldKey: string;
+    provenance: string | null;
+  }>;
+}) {
+  const existingByPropertyId = new Map(
+    (args.existingFields ?? [])
+      .filter((field) => field.propertyId)
+      .map((field) => [field.propertyId!, field]),
+  );
+  const canonicalPropertyBySourceKey = new Map<string, string>();
+  for (const field of [...(args.existingFields ?? [])]
+    .filter((candidate) => candidate.propertyId)
+    .sort(
+      (left, right) =>
+        builderSourceFieldPriority(left.provenance) -
+        builderSourceFieldPriority(right.provenance),
+    )) {
+    const key = field.sourceFieldKey.trim();
+    if (!canonicalPropertyBySourceKey.has(key)) {
+      canonicalPropertyBySourceKey.set(key, field.propertyId!);
+    }
+  }
+
+  const claimedSourceKeys = new Set<string>();
+  return args.properties.flatMap((property) => {
+    const existing = existingByPropertyId.get(property.definition.id);
+    const sourceFieldKey =
+      existing?.sourceFieldKey ??
+      builderCmsSourceFieldKey(
+        property.definition.id,
+        property.definition.name,
+      );
+    const normalizedKey = sourceFieldKey.trim();
+    const canonicalPropertyId = canonicalPropertyBySourceKey.get(normalizedKey);
+    if (canonicalPropertyId && canonicalPropertyId !== property.definition.id) {
+      return [];
+    }
+    if (claimedSourceKeys.has(normalizedKey)) return [];
+    claimedSourceKeys.add(normalizedKey);
+    return [{ property, sourceFieldKey }];
+  });
+}
+
 export async function seedMockSourceFields(args: {
   sourceId: string;
   ownerEmail: string;
@@ -4425,11 +4482,6 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
-  const existingBuilderFieldByPropertyId = new Map(
-    (args.existingFields ?? [])
-      .filter((field) => isBuilder && field.propertyId)
-      .map((field) => [field.propertyId!, field]),
-  );
   const builderModelFieldBySourceKey = new Map(
     (args.builderModelFields ?? []).map((field) => [
       `data.${field.name.trim()}`,
@@ -4522,40 +4574,36 @@ export async function seedMockSourceFields(args: {
     // "Source") and only for Builder sources, so a user's own field happening
     // to be named "Source" — or any non-Builder/local-table source — is left
     // untouched.
-    ...args.properties
+    ...(isBuilder
+      ? builderSourcePropertyAssignments({
+          properties: args.properties,
+          existingFields: args.existingFields,
+        })
+      : args.properties.map((property) => ({
+          property,
+          sourceFieldKey: `fields.${slugifySourceField(property.definition.name)}`,
+        }))
+    )
       .filter(
-        (property) =>
+        ({ property }) =>
           !(
             isBuilder &&
             property.definition.name === SOURCE_PROPERTY_NAME &&
             property.definition.type === "select"
           ),
       )
-      .map((property) => ({
+      .map(({ property, sourceFieldKey }) => ({
         id: crypto.randomUUID(),
         ownerEmail: args.ownerEmail,
         sourceId: args.sourceId,
         propertyId: property.definition.id,
         localFieldKey: property.definition.id,
-        sourceFieldKey: isBuilder
-          ? (existingBuilderFieldByPropertyId.get(property.definition.id)
-              ?.sourceFieldKey ??
-            builderCmsSourceFieldKey(
-              property.definition.id,
-              property.definition.name,
-            ))
-          : `fields.${slugifySourceField(property.definition.name)}`,
+        sourceFieldKey,
         sourceFieldLabel: property.definition.name,
         sourceFieldType: isBuilder
           ? normalizeBuilderCmsSourceFieldType(
-              builderModelFieldBySourceKey.get(
-                existingBuilderFieldByPropertyId.get(property.definition.id)
-                  ?.sourceFieldKey ??
-                  builderCmsSourceFieldKey(
-                    property.definition.id,
-                    property.definition.name,
-                  ),
-              )?.type ?? property.definition.type,
+              builderModelFieldBySourceKey.get(sourceFieldKey)?.type ??
+                property.definition.type,
             )
           : property.definition.type,
         mappingType: "property",
@@ -4659,15 +4707,28 @@ export async function seedMockSourceFields(args: {
   }
 
   const existingFieldBySourceKey = new Map(
-    (args.existingFields ?? []).map((field) => [
-      sourceFieldIdentityKey(field.sourceFieldKey),
-      field,
-    ]),
+    [...(args.existingFields ?? [])]
+      // `Map` keeps the last value for a duplicate key, so sort the preferred
+      // provider-discovered field last. This fallback must agree with
+      // `builderSourcePropertyAssignments`, independent of database row order.
+      .sort(
+        (left, right) =>
+          builderSourceFieldPriority(right.provenance) -
+          builderSourceFieldPriority(left.provenance),
+      )
+      .map((field) => [sourceFieldIdentityKey(field.sourceFieldKey), field]),
+  );
+  const existingFieldByPropertyId = new Map(
+    (args.existingFields ?? [])
+      .filter((field) => field.propertyId)
+      .map((field) => [field.propertyId!, field]),
   );
   const mergedRows = rows.map((row) => {
-    const existing = existingFieldBySourceKey.get(
-      sourceFieldIdentityKey(row.sourceFieldKey),
-    );
+    const existing =
+      (row.propertyId
+        ? existingFieldByPropertyId.get(row.propertyId)
+        : undefined) ??
+      existingFieldBySourceKey.get(sourceFieldIdentityKey(row.sourceFieldKey));
     if (!existing) return row;
     return {
       ...row,

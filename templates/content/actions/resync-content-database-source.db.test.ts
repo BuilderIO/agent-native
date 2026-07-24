@@ -63,6 +63,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       }
       if (model === "collection-mapped-fields") {
         return [
+          { name: "blurb", type: "string", required: false },
           { name: "topics", type: "list", required: false },
           { name: "tags", type: "list", required: false },
           { name: "customModelField", type: "string", required: false },
@@ -273,6 +274,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               updatedAt: "2026-02-01T00:00:00.000Z",
               sourceValues: {
                 "data.title": "Mapped fields",
+                "data.blurb": "Remote Builder blurb",
                 "data.topics": ["AI", "CMS"],
                 "data.tags": ["Agents", "Content"],
                 "data.customModelField": "Arbitrary value",
@@ -1170,6 +1172,24 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
   });
   await db.insert(schema.documentPropertyDefinitions).values([
     {
+      id: "prop-local-blurb",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Blurb",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-builder-blurb",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Blurb",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
       id: "prop-topics",
       ownerEmail: OWNER,
       databaseId: "db-mapped-fields",
@@ -1238,6 +1258,36 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     updatedAt: now,
   });
   await db.insert(schema.contentDatabaseSourceFields).values([
+    {
+      id: "field-local-blurb",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-local-blurb",
+      localFieldKey: "prop-local-blurb",
+      sourceFieldKey: "data.blurb",
+      sourceFieldLabel: "Blurb",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      provenance: "source field",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-builder-blurb",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-builder-blurb",
+      localFieldKey: "prop-builder-blurb",
+      sourceFieldKey: "data.blurb",
+      sourceFieldLabel: "Blurb",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      provenance: "Builder model field",
+      createdAt: now,
+      updatedAt: now,
+    },
     {
       id: "field-topics",
       ownerEmail: OWNER,
@@ -1325,6 +1375,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
   expect(JSON.parse(sourceRow.sourceValuesJson)).toMatchObject({
+    "data.blurb": "Remote Builder blurb",
     "data.topics": ["AI", "CMS"],
     "data.tags": ["Agents", "Content"],
     "data.customModelField": "Arbitrary value",
@@ -1347,6 +1398,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       ]),
     ),
   ).toMatchObject({
+    "prop-builder-blurb": "Remote Builder blurb",
     "prop-topics": ["ai", "cms"],
     "prop-tags": ["agents", "content"],
     "prop-custom": "Arbitrary value",
@@ -1413,6 +1465,18 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       id: "field-status-upper",
       propertyId: "prop-status-upper",
       sourceFieldKey: "data.Status",
+    },
+  ]);
+  expect(
+    statusFieldMappings.filter(
+      (field: { sourceFieldKey: string }) =>
+        field.sourceFieldKey === "data.blurb",
+    ),
+  ).toEqual([
+    {
+      id: "field-builder-blurb",
+      propertyId: "prop-builder-blurb",
+      sourceFieldKey: "data.blurb",
     },
   ]);
   const readCall = builderReadMock.calls.find(
