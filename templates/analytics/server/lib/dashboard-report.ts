@@ -29,6 +29,7 @@ import {
   getReportDashboard,
   normalizeDashboardReportRecipients,
   type AccessCtx,
+  type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
 
@@ -437,6 +438,7 @@ async function waitForDashboardReportReady(
   timeout: number,
   consoleErrors: string[] = [],
   failedRequests: string[] = [],
+  expectedPanelIds: string[] = [],
 ): Promise<boolean> {
   try {
     await page.waitForFunction(
@@ -460,22 +462,34 @@ async function waitForDashboardReportReady(
     const detail = await page
       .evaluate(`(() => {
         const root = document.querySelector("[data-dashboard-report-capture]");
+        const expectedPanelIds = ${JSON.stringify(expectedPanelIds.slice(0, REPORT_PANEL_STATE_DIAGNOSTICS_LIMIT))};
+        const cleanText = (value, limit = ${REPORT_PANEL_STATE_TEXT_LIMIT}) =>
+          String(value ?? "").replace(/\\s+/g, " ").trim().slice(0, limit);
+        const panelStates = expectedPanelIds.map((id) => {
+          const panel = Array.from(
+            root?.querySelectorAll("[data-dashboard-report-panel-id]") ?? [],
+          ).find((node) =>
+            node.getAttribute("data-dashboard-report-panel-id") === id,
+          );
+          if (!panel) return { id: cleanText(id, 96), state: "missing" };
+          const errorNode = panel.querySelector(
+            "[data-dashboard-report-panel-error='true'], .text-red-400",
+          );
+          const error = cleanText(errorNode?.textContent);
+          return {
+            id: cleanText(id, 96),
+            title: cleanText(panel.getAttribute("data-dashboard-report-panel-title"), 120),
+            state: panel.querySelector("[data-dashboard-report-loading='true']")
+              ? "loading"
+              : error
+                ? "errored"
+                : "ready",
+            ...(error ? { error } : {}),
+          };
+        });
         return {
           ready: root?.getAttribute("data-dashboard-report-ready") ?? null,
-          loadingCount: root?.querySelectorAll("[data-dashboard-report-loading='true']").length ?? null,
-          loadingPanels: Array.from(
-            root?.querySelectorAll("[data-dashboard-report-loading='true']") ?? [],
-          ).reduce((panels, loadingNode) => {
-            const panel = loadingNode.closest("[data-dashboard-report-panel-id]");
-            const id = panel?.getAttribute("data-dashboard-report-panel-id");
-            if (!id || panels.some((entry) => entry.id === id)) return panels;
-            panels.push({
-              id,
-              title: panel?.getAttribute("data-dashboard-report-panel-title") ?? "",
-            });
-            return panels;
-          }, []),
-          text: document.body?.innerText?.slice(0, 1000) ?? "",
+          panelStates,
           url: location.href,
         };
       })()`)
@@ -596,6 +610,93 @@ async function runBoundedBrowserCleanup(
 const DIAGNOSTICS_PROBE_TIMEOUT_MS = 2_000;
 const DIAGNOSTICS_MAX_LENGTH = 700;
 const DIAGNOSTICS_COLLECTOR_LIMIT = 5;
+const REPORT_PANEL_STATE_DIAGNOSTICS_LIMIT = REPORT_PANEL_CHUNK_SIZE;
+const REPORT_PANEL_STATE_TEXT_LIMIT = 160;
+const DIAGNOSTICS_URL_LIMIT = 120;
+const DIAGNOSTICS_TEXT_SNAPSHOT_LIMIT = 180;
+const DIAGNOSTICS_REQUEST_TRACKING_LIMIT = 50;
+const DIAGNOSTICS_IN_FLIGHT_SERIALIZATION_LIMIT = 3;
+
+type InFlightReportRequest = {
+  method: string;
+  url: string;
+  startedAt: number;
+};
+
+type RecentReportResource = {
+  method: string;
+  url: string;
+  status?: number;
+  ageMs?: number;
+  outcome: "response" | "finished" | "failed";
+};
+
+function redactDiagnosticUrl(value: unknown): string {
+  return String(value ?? "")
+    .replace(
+      /([?&](?:__an_embed_token|token|access_token|authorization|sql|query)=)[^&\s]*/gi,
+      "$1[REDACTED]",
+    )
+    .slice(0, DIAGNOSTICS_URL_LIMIT);
+}
+
+function sanitizeDiagnosticText(
+  value: unknown,
+  limit = DIAGNOSTICS_TEXT_SNAPSHOT_LIMIT,
+): string {
+  return errorMessage(String(value ?? ""))
+    .replace(/\b(?:bearer\s+)[a-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
+    .replace(
+      /\b((?:access[_-]?token|auth(?:orization)?|session|cookie)\s*[:=]\s*)[^\s,;"'<>]+/gi,
+      "$1[REDACTED]",
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
+function requestDiagnostic(req: any): InFlightReportRequest {
+  return {
+    method: sanitizeDiagnosticText(req.method?.(), 16) || "GET",
+    url: redactDiagnosticUrl(req.url?.()),
+    startedAt: Date.now(),
+  };
+}
+
+function requestDiagnosticPriority(url: string): number {
+  return /\/(?:_agent-native\/actions|auth|session)(?:\/|[?]|$)|get-sql-dashboard/i.test(
+    url,
+  )
+    ? 1
+    : 0;
+}
+
+function retainInFlightRequest(
+  requests: Map<any, InFlightReportRequest>,
+  req: any,
+) {
+  if (
+    !requests.has(req) &&
+    requests.size >= DIAGNOSTICS_REQUEST_TRACKING_LIMIT
+  ) {
+    const discard = [...requests.entries()].sort(([, left], [, right]) => {
+      const priority =
+        requestDiagnosticPriority(left.url) -
+        requestDiagnosticPriority(right.url);
+      return priority || left.startedAt - right.startedAt;
+    })[0];
+    if (discard) requests.delete(discard[0]);
+  }
+  requests.set(req, requestDiagnostic(req));
+}
+
+function pushRecentResource(
+  resources: RecentReportResource[],
+  resource: RecentReportResource,
+) {
+  if (resources.length >= DIAGNOSTICS_COLLECTOR_LIMIT) resources.shift();
+  resources.push(resource);
+}
 
 // netlify.toml's memory = "2gb" is plan-gated and can be silently ignored, so
 // capture the actual lambda memory ceiling alongside current RSS.
@@ -614,8 +715,24 @@ async function collectPageDiagnostics(
   page: any,
   consoleErrors: string[],
   failedRequests: string[],
+  inFlightRequests: Map<any, InFlightReportRequest>,
+  recentResources: RecentReportResource[],
 ): Promise<string> {
   const memory = memoryDiagnostics();
+  const pendingRequests = () =>
+    [...inFlightRequests.values()]
+      .sort((left, right) => {
+        const priority =
+          requestDiagnosticPriority(right.url) -
+          requestDiagnosticPriority(left.url);
+        return priority || right.startedAt - left.startedAt;
+      })
+      .slice(0, DIAGNOSTICS_IN_FLIGHT_SERIALIZATION_LIMIT)
+      .map((request) => ({
+        method: request.method,
+        url: request.url,
+        ageMs: Math.max(0, Date.now() - request.startedAt),
+      }));
   try {
     let responsive = true;
     let probeTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -638,7 +755,9 @@ async function collectPageDiagnostics(
     if (!responsive) {
       return `${memory} page unresponsive (renderer hung or crashed); consoleErrors=${JSON.stringify(
         consoleErrors,
-      )} failedRequests=${JSON.stringify(failedRequests)}`.slice(
+      )} failedRequests=${JSON.stringify(failedRequests)} inFlightRequests=${JSON.stringify(
+        pendingRequests(),
+      )} recentResources=${JSON.stringify(recentResources)}`.slice(
         0,
         DIAGNOSTICS_MAX_LENGTH,
       );
@@ -651,8 +770,7 @@ async function collectPageDiagnostics(
       // page may already be closed; leave url empty
     }
 
-    let title = "";
-    let bodyText = "";
+    let pageState: Record<string, unknown> = {};
     let detailsTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
       // page.evaluate ignores setDefaultTimeout, so race it like the probe —
@@ -662,7 +780,21 @@ async function collectPageDiagnostics(
           page.evaluate(
             `(() => ({
               title: document.title,
-              bodyText: document.body?.innerText?.slice(0, 240) ?? "",
+              readyState: document.readyState,
+              capture: (() => {
+                const root = document.querySelector("[data-dashboard-report-capture]");
+                return {
+                  present: Boolean(root),
+                  ready: root?.getAttribute("data-dashboard-report-ready") ?? null,
+                  phase: root?.getAttribute("data-dashboard-report-phase") ?? root?.dataset?.phase ?? null,
+                  fetchState: root?.getAttribute("data-dashboard-report-fetch-state") ?? root?.dataset?.fetchState ?? null,
+                  error: root?.getAttribute("data-dashboard-report-error") ?? root?.dataset?.error ?? null,
+                  childCount: root?.children.length ?? 0,
+                  htmlLength: root?.innerHTML.length ?? 0,
+                  textLength: root?.textContent.length ?? 0,
+                };
+              })(),
+              bodyTextSnapshot: document.body?.textContent?.replace(/\\s+/g, " ").trim().slice(0, ${DIAGNOSTICS_TEXT_SNAPSHOT_LIMIT}) ?? "",
             }))()`,
           ),
         ),
@@ -673,18 +805,46 @@ async function collectPageDiagnostics(
           );
         }),
       ]);
-      title = (details as any)?.title ?? "";
-      bodyText = (details as any)?.bodyText ?? "";
+      const raw = details as any;
+      pageState = {
+        title: sanitizeDiagnosticText(raw?.title),
+        readyState: sanitizeDiagnosticText(raw?.readyState, 32),
+        capture: raw?.capture
+          ? {
+              present: Boolean(raw.capture.present),
+              ready: sanitizeDiagnosticText(raw.capture.ready, 32) || null,
+              phase: sanitizeDiagnosticText(raw.capture.phase, 80) || null,
+              fetchState:
+                sanitizeDiagnosticText(raw.capture.fetchState, 80) || null,
+              error: sanitizeDiagnosticText(raw.capture.error) || null,
+              childCount: Number.isFinite(raw.capture.childCount)
+                ? raw.capture.childCount
+                : 0,
+              htmlLength: Number.isFinite(raw.capture.htmlLength)
+                ? raw.capture.htmlLength
+                : 0,
+              textLength: Number.isFinite(raw.capture.textLength)
+                ? raw.capture.textLength
+                : 0,
+            }
+          : { present: false },
+        bodyTextSnapshot: sanitizeDiagnosticText(raw?.bodyTextSnapshot),
+      };
     } catch {
       // best effort; leave title/bodyText empty
     } finally {
       if (detailsTimeout) clearTimeout(detailsTimeout);
     }
 
+    const { capture, readyState, title, bodyTextSnapshot } = pageState;
     return `${memory} page state: ${JSON.stringify({
-      url,
+      capture,
+      readyState,
+      inFlightRequests: pendingRequests(),
+      recentResources,
+      url: redactDiagnosticUrl(url),
       title,
-      bodyText,
+      bodyTextSnapshot,
       consoleErrors,
       failedRequests,
     })}`.slice(0, DIAGNOSTICS_MAX_LENGTH);
@@ -743,29 +903,63 @@ async function captureDashboardChunk(
   let captureStage = "pre-seeding the embed session";
   const consoleErrors: string[] = [];
   const failedRequests: string[] = [];
+  const inFlightRequests = new Map<any, InFlightReportRequest>();
+  const recentResources: RecentReportResource[] = [];
   page.on("console", (msg: any) => {
     if (
       msg.type() !== "error" ||
       consoleErrors.length >= DIAGNOSTICS_COLLECTOR_LIMIT
     )
       return;
-    consoleErrors.push(msg.text().slice(0, 160));
+    consoleErrors.push(sanitizeDiagnosticText(msg.text()));
+  });
+  page.on("request", (req: any) => {
+    retainInFlightRequest(inFlightRequests, req);
   });
   page.on("requestfailed", (req: any) => {
+    const request = inFlightRequests.get(req) ?? requestDiagnostic(req);
+    inFlightRequests.delete(req);
+    pushRecentResource(recentResources, {
+      method: request.method,
+      url: request.url,
+      ageMs: Math.max(0, Date.now() - request.startedAt),
+      outcome: "failed",
+    });
     if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
     failedRequests.push(
-      `${req.method()} ${req.url().slice(0, 120)}: ${req.failure()?.errorText ?? "failed"}`,
+      `${request.method} ${request.url}: ${sanitizeDiagnosticText(req.failure()?.errorText ?? "failed")}`,
     );
   });
   page.on("response", (res: any) => {
+    const req = res.request();
+    const request = inFlightRequests.get(req) ?? requestDiagnostic(req);
+    inFlightRequests.delete(req);
+    pushRecentResource(recentResources, {
+      method: request.method,
+      url: request.url,
+      status: res.status(),
+      ageMs: Math.max(0, Date.now() - request.startedAt),
+      outcome: "response",
+    });
     if (
       res.status() < 400 ||
       failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT
     )
       return;
     failedRequests.push(
-      `${res.request().method()} ${res.url().slice(0, 120)}: HTTP ${res.status()}`,
+      `${request.method} ${request.url}: HTTP ${res.status()}`,
     );
+  });
+  page.on("requestfinished", (req: any) => {
+    const request = inFlightRequests.get(req);
+    if (!request) return;
+    inFlightRequests.delete(req);
+    pushRecentResource(recentResources, {
+      method: request.method,
+      url: request.url,
+      ageMs: Math.max(0, Date.now() - request.startedAt),
+      outcome: "finished",
+    });
   });
   try {
     try {
@@ -801,7 +995,13 @@ async function captureDashboardChunk(
       });
     } catch (err) {
       const diagnostics = errorMessage(
-        await collectPageDiagnostics(page, consoleErrors, failedRequests),
+        await collectPageDiagnostics(
+          page,
+          consoleErrors,
+          failedRequests,
+          inFlightRequests,
+          recentResources,
+        ),
       );
       throw new Error(`${errorMessage(err)}; ${diagnostics}`);
     }
@@ -811,6 +1011,7 @@ async function captureDashboardChunk(
       boundedStageTimeout(attempt.readyTimeout ?? timeout, deadlineAt),
       consoleErrors,
       failedRequests,
+      expectedPanelIds,
     );
     captureStage = "validating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
@@ -825,6 +1026,7 @@ async function captureDashboardChunk(
       ),
       consoleErrors,
       failedRequests,
+      expectedPanelIds,
     );
     captureStage = "revalidating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
@@ -1138,6 +1340,9 @@ export async function sendDashboardReportSubscription(
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
     deadlineAt?: number;
+    onCaptureOutcome?: (
+      outcome: DashboardReportCaptureOutcome,
+    ) => Promise<void>;
   } = {},
 ): Promise<{
   dashboardUrl: string;
@@ -1169,6 +1374,10 @@ export async function sendDashboardReportSubscription(
     !options.skipEmailWithoutScreenshot && !options.requireScreenshot,
     captureTimeoutMs,
   );
+  await options.onCaptureOutcome?.({
+    mode: capture.mode,
+    ...(capture.error ? { error: capture.error } : {}),
+  });
   if (capture.mode !== "full" && options.requireScreenshot) {
     throw new Error(
       capture.error

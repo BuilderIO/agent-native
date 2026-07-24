@@ -1,5 +1,30 @@
 # @agent-native/skills
 
+## 0.2.405
+
+### Patch Changes
+
+- Updated dependencies [8afb252]
+  - @agent-native/core@0.120.4
+
+## 0.2.404
+
+### Patch Changes
+
+- 0e2c19d: Capture server-side and CLI exceptions in first-party Agent Native monitoring, and avoid reporting browser errors already handled by stale-chunk recovery or extensions.
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+  - @agent-native/core@0.120.3
+
 ## 0.2.403
 
 ### Patch Changes

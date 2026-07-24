@@ -1,5 +1,33 @@
 # @agent-native/core
 
+## 0.120.4
+
+### Patch Changes
+
+- 8afb252: Stabilize A2A polling deadline coverage under full-suite load.
+- Updated dependencies [8afb252]
+  - @agent-native/toolkit@0.10.6
+
+## 0.120.3
+
+### Patch Changes
+
+- 0e2c19d: Improve dark-mode destructive feedback contrast across shared surfaces and embedded templates.
+- 0e2c19d: Add small documentation links beside the MCP URL and A2A agent card on the shared agent Access page.
+- 0e2c19d: Simplify the shared app menu by flattening Dispatch, removing redundant headings, and showing app metadata descriptions with a grid-style overflow action.
+- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
+- 0e2c19d: Prevent the shared chat handoff morph from also running the sidebar's right-side entry animation.
+- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
+- 0e2c19d: Quiet the embedded Settings Extensions tab by removing its enclosing border, title, and chat toggle.
+- 0e2c19d: Scope the chat handoff drawer suppression to its initial destination mount so ordinary sidebar opening still animates.
+- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
+- 0e2c19d: Keep active chat threads eligible for the page-to-sidebar handoff and clear the handoff when starting a new chat.
+- 0e2c19d: Capture server-side and CLI exceptions in first-party Agent Native monitoring, and avoid reporting browser errors already handled by stale-chunk recovery or extensions.
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+- Updated dependencies [0e2c19d]
+  - @agent-native/toolkit@0.10.5
+
 ## 0.120.2
 
 ### Patch Changes

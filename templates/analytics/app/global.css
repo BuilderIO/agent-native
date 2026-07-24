@@ -35,7 +35,7 @@
   --accent-foreground: 0 0% 98%;
 
   /* Destructive - bright enough for text on dark surfaces */
-  --destructive: 0 84.2% 60.2%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
 
   /* Borders - Subtle and thin */
@@ -139,13 +139,13 @@
 }
 
 .dashboard-panel-skeleton {
-  background-color: hsl(var(--muted-foreground) / 0.24);
+  background-color: hsl(var(--muted-foreground) / 0.18);
   background-image: linear-gradient(
     105deg,
     transparent 24%,
-    hsl(var(--foreground) / 0.06) 42%,
-    hsl(var(--foreground) / 0.16) 50%,
-    hsl(var(--foreground) / 0.06) 58%,
+    hsl(var(--foreground) / 0.04) 42%,
+    hsl(var(--foreground) / 0.1) 50%,
+    hsl(var(--foreground) / 0.04) 58%,
     transparent 76%
   );
   background-size: 220% 100%;

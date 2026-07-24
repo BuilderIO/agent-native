@@ -332,7 +332,7 @@ const DefaultSurface: DesignSystemComponents["Surface"] = ({
   const elementProps = {
     ...props,
     className: cn(
-      "rounded-lg border bg-card text-card-foreground",
+      "rounded-lg bg-card text-card-foreground",
       elevation === "none" && "shadow-none",
       elevation === "low" && "shadow-sm",
       elevation === "medium" && "shadow-md",

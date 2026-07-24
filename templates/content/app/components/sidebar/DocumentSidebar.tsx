@@ -7,9 +7,10 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   closestCenter,
   DndContext,
@@ -1278,6 +1279,53 @@ export function DocumentSidebar({
     </Link>
   );
 
+  const collapseButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onToggleCollapsed}
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand size={16} />
+          ) : (
+            <IconLayoutSidebarLeftCollapse size={16} />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={t("sidebar.search")}
+          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => setIsSearching((value) => !value)}
+        >
+          <IconSearch size={16} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "h-8 min-w-0"}
+    />
+  );
+
   const renderAgentNavButton = () => (
     <Link
       to="/agent"
@@ -1832,17 +1880,6 @@ export function DocumentSidebar({
   if (collapsed) {
     return (
       <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-              onClick={onToggleCollapsed}
-            >
-              <IconLayoutSidebarLeftExpand size={18} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("sidebar.expand")}</TooltipContent>
-        </Tooltip>
         {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1876,6 +1913,13 @@ export function DocumentSidebar({
           </TooltipTrigger>
           <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
+        <SidebarFooterActions
+          collapsed
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     );
   }
@@ -1907,30 +1951,6 @@ export function DocumentSidebar({
           <span className="text-base font-semibold tracking-tight text-foreground">
             Content
           </span>
-        </div>
-        <div className="flex items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                onClick={() => setIsSearching(!isSearching)}
-              >
-                <IconSearch size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("sidebar.search")}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                onClick={onToggleCollapsed}
-              >
-                <IconLayoutSidebarLeftCollapse size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("sidebar.collapse")}</TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
@@ -2098,13 +2118,17 @@ export function DocumentSidebar({
       {/* Footer */}
       <div className="shrink-0 space-y-2 px-3 py-2">
         {isCodeMode ? <DevDatabaseLink /> : null}
-        <div className="flex items-center justify-end gap-1">
-          <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
-          <div className="flex shrink-0 items-center gap-0.5">
-            <NotionButton />
-            <ThemeToggle />
-          </div>
+        <div className="flex justify-end gap-0.5">
+          <NotionButton />
+          <ThemeToggle />
         </div>
+        <SidebarFooterActions
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+          className="px-0 py-0"
+        />
       </div>
 
       {/* Resize handle */}

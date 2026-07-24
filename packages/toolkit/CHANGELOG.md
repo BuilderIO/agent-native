@@ -1,5 +1,19 @@
 # @agent-native/toolkit
 
+## 0.10.6
+
+### Patch Changes
+
+- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
+
+## 0.10.5
+
+### Patch Changes
+
+- 0e2c19d: Use borderless accent styling for shared secondary controls and organization pickers.
+- 0e2c19d: Align shared chat history rails with left-aligned New Chat controls and animate chat-list expansion using intrinsic sizing.
+- 0e2c19d: Expose a shared command-menu open event and sidebar footer action composition primitive.
+
 ## 0.10.4
 
 ### Patch Changes

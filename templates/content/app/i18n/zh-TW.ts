@@ -567,6 +567,7 @@ const messages = {
     askAi: "詢問 AI",
     resolve: "解決",
     resolved: "已解決（{{count}}）",
+    unanchored: "無法使用醒目提示",
     reply: "回覆...",
     reopen: "重新開啟",
     agentRegardingText: "關於這段文字：“{{text}}”",

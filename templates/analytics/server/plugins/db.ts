@@ -1275,6 +1275,15 @@ const runAnalyticsMigrations = runMigrations(
       name: "dashboard-revisions-org-dashboard-idx",
       sql: `CREATE INDEX IF NOT EXISTS dashboard_revisions_org_dashboard_idx ON dashboard_revisions (org_id, dashboard_id)`,
     },
+    {
+      version: 123,
+      name: "dashboard-report-capture-diagnostics",
+      sql: `
+        ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_at TEXT;
+        ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_mode TEXT;
+        ALTER TABLE dashboard_report_subscriptions ADD COLUMN IF NOT EXISTS last_capture_error TEXT;
+      `,
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -131,13 +131,13 @@ export default function EmbedRoute() {
   const firstCta = ctas[0] ?? null;
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
 
+  const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(
+    null,
+  );
+
   const tracking = useViewTracking({
     recordingId: shareId ?? "",
-    videoRef: {
-      get current() {
-        return playerRef.current?.video ?? null;
-      },
-    } as any,
+    videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
     trackOpenWithoutVideo: isLoomEmbedBacked,
   });
@@ -193,6 +193,7 @@ export default function EmbedRoute() {
     <div className="fixed inset-0 h-dvh w-dvw overflow-hidden bg-black">
       <VideoPlayer
         ref={playerRef}
+        onVideoElementChange={setTrackedVideoEl}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
         videoFormat={recording.videoFormat}
