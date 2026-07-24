@@ -25,6 +25,15 @@ Current storage:
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
+For organization-wide consolidation, use `migrate-analytics-artifacts` first
+with `dryRun: true`. The write requires an organization owner/admin and the
+exact confirmation token `MIGRATE_ANALYTICS_ARTIFACTS`. It materializes
+organization-scoped legacy settings, creates dashboard blocks for saved
+analyses and standalone extensions, archives exact duplicates, copies shares,
+and removes legacy settings keys only after SQL rows are materialized. Source
+rows remain recoverable. Private member-only rows are intentionally outside
+this organization-scoped operation.
+
 Use `mutate-dashboard` for existing dashboard edits. It resolves the current
 user/org context, validates the resulting config, writes the SQL-backed record,
 syncs collab, and returns compact proof. Use `update-dashboard` for new

@@ -252,25 +252,28 @@ async function readMigrationState(
   const legacyDashboards = legacyDashboardRows(orgSettings, ctx);
   const legacyAnalyses = legacyAnalysisRows(orgSettings);
 
-  const [dashboardRows, analysisRows, extensionRows, extensionDataRows] =
-    await Promise.all([
-      db
-        .select()
-        .from(schema.dashboards)
-        .where(eq(schema.dashboards.orgId, ctx.orgId)),
-      db
-        .select()
-        .from(schema.analyses)
-        .where(eq(schema.analyses.orgId, ctx.orgId)),
-      db
-        .select()
-        .from(migrationExtensions)
-        .where(eq(migrationExtensions.orgId, ctx.orgId)),
-      db
-        .select({ extensionId: migrationExtensionData.extensionId })
-        .from(migrationExtensionData)
-        .where(eq(migrationExtensionData.orgId, ctx.orgId)),
-    ]);
+  const [dashboardRows, analysisRows, extensionRows] = await Promise.all([
+    db
+      .select()
+      .from(schema.dashboards)
+      .where(eq(schema.dashboards.orgId, ctx.orgId)),
+    db
+      .select()
+      .from(schema.analyses)
+      .where(eq(schema.analyses.orgId, ctx.orgId)),
+    db
+      .select()
+      .from(migrationExtensions)
+      .where(eq(migrationExtensions.orgId, ctx.orgId)),
+  ]);
+  const extensionIds = extensionRows.map((row: { id: string }) => row.id);
+  const extensionDataRows =
+    extensionIds.length === 0
+      ? []
+      : await db
+          .select({ extensionId: migrationExtensionData.extensionId })
+          .from(migrationExtensionData)
+          .where(inArray(migrationExtensionData.extensionId, extensionIds));
 
   const now = nowIso();
   const materializedDashboardIds = new Set(
@@ -515,6 +518,26 @@ function sourceMigrationKey(config: Record<string, unknown>): string | null {
   return null;
 }
 
+function collectExtensionIds(
+  value: unknown,
+  output = new Set<string>(),
+): Set<string> {
+  if (Array.isArray(value)) {
+    for (const item of value) collectExtensionIds(item, output);
+    return output;
+  }
+  if (!value || typeof value !== "object") return output;
+  for (const [key, nested] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (key === "extensionId" && typeof nested === "string") {
+      output.add(nested);
+    }
+    collectExtensionIds(nested, output);
+  }
+  return output;
+}
+
 function remapExtensionIds(
   value: unknown,
   replacements: Map<string, string>,
@@ -618,11 +641,21 @@ export async function migrateAnalyticsArtifacts(
   const summary = summaryTemplate(ctx, options.dryRun);
   summary.legacyDashboards = state.legacyDashboardKeys.length;
   summary.legacyAnalyses = state.legacyAnalysisKeys.length;
+  const legacyDashboardIds = new Set(
+    state.legacyDashboardKeys.map((key) =>
+      key.startsWith("sql-dashboard-")
+        ? key.slice("sql-dashboard-".length)
+        : key.slice("dashboard-".length),
+    ),
+  );
+  const legacyAnalysisIds = new Set(
+    state.legacyAnalysisKeys.map((key) => key.slice("adhoc-analysis-".length)),
+  );
   summary.dashboardsMaterialized = state.dashboards.filter((row) =>
-    state.legacyDashboardKeys.some((key) => key.endsWith(row.id)),
+    legacyDashboardIds.has(row.id),
   ).length;
   summary.analysesMaterialized = state.analyses.filter((row) =>
-    state.legacyAnalysisKeys.some((key) => key.endsWith(row.id)),
+    legacyAnalysisIds.has(row.id),
   ).length;
 
   const dashboardDuplicates = duplicateDashboardGroups(state.dashboards);
@@ -659,17 +692,26 @@ export async function migrateAnalyticsArtifacts(
     summary.duplicateDashboardsArchived = duplicateDashboardMap.size;
     summary.duplicateAnalysesHidden = duplicateAnalysisMap.size;
     summary.duplicateExtensionsArchived = duplicateExtensionMap.size;
+    const existingMigrationKeys = new Set(
+      state.dashboards
+        .map((dashboard) => sourceMigrationKey(dashboard.config))
+        .filter((key): key is string => Boolean(key)),
+    );
     summary.analysisDashboardsCreated = state.analyses.filter(
-      (row) => !duplicateAnalysisMap.has(row.id),
+      (row) =>
+        !duplicateAnalysisMap.has(row.id) &&
+        !existingMigrationKeys.has(`analysis:${row.id}`),
     ).length;
+    const referencedExtensionIds = state.dashboards.reduce(
+      (ids, dashboard) => collectExtensionIds(dashboard.config, ids),
+      new Set<string>(),
+    );
     summary.extensionDashboardsCreated = state.extensions.filter(
       (row) =>
         !row.archivedAt &&
         !duplicateExtensionMap.has(row.id) &&
-        !state.dashboards.some(
-          (dashboard) =>
-            sourceMigrationKey(dashboard.config) === `extension:${row.id}`,
-        ),
+        !existingMigrationKeys.has(`extension:${row.id}`) &&
+        !referencedExtensionIds.has(row.id),
     ).length;
     summary.dashboardsCreated =
       summary.analysisDashboardsCreated + summary.extensionDashboardsCreated;
@@ -679,6 +721,14 @@ export async function migrateAnalyticsArtifacts(
   const db = getDb() as any;
   const runId = `artifact-migration-${Date.now()}`;
   const now = nowIso();
+  const publicAnalyses = state.analyses.filter(
+    (analysis) => analysis.visibility === "public",
+  );
+  if (publicAnalyses.length > 0) {
+    throw new Error(
+      `Refusing to migrate public analyses because embedded extensions cannot be public: ${publicAnalyses.map((analysis) => analysis.id).join(", ")}. Make those analyses organization-visible first, then retry.`,
+    );
+  }
   await db.transaction(async (tx: any) => {
     for (const row of state.dashboards) {
       await tx
@@ -808,10 +858,7 @@ export async function migrateAnalyticsArtifacts(
         dashboard.config,
         extensionReplacements,
       );
-      const config = parseJson(remapped.value);
-      const json = JSON.stringify(config);
-      const matches = json.matchAll(/"extensionId"\s*:\s*"([^"]+)"/g);
-      for (const match of matches) referencedExtensionIds.add(match[1]);
+      collectExtensionIds(remapped.value, referencedExtensionIds);
     }
 
     for (const analysis of state.analyses) {

@@ -712,9 +712,7 @@ export function NavContent({
           <nav className={cn("py-1", collapsed ? "px-1" : "px-2")}>
             <ul
               className={cn(
-                collapsed
-                  ? "flex flex-col items-center gap-1"
-                  : "space-y-0.5",
+                collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
               )}
             >
               {BOTTOM_NAV_ITEMS.map(renderNavItem)}

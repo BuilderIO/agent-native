@@ -444,7 +444,7 @@ export function Sidebar({
               </Link>
             );
             return collapsed ? (
-              <Tooltip>
+              <Tooltip key={item.href}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
                 <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
               </Tooltip>

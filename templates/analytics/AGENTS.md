@@ -185,6 +185,13 @@ membership id when its native update status reports `update-available`.
   surface is for connected target app databases, not broad access to all
   Analytics data. Keep future admin additions inside this route instead of
   adding many top-level sidebar tabs.
+- The `migrate-analytics-artifacts` action is the organization-scoped
+  consolidation path. Run it first with `dryRun: true`, then use the exact
+  `confirm: "MIGRATE_ANALYTICS_ARTIFACTS"` token for an owner/admin-approved
+  write. It materializes legacy settings, turns saved analyses and standalone
+  extensions into dashboard blocks, archives exact duplicates, copies shares,
+  and keeps source rows recoverable. It intentionally covers organization-
+  scoped rows, not private member-only rows.
 - For dashboard edits, default to `mutate-dashboard` with its typed
   `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
   edits, inserts, duplication, removal, and dashboard field patches in one

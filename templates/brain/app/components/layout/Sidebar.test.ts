@@ -9,4 +9,9 @@ describe("Brain sidebar footer", () => {
     expect(source).toContain("OrgSwitcher reserveSpace");
     expect(source).toContain('from "@agent-native/core/client/org"');
   });
+
+  it("keeps agent controls in the fixed bottom navigation region", () => {
+    expect(source).toContain("const bottomNavItems");
+    expect(source).toContain("bottomNavItems.map");
+  });
 });

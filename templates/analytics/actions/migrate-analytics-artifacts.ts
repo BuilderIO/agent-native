@@ -29,6 +29,7 @@ export default defineAction({
         "Required for writes: MIGRATE_ANALYTICS_ARTIFACTS. Do not send this for a dry run.",
       ),
   }),
+  needsApproval: ({ dryRun }) => !dryRun,
   run: async ({ dryRun, confirm }, ctx) => {
     const userEmail = getRequestUserEmail() || ctx?.userEmail;
     const orgId = getRequestOrgId() || ctx?.orgId || null;
