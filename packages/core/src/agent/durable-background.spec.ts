@@ -36,6 +36,7 @@ const ENV_KEYS = [
   "A2A_SECRET",
   "NETLIFY",
   "NETLIFY_LOCAL",
+  "SITE_ID",
   "AWS_LAMBDA_FUNCTION_NAME",
   "CF_PAGES",
   "VERCEL",
@@ -358,6 +359,15 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     // must still target the emitted Netlify background function; the worker
     // entry's runtime marker unlocks the 15-minute budget after dispatch lands.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+  });
+
+  it("dispatches to the function's DEFAULT url in the modern Netlify runtime", () => {
+    // NETLIFY is build-only. Deployed Functions document SITE_ID as a runtime
+    // read-only variable even when Lambda compatibility variables are absent.
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
     );
