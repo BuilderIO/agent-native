@@ -564,10 +564,6 @@ export function PreRecordPanel({
     mics.length,
     mode,
     needsCamera,
-    importingLoom,
-    loomImportOpen,
-    loomUrl,
-    onImportLoom,
     selectedCameraLabel,
     selectedMicLabel,
   ]);
@@ -926,18 +922,18 @@ export function PreRecordPanel({
           </Button>
         </div>
 
-        {(onUpload || onImportLoom) && (
+        {(onUpload || importLoomHref) && (
           <>
             <div
               className={cn(
                 "grid gap-2",
-                onUpload && onImportLoom && "sm:grid-cols-2",
+                onUpload && importLoomHref && "sm:grid-cols-2",
               )}
             >
               {onUpload ? (
                 <button
                   type="button"
-                  disabled={busy || importingLoom}
+                  disabled={busy}
                   onClick={() => fileInputRef.current?.click()}
                   className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                 >
@@ -946,67 +942,14 @@ export function PreRecordPanel({
                 </button>
               ) : null}
 
-              {onImportLoom ? (
-                <Popover
-                  open={loomImportOpen}
-                  onOpenChange={(open) => {
-                    setLoomImportOpen(open);
-                    setLoomError(null);
-                  }}
+              {importLoomHref ? (
+                <Link
+                  to={importLoomHref}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={busy || importingLoom}
-                      className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <IconLink className="h-4 w-4" />
-                      {t("preRecord.importLoom")}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    className="w-80 max-w-[calc(100vw-2rem)] p-3"
-                    onOpenAutoFocus={(event) => {
-                      event.preventDefault();
-                      window.requestAnimationFrame(() => {
-                        loomInputRef.current?.focus();
-                      });
-                    }}
-                  >
-                    <form onSubmit={handleLoomImport}>
-                      <div className="flex gap-2">
-                        <Input
-                          ref={loomInputRef}
-                          value={loomUrl}
-                          onChange={(event) => {
-                            setLoomUrl(event.target.value);
-                            setLoomError(null);
-                          }}
-                          disabled={busy || importingLoom}
-                          placeholder="https://www.loom.com/share/..."
-                          className="h-9 text-sm"
-                          inputMode="url"
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="h-9 shrink-0"
-                          disabled={busy || importingLoom || !loomUrl.trim()}
-                        >
-                          {importingLoom
-                            ? t("preRecord.importing")
-                            : t("preRecord.import")}
-                        </Button>
-                      </div>
-                      {loomError ? (
-                        <p className="mt-2 text-xs leading-relaxed text-destructive">
-                          {loomError}
-                        </p>
-                      ) : null}
-                    </form>
-                  </PopoverContent>
-                </Popover>
+                  <IconLink className="h-4 w-4" />
+                  {t("preRecord.importLoom")}
+                </Link>
               ) : null}
             </div>
 
