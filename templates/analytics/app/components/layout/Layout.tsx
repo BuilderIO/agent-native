@@ -2,6 +2,7 @@ import {
   AgentSidebar,
   GuidedQuestionFlow,
   focusAgentChat,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
@@ -123,6 +124,9 @@ function InteractiveLayout({ children }: LayoutProps) {
     activePath: location.pathname,
     enabled: !isAskRoute,
   });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive(
+    ANALYTICS_CHAT_STORAGE_KEY,
+  );
   useAgentChatHomeHandoffLinks({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     chatPath: "/ask",
@@ -204,6 +208,7 @@ function InteractiveLayout({ children }: LayoutProps) {
             position="right"
             defaultOpen={false}
             chatViewTransition
+            chatViewTransitionHandoff={chatHomeHandoffPending}
             storageKey={ANALYTICS_CHAT_STORAGE_KEY}
             browserTabId={TAB_ID}
             openOnChatRunning={chatHomeHandoffActive}
