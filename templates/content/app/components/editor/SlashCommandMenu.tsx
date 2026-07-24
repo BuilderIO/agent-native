@@ -1302,7 +1302,7 @@ export function SlashCommandMenu({
   );
 }
 
-function CommandButton({
+export function CommandButton({
   cmd,
   isSelected,
   buttonRef,
@@ -1320,8 +1320,8 @@ function CommandButton({
       ref={buttonRef}
       onMouseDown={(event) => {
         event.preventDefault();
-        onExecute();
       }}
+      onClick={onExecute}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",

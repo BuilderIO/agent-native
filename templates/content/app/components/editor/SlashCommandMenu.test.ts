@@ -5,10 +5,13 @@ import { join } from "node:path";
 
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   buildHeadingCommands,
+  CommandButton,
   CONTENT_HEADING_LEVELS,
   equationNodeContent,
   getEquationInsertionRange,
@@ -19,6 +22,10 @@ import {
   parseInlineGeneratePrompt,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
+
+function TestIcon() {
+  return createElement("svg");
+}
 
 function readSlashCommandMenuSource() {
   return readFileSync(
@@ -80,6 +87,60 @@ describe("slash command menu trigger", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+});
+
+describe("slash command pointer activation", () => {
+  it("preserves the editor selection on pointer down and executes on click", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onExecute = vi.fn();
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      act(() => {
+        root.render(
+          createElement(CommandButton, {
+            cmd: {
+              title: "Code Block",
+              description: "Insert a code block",
+              icon: TestIcon,
+              action: vi.fn(),
+            },
+            isSelected: true,
+            onExecute,
+            onHover: vi.fn(),
+          }),
+        );
+      });
+
+      const button = container.querySelector("button");
+      expect(button).not.toBeNull();
+
+      const mouseDown = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => button?.dispatchEvent(mouseDown));
+      expect(mouseDown.defaultPrevented).toBe(true);
+      expect(onExecute).not.toHaveBeenCalled();
+
+      act(() =>
+        button?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        ),
+      );
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
   });
 });
 
