@@ -126,10 +126,20 @@ function maxRisk(
 
 export function reviewPreparePriority(
   changeSet: ContentDatabaseSourceChangeSet,
+  source?: ContentDatabaseSource,
 ) {
-  if (changeSet.state === "pending_push") return 0;
-  if (changeSet.state === "staged_revision") return 1;
-  return 2;
+  const statePriority =
+    changeSet.state === "pending_push"
+      ? 0
+      : changeSet.state === "staged_revision"
+        ? 2
+        : 4;
+  const effectPriority =
+    source &&
+    resolveBuilderCmsWriteEffect({ source, changeSet }) === "create_draft"
+      ? 0
+      : 1;
+  return statePriority + effectPriority;
 }
 
 function parsePayload(value: string) {
@@ -717,7 +727,11 @@ export default defineAction({
         throw new Error("No pending local Builder changes to review.");
       }
       const reviewableChanges = [...allReviewableChanges]
-        .sort((a, b) => reviewPreparePriority(a) - reviewPreparePriority(b))
+        .sort(
+          (a, b) =>
+            reviewPreparePriority(a, snapshot) -
+            reviewPreparePriority(b, snapshot),
+        )
         .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
       const authoritativeSnapshot = await withAuthoritativeBuilderTargetRows({
         source: snapshot,

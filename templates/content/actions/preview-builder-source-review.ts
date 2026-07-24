@@ -72,7 +72,8 @@ export default defineAction({
     const changeSets = [...allReviewableChanges]
       .sort(
         (left, right) =>
-          reviewPreparePriority(left) - reviewPreparePriority(right),
+          reviewPreparePriority(left, source) -
+          reviewPreparePriority(right, source),
       )
       .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
     const authoritativeSource = await withAuthoritativeBuilderTargetRows({
