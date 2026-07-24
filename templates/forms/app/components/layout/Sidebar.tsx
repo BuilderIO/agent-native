@@ -276,45 +276,47 @@ export function Sidebar() {
             {newFormPopover}
           </Popover>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/agent"
-                aria-label={t("settings.agentTitle")}
-                className={cn(
-                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname.startsWith("/agent")
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconHierarchy2 className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("settings.agentTitle")}
-            </TooltipContent>
-          </Tooltip>
+          <div className="mt-auto flex flex-col items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/agent"
+                  aria-label={t("settings.agentTitle")}
+                  className={cn(
+                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                    location.pathname.startsWith("/agent")
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <IconHierarchy2 className="h-4 w-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("settings.agentTitle")}
+              </TooltipContent>
+            </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/settings"
-                aria-label={t("navigation.settings")}
-                className={cn(
-                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
-                  location.pathname === "/settings"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconSettings className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.settings")}
-            </TooltipContent>
-          </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/settings"
+                  aria-label={t("navigation.settings")}
+                  className={cn(
+                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                    location.pathname === "/settings"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <IconSettings className="h-4 w-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </nav>
       </TooltipProvider>
     </div>
