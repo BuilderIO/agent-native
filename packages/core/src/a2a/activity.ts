@@ -37,6 +37,9 @@ export interface A2AAgentActivitySnapshot extends Record<string, unknown> {
   activePhase: A2AAgentActivityPhase;
   reasoning: string[];
   toolCalls: A2AAgentActivityToolCall[];
+  /** Response text segments, indexed by how many tool calls preceded them. */
+  response?: string[];
+  /** Tail segment only. Kept so peers predating `response` still render. */
   responseText?: string;
 }
 
@@ -47,7 +50,7 @@ export interface A2AAgentActivityState {
   activePhase: A2AAgentActivityPhase;
   reasoning: string[];
   toolCalls: A2AAgentActivityToolCall[];
-  responseText: string;
+  response: string[];
 }
 
 export function createA2AAgentActivityState(
@@ -60,7 +63,7 @@ export function createA2AAgentActivityState(
     activePhase: "reasoning",
     reasoning: [],
     toolCalls: [],
-    responseText: "",
+    response: [],
   };
 }
 
@@ -90,7 +93,6 @@ export function applyA2AAgentActivityEvent(
       break;
     case "tool_start":
       next.activePhase = "tool";
-      next.responseText = "";
       next.toolCalls = appendToolCall(next.toolCalls, toolFromEvent(event));
       changed = true;
       break;
@@ -101,10 +103,11 @@ export function applyA2AAgentActivityEvent(
       break;
     case "text":
       next.activePhase = "responding";
-      next.responseText = appendBoundedText(
-        next.responseText,
+      next.response = appendBoundedSegment(
+        next.response,
         event.text,
         MAX_A2A_ACTIVITY_RESPONSE_CHARS,
+        next.toolCalls.length,
       );
       changed = true;
       break;
@@ -117,7 +120,7 @@ export function applyA2AAgentActivityEvent(
       changed = true;
       break;
     case "clear":
-      next.responseText = "";
+      next.response = [];
       changed = true;
       break;
   }
@@ -138,8 +141,13 @@ export function buildA2AAgentActivitySnapshot(
     activePhase: state.activePhase,
     reasoning: state.reasoning,
     toolCalls: state.toolCalls,
-    ...(state.responseText ? { responseText: state.responseText } : {}),
+    ...(state.response.length ? { response: state.response } : {}),
+    ...(tailSegment(state) ? { responseText: tailSegment(state) } : {}),
   };
+}
+
+function tailSegment(state: A2AAgentActivityState): string {
+  return state.response[state.toolCalls.length] ?? "";
 }
 
 export function buildA2AAgentActivityPart(
@@ -165,8 +173,10 @@ export function parseA2AAgentActivityPart(
     !isPhase(data.activePhase) ||
     data.updatedAt < data.startedAt ||
     data.durationMs !== data.updatedAt - data.startedAt ||
-    !isSafeReasoning(data.reasoning) ||
+    !isSafeSegments(data.reasoning, MAX_A2A_ACTIVITY_REASONING_CHARS) ||
     !isSafeToolCalls(data.toolCalls) ||
+    (data.response !== undefined &&
+      !isSafeSegments(data.response, MAX_A2A_ACTIVITY_RESPONSE_CHARS)) ||
     (data.responseText !== undefined &&
       !isSafeText(data.responseText, MAX_A2A_ACTIVITY_RESPONSE_CHARS)) ||
     activityCharacterCount(data) > MAX_A2A_ACTIVITY_TOTAL_CHARS
@@ -191,14 +201,6 @@ function toolFromEvent(
           ? "failed"
           : "completed",
   };
-}
-
-function appendBoundedText(
-  current: string,
-  addition: string,
-  maxChars: number,
-) {
-  return sanitizeText(`${current}${addition}`, maxChars);
 }
 
 function appendBoundedSegment(
@@ -293,7 +295,7 @@ function isPhase(value: unknown): value is A2AAgentActivityPhase {
   );
 }
 
-function isSafeReasoning(value: unknown): value is string[] {
+function isSafeSegments(value: unknown, maxChars: number): value is string[] {
   return (
     Array.isArray(value) &&
     value.length <= MAX_A2A_ACTIVITY_REASONING_SEGMENTS &&
@@ -301,8 +303,8 @@ function isSafeReasoning(value: unknown): value is string[] {
       (total, text) =>
         total + (typeof text === "string" ? text.length : Infinity),
       0,
-    ) <= MAX_A2A_ACTIVITY_REASONING_CHARS &&
-    value.every((text) => isSafeText(text, MAX_A2A_ACTIVITY_REASONING_CHARS))
+    ) <= maxChars &&
+    value.every((text) => isSafeText(text, maxChars))
   );
 }
 
@@ -349,14 +351,14 @@ function isSafeToolId(value: unknown): value is string {
 }
 
 function activityCharacterCount(data: Record<string, unknown>): number {
-  const reasoning = Array.isArray(data.reasoning)
-    ? data.reasoning.reduce(
-        (total, text) => total + (typeof text === "string" ? text.length : 0),
-        0,
-      )
-    : 0;
-  const response =
-    typeof data.responseText === "string" ? data.responseText.length : 0;
+  const reasoning = segmentCharacterCount(data.reasoning);
+  // `responseText` duplicates the tail of `response`; counting both would
+  // reject a snapshot that is within budget.
+  const response = Array.isArray(data.response)
+    ? segmentCharacterCount(data.response)
+    : typeof data.responseText === "string"
+      ? data.responseText.length
+      : 0;
   const tools = Array.isArray(data.toolCalls)
     ? data.toolCalls.reduce((total, tool) => {
         if (!isRecord(tool)) return total;
@@ -368,4 +370,13 @@ function activityCharacterCount(data: Record<string, unknown>): number {
       }, 0)
     : 0;
   return reasoning + response + tools;
+}
+
+function segmentCharacterCount(value: unknown): number {
+  return Array.isArray(value)
+    ? value.reduce(
+        (total, text) => total + (typeof text === "string" ? text.length : 0),
+        0,
+      )
+    : 0;
 }
