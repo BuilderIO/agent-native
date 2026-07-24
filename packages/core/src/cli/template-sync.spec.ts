@@ -561,7 +561,10 @@ describe("agent-native template commands", () => {
 
     const status = collectIO();
     expect(
-      await runTemplate(["status", "--to", "@agent-native/core@9.9.9"], status.io),
+      await runTemplate(
+        ["status", "--to", "@agent-native/core@9.9.9"],
+        status.io,
+      ),
     ).toBe(0);
     expect(status.text()).toContain("my-app (standalone)");
     expect(status.text()).toContain("latest ref:     @agent-native/core@9.9.9");
