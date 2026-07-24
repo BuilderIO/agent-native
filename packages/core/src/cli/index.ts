@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import * as Sentry from "@sentry/node";
 
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
 // Resolve version once at module scope — used by both --version and --help
@@ -604,7 +605,7 @@ function runBuildStep(
   });
 }
 
-trackCli("cli.run");
+if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
