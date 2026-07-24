@@ -620,6 +620,13 @@ export async function resolveBuilderCredentials(): Promise<{
 }
 
 const BUILDER_AUTH_FAILURE_SETTING_PREFIX = "builder-auth-failure:";
+/**
+ * Stale markers expire so a rejected model or a transient gateway failure
+ * cannot pin a signed-in user to "Builder not connected" forever. Only a
+ * successful gateway call clears the marker early, and that call never happens
+ * while the marker is what makes the connection look broken.
+ */
+export const BUILDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
 
 export interface BuilderCredentialAuthFailure {
   fingerprint: string;
@@ -660,9 +667,17 @@ export async function getBuilderCredentialAuthFailure(
   );
   if (!fingerprint) return null;
   try {
-    const { getSetting } = await import("../settings/store.js");
-    const row = await getSetting(builderAuthFailureSettingKey(fingerprint));
+    const settings = await import("../settings/store.js");
+    const settingKey = builderAuthFailureSettingKey(fingerprint);
+    const row = await settings.getSetting(settingKey);
     if (!row) return null;
+    const at = typeof row.at === "number" ? row.at : Date.now();
+    if (Date.now() - at > BUILDER_AUTH_FAILURE_TTL_MS) {
+      if (typeof settings.deleteSetting === "function") {
+        await settings.deleteSetting(settingKey).catch(() => {});
+      }
+      return null;
+    }
     return {
       fingerprint,
       message:
@@ -671,7 +686,7 @@ export async function getBuilderCredentialAuthFailure(
           : "Builder rejected the connected credentials. Reconnect Builder.io.",
       status: typeof row.status === "number" ? row.status : undefined,
       code: typeof row.code === "string" ? row.code : undefined,
-      at: typeof row.at === "number" ? row.at : Date.now(),
+      at,
       ownerEmail:
         typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
       orgId: typeof row.orgId === "string" ? row.orgId : undefined,

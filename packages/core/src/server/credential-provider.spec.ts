@@ -31,6 +31,7 @@ vi.mock("../settings/store.js", () => ({
 }));
 
 import {
+  BUILDER_AUTH_FAILURE_TTL_MS,
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
@@ -379,11 +380,12 @@ describe("Builder credential auth failure markers", () => {
   });
 
   it("reads an auth-failure marker for the same effective key pair", async () => {
+    const at = Date.now();
     mockGetSetting.mockResolvedValue({
       message: "Invalid key",
       status: 401,
       code: "unauthorized",
-      at: 123,
+      at,
     });
 
     const failure = await getBuilderCredentialAuthFailure({
@@ -396,9 +398,28 @@ describe("Builder credential auth failure markers", () => {
       message: "Invalid key",
       status: 401,
       code: "unauthorized",
-      at: 123,
+      at,
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
+      `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
+    );
+  });
+
+  it("expires a stale marker instead of pinning the user to 'not connected'", async () => {
+    mockGetSetting.mockResolvedValue({
+      message: "Invalid key",
+      status: 401,
+      code: "unauthorized",
+      at: Date.now() - BUILDER_AUTH_FAILURE_TTL_MS - 1,
+    });
+
+    const failure = await getBuilderCredentialAuthFailure({
+      privateKey: "bpk-secret",
+      publicKey: "pub-secret",
+    });
+
+    expect(failure).toBeNull();
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
       `builder-auth-failure:${builderCredentialFingerprint("bpk-secret", "pub-secret")}`,
     );
   });
