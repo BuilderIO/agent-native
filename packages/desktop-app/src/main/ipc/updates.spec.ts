@@ -79,10 +79,11 @@ describe("desktop updates", () => {
       focusMainWindow: vi.fn(),
     });
 
+    const checkPromise = checkForAppUpdates();
+    await Promise.resolve();
+
     const updateDownloaded = updaterState.handlers.get("update-downloaded");
     updateDownloaded?.({ version: "1.1.0", releaseNotes: "Fixes" });
-
-    const checkPromise = checkForAppUpdates();
     await Promise.resolve();
 
     expect(getCurrentUpdateStatus()).toEqual({ state: "idle" });

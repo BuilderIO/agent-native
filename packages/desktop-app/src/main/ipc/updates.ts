@@ -186,6 +186,8 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     });
 
     autoUpdater.on("update-downloaded", (info) => {
+      // On macOS this event precedes native Squirrel staging; publish only
+      // after the download promise resolves so the first relaunch can install.
       pendingDownloadedUpdate = {
         state: "downloaded",
         version: info.version,
