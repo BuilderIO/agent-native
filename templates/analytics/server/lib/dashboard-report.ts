@@ -29,6 +29,7 @@ import {
   getReportDashboard,
   normalizeDashboardReportRecipients,
   type AccessCtx,
+  type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
 
@@ -437,6 +438,7 @@ async function waitForDashboardReportReady(
   timeout: number,
   consoleErrors: string[] = [],
   failedRequests: string[] = [],
+  expectedPanelIds: string[] = [],
 ): Promise<boolean> {
   try {
     await page.waitForFunction(
@@ -460,22 +462,34 @@ async function waitForDashboardReportReady(
     const detail = await page
       .evaluate(`(() => {
         const root = document.querySelector("[data-dashboard-report-capture]");
+        const expectedPanelIds = ${JSON.stringify(expectedPanelIds.slice(0, REPORT_PANEL_STATE_DIAGNOSTICS_LIMIT))};
+        const cleanText = (value, limit = ${REPORT_PANEL_STATE_TEXT_LIMIT}) =>
+          String(value ?? "").replace(/\\s+/g, " ").trim().slice(0, limit);
+        const panelStates = expectedPanelIds.map((id) => {
+          const panel = Array.from(
+            root?.querySelectorAll("[data-dashboard-report-panel-id]") ?? [],
+          ).find((node) =>
+            node.getAttribute("data-dashboard-report-panel-id") === id,
+          );
+          if (!panel) return { id: cleanText(id, 96), state: "missing" };
+          const errorNode = panel.querySelector(
+            "[data-dashboard-report-panel-error='true'], .text-red-400",
+          );
+          const error = cleanText(errorNode?.textContent);
+          return {
+            id: cleanText(id, 96),
+            title: cleanText(panel.getAttribute("data-dashboard-report-panel-title"), 120),
+            state: panel.querySelector("[data-dashboard-report-loading='true']")
+              ? "loading"
+              : error
+                ? "errored"
+                : "ready",
+            ...(error ? { error } : {}),
+          };
+        });
         return {
           ready: root?.getAttribute("data-dashboard-report-ready") ?? null,
-          loadingCount: root?.querySelectorAll("[data-dashboard-report-loading='true']").length ?? null,
-          loadingPanels: Array.from(
-            root?.querySelectorAll("[data-dashboard-report-loading='true']") ?? [],
-          ).reduce((panels, loadingNode) => {
-            const panel = loadingNode.closest("[data-dashboard-report-panel-id]");
-            const id = panel?.getAttribute("data-dashboard-report-panel-id");
-            if (!id || panels.some((entry) => entry.id === id)) return panels;
-            panels.push({
-              id,
-              title: panel?.getAttribute("data-dashboard-report-panel-title") ?? "",
-            });
-            return panels;
-          }, []),
-          text: document.body?.innerText?.slice(0, 1000) ?? "",
+          panelStates,
           url: location.href,
         };
       })()`)
@@ -596,6 +610,8 @@ async function runBoundedBrowserCleanup(
 const DIAGNOSTICS_PROBE_TIMEOUT_MS = 2_000;
 const DIAGNOSTICS_MAX_LENGTH = 700;
 const DIAGNOSTICS_COLLECTOR_LIMIT = 5;
+const REPORT_PANEL_STATE_DIAGNOSTICS_LIMIT = REPORT_PANEL_CHUNK_SIZE;
+const REPORT_PANEL_STATE_TEXT_LIMIT = 160;
 
 // netlify.toml's memory = "2gb" is plan-gated and can be silently ignored, so
 // capture the actual lambda memory ceiling alongside current RSS.
@@ -811,6 +827,7 @@ async function captureDashboardChunk(
       boundedStageTimeout(attempt.readyTimeout ?? timeout, deadlineAt),
       consoleErrors,
       failedRequests,
+      expectedPanelIds,
     );
     captureStage = "validating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
@@ -825,6 +842,7 @@ async function captureDashboardChunk(
       ),
       consoleErrors,
       failedRequests,
+      expectedPanelIds,
     );
     captureStage = "revalidating the report chunk panels";
     await assertDashboardReportPanelWindow(page, expectedPanelIds);
@@ -1138,6 +1156,7 @@ export async function sendDashboardReportSubscription(
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
     deadlineAt?: number;
+    onCaptureOutcome?: (outcome: DashboardReportCaptureOutcome) => Promise<void>;
   } = {},
 ): Promise<{
   dashboardUrl: string;
@@ -1169,6 +1188,10 @@ export async function sendDashboardReportSubscription(
     !options.skipEmailWithoutScreenshot && !options.requireScreenshot,
     captureTimeoutMs,
   );
+  await options.onCaptureOutcome?.({
+    mode: capture.mode,
+    ...(capture.error ? { error: capture.error } : {}),
+  });
   if (capture.mode !== "full" && options.requireScreenshot) {
     throw new Error(
       capture.error
