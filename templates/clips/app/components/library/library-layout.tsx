@@ -190,14 +190,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={t("sidebar.search")}
+          aria-label={t("root.commandSearch")}
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground"
           onClick={openCommandMenu}
         >
           <IconSearch className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
   const translateButton = (

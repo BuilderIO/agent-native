@@ -578,12 +578,14 @@ export function Sidebar({
           variant="ghost"
           className="size-8 shrink-0 text-muted-foreground"
           onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
+          aria-label={t("plansPage.overview.searchPlaceholder")}
         >
           <IconSearch className="size-4" />
         </Button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">
+        {t("plansPage.overview.searchPlaceholder")}
+      </TooltipContent>
     </Tooltip>
   );
   const translateButton = (

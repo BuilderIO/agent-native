@@ -107,12 +107,12 @@ export function Sidebar() {
           type="button"
           onClick={openCommandMenu}
           className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-          aria-label={t("sidebar.search")}
+          aria-label={t("root.searchForms")}
         >
           <IconSearch className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("root.searchForms")}</TooltipContent>
     </Tooltip>
   );
   const translateButton = (

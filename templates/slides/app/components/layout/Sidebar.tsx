@@ -84,13 +84,13 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         <button
           type="button"
           onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
+          aria-label={t("root.searchDecks")}
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
         >
           <IconSearch className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("root.searchDecks")}</TooltipContent>
     </Tooltip>
   );
   const translateButton = (

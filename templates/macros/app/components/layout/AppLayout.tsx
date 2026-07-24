@@ -207,11 +207,7 @@ function SidebarContent({
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={
-            collapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
           onClick={onToggleCollapsed}
         >
@@ -219,7 +215,7 @@ function SidebarContent({
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
       </TooltipContent>
     </Tooltip>
   ) : null;
@@ -229,13 +225,13 @@ function SidebarContent({
         <button
           type="button"
           onClick={openCommandMenu}
-          aria-label={t("sidebar.search")}
+          aria-label={t("root.search")}
           className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground"
         >
           <IconSearch className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("root.search")}</TooltipContent>
     </Tooltip>
   );
   const translateButton = (

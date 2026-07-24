@@ -1284,11 +1284,7 @@ export function DocumentSidebar({
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={
-            collapsed
-              ? t("sidebar.expandSidebar")
-              : t("sidebar.collapseSidebar")
-          }
+          aria-label={collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
           className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={onToggleCollapsed}
         >
@@ -1300,7 +1296,7 @@ export function DocumentSidebar({
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+        {collapsed ? t("sidebar.expand") : t("sidebar.collapse")}
       </TooltipContent>
     </Tooltip>
   );

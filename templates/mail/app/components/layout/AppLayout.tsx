@@ -420,12 +420,12 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           type="button"
           onClick={openCommandMenu}
           className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          aria-label={t("sidebar.search")}
+          aria-label={t("mail.search.label")}
         >
           <IconSearch className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
   );
   const translateButton = (
@@ -2042,12 +2042,12 @@ function StandardLayout({ children }: AppLayoutProps) {
             );
           }}
           className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          aria-label={t("sidebar.search")}
+          aria-label={t("mail.search.label")}
         >
           <IconSearch className="h-4 w-4" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+      <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
   );
   const translateButton = (
