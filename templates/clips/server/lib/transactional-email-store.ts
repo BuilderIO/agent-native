@@ -69,6 +69,14 @@ export const transactionalEmailPayloadSchema = z.discriminatedUnion("type", [
 export const transactionalEmailConfigSchema = z
   .object({
     enabledAt: timestampSchema,
+    reconciliationCursor: z
+      .object({
+        createdAt: timestampSchema,
+        id: nonEmptyStringSchema,
+      })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict();
 
@@ -463,6 +471,37 @@ export function createTransactionalEmailStore(
     }
   }
 
+  async function updateReconciliationCursor(
+    reconciliationCursor: NonNullable<
+      TransactionalEmailConfig["reconciliationCursor"]
+    > | null,
+  ): Promise<TransactionalEmailConfig> {
+    const parsedCursor =
+      transactionalEmailConfigSchema.shape.reconciliationCursor.parse(
+        reconciliationCursor,
+      );
+    const updated = await withJobLock(
+      "transactional-email-config",
+      async () => {
+        const config = await parseJsonFile(
+          configFile,
+          transactionalEmailConfigSchema,
+          "transactional email config",
+        );
+        const nextConfig = transactionalEmailConfigSchema.parse({
+          ...config,
+          reconciliationCursor: parsedCursor,
+        });
+        await writeJsonAtomic(configFile, nextConfig);
+        return nextConfig;
+      },
+    );
+    if (!updated) {
+      throw new Error("Transactional email config is being updated");
+    }
+    return updated;
+  }
+
   async function readConfig(): Promise<TransactionalEmailConfig | null> {
     try {
       return await parseJsonFile(
@@ -485,6 +524,7 @@ export function createTransactionalEmailStore(
     claimNextAwaitingAi,
     acquireSendingLease,
     ensureEnabledAt,
+    updateReconciliationCursor,
     readConfig,
   };
 }

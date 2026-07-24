@@ -14,21 +14,37 @@ const mocks = vi.hoisted(() => ({
   eq: vi.fn(),
   gte: vi.fn(),
   inArray: vi.fn(),
+  defineAction: vi.fn((options: unknown) => options),
+  writeAppState: vi.fn(),
+  uploadFile: vi.fn(),
+  getDb: vi.fn(),
+  getCurrentOwnerEmail: vi.fn(),
+  getOrganizationDefaultVisibility: vi.fn(),
+  nanoid: vi.fn(),
+  parseSpaceIds: vi.fn(),
+  requireOrganizationAccess: vi.fn(),
+  stringifySpaceIds: vi.fn(),
+  hasRequestVideoStorage: vi.fn(),
+  downloadDirectVideo: vi.fn(),
+  isCandidateDirectVideoUrl: vi.fn(),
+  queueBuilderMediaCompression: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
-  defineAction: (options: unknown) => options,
+  defineAction: (options: unknown) => mocks.defineAction(options),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: vi.fn(),
+  writeAppState: (...args: unknown[]) => mocks.writeAppState(...args),
 }));
 
 vi.mock("@agent-native/core/extensions/url-safety", () => ({
   ssrfSafeFetch: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/file-upload", () => ({ uploadFile: vi.fn() }));
+vi.mock("@agent-native/core/file-upload", () => ({
+  uploadFile: (...args: unknown[]) => mocks.uploadFile(...args),
+}));
 vi.mock("@agent-native/core/server", () => ({ buildDeepLink: vi.fn() }));
 
 vi.mock("drizzle-orm", () => ({
@@ -40,7 +56,7 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../server/db/index.js", () => ({
-  getDb: vi.fn(),
+  getDb: (...args: unknown[]) => mocks.getDb(...args),
   schema: {
     recordings: {
       id: "recordings.id",
@@ -49,21 +65,28 @@ vi.mock("../server/db/index.js", () => ({
       sourceAppName: "recordings.sourceAppName",
       createdAt: "recordings.createdAt",
     },
+    recordingTranscripts: {
+      recordingId: "recording_transcripts.recordingId",
+    },
   },
 }));
 
 vi.mock("../server/lib/builder-media-compression.js", () => ({
-  queueBuilderMediaCompression: vi.fn(),
+  queueBuilderMediaCompression: (...args: unknown[]) =>
+    mocks.queueBuilderMediaCompression(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
-  getCurrentOwnerEmail: vi.fn(),
-  getOrganizationDefaultVisibility: vi.fn(),
-  nanoid: vi.fn(),
+  getCurrentOwnerEmail: (...args: unknown[]) =>
+    mocks.getCurrentOwnerEmail(...args),
+  getOrganizationDefaultVisibility: (...args: unknown[]) =>
+    mocks.getOrganizationDefaultVisibility(...args),
+  nanoid: (...args: unknown[]) => mocks.nanoid(...args),
   ownerEmailMatches: (...args: unknown[]) => mocks.ownerEmailMatches(...args),
-  parseSpaceIds: vi.fn(),
-  requireOrganizationAccess: vi.fn(),
-  stringifySpaceIds: vi.fn(),
+  parseSpaceIds: (...args: unknown[]) => mocks.parseSpaceIds(...args),
+  requireOrganizationAccess: (...args: unknown[]) =>
+    mocks.requireOrganizationAccess(...args),
+  stringifySpaceIds: (...args: unknown[]) => mocks.stringifySpaceIds(...args),
 }));
 
 vi.mock("../server/lib/transactional-email-store.js", () => ({
@@ -74,12 +97,15 @@ vi.mock("../server/lib/transactional-email-store.js", () => ({
 }));
 
 vi.mock("../server/lib/video-storage.js", () => ({
-  hasRequestVideoStorage: vi.fn(),
+  hasRequestVideoStorage: (...args: unknown[]) =>
+    mocks.hasRequestVideoStorage(...args),
 }));
 
 vi.mock("./lib/direct-video.js", () => ({
-  downloadDirectVideo: vi.fn(),
-  isCandidateDirectVideoUrl: vi.fn(),
+  downloadDirectVideo: (...args: unknown[]) =>
+    mocks.downloadDirectVideo(...args),
+  isCandidateDirectVideoUrl: (...args: unknown[]) =>
+    mocks.isCandidateDirectVideoUrl(...args),
 }));
 
 vi.mock("./lib/loom-transcript.js", () => ({
@@ -89,7 +115,9 @@ vi.mock("./lib/loom-transcript.js", () => ({
 
 vi.mock("./lib/loom-video.js", () => ({ downloadLoomVideo: vi.fn() }));
 
-import { enqueueFirstImportEmailIfEligible } from "./import-loom-recording";
+import importLoomRecording, {
+  enqueueFirstImportEmailIfEligible,
+} from "./import-loom-recording";
 
 function createDb(firstReadyImportId: string | null) {
   mocks.select.mockReturnValue({ from: mocks.from });
@@ -184,5 +212,65 @@ describe("first imported recording transactional email", () => {
 
     expect(mocks.limit).toHaveBeenCalledWith(1);
     expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
+
+  it("completes a persisted import when transactional email enqueue fails", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    const db = {
+      insert: vi.fn(() => ({ values: insertValues })),
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getOrganizationDefaultVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-imported");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    mocks.uploadFile.mockResolvedValue({
+      id: "asset-1",
+      url: "https://media.example.com/recording-imported.mp4",
+      provider: "builder",
+    });
+    mocks.queueBuilderMediaCompression.mockResolvedValue(undefined);
+    mocks.ensureEnabledAt.mockRejectedValue(
+      new Error("email store unavailable"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await importLoomRecording.run({
+      url: "https://media.example.com/source.mp4",
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "recording-imported",
+      status: "ready",
+    });
+    expect(insertValues).toHaveBeenCalledTimes(2);
+    expect(mocks.writeAppState).toHaveBeenCalledWith("refresh-signal", {
+      ts: expect.any(Number),
+    });
+    expect(mocks.writeAppState).toHaveBeenCalledWith("navigate", {
+      view: "recording",
+      recordingId: "recording-imported",
+    });
+    expect(warn).toHaveBeenCalledWith(
+      "[clips] First-import email enqueue failed",
+      {
+        recordingId: "recording-imported",
+        error: "email store unavailable",
+      },
+    );
   });
 });

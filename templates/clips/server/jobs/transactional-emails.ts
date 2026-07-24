@@ -4,11 +4,13 @@ import {
   and,
   asc,
   eq,
+  gt,
   gte,
   inArray,
   isNotNull,
   isNull,
   lte,
+  not,
   or,
 } from "drizzle-orm";
 
@@ -57,6 +59,11 @@ type CountedView = {
   viewerEmail: string | null;
 };
 
+type ReconciliationCursor = {
+  createdAt: string;
+  id: string;
+};
+
 export type TransactionalEmailStore = Pick<
   typeof transactionalEmailStore,
   | "ensureEnabledAt"
@@ -64,10 +71,15 @@ export type TransactionalEmailStore = Pick<
   | "listJobs"
   | "transition"
   | "acquireSendingLease"
+  | "updateReconciliationCursor"
 >;
 
 export interface TransactionalEmailRepository {
-  listDirectShares(enabledAt: string, limit: number): Promise<DirectShare[]>;
+  listDirectShares(
+    enabledAt: string,
+    cursor: ReconciliationCursor | null,
+    limit: number,
+  ): Promise<DirectShare[]>;
   listRecipientShares(
     recipient: string,
     enabledAt: string,
@@ -88,7 +100,10 @@ export interface TransactionalEmailRepository {
     recipient: string,
     recordingId: string,
   ): Promise<boolean>;
-  getFirstCountedView(recordingId: string): Promise<CountedView | null>;
+  getFirstNonOwnerCountedView(
+    recordingId: string,
+    ownerEmail: string,
+  ): Promise<CountedView | null>;
   isFirstImport(
     recording: RecordingState,
     recipient: string,
@@ -172,6 +187,7 @@ function defaultRepository(): TransactionalEmailRepository {
     enabledAt: string,
     limit: number,
     recipient?: string,
+    cursor?: ReconciliationCursor | null,
   ): Promise<DirectShare[]> => {
     const rows = await db
       .select({
@@ -189,6 +205,15 @@ function defaultRepository(): TransactionalEmailRepository {
             ? ownerEmailMatches(schema.recordingShares.principalId, recipient)
             : undefined,
           gte(schema.recordingShares.createdAt, enabledAt),
+          cursor
+            ? or(
+                gt(schema.recordingShares.createdAt, cursor.createdAt),
+                and(
+                  eq(schema.recordingShares.createdAt, cursor.createdAt),
+                  gt(schema.recordingShares.id, cursor.id),
+                ),
+              )
+            : undefined,
         ),
       )
       .orderBy(
@@ -200,7 +225,8 @@ function defaultRepository(): TransactionalEmailRepository {
   };
 
   return {
-    listDirectShares: (enabledAt, limit) => selectShares(enabledAt, limit),
+    listDirectShares: (enabledAt, cursor, limit) =>
+      selectShares(enabledAt, limit, undefined, cursor),
     listRecipientShares: (recipient, enabledAt, limit) =>
       selectShares(enabledAt, limit, recipient),
     async getRecording(recordingId) {
@@ -280,11 +306,24 @@ function defaultRepository(): TransactionalEmailRepository {
         (view) => normalizedEmail(view.viewerEmail) === recipient,
       );
     },
-    async getFirstCountedView(recordingId) {
+    async getFirstNonOwnerCountedView(recordingId, ownerEmail) {
       const [view] = await db
         .select({ viewerEmail: schema.recordingViews.viewerEmail })
         .from(schema.recordingViews)
-        .where(eq(schema.recordingViews.recordingId, recordingId))
+        .where(
+          and(
+            eq(schema.recordingViews.recordingId, recordingId),
+            or(
+              isNull(schema.recordingViews.viewerEmail),
+              not(
+                ownerEmailMatches(
+                  schema.recordingViews.viewerEmail,
+                  ownerEmail,
+                ),
+              ),
+            ),
+          ),
+        )
         .orderBy(
           asc(schema.recordingViews.viewedAt),
           asc(schema.recordingViews.id),
@@ -311,8 +350,6 @@ function defaultRepository(): TransactionalEmailRepository {
               eq(schema.recordings.sourceAppName, "Loom"),
               eq(schema.recordings.sourceAppName, "Video link"),
             ),
-            isNull(schema.recordings.archivedAt),
-            isNull(schema.recordings.trashedAt),
           ),
         )
         .orderBy(asc(schema.recordings.createdAt), asc(schema.recordings.id))
@@ -326,10 +363,12 @@ async function reconcileShares(
   repository: TransactionalEmailRepository,
   store: TransactionalEmailStore,
   enabledAt: string,
+  cursor: ReconciliationCursor | null,
   now: Date,
   limit: number,
-): Promise<number> {
-  const shares = (await repository.listDirectShares(enabledAt, limit))
+): Promise<{ enqueued: number; nextCursor: ReconciliationCursor | null }> {
+  const page = await repository.listDirectShares(enabledAt, cursor, limit);
+  const shares = page
     .map(normalizeShare)
     .filter((share): share is DirectShare => share !== null);
   let enqueued = 0;
@@ -387,7 +426,14 @@ async function reconcileShares(
     if (result.created) enqueued += 1;
   }
 
-  return enqueued;
+  const lastShare = page[page.length - 1];
+  return {
+    enqueued,
+    nextCursor:
+      page.length >= limit && lastShare
+        ? { createdAt: lastShare.createdAt, id: lastShare.id }
+        : null,
+  };
 }
 
 async function makeSendInput(
@@ -453,11 +499,14 @@ async function makeSendInput(
   }
 
   if (normalizedEmail(recordings[0].ownerEmail) !== recipient) return null;
-  const firstView = await repository.getFirstCountedView(recordings[0].id);
+  const firstView = await repository.getFirstNonOwnerCountedView(
+    recordings[0].id,
+    recordings[0].ownerEmail,
+  );
   if (!firstView) return null;
   return {
     kind: "first-view",
-    to: job.recipient,
+    to: recipient,
     recordingId: recordings[0].id,
     title: recordings[0].title,
     viewerEmail: firstView.viewerEmail,
@@ -496,13 +545,16 @@ export async function runTransactionalEmailsOnce(
     };
     const config = await store.ensureEnabledAt();
     const currentTime = now();
-    result.enqueued = await reconcileShares(
+    const reconciliation = await reconcileShares(
       repository,
       store,
       config.enabledAt,
+      config.reconciliationCursor ?? null,
       currentTime,
       dependencies.reconciliationBatchSize ?? RECONCILIATION_BATCH_SIZE,
     );
+    result.enqueued = reconciliation.enqueued;
+    await store.updateReconciliationCursor(reconciliation.nextCursor);
 
     const jobs = await store.listJobs();
     for (const job of jobs) {

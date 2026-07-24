@@ -457,10 +457,17 @@ export default defineAction({
       });
     }
 
-    await enqueueFirstImportEmailIfEligible(
-      { recordingId: id, ownerEmail, createdAt },
-      db,
-    );
+    try {
+      await enqueueFirstImportEmailIfEligible(
+        { recordingId: id, ownerEmail, createdAt },
+        db,
+      );
+    } catch (err) {
+      console.warn("[clips] First-import email enqueue failed", {
+        recordingId: id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     await writeAppState("navigate", { view: "recording", recordingId: id });

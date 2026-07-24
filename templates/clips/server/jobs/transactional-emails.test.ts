@@ -44,13 +44,21 @@ function createRepository(state: {
   recordings: Map<string, Recording>;
   owners?: Set<string>;
   viewed?: Set<string>;
+  countedViews?: Map<string, Array<string | null>>;
+  imports?: Recording[];
 }): TransactionalEmailRepository {
   const recipientKey = (recipient: string, recordingId: string) =>
     `${recipient.toLowerCase()}:${recordingId}`;
   return {
-    async listDirectShares(enabledAt, limit) {
+    async listDirectShares(enabledAt, cursor, limit) {
       return state.shares
-        .filter((share) => Date.parse(share.createdAt) >= Date.parse(enabledAt))
+        .filter(
+          (share) =>
+            Date.parse(share.createdAt) >= Date.parse(enabledAt) &&
+            (!cursor ||
+              share.createdAt > cursor.createdAt ||
+              (share.createdAt === cursor.createdAt && share.id > cursor.id)),
+        )
         .sort(
           (left, right) =>
             left.createdAt.localeCompare(right.createdAt) ||
@@ -98,18 +106,32 @@ function createRepository(state: {
     async recipientHasCountedView(recipient, recordingId) {
       return state.viewed?.has(recipientKey(recipient, recordingId)) ?? false;
     },
-    async getFirstCountedView(recordingId) {
-      return state.viewed?.has(`first:${recordingId}`)
-        ? { viewerEmail: "viewer@example.com" }
-        : null;
+    async getFirstNonOwnerCountedView(recordingId, ownerEmail) {
+      const viewerEmail = state.countedViews
+        ?.get(recordingId)
+        ?.find(
+          (email) =>
+            email === null ||
+            email.trim().toLowerCase() !== ownerEmail.trim().toLowerCase(),
+        );
+      return viewerEmail === undefined ? null : { viewerEmail };
     },
     async isFirstImport(candidate, recipient, enabledAt) {
-      return (
-        candidate.ownerEmail.toLowerCase() === recipient &&
-        candidate.createdAt >= enabledAt &&
-        (candidate.sourceAppName === "Loom" ||
-          candidate.sourceAppName === "Video link")
-      );
+      const firstImport = (state.imports ?? [candidate])
+        .filter(
+          (recording) =>
+            recording.ownerEmail.toLowerCase() === recipient &&
+            recording.createdAt >= enabledAt &&
+            recording.status === "ready" &&
+            (recording.sourceAppName === "Loom" ||
+              recording.sourceAppName === "Video link"),
+        )
+        .sort(
+          (left, right) =>
+            left.createdAt.localeCompare(right.createdAt) ||
+            left.id.localeCompare(right.id),
+        )[0];
+      return firstImport?.id === candidate.id;
     },
   };
 }
@@ -353,6 +375,134 @@ describe("transactional email worker", () => {
     expect(
       await clock.store.readJob("unviewed-reminder:at-enabled"),
     ).toBeTruthy();
+  });
+
+  it("names the earliest counted non-owner view when an owner self-view came first", async () => {
+    const clock = await setup();
+    const ownerEmail = "owner@example.com";
+    const clip = recording("recording-1", ownerEmail);
+    const send = vi.fn();
+    await clock.store.enqueue("first-view:recording-1", {
+      type: "first-view",
+      recipient: ownerEmail,
+      recordingIds: [clip.id],
+      requestedBy: ownerEmail,
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository: createRepository({
+        shares: [],
+        recordings: new Map([[clip.id, clip]]),
+        countedViews: new Map([
+          [clip.id, ["Owner@Example.com", "external@example.com"]],
+        ]),
+      }),
+      now: clock.now,
+      emailConfigured: async () => true,
+      send,
+    });
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "first-view",
+        to: ownerEmail,
+        viewerEmail: "external@example.com",
+      }),
+    );
+  });
+
+  it.each(["archived", "trashed"] as const)(
+    "does not shift first-import identity when the older import is %s",
+    async (historicalState) => {
+      const clock = await setup();
+      const ownerEmail = "owner@example.com";
+      const older = {
+        ...recording("import-older", ownerEmail),
+        sourceAppName: "Loom",
+        archivedAt:
+          historicalState === "archived" ? "2026-08-02T00:00:00.000Z" : null,
+        trashedAt:
+          historicalState === "trashed" ? "2026-08-02T00:00:00.000Z" : null,
+      };
+      const newer = {
+        ...recording("import-newer", ownerEmail),
+        sourceAppName: "Video link",
+        createdAt: "2026-08-01T00:01:00.000Z",
+      };
+      const send = vi.fn();
+      await clock.store.enqueue("first-import:owner@example.com", {
+        type: "first-import",
+        recipient: ownerEmail,
+        recordingIds: [newer.id],
+        requestedBy: ownerEmail,
+      });
+
+      await runTransactionalEmailsOnce({
+        store: clock.store,
+        repository: createRepository({
+          shares: [],
+          recordings: new Map([[newer.id, newer]]),
+          imports: [older, newer],
+        }),
+        now: clock.now,
+        emailConfigured: async () => true,
+        send,
+      });
+
+      expect(send).not.toHaveBeenCalled();
+      expect(
+        await clock.store.readJob("first-import:owner@example.com"),
+      ).toMatchObject({ state: "cancelled" });
+    },
+  );
+
+  it("durably advances past a full direct-share batch and wraps safely", async () => {
+    const clock = await setup();
+    clock.setNow("2026-08-03T00:00:00.000Z");
+    const shares: Share[] = Array.from({ length: 101 }, (_, index) => {
+      const suffix = String(index + 1).padStart(3, "0");
+      return {
+        id: `share-${suffix}`,
+        recordingId: `recording-${suffix}`,
+        recipient: "person@example.com",
+        createdBy: "sender@example.com",
+        createdAt: "2026-08-01T00:00:00.000Z",
+      };
+    });
+    const repository = createRepository({ shares, recordings: new Map() });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      reconciliationBatchSize: 100,
+      emailConfigured: async () => false,
+    });
+    expect(await clock.store.readJob("unviewed-reminder:share-101")).toBeNull();
+    expect(await clock.store.readConfig()).toMatchObject({
+      enabledAt: "2026-08-01T00:00:00.000Z",
+      reconciliationCursor: {
+        createdAt: "2026-08-01T00:00:00.000Z",
+        id: "share-100",
+      },
+    });
+
+    await runTransactionalEmailsOnce({
+      store: clock.store,
+      repository,
+      now: clock.now,
+      reconciliationBatchSize: 100,
+      emailConfigured: async () => false,
+    });
+
+    expect(
+      await clock.store.readJob("unviewed-reminder:share-101"),
+    ).toMatchObject({ state: "ready" });
+    expect(await clock.store.readConfig()).toMatchObject({
+      enabledAt: "2026-08-01T00:00:00.000Z",
+      reconciliationCursor: null,
+    });
   });
 
   it("retries failed delivery with backoff and records sent only after send resolves", async () => {

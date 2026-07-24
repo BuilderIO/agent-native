@@ -229,6 +229,39 @@ describe("transactional email store", () => {
     expect(await firstStore.readConfig()).toEqual(first);
   });
 
+  it("validates and atomically persists the reconciliation cursor", async () => {
+    const root = await testRoot();
+    const store = createTransactionalEmailStore({
+      root,
+      now: () => new Date("2026-08-02T10:00:00.000Z"),
+    });
+    await store.ensureEnabledAt();
+
+    await expect(
+      store.updateReconciliationCursor({
+        createdAt: "2026-08-03T10:00:00.000Z",
+        id: "share-100",
+      }),
+    ).resolves.toEqual({
+      enabledAt: "2026-08-02T10:00:00.000Z",
+      reconciliationCursor: {
+        createdAt: "2026-08-03T10:00:00.000Z",
+        id: "share-100",
+      },
+    });
+
+    await expect(
+      store.updateReconciliationCursor({ createdAt: "invalid", id: "" }),
+    ).rejects.toThrow();
+    expect(await store.readConfig()).toEqual({
+      enabledAt: "2026-08-02T10:00:00.000Z",
+      reconciliationCursor: {
+        createdAt: "2026-08-03T10:00:00.000Z",
+        id: "share-100",
+      },
+    });
+  });
+
   it("rejects corrupted enabledAt configuration instead of replacing it", async () => {
     const root = await testRoot();
     await mkdir(root, { recursive: true });
