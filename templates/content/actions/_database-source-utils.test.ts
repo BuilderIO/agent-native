@@ -24,6 +24,7 @@ import {
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
+  builderReviewBodyCandidateDocumentIds,
   builderBodyHydrationVersion,
   builderBodyUnavailableVersion,
   builderBodyHydrationNeedsLiveBaseline,
@@ -943,6 +944,61 @@ describe("database source helpers", () => {
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
     expect(pending).toHaveLength(0);
+  });
+
+  it("indexes only Builder documents that need a heavy body review", () => {
+    const imported = {
+      sourceRowId: "entry-1",
+      sourceQualifiedId: "builder-cms://safe-model/entry-1",
+      provenance: "Builder CMS read adapter",
+      bodyHydrationStatus: "hydrated",
+      currentHash: "hash-1",
+      currentContent: "Same readable body",
+    };
+
+    expect(
+      builderReviewBodyCandidateDocumentIds([
+        {
+          ...imported,
+          documentId: "unchanged",
+          localContent: "Same readable body\n",
+        },
+        {
+          ...imported,
+          documentId: "changed",
+          localContent: "Locally edited body",
+        },
+        {
+          ...imported,
+          documentId: "media-reconversion",
+          currentContent: "![Image](https://example.com/image.png)",
+          localContent: "![Image](https://example.com/image.png)",
+        },
+        {
+          ...imported,
+          documentId: "not-hydrated",
+          bodyHydrationStatus: "pending",
+          localContent: "Locally edited body",
+        },
+        {
+          ...imported,
+          documentId: "empty-no-baseline",
+          currentHash: null,
+          currentContent: null,
+          localContent: "",
+        },
+        {
+          documentId: "fixture",
+          sourceRowId: "builder-fixture",
+          sourceQualifiedId: "builder-cms://safe-model/fixture",
+          provenance: BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
+          bodyHydrationStatus: "pending",
+          currentHash: null,
+          currentContent: null,
+          localContent: "Local draft body",
+        },
+      ]),
+    ).toEqual(["changed", "media-reconversion", "fixture"]);
   });
 
   it("detects local Builder body edits as outbound pending changes", () => {

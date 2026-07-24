@@ -843,6 +843,15 @@ function normalizeBuilderBodyBaselineContent(value: string | null | undefined) {
   return (value ?? "").replace(/\r\n/g, "\n").trim();
 }
 
+function builderBodyUsesCurrentMediaConverter(
+  content: string | null | undefined,
+) {
+  return (
+    /!\[[^\]]*\]\(\s*https?:\/\//i.test(content ?? "") ||
+    /<(?:img|video)\b/i.test(content ?? "")
+  );
+}
+
 const BUILDER_BODY_HYDRATION_BACKGROUND_PRIORITY = 10;
 const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 25;
@@ -2497,8 +2506,7 @@ export async function builderBodyChangeForLocalContent(args: {
   // legacy Text block containing a Markdown image into a real Builder Image
   // (or emit a native Video) without changing the document text at all.
   const usesCurrentMediaConverter =
-    /!\[[^\]]*\]\(\s*https?:\/\//i.test(localContent) ||
-    /<(?:img|video)\b/i.test(localContent);
+    builderBodyUsesCurrentMediaConverter(localContent);
   const normalizedLocalContent =
     normalizeBuilderBodyBaselineContent(localContent);
   if (
@@ -3204,6 +3212,174 @@ export async function getContentDatabaseSourceSnapshotForWrite(
         documentIds,
       })
     : null;
+}
+
+export type BuilderReviewBodyCandidateRow = {
+  documentId: string;
+  sourceRowId: string;
+  sourceQualifiedId: string;
+  provenance: string | null;
+  bodyHydrationStatus: string;
+  currentHash: string | null;
+  currentContent: string | null;
+  localContent: string | null;
+};
+
+export function builderReviewBodyCandidateDocumentIds(
+  rows: BuilderReviewBodyCandidateRow[],
+) {
+  return rows.flatMap((row) => {
+    const identity = builderCmsSourceRowIdentityState({ row });
+    const localContent = row.localContent ?? "";
+    if (identity.isSyntheticFixture) {
+      return localContent.trim() ? [row.documentId] : [];
+    }
+    if (row.bodyHydrationStatus !== "hydrated") return [];
+    if (!row.currentHash && !row.currentContent && !localContent.trim()) {
+      return [];
+    }
+    if (builderBodyUsesCurrentMediaConverter(localContent)) {
+      return [row.documentId];
+    }
+    const normalizedLocalContent =
+      normalizeBuilderBodyBaselineContent(localContent);
+    if (
+      normalizedLocalContent &&
+      normalizedLocalContent ===
+        normalizeBuilderBodyBaselineContent(row.currentContent)
+    ) {
+      return [];
+    }
+    return [row.documentId];
+  });
+}
+
+type BuilderReviewSourceValueTextKey =
+  | typeof BUILDER_CMS_BODY_BLOCKS_HASH_KEY
+  | typeof BUILDER_CMS_BODY_CONTENT_KEY;
+
+export function builderReviewSourceValueTextProjection(
+  key: BuilderReviewSourceValueTextKey,
+) {
+  const sourceValuesJson = schema.contentDatabaseSourceRows.sourceValuesJson;
+  return getDialect() === "postgres"
+    ? sql<string>`COALESCE(${sourceValuesJson}::jsonb ->> ${key}, '')`
+    : sql<string>`COALESCE(json_extract(${sourceValuesJson}, ${`$."${key}"`}), '')`;
+}
+
+async function findBuilderReviewBodyCandidateDocumentIds(args: {
+  database: ContentDatabaseRow | ContentDatabase;
+  source: ContentDatabaseSourceRowDb;
+}) {
+  const sourceRows = schema.contentDatabaseSourceRows;
+  const items = schema.contentDatabaseItems;
+  const documents = schema.documents;
+  const rows = await getDb()
+    .select({
+      documentId: sourceRows.documentId,
+      sourceRowId: sourceRows.sourceRowId,
+      sourceQualifiedId: sourceRows.sourceQualifiedId,
+      provenance: sourceRows.provenance,
+      bodyHydrationStatus: items.bodyHydrationStatus,
+      currentHash: builderReviewSourceValueTextProjection(
+        BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+      ),
+      currentContent: builderReviewSourceValueTextProjection(
+        BUILDER_CMS_BODY_CONTENT_KEY,
+      ),
+      localContent: documents.content,
+    })
+    .from(sourceRows)
+    .innerJoin(
+      items,
+      and(
+        eq(items.databaseId, args.database.id),
+        eq(items.documentId, sourceRows.documentId),
+        eq(items.ownerEmail, args.source.ownerEmail),
+      ),
+    )
+    .innerJoin(
+      documents,
+      and(
+        eq(documents.id, sourceRows.documentId),
+        eq(documents.ownerEmail, args.source.ownerEmail),
+      ),
+    )
+    .where(eq(sourceRows.sourceId, args.source.id));
+  return builderReviewBodyCandidateDocumentIds(rows);
+}
+
+/**
+ * Load a complete Builder review snapshot without transferring every heavy
+ * Builder body baseline. A light pass identifies field/stored changes, while a
+ * narrow body index compares the editable document with the readable baseline.
+ * Only candidate documents then load lossless body data and sidecars.
+ */
+export async function getContentDatabaseSourceSnapshotForReview(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+  documentIds?: string[],
+): Promise<ContentDatabaseSource | null> {
+  if (documentIds?.length) {
+    return getContentDatabaseSourceSnapshotForWrite(
+      database,
+      sourceId,
+      documentIds,
+    );
+  }
+
+  const db = getDb();
+  const [source] = sourceId
+    ? await db
+        .select()
+        .from(schema.contentDatabaseSources)
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, sourceId),
+            eq(schema.contentDatabaseSources.databaseId, database.id),
+          ),
+        )
+    : await db
+        .select()
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+        .orderBy(
+          asc(schema.contentDatabaseSources.createdAt),
+          asc(schema.contentDatabaseSources.id),
+        );
+  if (!source) return null;
+
+  const lightweight = await loadSourceSnapshot(source, database, {
+    includeHeavyBuilderBodyValues: false,
+  });
+  const reviewableChanges = lightweight.changeSets.filter(
+    (changeSet) =>
+      changeSet.direction === "outbound" &&
+      (changeSet.state === "pending_push" ||
+        changeSet.state === "staged_revision" ||
+        changeSet.state === "approved"),
+  );
+  if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
+    return loadSourceSnapshot(source, database, {
+      includeHeavyBuilderBodyValues: true,
+    });
+  }
+  const candidateDocumentIds = new Set(
+    reviewableChanges.flatMap((changeSet) =>
+      changeSet.documentId ? [changeSet.documentId] : [],
+    ),
+  );
+  for (const documentId of await findBuilderReviewBodyCandidateDocumentIds({
+    database,
+    source,
+  })) {
+    candidateDocumentIds.add(documentId);
+  }
+  if (candidateDocumentIds.size === 0) return lightweight;
+  return loadSourceSnapshot(source, database, {
+    includeHeavyBuilderBodyValues: true,
+    documentIds: [...candidateDocumentIds],
+  });
 }
 
 /**

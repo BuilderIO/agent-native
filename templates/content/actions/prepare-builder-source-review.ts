@@ -29,6 +29,7 @@ import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   canRefreshLocallyBlockedBuilderReview,
   findOpenSourceChangeSet,
+  getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
@@ -667,7 +668,7 @@ export default defineAction({
           const database = await resolveDatabaseForSourceMutation(args);
           if (!database) throw new Error("Database not found.");
           await assertAccess("document", database.documentId, "editor");
-          const snapshot = await getContentDatabaseSourceSnapshotForWrite(
+          const snapshot = await getContentDatabaseSourceSnapshotForReview(
             database,
             args.sourceId,
             args.documentIds,
@@ -773,7 +774,9 @@ export default defineAction({
           reviewedSnapshot: await getContentDatabaseSourceSnapshotForWrite(
             database,
             args.sourceId,
-            args.documentIds,
+            reviewableChanges.every((changeSet) => changeSet.documentId)
+              ? reviewableChanges.map((changeSet) => changeSet.documentId!)
+              : args.documentIds,
           ),
           response: await getContentDatabaseResponse(database.id),
         }),

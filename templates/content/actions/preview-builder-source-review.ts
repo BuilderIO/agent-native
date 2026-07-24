@@ -7,7 +7,7 @@ import type {
   PreviewBuilderSourceReviewResponse,
 } from "../shared/api.js";
 import {
-  getContentDatabaseSourceSnapshotForWrite,
+  getContentDatabaseSourceSnapshotForReview,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import {
@@ -45,7 +45,7 @@ export default defineAction({
       throw new Error("Select at least one Builder row before reviewing it.");
     }
 
-    const source = await getContentDatabaseSourceSnapshotForWrite(
+    const source = await getContentDatabaseSourceSnapshotForReview(
       database,
       args.sourceId,
       args.scope === "selected" ? args.documentIds : undefined,
