@@ -1,6 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconUser } from "@tabler/icons-react";
+import { IconTerminal2, IconUser } from "@tabler/icons-react";
 import { useState } from "react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -224,12 +224,12 @@ export function RecordingViewsBadge({
               <>
                 <div className="grid grid-cols-2 gap-2">
                   <StatCard
-                    label={t("recordingInsights.totalVideoViews")}
+                    label={t("recordingInsights.humanViews")}
                     value={insights?.views ?? viewCount}
                   />
                   <StatCard
-                    label={t("recordingInsights.averageCompletionRate")}
-                    value={`${Math.round(insights?.completionRate ?? 0)}%`}
+                    label={t("recordingInsights.agentViews")}
+                    value={insights?.agentViews ?? 0}
                   />
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -237,6 +237,12 @@ export function RecordingViewsBadge({
                     {t("recordingInsights.uniqueViewers")}
                     <span className="ms-1.5 text-foreground tabular-nums">
                       {insights?.uniqueViewers ?? 0}
+                    </span>
+                  </span>
+                  <span>
+                    {t("recordingInsights.completion")}
+                    <span className="ms-1.5 text-foreground tabular-nums">
+                      {Math.round(insights?.completionRate ?? 0)}%
                     </span>
                   </span>
                   <span>
