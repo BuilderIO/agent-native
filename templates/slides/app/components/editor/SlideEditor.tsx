@@ -2134,7 +2134,12 @@ export default function SlideEditor({
       if (!element) return;
       const fmdSlide = element.closest(".fmd-slide") as HTMLElement | null;
       if (!fmdSlide) return;
-      if (getComputedStyle(element).position === "static") return;
+      // left/top only place an element at an absolute coordinate for
+      // position: absolute (or fixed). For position: relative they're an
+      // *offset* from the element's normal flow position instead, so
+      // treating a relative element as draggable here would make it jump by
+      // the wrong amount. Restrict dragging to elements already out of flow.
+      if (getComputedStyle(element).position !== "absolute") return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -2227,14 +2232,15 @@ export default function SlideEditor({
   const slideElementSelected =
     !!selectedImg || !!editingEl || !!selectedStyleSnapshot;
 
-  // Dragging is only offered for elements that are already taken out of
-  // normal document flow (position: absolute/fixed) — our own placed text
-  // boxes, and any similarly-positioned shape. Repositioning an in-flow
-  // element (most AI-generated slide content) would reflow its siblings.
+  // Dragging is only offered for elements with position: absolute — our own
+  // placed text boxes, and any similarly-positioned shape. left/top on a
+  // position: relative element is an offset from its normal flow position
+  // rather than an absolute coordinate, so treating "not static" as
+  // draggable would move relative-positioned elements by the wrong amount.
   const selectedForDrag =
     selectedElementRect && !editingEl ? resolveSelectedElement() : null;
   const isSelectedElementDraggable = selectedForDrag
-    ? getComputedStyle(selectedForDrag).position !== "static"
+    ? getComputedStyle(selectedForDrag).position === "absolute"
     : false;
 
   return (
