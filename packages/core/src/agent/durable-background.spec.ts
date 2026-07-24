@@ -36,6 +36,7 @@ const ENV_KEYS = [
   "A2A_SECRET",
   "NETLIFY",
   "NETLIFY_LOCAL",
+  "SITE_ID",
   "AWS_LAMBDA_FUNCTION_NAME",
   "CF_PAGES",
   "VERCEL",
@@ -169,6 +170,32 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     process.env.A2A_SECRET = "shhh";
     process.env.NETLIFY = "true";
     process.env.NETLIFY_LOCAL = "true";
+    expect(isHostedRuntimeForDurableBackground()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+  });
+
+  it("treats Netlify's runtime-only SITE_ID as hosted", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    expect(isHostedRuntimeForDurableBackground()).toBe(true);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(true);
+  });
+
+  it("keeps SITE_ID local under netlify dev", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    process.env.NETLIFY_LOCAL = "true";
+    expect(isHostedRuntimeForDurableBackground()).toBe(false);
+    expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
+  });
+
+  it("lets NETLIFY=false roll back SITE_ID hosted detection", () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    process.env.A2A_SECRET = "shhh";
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
+    process.env.NETLIFY = "false";
     expect(isHostedRuntimeForDurableBackground()).toBe(false);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
@@ -358,6 +385,15 @@ describe("resolveAgentChatProcessRunDispatchPath (default function url on hosted
     // must still target the emitted Netlify background function; the worker
     // entry's runtime marker unlocks the 15-minute budget after dispatch lands.
     process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-native-design-server";
+    expect(resolveAgentChatProcessRunDispatchPath()).toBe(
+      AGENT_BACKGROUND_FUNCTION_URL_PATH,
+    );
+  });
+
+  it("dispatches to the function's DEFAULT url in the modern Netlify runtime", () => {
+    // NETLIFY is build-only. Deployed Functions document SITE_ID as a runtime
+    // read-only variable even when Lambda compatibility variables are absent.
+    process.env.SITE_ID = "00000000-0000-0000-0000-000000000000"; // guard:allow-env-credential -- fake value exercises Netlify's public runtime host marker.
     expect(resolveAgentChatProcessRunDispatchPath()).toBe(
       AGENT_BACKGROUND_FUNCTION_URL_PATH,
     );
