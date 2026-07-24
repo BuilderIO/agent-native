@@ -261,6 +261,23 @@ type DocumentSaveResult = {
   contentPersisted: boolean;
 };
 
+export function enqueueDocumentSave<T>(
+  queueRef: MutableRefObject<Promise<void>>,
+  save: () => Promise<T>,
+): Promise<T> {
+  // Content CAS assumes each local save starts from the result of the previous
+  // local save. Debounced typing and structural "save now" operations can
+  // otherwise overlap with the same baseUpdatedAt: the shorter request wins,
+  // and the later, fuller document is rejected as a conflict. Keep the safety
+  // guard and serialize this editor's writes instead of weakening CAS.
+  const queued = queueRef.current.then(save, save);
+  queueRef.current = queued.then(
+    () => undefined,
+    () => undefined,
+  );
+  return queued;
+}
+
 function useMinViewportWidth(minWidth: number) {
   const [matches, setMatches] = useState(false);
 
@@ -542,6 +559,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
+  const documentSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
   // Separate freshness watermarks for title and content so that a content save
   // never suppresses adopting a newer external title and vice versa.
   const lastSavedTitleRef = useRef<{ title: string; updatedAt: string | null }>(
@@ -996,6 +1014,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       queryClient,
     ],
   );
+  const queueDocumentSave = useCallback(
+    (title: string, content: string, options: DocumentSaveOptions = {}) =>
+      enqueueDocumentSave(documentSaveQueueRef, () =>
+        saveDocumentImmediately(title, content, options),
+      ),
+    [saveDocumentImmediately],
+  );
   const flushPendingDocumentSave = useCallback(
     (pending: PendingDocumentSave) => {
       if (!pending.canEditWhenQueued) return;
@@ -1014,7 +1039,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       const pending: PendingDocumentSave = {
         title,
         content,
-        save: saveDocumentImmediately,
+        save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
@@ -1027,7 +1052,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [flushPendingDocumentSave, saveDocumentImmediately],
+    [flushPendingDocumentSave, queueDocumentSave],
   );
 
   useEffect(() => {
@@ -1324,13 +1349,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
       localContentRef.current = newContent;
       setLocalContent(newContent);
-      const result = await saveDocumentImmediately(
-        localTitleRef.current,
-        newContent,
-      );
+      const result = await queueDocumentSave(localTitleRef.current, newContent);
       return result.contentPersisted;
     },
-    [editorCanEdit, saveDocumentImmediately],
+    [editorCanEdit, queueDocumentSave],
   );
 
   // Comments state — pending comment from text selection

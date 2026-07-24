@@ -9,12 +9,58 @@ import {
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
+  enqueueDocumentSave,
   metadataUpdatesWithPendingTitle,
   titleMatchConfirmsSave,
 } from "./DocumentEditor";
 import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
 
 describe("document editor layout", () => {
+  it("serializes overlapping document saves without dropping the fuller snapshot", async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const queueRef = { current: Promise.resolve() };
+    const events: string[] = [];
+
+    const first = enqueueDocumentSave(queueRef, async () => {
+      events.push("first:start");
+      await firstGate;
+      events.push("first:end");
+      return "partial";
+    });
+    const second = enqueueDocumentSave(queueRef, async () => {
+      events.push("second:start");
+      events.push("second:end");
+      return "full";
+    });
+
+    await Promise.resolve();
+    expect(events).toEqual(["first:start"]);
+    releaseFirst();
+
+    await expect(first).resolves.toBe("partial");
+    await expect(second).resolves.toBe("full");
+    expect(events).toEqual([
+      "first:start",
+      "first:end",
+      "second:start",
+      "second:end",
+    ]);
+  });
+
+  it("continues the save queue after an earlier request fails", async () => {
+    const queueRef = { current: Promise.resolve() };
+    const first = enqueueDocumentSave(queueRef, async () => {
+      throw new Error("network interrupted");
+    });
+    const second = enqueueDocumentSave(queueRef, async () => "latest");
+
+    await expect(first).rejects.toThrow("network interrupted");
+    await expect(second).resolves.toBe("latest");
+  });
+
   it("flushes a pending title with an icon update", () => {
     expect(
       metadataUpdatesWithPendingTitle(
