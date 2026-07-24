@@ -73,6 +73,43 @@ interface EditorMenuPosition {
   left: number;
 }
 
+export function getSlashMenuPosition(editor: Editor): EditorMenuPosition {
+  const wrapper = editor.view.dom.closest(".visual-editor-wrapper");
+  const containerRect = (
+    wrapper instanceof HTMLElement ? wrapper : editor.view.dom
+  ).getBoundingClientRect();
+
+  try {
+    const coords = editor.view.coordsAtPos(editor.state.selection.from);
+    return {
+      top: coords.bottom - containerRect.top + 4,
+      left: coords.left - containerRect.left,
+    };
+  } catch {
+    // Collaborative reconciliation can briefly leave ProseMirror's DOM mapping
+    // behind the document selection. The slash transaction is still valid; use
+    // its nearest DOM node (or the editor origin) so the command menu remains
+    // available instead of turning the user's slash into inert text.
+    try {
+      const domAtSelection = editor.view.domAtPos(editor.state.selection.from);
+      const element =
+        domAtSelection.node instanceof Element
+          ? domAtSelection.node
+          : domAtSelection.node.parentElement;
+      const rect = element?.getBoundingClientRect();
+      if (rect) {
+        return {
+          top: rect.bottom - containerRect.top + 4,
+          left: rect.left - containerRect.left,
+        };
+      }
+    } catch {
+      // The editor origin below is a safe, visible final fallback.
+    }
+    return { top: 4, left: 0 };
+  }
+}
+
 interface EquationDraft {
   displayMode: boolean;
   insertionRange: { from: number; to: number };
@@ -567,16 +604,7 @@ export function SlashCommandMenu({
   );
 
   const getSelectionMenuPosition = useCallback(() => {
-    const coords = editor.view.coordsAtPos(editor.state.selection.from);
-    const editorRect = editor.view.dom
-      .closest(".visual-editor-wrapper")
-      ?.getBoundingClientRect();
-    if (!editorRect) return null;
-
-    return {
-      top: coords.bottom - editorRect.top + 4,
-      left: coords.left - editorRect.left,
-    };
+    return getSlashMenuPosition(editor);
   }, [editor]);
 
   const openGeneratePopover = useCallback(
@@ -1066,16 +1094,7 @@ export function SlashCommandMenu({
         const slashAtBlockStart = offsetInParent === 0;
         setIsTurnInto(slashAtBlockStart && blockHasOtherContent);
 
-        const coords = editor.view.coordsAtPos(from);
-        const editorRect = editor.view.dom
-          .closest(".visual-editor-wrapper")
-          ?.getBoundingClientRect();
-        if (editorRect) {
-          setPosition({
-            top: coords.bottom - editorRect.top + 4,
-            left: coords.left - editorRect.left,
-          });
-        }
+        setPosition(getSlashMenuPosition(editor));
         setIsOpen(true);
       } else {
         if (isOpen) {

@@ -3,10 +3,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
+import { EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -20,6 +23,7 @@ import {
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
+  SlashCommandMenu,
   setCodeBlockFromSlashCommand,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
@@ -88,6 +92,57 @@ describe("slash command menu trigger", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+
+  it("reopens in a trailing paragraph after a code block", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<pre><code>const answer = 42;</code></pre><p></p>",
+    });
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      vi.spyOn(editor.view, "coordsAtPos").mockImplementationOnce(() => {
+        throw new RangeError("DOM position is reconciling");
+      });
+      act(() => {
+        editor.commands.focus("end");
+        editor.commands.insertContent("/");
+      });
+      await act(async () => Promise.resolve());
+
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
   });
 });
 
