@@ -1599,6 +1599,52 @@ export default function SlideEditor({
     return () => window.removeEventListener("keydown", onKey);
   }, [multiSelection.size, editingEl, clearMultiSelection]);
 
+  // Delete/Backspace removes the selected shape/text box (single or
+  // multi-select) from the slide. Only active when something is selected for
+  // styling (not while inline-editing text, where Backspace should delete a
+  // character) and not while the browser focus is in an unrelated input.
+  useEffect(() => {
+    if (editingEl) return;
+    if (multiSelection.size === 0 && !selectedElementSelector) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const active = document.activeElement;
+      const tag = active?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (active instanceof HTMLElement && active.isContentEditable) return;
+
+      const slideContent = getSlideContent();
+      if (!slideContent) return;
+      e.preventDefault();
+
+      if (multiSelection.size > 0) {
+        for (const id of multiSelection) {
+          slideContent.querySelector(`[data-builder-id="${id}"]`)?.remove();
+        }
+        clearMultiSelection();
+      } else {
+        resolveSelectedElement()?.remove();
+        clearSelectedElement();
+      }
+
+      const html = readCurrentSlideContentHtml();
+      if (html !== null) onUpdateSlideRef.current({ content: html });
+      syncSelectionToAppState(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [
+    editingEl,
+    multiSelection,
+    selectedElementSelector,
+    getSlideContent,
+    clearMultiSelection,
+    resolveSelectedElement,
+    clearSelectedElement,
+    readCurrentSlideContentHtml,
+    syncSelectionToAppState,
+  ]);
+
   /**
    * Find the nearest meaningful "element" for multi-select from a click target.
    * Walks up to the closest [data-builder-id] inside the slide content. Skips
