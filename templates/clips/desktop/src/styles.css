@@ -5860,6 +5860,7 @@ body[data-clips-route="recording-pill"] #root {
   min-height: 0;
   flex: 1;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
