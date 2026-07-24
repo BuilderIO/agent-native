@@ -40,6 +40,33 @@ export interface DocumentUpdateConflictResponse {
   document: DocumentUpdateResponse;
 }
 
+const documentAuditOwner = Symbol("documentAuditOwner");
+
+type DocumentAuditScopedResult = {
+  [documentAuditOwner]?: string;
+};
+
+function scopeDocumentAudit<T extends object>(result: T, ownerEmail: string) {
+  Object.defineProperty(result, documentAuditOwner, { value: ownerEmail });
+  return result;
+}
+
+function isFavoriteOnlyUpdate(args: {
+  isFavorite?: boolean;
+  title?: string;
+  content?: string;
+  description?: string;
+  icon?: string | null;
+}) {
+  return (
+    args.isFavorite !== undefined &&
+    args.title === undefined &&
+    args.content === undefined &&
+    args.description === undefined &&
+    args.icon === undefined
+  );
+}
+
 function nanoid(size = 12): string {
   const chars =
     "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -301,6 +328,29 @@ export default defineAction({
       .default([])
       .describe("Exact item versions that influenced this agent update."),
   }),
+  audit: {
+    // Document bodies and personal favorite preferences are both sensitive.
+    // Keep actor/target/outcome attribution without copying mutation payloads
+    // into an owner-visible audit row.
+    recordInputs: false,
+    target: (args, result) => {
+      const favoriteOnly = isFavoriteOnlyUpdate(args);
+      return {
+        type: "document",
+        id: args.id,
+        // Favorites are a private preference owned by the actor, even when
+        // the underlying document belongs to somebody else.
+        ownerEmail: favoriteOnly
+          ? undefined
+          : (result as DocumentAuditScopedResult | null)?.[documentAuditOwner],
+        visibility: "private",
+      };
+    },
+    summary: (args, result) =>
+      (result as DocumentUpdateConflictResponse | null)?.conflict
+        ? `Document update conflicted for ${args.id}`
+        : `Updated document ${args.id}`,
+  },
   run: async (
     args,
     ctx,
@@ -315,12 +365,7 @@ export default defineAction({
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
-    const favoriteOnly =
-      args.isFavorite !== undefined &&
-      args.title === undefined &&
-      args.content === undefined &&
-      args.description === undefined &&
-      args.icon === undefined;
+    const favoriteOnly = isFavoriteOnlyUpdate(args);
     const access = favoriteOnly
       ? await resolveContentDocumentAccess(id)
       : await assertAccess("document", id, "editor");
@@ -411,6 +456,11 @@ export default defineAction({
       args.title !== undefined && args.title !== existing.title;
     const contentChanged =
       content !== undefined && content !== existing.content;
+    const clearsNonEmptyContent =
+      contentChanged &&
+      content !== undefined &&
+      isEffectivelyEmptyDocumentContent(content) &&
+      !isEffectivelyEmptyDocumentContent(existing.content);
     const iconChanged = args.icon !== undefined && args.icon !== existing.icon;
     const favoriteChanged =
       args.isFavorite !== undefined && args.isFavorite !== currentFavorite;
@@ -425,40 +475,6 @@ export default defineAction({
       iconChanged ||
       favoriteChanged ||
       descriptionChanged;
-
-    // Snapshot the current state before applying content/title changes.
-    // Versions are scoped to the document owner, not the caller — an editor
-    // share collaborator shouldn't create a phantom version row under their
-    // own email.
-    if (titleChanged || contentChanged) {
-      const [latestVersion] = await db
-        .select({ createdAt: schema.documentVersions.createdAt })
-        .from(schema.documentVersions)
-        .where(
-          and(
-            eq(schema.documentVersions.documentId, id),
-            eq(schema.documentVersions.ownerEmail, ownerEmail),
-          ),
-        )
-        .orderBy(desc(schema.documentVersions.createdAt))
-        .limit(1);
-
-      const shouldSnapshot =
-        !latestVersion ||
-        Date.now() - new Date(latestVersion.createdAt).getTime() >
-          SNAPSHOT_INTERVAL_MS;
-
-      if (shouldSnapshot) {
-        await db.insert(schema.documentVersions).values({
-          id: nanoid(),
-          ownerEmail,
-          documentId: id,
-          title: existing.title,
-          content: existing.content,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    }
 
     let softDeletedDatabaseIds: string[] = [];
     let creativeContext:
@@ -505,6 +521,36 @@ export default defineAction({
             .update(schema.documents)
             .set(updates)
             .where(eq(schema.documents.id, id));
+        }
+
+        if (titleChanged || contentChanged) {
+          const [latestVersion] = await tx
+            .select({ createdAt: schema.documentVersions.createdAt })
+            .from(schema.documentVersions)
+            .where(
+              and(
+                eq(schema.documentVersions.documentId, id),
+                eq(schema.documentVersions.ownerEmail, ownerEmail),
+              ),
+            )
+            .orderBy(desc(schema.documentVersions.createdAt))
+            .limit(1);
+          const shouldSnapshot =
+            clearsNonEmptyContent ||
+            !latestVersion ||
+            Date.now() - new Date(latestVersion.createdAt).getTime() >
+              SNAPSHOT_INTERVAL_MS;
+
+          if (shouldSnapshot) {
+            await tx.insert(schema.documentVersions).values({
+              id: nanoid(),
+              ownerEmail,
+              documentId: id,
+              title: existing.title,
+              content: existing.content,
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
 
         if (favoriteChanged) {
@@ -580,30 +626,35 @@ export default defineAction({
           .select()
           .from(schema.documents)
           .where(eq(schema.documents.id, id));
-        return {
-          conflict: true,
-          id,
-          document: {
-            id: current.id,
-            urlPath: `/page/${current.id}`,
-            parentId: current.parentId,
-            title: current.title,
-            content: current.content,
-            description: current.description,
-            icon: current.icon,
-            position: current.position,
-            isFavorite: currentFavorite,
-            hideFromSearch: parseDocumentHideFromSearch(current.hideFromSearch),
-            visibility: current.visibility,
-            accessRole: access.role,
-            canEdit: canEditRole(access.role),
-            canManage: canManageRole(access.role),
-            createdAt: current.createdAt,
-            updatedAt: current.updatedAt,
-            source: serializeDocumentSource(current),
-            softDeletedDatabaseIds: [],
-          },
-        };
+        return scopeDocumentAudit(
+          {
+            conflict: true,
+            id,
+            document: {
+              id: current.id,
+              urlPath: `/page/${current.id}`,
+              parentId: current.parentId,
+              title: current.title,
+              content: current.content,
+              description: current.description,
+              icon: current.icon,
+              position: current.position,
+              isFavorite: currentFavorite,
+              hideFromSearch: parseDocumentHideFromSearch(
+                current.hideFromSearch,
+              ),
+              visibility: current.visibility,
+              accessRole: access.role,
+              canEdit: canEditRole(access.role),
+              canManage: canManageRole(access.role),
+              createdAt: current.createdAt,
+              updatedAt: current.updatedAt,
+              source: serializeDocumentSource(current),
+              softDeletedDatabaseIds: [],
+            },
+          } satisfies DocumentUpdateConflictResponse,
+          ownerEmail,
+        );
       }
 
       if (contentChanged) {
@@ -665,32 +716,35 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return {
-      id: doc.id,
-      urlPath: `/page/${doc.id}`,
-      parentId: doc.parentId,
-      title: doc.title,
-      content: doc.content,
-      description: doc.description,
-      icon: doc.icon,
-      position: doc.position,
-      isFavorite: finalFavorite,
-      hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-      visibility: doc.visibility,
-      accessRole: access.role,
-      canEdit: canEditRole(access.role),
-      canManage: canManageRole(access.role),
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-      source: serializeDocumentSource(doc),
-      softDeletedDatabaseIds,
-      ...(creativeContext
-        ? {
-            contextMode: creativeContext.contextMode,
-            contextPackId: creativeContext.contextPackId,
-            reuseLabels: creativeContext.reuseLabels,
-          }
-        : {}),
-    };
+    return scopeDocumentAudit(
+      {
+        id: doc.id,
+        urlPath: `/page/${doc.id}`,
+        parentId: doc.parentId,
+        title: doc.title,
+        content: doc.content,
+        description: doc.description,
+        icon: doc.icon,
+        position: doc.position,
+        isFavorite: finalFavorite,
+        hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+        visibility: doc.visibility,
+        accessRole: access.role,
+        canEdit: canEditRole(access.role),
+        canManage: canManageRole(access.role),
+        createdAt: doc.createdAt,
+        updatedAt: doc.updatedAt,
+        source: serializeDocumentSource(doc),
+        softDeletedDatabaseIds,
+        ...(creativeContext
+          ? {
+              contextMode: creativeContext.contextMode,
+              contextPackId: creativeContext.contextPackId,
+              reuseLabels: creativeContext.reuseLabels,
+            }
+          : {}),
+      } satisfies DocumentUpdateResponse,
+      ownerEmail,
+    );
   },
 });
