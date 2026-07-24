@@ -31,6 +31,9 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+];
+
+const bottomNavItems = [
   { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
@@ -155,21 +158,61 @@ export function Sidebar() {
           })}
         </nav>
 
-        {!collapsed && (
-          <div className="mt-auto shrink-0">
-            <div className="px-3 py-2">
-              <OrgSwitcher reserveSpace />
-            </div>
+        <div className="mt-auto shrink-0">
+          <nav
+            className={cn(
+              "grid gap-1",
+              collapsed ? "justify-items-center px-1.5 py-1" : "px-2 py-1",
+            )}
+          >
+            {bottomNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = location.pathname.startsWith(item.href);
+              const link = (
+                <Link
+                  to={item.href}
+                  className={cn(
+                    "flex items-center rounded-lg text-sm",
+                    collapsed ? "h-9 w-9 justify-center" : "gap-3 px-3 py-2",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+                  )}
+                  aria-label={collapsed ? t(item.labelKey) : undefined}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && t(item.labelKey)}
+                </Link>
+              );
+              return collapsed ? (
+                <Tooltip key={item.href} delayDuration={0}>
+                  <TooltipTrigger asChild>{link}</TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t(item.labelKey)}
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                <div key={item.href}>{link}</div>
+              );
+            })}
+          </nav>
 
-            <div className="px-3 py-2">
-              <DevDatabaseLink />
-              <div className="flex items-center justify-end gap-1">
-                <FeedbackButton className="min-w-0 flex-1" />
-                <ThemeToggle className="h-8 w-8 shrink-0" />
+          {!collapsed && (
+            <div className="mt-auto shrink-0">
+              <div className="px-3 py-2">
+                <OrgSwitcher reserveSpace />
+              </div>
+
+              <div className="px-3 py-2">
+                <DevDatabaseLink />
+                <div className="flex items-center justify-end gap-1">
+                  <FeedbackButton className="min-w-0 flex-1" />
+                  <ThemeToggle className="h-8 w-8 shrink-0" />
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </aside>
   );

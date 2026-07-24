@@ -37,6 +37,9 @@ const navItems = [
     href: "/",
     view: "chat",
   },
+];
+
+const bottomNavItems = [
   {
     icon: IconHierarchy2,
     labelKey: "settings.agentTitle",
@@ -418,6 +421,39 @@ export function Sidebar({
       </nav>
 
       <div className={cn("mt-auto shrink-0", collapsed && "py-2")}>
+        <nav
+          className={cn(
+            "grid",
+            collapsed ? "gap-0 px-1 py-1" : "gap-1 px-2 py-1",
+          )}
+        >
+          {bottomNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname.startsWith(item.href);
+            const link = (
+              <Link
+                to={item.href}
+                className={navClass({ isActive })}
+                aria-current={isActive ? "page" : undefined}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {t(item.labelKey)}
+                </span>
+              </Link>
+            );
+            return collapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
+              </Tooltip>
+            ) : (
+              <div key={item.href}>{link}</div>
+            );
+          })}
+        </nav>
+
         <div className={cn(collapsed ? "px-1 py-1" : "px-3 py-2")}>
           <OrgSwitcher
             reserveSpace

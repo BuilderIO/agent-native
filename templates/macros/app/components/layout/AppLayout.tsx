@@ -38,6 +38,9 @@ import { Header } from "./Header";
 const navItems = [
   { icon: IconFlame, labelKey: "navigation.entry", href: "/" },
   { icon: IconChartBar, labelKey: "navigation.analytics", href: "/analytics" },
+];
+
+const bottomNavItems = [
   { icon: IconHierarchy2, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
@@ -258,6 +261,39 @@ function SidebarContent({
             item.href === "/"
               ? pathname === "/" || pathname === "/entry"
               : pathname.startsWith(item.href);
+          const link = (
+            <Link
+              key={item.href}
+              to={item.href}
+              aria-label={collapsed ? label : undefined}
+              className={cn(
+                "flex h-9 items-center rounded-lg text-sm transition-colors",
+                collapsed ? "justify-center px-0" : "gap-3 px-3",
+                isActive
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
+              )}
+            >
+              <Icon className="h-4 w-4 shrink-0" />
+              {!collapsed && label}
+            </Link>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            link
+          );
+        })}
+      </nav>
+
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label = t(item.labelKey);
+          const isActive = pathname.startsWith(item.href);
           const link = (
             <Link
               key={item.href}
