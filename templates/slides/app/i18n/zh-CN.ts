@@ -118,6 +118,7 @@ const messages = {
     uploadAttachedFailed: "添付ファイルをアップロードできませんでした。",
     uploadFailed: "アップロード失敗",
     doubleClickEdit: "テキストをダブルクリックして編集",
+    dragToMove: "拖动以移动",
     aiEditing: "AIが編集中",
     startTypingCommands: "入力を開始…または / でコマンド",
     pinDropHint: "任意の場所をクリックしてコメントピンを追加",
@@ -206,6 +207,7 @@ const messages = {
     elementAnimations: "元素动画",
     tweaks: "微调",
     drawOnSlide: "在幻灯片上绘制",
+    addTextBox: "添加文本框",
     pinComments: "固定评论",
     pinCommentsDescription:
       "点击幻灯片上的位置来排队多个编辑，然后一次性发送。",
