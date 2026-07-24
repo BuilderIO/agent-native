@@ -24,7 +24,9 @@ const REQUIRED_TYPOGRAPHY_KEYS = [
 export function missingDesignSystemDataFields(value: unknown): string[] {
   const missing: string[] = [];
   const record =
-    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+    value && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
 
   const colors =
     record.colors && typeof record.colors === "object"
