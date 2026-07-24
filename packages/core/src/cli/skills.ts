@@ -850,6 +850,26 @@ function isKnownSkill(value: string | undefined): boolean {
   return Boolean(normalizeKnownSkillTarget(value));
 }
 
+const REWIND_MISSING_STORE_ERROR =
+  "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.";
+
+function preflightRewindStore(parsed: ParsedSkillsArgs): string | undefined {
+  if (
+    parsed.command !== "add" ||
+    parsed.dryRun ||
+    !parsed.mcp ||
+    parsed.mcpUrl
+  ) {
+    return undefined;
+  }
+  const knownTarget = normalizeKnownSkillTarget(parsed.target ?? "assets");
+  const knownBuiltIn = knownTarget ? BUILT_IN_APP_SKILLS[knownTarget] : null;
+  if (!isScreenMemoryMcpBuiltInSkill(knownBuiltIn)) return undefined;
+  const screenMemoryDir = resolveScreenMemoryStoreDir();
+  if (!screenMemoryDir) throw new Error(REWIND_MISSING_STORE_ERROR);
+  return screenMemoryDir;
+}
+
 function isLocalOnlyBuiltInSkill(
   entry: (typeof BUILT_IN_APP_SKILLS)[BuiltInAppSkillId] | null | undefined,
 ): boolean {
@@ -3542,6 +3562,7 @@ export async function addAgentNativeSkill(
     }
   }
   const commands: string[] = [];
+  const screenMemoryDir = preflightRewindStore(parsed);
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "an-skills-add-"));
   let instructionSource: string | undefined;
   let instructionsWritten: string[] | undefined;
@@ -3549,18 +3570,8 @@ export async function addAgentNativeSkill(
   let connectCommand: string | undefined;
   let registeredMcpClients: ClientId[] = shouldRegisterMcp ? mcpClients : [];
   let localManifestPath: string | undefined;
-  const screenMemoryDir =
-    shouldRegisterMcp && installsScreenMemoryMcp
-      ? resolveScreenMemoryStoreDir()
-      : undefined;
 
   try {
-    if (shouldRegisterMcp && installsScreenMemoryMcp && !screenMemoryDir) {
-      throw new Error(
-        "No local Clips Screen Memory store was found. Clips Desktop is required for Rewind. Download and launch the signed app from https://clips.agent-native.com/download, turn Rewind on, then run the setup again. Clips Desktop was not installed or enabled automatically.",
-      );
-    }
-
     if (parsed.instructions) {
       if (skillsAgents.length === 0) {
         if (!shouldRegisterMcp) {
@@ -4063,6 +4074,7 @@ export async function runSkills(
   if (parsed.baseDir) {
     options = { ...options, baseDir: path.resolve(parsed.baseDir) };
   }
+  preflightRewindStore(parsed);
   const clackForLog = parsed.printJson
     ? undefined
     : await import("@clack/prompts");

@@ -282,6 +282,53 @@ describe("agent-native skills", () => {
     }
   });
 
+  it("rejects a missing Rewind store before telemetry or user config writes", async () => {
+    const root = tmpDir();
+    const home = path.join(root, "home");
+    const codexHome = path.join(root, "codex-home");
+    fs.mkdirSync(home, { recursive: true });
+    fs.mkdirSync(codexHome, { recursive: true });
+    const previousHome = process.env.HOME;
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousStore = process.env.CLIPS_SCREEN_MEMORY_DIR;
+    const previousLegacyStore = process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+    process.env.HOME = home;
+    process.env.CODEX_HOME = codexHome;
+    delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+    delete process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+    const telemetry = {
+      track: vi.fn(),
+      flush: vi.fn(async () => undefined),
+    };
+
+    try {
+      await expect(
+        runSkills(
+          ["add", "rewind", "--client", "codex", "--scope", "user", "--yes"],
+          { baseDir: root, telemetry },
+        ),
+      ).rejects.toThrow(
+        /https:\/\/clips\.agent-native\.com\/download.*was not installed or enabled automatically/,
+      );
+
+      expect(telemetry.track).not.toHaveBeenCalled();
+      expect(telemetry.flush).not.toHaveBeenCalled();
+      expect(fs.readdirSync(home)).toEqual([]);
+      expect(fs.readdirSync(codexHome)).toEqual([]);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousStore === undefined)
+        delete process.env.CLIPS_SCREEN_MEMORY_DIR;
+      else process.env.CLIPS_SCREEN_MEMORY_DIR = previousStore;
+      if (previousLegacyStore === undefined)
+        delete process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR;
+      else process.env.AGENT_NATIVE_SCREEN_MEMORY_DIR = previousLegacyStore;
+    }
+  });
+
   it("installs Rewind into the shared user skill directory for Cursor", async () => {
     const root = tmpDir();
     const home = path.join(root, "home");
