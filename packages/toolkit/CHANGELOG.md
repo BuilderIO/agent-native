@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.10.6
+
+### Patch Changes
+
+- 8afb252: Allow newly created empty collaborative editors to persist their first real user edit after the shared document finishes loading.
+
 ## 0.10.5
 
 ### Patch Changes
