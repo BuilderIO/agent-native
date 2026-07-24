@@ -91,55 +91,200 @@ describe("slash command menu trigger", () => {
 });
 
 describe("slash command pointer activation", () => {
-  it("preserves the editor selection on pointer down and executes on click", () => {
+  function pointerEvent(
+    type: string,
+    overrides: Partial<{
+      button: number;
+      clientX: number;
+      clientY: number;
+      isPrimary: boolean;
+      pointerId: number;
+    }> = {},
+  ) {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: overrides.button ?? 0,
+      clientX: overrides.clientX ?? 12,
+      clientY: overrides.clientY ?? 18,
+    });
+    Object.defineProperties(event, {
+      isPrimary: { value: overrides.isPrimary ?? true },
+      pointerId: { value: overrides.pointerId ?? 7 },
+    });
+    return event;
+  }
+
+  function renderCommandButton(onExecute: () => void) {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root = createRoot(container);
-    const onExecute = vi.fn();
     const actEnvironment = globalThis as typeof globalThis & {
       IS_REACT_ACT_ENVIRONMENT?: boolean;
     };
     const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
 
-    try {
-      act(() => {
-        root.render(
-          createElement(CommandButton, {
-            cmd: {
-              title: "Code Block",
-              description: "Insert a code block",
-              icon: TestIcon,
-              action: vi.fn(),
-            },
-            isSelected: true,
-            onExecute,
-            onHover: vi.fn(),
-          }),
-        );
-      });
+    act(() => {
+      root.render(
+        createElement(CommandButton, {
+          cmd: {
+            title: "Code Block",
+            description: "Insert a code block",
+            icon: TestIcon,
+            action: vi.fn(),
+          },
+          isSelected: true,
+          onExecute,
+          onHover: vi.fn(),
+        }),
+      );
+    });
 
-      const button = container.querySelector("button");
+    return {
+      button: container.querySelector("button"),
+      cleanup: () => {
+        act(() => root.unmount());
+        container.remove();
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      },
+    };
+  }
+
+  it("preserves selection and executes once through the native click path", async () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
       expect(button).not.toBeNull();
 
       const mouseDown = new MouseEvent("mousedown", {
         bubbles: true,
         cancelable: true,
       });
-      act(() => button?.dispatchEvent(mouseDown));
+      act(() => {
+        button?.dispatchEvent(mouseDown);
+      });
       expect(mouseDown.defaultPrevented).toBe(true);
       expect(onExecute).not.toHaveBeenCalled();
 
-      act(() =>
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerdown"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerup"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerdown"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerup", { pointerId: 8 }));
+      });
+      act(() => {
         button?.dispatchEvent(
           new MouseEvent("click", { bubbles: true, cancelable: true }),
-        ),
-      );
+        );
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(onExecute).toHaveBeenCalledTimes(1);
     } finally {
-      act(() => root.unmount());
-      container.remove();
-      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      cleanup();
+    }
+  });
+
+  it("cancels a queued fallback when the command button unmounts", async () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    act(() => {
+      button?.dispatchEvent(pointerEvent("pointerdown"));
+    });
+    act(() => {
+      button?.dispatchEvent(pointerEvent("pointerup"));
+    });
+    cleanup();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onExecute).not.toHaveBeenCalled();
+  });
+
+  it("falls back after pointer release when the browser omits click", async () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerdown"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerup"));
+      });
+      expect(onExecute).not.toHaveBeenCalled();
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("does not activate unmatched, secondary, canceled, or dragged pointers", async () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerup"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerdown", { button: 2 }));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerup", { button: 2 }));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerdown"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointercancel"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerup"));
+      });
+      act(() => {
+        button?.dispatchEvent(pointerEvent("pointerdown"));
+      });
+      act(() => {
+        button?.dispatchEvent(
+          pointerEvent("pointermove", { clientX: 40, clientY: 45 }),
+        );
+      });
+      act(() => {
+        button?.dispatchEvent(
+          pointerEvent("pointerup", { clientX: 40, clientY: 45 }),
+        );
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onExecute).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("keeps keyboard and assistive click activation available", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      act(() => {
+        button?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
     }
   });
 });
