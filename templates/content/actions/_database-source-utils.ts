@@ -5786,6 +5786,12 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     limit: args.runFullRefresh ? 10_000 : undefined,
     offset: continueOffset,
   });
+  if (builderRead.state === "error") {
+    throw new Error(
+      builderRead.message ??
+        "Builder CMS read failed; the previous source snapshot was preserved.",
+    );
+  }
   const incrementalRead =
     builderRead.state === "live" &&
     (builderRead.progress?.partial === true ||
@@ -6112,7 +6118,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     message: builderRead.message,
     builderModelFields,
     progress: builderRead.progress,
-    sourceFetchState: builderRead.state === "error" ? "error" : "idle",
+    sourceFetchState: "idle",
     activeReadSourceRowIds: undefined,
     syncState: "idle",
     refreshClaimId: args.refreshClaimId,

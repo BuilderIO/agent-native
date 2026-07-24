@@ -228,6 +228,25 @@ vi.mock("./_builder-cms-read-client.js", async () => {
             },
           };
         }
+        if (model === "collection-read-error-continuation") {
+          const startOffset = offset ?? 500;
+          return {
+            state: "error",
+            entries: [],
+            fetchedAt: "2026-02-01T00:00:00.000Z",
+            message: "Builder CMS read failed with HTTP 503.",
+            progress: {
+              requestedLimit: 500,
+              pageSize: 100,
+              startOffset,
+              nextOffset: startOffset,
+              fetchedEntryCount: startOffset,
+              hasMore: false,
+              partial: false,
+              readMode: "builder-api",
+            },
+          };
+        }
         if (model === "collection-large-597") {
           const allEntries = Array.from({ length: 597 }, (_, index) => ({
             id: `entry-large-${index + 1}`,
@@ -779,6 +798,106 @@ it("atomically grants one Builder continuation claim per persisted offset", asyn
     sourceId: source.id,
     claimId: fenced!.claimId,
   });
+});
+
+it("preserves a partial Builder snapshot when a continuation read fails", async () => {
+  const db = getDb();
+  const createdAt = "2026-01-01T00:00:00.000Z";
+  const metadataJson = JSON.stringify({
+    sourceFetchState: "fetching",
+    lastReadHasMore: true,
+    lastReadNextOffset: 500,
+    lastReadFetchedEntryCount: 500,
+    activeReadSourceRowIds: ["entry-preserved"],
+  });
+  await db.insert(schema.documents).values([
+    {
+      id: "doc-read-error-db",
+      ownerEmail: OWNER,
+      title: "Read error DB",
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: "doc-read-error-row",
+      ownerEmail: OWNER,
+      parentId: "doc-read-error-db",
+      title: "Preserved row",
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]);
+  await db.insert(schema.contentDatabases).values({
+    id: "db-read-error",
+    ownerEmail: OWNER,
+    documentId: "doc-read-error-db",
+    title: "Read error DB",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: "item-read-error-row",
+    ownerEmail: OWNER,
+    databaseId: "db-read-error",
+    documentId: "doc-read-error-row",
+    position: 0,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-read-error",
+    ownerEmail: OWNER,
+    databaseId: "db-read-error",
+    sourceType: "builder-cms",
+    sourceName: "Read error source",
+    sourceTable: "collection-read-error-continuation",
+    syncState: "refreshing",
+    freshness: "stale",
+    metadataJson,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: "source-row-read-error",
+    ownerEmail: OWNER,
+    sourceId: "source-read-error",
+    databaseItemId: "item-read-error-row",
+    documentId: "doc-read-error-row",
+    sourceRowId: "entry-preserved",
+    sourceQualifiedId:
+      "builder-cms://collection-read-error-continuation/entry-preserved",
+    sourceDisplayKey: "Preserved row",
+    sourceValuesJson: JSON.stringify({ "data.title": "Preserved row" }),
+    provenance: "Builder CMS read adapter",
+    freshness: "fresh",
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, "db-read-error"));
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-read-error"));
+
+  await expect(
+    resync({ database, source, now: "2026-02-01T00:00:00.000Z" }),
+  ).rejects.toThrow("HTTP 503");
+
+  const rows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+  const [preservedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.sourceRowId).toBe("entry-preserved");
+  expect(preservedSource.metadataJson).toBe(metadataJson);
+  expect(preservedSource.syncState).toBe("refreshing");
 });
 
 it("preserves an established source snapshot when Builder unexpectedly returns zero entries", async () => {

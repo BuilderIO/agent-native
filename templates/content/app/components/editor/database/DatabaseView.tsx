@@ -910,6 +910,7 @@ function DatabaseTable({
   );
   const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
   const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
+  const builderContinuationFailureRef = useRef<Map<string, number>>(new Map());
   const refreshSourceInFlightRef = useRef<string | null>(null);
   const hydrationSourceInFlightRef = useRef<string | null>(null);
   const workspaceSelectionQueueRef = useRef(createContentSpaceSelectionQueue());
@@ -1119,6 +1120,7 @@ function DatabaseTable({
       sourceId: string,
       onError?: () => void,
       expectedBuilderContinuationOffset?: number,
+      onSuccess?: () => void,
     ) => {
       if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
         return false;
@@ -1131,6 +1133,7 @@ function DatabaseTable({
         },
         {
           onError,
+          onSuccess,
           onSettled: () => {
             releaseDatabaseSourceOperation(refreshSourceInFlightRef, sourceId);
           },
@@ -1139,6 +1142,25 @@ function DatabaseTable({
       return true;
     },
     [document.id, refreshSource.mutate],
+  );
+  const handleBuilderContinuationError = useCallback(
+    (continuationKey: string) => {
+      const failures =
+        (builderContinuationFailureRef.current.get(continuationKey) ?? 0) + 1;
+      builderContinuationFailureRef.current.set(continuationKey, failures);
+      if (builderSourceContinuationFailureDecision(failures) === "error") {
+        setBuilderContinuationClientErrorKeys((current) =>
+          addUniqueKey(current, continuationKey),
+        );
+      }
+    },
+    [],
+  );
+  const handleBuilderContinuationSuccess = useCallback(
+    (continuationKey: string) => {
+      builderContinuationFailureRef.current.delete(continuationKey);
+    },
+    [],
   );
   const runBuilderHydration = useCallback(
     (
@@ -1207,11 +1229,9 @@ function DatabaseTable({
     if (
       !runSourceRefresh(
         candidate.id,
-        () =>
-          setBuilderContinuationClientErrorKeys((current) =>
-            addUniqueKey(current, continuationKey),
-          ),
+        () => handleBuilderContinuationError(continuationKey),
         candidate.metadata.lastReadNextOffset,
+        () => handleBuilderContinuationSuccess(continuationKey),
       )
     ) {
       autoContinueBuilderSourceRef.current.delete(continuationKey);
@@ -1221,6 +1241,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -1286,11 +1308,9 @@ function DatabaseTable({
       if (
         runSourceRefresh(
           candidate.id,
-          () =>
-            setBuilderContinuationClientErrorKeys((current) =>
-              addUniqueKey(current, continuationKey),
-            ),
+          () => handleBuilderContinuationError(continuationKey),
           candidate.metadata.lastReadNextOffset,
+          () => handleBuilderContinuationSuccess(continuationKey),
         )
       ) {
         builderContinuationWatchdogRef.current.set(
@@ -1309,6 +1329,8 @@ function DatabaseTable({
     builderSources,
     canEdit,
     isActive,
+    handleBuilderContinuationError,
+    handleBuilderContinuationSuccess,
     refreshSource.isPending,
     runSourceRefresh,
   ]);
@@ -2559,13 +2581,12 @@ function DatabaseTable({
                 continuationKey,
               );
               builderContinuationWatchdogRef.current.set(continuationKey, 0);
+              builderContinuationFailureRef.current.delete(continuationKey);
               runSourceRefresh(
                 builderSource.id,
-                () =>
-                  setBuilderContinuationClientErrorKeys((current) =>
-                    addUniqueKey(current, continuationKey),
-                  ),
+                () => handleBuilderContinuationError(continuationKey),
                 builderSource.metadata.lastReadNextOffset,
+                () => handleBuilderContinuationSuccess(continuationKey),
               );
             }}
           />
@@ -10211,6 +10232,10 @@ export function builderSourceContinuationFetchedCountDetail(
 
 export function builderSourceContinuationWatchdogDecision(refires: number) {
   return "refire";
+}
+
+export function builderSourceContinuationFailureDecision(failures: number) {
+  return failures <= 1 ? "retry" : "error";
 }
 
 export function builderSourceContinuationWatchdogDelay(refires: number) {
