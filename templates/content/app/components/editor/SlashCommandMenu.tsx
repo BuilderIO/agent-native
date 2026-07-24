@@ -1315,25 +1315,17 @@ export function CommandButton({
   onExecute: () => void;
   onHover: () => void;
 }) {
-  const armedPointerRef = useRef<{
-    pointerId: number;
-    clientX: number;
-    clientY: number;
-  } | null>(null);
-  const pointerFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+  const pendingExecutionRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-
-  const clearPointerFallback = () => {
-    if (pointerFallbackTimerRef.current !== null) {
-      clearTimeout(pointerFallbackTimerRef.current);
-      pointerFallbackTimerRef.current = null;
-    }
-  };
+  const onExecuteRef = useRef(onExecute);
+  onExecuteRef.current = onExecute;
 
   useEffect(
     () => () => {
-      clearPointerFallback();
+      if (pendingExecutionRef.current !== null) {
+        clearTimeout(pendingExecutionRef.current);
+      }
     },
     [],
   );
@@ -1341,61 +1333,17 @@ export function CommandButton({
   return (
     <button
       ref={buttonRef}
-      onPointerDown={(event) => {
-        clearPointerFallback();
-        if (event.button !== 0 || event.isPrimary === false) {
-          armedPointerRef.current = null;
-          return;
-        }
-        armedPointerRef.current = {
-          pointerId: event.pointerId,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        };
-      }}
-      onPointerMove={(event) => {
-        const armed = armedPointerRef.current;
-        if (!armed || armed.pointerId !== event.pointerId) return;
-        if (
-          Math.hypot(
-            event.clientX - armed.clientX,
-            event.clientY - armed.clientY,
-          ) > 8
-        ) {
-          armedPointerRef.current = null;
-        }
-      }}
-      onPointerCancel={() => {
-        armedPointerRef.current = null;
-        clearPointerFallback();
-      }}
-      onPointerUp={(event) => {
-        const armed = armedPointerRef.current;
-        armedPointerRef.current = null;
-        if (
-          !armed ||
-          event.button !== 0 ||
-          event.isPrimary === false ||
-          armed.pointerId !== event.pointerId ||
-          Math.hypot(
-            event.clientX - armed.clientX,
-            event.clientY - armed.clientY,
-          ) > 8
-        ) {
-          return;
-        }
-        pointerFallbackTimerRef.current = setTimeout(() => {
-          pointerFallbackTimerRef.current = null;
-          onExecute();
-        }, 0);
-      }}
       onMouseDown={(event) => {
         event.preventDefault();
       }}
       onClick={() => {
-        armedPointerRef.current = null;
-        clearPointerFallback();
-        onExecute();
+        if (pendingExecutionRef.current !== null) {
+          clearTimeout(pendingExecutionRef.current);
+        }
+        pendingExecutionRef.current = setTimeout(() => {
+          pendingExecutionRef.current = null;
+          onExecuteRef.current();
+        }, 0);
       }}
       onMouseEnter={onHover}
       className={cn(

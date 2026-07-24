@@ -91,30 +91,6 @@ describe("slash command menu trigger", () => {
 });
 
 describe("slash command pointer activation", () => {
-  function pointerEvent(
-    type: string,
-    overrides: Partial<{
-      button: number;
-      clientX: number;
-      clientY: number;
-      isPrimary: boolean;
-      pointerId: number;
-    }> = {},
-  ) {
-    const event = new MouseEvent(type, {
-      bubbles: true,
-      cancelable: true,
-      button: overrides.button ?? 0,
-      clientX: overrides.clientX ?? 12,
-      clientY: overrides.clientY ?? 18,
-    });
-    Object.defineProperties(event, {
-      isPrimary: { value: overrides.isPrimary ?? true },
-      pointerId: { value: overrides.pointerId ?? 7 },
-    });
-    return event;
-  }
-
   function renderCommandButton(onExecute: () => void) {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -124,7 +100,6 @@ describe("slash command pointer activation", () => {
     };
     const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
     actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
-
     act(() => {
       root.render(
         createElement(CommandButton, {
@@ -140,7 +115,6 @@ describe("slash command pointer activation", () => {
         }),
       );
     });
-
     return {
       button: container.querySelector("button"),
       cleanup: () => {
@@ -151,13 +125,12 @@ describe("slash command pointer activation", () => {
     };
   }
 
-  it("preserves selection and executes once through the native click path", async () => {
+  it("preserves selection and deduplicates deferred pointer clicks", () => {
+    vi.useFakeTimers();
     const onExecute = vi.fn();
     const { button, cleanup } = renderCommandButton(onExecute);
 
     try {
-      expect(button).not.toBeNull();
-
       const mouseDown = new MouseEvent("mousedown", {
         bubbles: true,
         cancelable: true,
@@ -166,113 +139,27 @@ describe("slash command pointer activation", () => {
         button?.dispatchEvent(mouseDown);
       });
       expect(mouseDown.defaultPrevented).toBe(true);
-      expect(onExecute).not.toHaveBeenCalled();
 
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerdown"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerup"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerdown"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerup", { pointerId: 8 }));
-      });
       act(() => {
         button?.dispatchEvent(
           new MouseEvent("click", { bubbles: true, cancelable: true }),
         );
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(onExecute).toHaveBeenCalledTimes(1);
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("cancels a queued fallback when the command button unmounts", async () => {
-    const onExecute = vi.fn();
-    const { button, cleanup } = renderCommandButton(onExecute);
-
-    act(() => {
-      button?.dispatchEvent(pointerEvent("pointerdown"));
-    });
-    act(() => {
-      button?.dispatchEvent(pointerEvent("pointerup"));
-    });
-    cleanup();
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(onExecute).not.toHaveBeenCalled();
-  });
-
-  it("falls back after pointer release when the browser omits click", async () => {
-    const onExecute = vi.fn();
-    const { button, cleanup } = renderCommandButton(onExecute);
-
-    try {
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerdown"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerup"));
+        button?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
       });
       expect(onExecute).not.toHaveBeenCalled();
 
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      vi.runOnlyPendingTimers();
       expect(onExecute).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
+      vi.useRealTimers();
     }
   });
 
-  it("does not activate unmatched, secondary, canceled, or dragged pointers", async () => {
-    const onExecute = vi.fn();
-    const { button, cleanup } = renderCommandButton(onExecute);
-
-    try {
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerup"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerdown", { button: 2 }));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerup", { button: 2 }));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerdown"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointercancel"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerup"));
-      });
-      act(() => {
-        button?.dispatchEvent(pointerEvent("pointerdown"));
-      });
-      act(() => {
-        button?.dispatchEvent(
-          pointerEvent("pointermove", { clientX: 40, clientY: 45 }),
-        );
-      });
-      act(() => {
-        button?.dispatchEvent(
-          pointerEvent("pointerup", { clientX: 40, clientY: 45 }),
-        );
-      });
-
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(onExecute).not.toHaveBeenCalled();
-    } finally {
-      cleanup();
-    }
-  });
-
-  it("keeps keyboard and assistive click activation available", () => {
+  it("cancels deferred execution when the command button unmounts", () => {
+    vi.useFakeTimers();
     const onExecute = vi.fn();
     const { button, cleanup } = renderCommandButton(onExecute);
 
@@ -282,9 +169,11 @@ describe("slash command pointer activation", () => {
           new MouseEvent("click", { bubbles: true, cancelable: true }),
         );
       });
-      expect(onExecute).toHaveBeenCalledTimes(1);
-    } finally {
       cleanup();
+      vi.runOnlyPendingTimers();
+      expect(onExecute).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
