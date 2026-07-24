@@ -66,7 +66,7 @@ static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
 /// Collapsed dimensions (logical px). The collapsed pill is a vertical capsule
 /// — clips logo on top, waveform below — so it is taller than it is wide. The
 /// expanded form stretches horizontally to fit the live-transcript area.
-const PILL_W_LOGICAL: u32 = 38;
+const PILL_W_LOGICAL: u32 = 44;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
 /// Meeting mode uses the same focused transcript width as other recordings;
 /// live notes are intentionally kept out of this compact overlay.

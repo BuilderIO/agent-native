@@ -823,7 +823,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .live-audio-bars-compact {
-  width: 22px;
+  width: 24px;
   height: 22px;
   gap: 3px;
 }
@@ -5591,7 +5591,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .pill-vertical .pill-wave-meter {
   height: 22px;
-  width: 22px;
+  width: 24px;
 }
 
 /* Wrapper around logo + waveform. */
