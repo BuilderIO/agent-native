@@ -196,7 +196,11 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     emailDomain !== null &&
     !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
 
-  if (!explicitPersonal && activeOrgSetting?.orgId && !shouldTryDomainAutoJoin) {
+  if (
+    !explicitPersonal &&
+    activeOrgSetting?.orgId &&
+    !shouldTryDomainAutoJoin
+  ) {
     const active = memberships.find((m) => m.orgId === activeOrgSetting.orgId);
     if (active) {
       return {

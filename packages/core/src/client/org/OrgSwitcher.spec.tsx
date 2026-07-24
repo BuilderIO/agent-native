@@ -118,7 +118,9 @@ describe("OrgSwitcher", () => {
         email: "brent@builder.io",
         orgId: "personal",
         orgName: "Brent's workspace",
-        orgs: [{ orgId: "personal", orgName: "Brent's workspace", role: "owner" }],
+        orgs: [
+          { orgId: "personal", orgName: "Brent's workspace", role: "owner" },
+        ],
         domainMatches: [{ orgId: "builder_io", orgName: "Builder.io" }],
         pendingInvitations: [],
         role: "owner",
