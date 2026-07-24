@@ -7,7 +7,7 @@ import type {
   PreviewBuilderSourceReviewResponse,
 } from "../shared/api.js";
 import {
-  getContentDatabaseSourceSnapshotForWrite,
+  getContentDatabaseSourceSnapshotForReview,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import {
@@ -45,7 +45,7 @@ export default defineAction({
       throw new Error("Select at least one Builder row before reviewing it.");
     }
 
-    const source = await getContentDatabaseSourceSnapshotForWrite(
+    const source = await getContentDatabaseSourceSnapshotForReview(
       database,
       args.sourceId,
       args.scope === "selected" ? args.documentIds : undefined,
@@ -72,7 +72,8 @@ export default defineAction({
     const changeSets = [...allReviewableChanges]
       .sort(
         (left, right) =>
-          reviewPreparePriority(left) - reviewPreparePriority(right),
+          reviewPreparePriority(left, source) -
+          reviewPreparePriority(right, source),
       )
       .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
     const authoritativeSource = await withAuthoritativeBuilderTargetRows({

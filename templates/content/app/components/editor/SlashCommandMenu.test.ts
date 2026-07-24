@@ -5,10 +5,13 @@ import { join } from "node:path";
 
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   buildHeadingCommands,
+  CommandButton,
   CONTENT_HEADING_LEVELS,
   equationNodeContent,
   getEquationInsertionRange,
@@ -19,6 +22,10 @@ import {
   parseInlineGeneratePrompt,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
+
+function TestIcon() {
+  return createElement("svg");
+}
 
 function readSlashCommandMenuSource() {
   return readFileSync(
@@ -67,13 +74,123 @@ describe("slash command menu trigger", () => {
   it("opens for slash commands at the start of a block", () => {
     expect(parseSlashCommandQuery("/")).toBe("");
     expect(parseSlashCommandQuery("/heading")).toBe("heading");
+    expect(parseSlashCommandQuery("/heading 2")).toBe("heading 2");
+    expect(parseSlashCommandQuery("/numbered list")).toBe("numbered list");
     expect(parseSlashCommandQuery("  /table")).toBe("table");
+  });
+
+  it("still yields multi-word generate prompts to inline submission", () => {
+    expect(parseSlashCommandQuery("/generate outline this PRD")).toBeNull();
   });
 
   it("does not open for slashes embedded in normal prose", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+});
+
+describe("slash command pointer activation", () => {
+  function renderCommandButton(onExecute: () => void) {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    act(() => {
+      root.render(
+        createElement(CommandButton, {
+          cmd: {
+            title: "Code Block",
+            description: "Insert a code block",
+            icon: TestIcon,
+            action: vi.fn(),
+          },
+          isSelected: true,
+          onExecute,
+          onHover: vi.fn(),
+        }),
+      );
+    });
+    return {
+      button: container.querySelector("button"),
+      cleanup: () => {
+        act(() => root.unmount());
+        container.remove();
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      },
+    };
+  }
+
+  it("executes on mouse down while preserving selection and deduplicating click", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      const mouseDown = new MouseEvent("mousedown", {
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        button?.dispatchEvent(mouseDown);
+      });
+      expect(mouseDown.defaultPrevented).toBe(true);
+      expect(onExecute).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        button?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 1,
+          }),
+        );
+      });
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("runs before a pointer selection closes and unmounts the menu", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    act(() => {
+      button?.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+        }),
+      );
+    });
+    expect(onExecute).toHaveBeenCalledTimes(1);
+    cleanup();
+    expect(onExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports keyboard-generated button clicks", () => {
+    const onExecute = vi.fn();
+    const { button, cleanup } = renderCommandButton(onExecute);
+
+    try {
+      act(() => {
+        button?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            cancelable: true,
+            detail: 0,
+          }),
+        );
+      });
+      expect(onExecute).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
   });
 });
 

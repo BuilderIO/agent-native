@@ -3705,6 +3705,14 @@ export default bundle;
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
     replace: {
+      // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
+      // function so preview OAuth relays can target this immutable deployment
+      // even though the value is unavailable in the function runtime.
+      "process.env.AGENT_NATIVE_BUILD_ID": JSON.stringify(
+        process.env.DEPLOY_ID?.trim() ||
+          process.env.AGENT_NATIVE_BUILD_ID?.trim() ||
+          "",
+      ),
       "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),

@@ -4,6 +4,7 @@ import { useEditor, type Editor } from "@tiptap/react";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import * as Y from "yjs";
 
 import { createRichMarkdownExtensions } from "./RichMarkdownEditor.js";
 import { useCollabReconcile, getEditorMarkdown } from "./useCollabReconcile.js";
@@ -179,6 +180,52 @@ function render(
 }
 
 describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
+  it("persists the first local edit after a synced empty collaborative document", async () => {
+    const captured: Captured = {
+      editor: null,
+      emitted: [],
+      setContentCalls: 0,
+    };
+
+    function EmptyDocumentHarness() {
+      const guardsRef = React.useRef<ReturnType<
+        typeof useCollabReconcile
+      > | null>(null);
+      const ydoc = React.useMemo(() => new Y.Doc(), []);
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
+        onUpdate: ({ editor, transaction }) => {
+          const guards = guardsRef.current;
+          if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+          const markdown = getEditorMarkdown(editor);
+          if (!guards.registerEmitted(markdown)) return;
+          captured.emitted.push(markdown);
+        },
+      });
+      captured.editor = editor;
+      guardsRef.current = useCollabReconcile({
+        editor,
+        ydoc,
+        collabSynced: true,
+        value: "",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        getMarkdown: getEditorMarkdown,
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(EmptyDocumentHarness)));
+    await flush();
+
+    act(() => {
+      captured.editor?.commands.insertContent("First persisted edit");
+    });
+    await flush();
+
+    expect(captured.emitted).toContain("First persisted edit");
+  });
+
   it("does not seed until initial collab sync has completed", async () => {
     const { captured, Harness } = makeCollabSeedHarness();
 
@@ -328,6 +375,36 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     await flush();
 
     expect(results).toEqual([true]);
+  });
+
+  it("allows a local edit that arrives as a synced empty document finishes mounting", async () => {
+    const results: boolean[] = [];
+
+    function Probe() {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+        content: "",
+      });
+      const fakeYdoc = { clientID: 1, getXmlFragment: () => ({ length: 0 }) };
+      const guards = useCollabReconcile({
+        editor,
+        ydoc: fakeYdoc as never,
+        collabSynced: true,
+        value: "",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+      });
+      // Runs during render, before the passive empty-seed completion effect.
+      if (editor && results.length === 0) {
+        results.push(guards.shouldIgnoreUpdate(editor.state.tr));
+      }
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+
+    expect(results).toEqual([false]);
   });
 
   it("refuses to persist an empty doc in collab mode (registerEmitted guard)", async () => {

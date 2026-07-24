@@ -219,7 +219,16 @@ export function parseInlineGeneratePrompt(textBeforeCursor: string) {
 }
 
 export function parseSlashCommandQuery(textBeforeCursor: string) {
-  return textBeforeCursor.match(/^\s*\/([a-zA-Z0-9]*)$/)?.[1] ?? null;
+  const match = textBeforeCursor.match(
+    /^\s*\/([a-zA-Z0-9][a-zA-Z0-9 _-]*|)\s*$/,
+  );
+  if (!match) return null;
+  const rawQuery = match[1] ?? "";
+  // `/generate <prompt>` intentionally leaves the menu so Enter can submit the
+  // inline prompt. Other multi-word labels (for example `/heading 2`) remain
+  // searchable instead of turning into literal editor text at the first space.
+  if (/^generate\s+/i.test(rawQuery)) return null;
+  return rawQuery.trim();
 }
 
 export function inlineDatabaseBlockContent(
@@ -899,6 +908,7 @@ export function SlashCommandMenu({
 
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
+      if (editor.isDestroyed) return;
       const slashRange =
         getActiveSlashCommandRange(editor) ??
         (slashPosRef.current !== null
@@ -1293,7 +1303,7 @@ export function SlashCommandMenu({
   );
 }
 
-function CommandButton({
+export function CommandButton({
   cmd,
   isSelected,
   buttonRef,
@@ -1306,13 +1316,31 @@ function CommandButton({
   onExecute: () => void;
   onHover: () => void;
 }) {
+  const pendingExecutionRef = useRef(false);
+  const onExecuteRef = useRef(onExecute);
+  onExecuteRef.current = onExecute;
+
+  const executeOnce = () => {
+    if (pendingExecutionRef.current) return;
+    pendingExecutionRef.current = true;
+    // Pointer selection can close and unmount the menu before the browser
+    // dispatches `click`. Start the command during mouse down, while the
+    // editor selection and button are both still alive. Keep `onClick` as the
+    // keyboard-generated click fallback and dedupe the normal pointer click.
+    onExecuteRef.current();
+    queueMicrotask(() => {
+      pendingExecutionRef.current = false;
+    });
+  };
+
   return (
     <button
       ref={buttonRef}
       onMouseDown={(event) => {
         event.preventDefault();
-        onExecute();
+        if (event.button === 0) executeOnce();
       }}
+      onClick={executeOnce}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",

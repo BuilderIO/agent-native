@@ -25,6 +25,8 @@ import {
   getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
   resolveBuilderCallbackReturnUrl,
+  resolveBuilderPreviewRelayParentOrigin,
+  resolveBuilderPreviewRelayTargetOrigin,
   runBuilderAgent,
   signBuilderConnectToken,
   signBuilderCallbackState,
@@ -583,6 +585,74 @@ describe("Builder callback CSRF state", () => {
           now,
         }),
       ).toBeNull();
+    });
+
+    it("uses the immutable Netlify deploy URL as the relay destination", () => {
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "agent-native-content";
+
+      expect(
+        resolveBuilderPreviewRelayTargetOrigin(
+          "https://deploy-preview-2382--agent-native-content.netlify.app",
+        ),
+      ).toBe(
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app",
+      );
+    });
+
+    it("rejects an immutable Netlify deploy URL for a different site", () => {
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "different-site";
+      const previewOrigin =
+        "https://deploy-preview-2382--agent-native-content.netlify.app";
+
+      expect(resolveBuilderPreviewRelayTargetOrigin(previewOrigin)).toBe(
+        previewOrigin,
+      );
+    });
+
+    it("leaves non-Netlify preview origins unchanged", () => {
+      process.env.AGENT_NATIVE_BUILD_ID = "6a62ed72f518f00008436fa3";
+      process.env.SITE_NAME = "agent-native-content";
+      const previewOrigin = "https://preview-example.builderio.xyz";
+
+      expect(resolveBuilderPreviewRelayTargetOrigin(previewOrigin)).toBe(
+        previewOrigin,
+      );
+    });
+
+    it("keeps the visible preview opener separate from the immutable relay target", () => {
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin:
+            "https://deploy-preview-2382--agent-native-content.netlify.app",
+          targetOrigin:
+            "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app",
+        }),
+      ).toBe("https://deploy-preview-2382--agent-native-content.netlify.app");
+    });
+
+    it("falls back to the signed relay target for an unsafe opener", () => {
+      const targetOrigin =
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin: "https://attacker.example",
+          targetOrigin,
+        }),
+      ).toBe(targetOrigin);
+    });
+
+    it("rejects an unsigned Netlify opener for a different site", () => {
+      const targetOrigin =
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin:
+            "https://deploy-preview-2382--attacker-site.netlify.app",
+          targetOrigin,
+        }),
+      ).toBe(targetOrigin);
     });
 
     it("returns users to the preview opener after a gateway callback", () => {

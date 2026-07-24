@@ -25,6 +25,7 @@ import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
+  reviewPreparePriority,
 } from "./prepare-builder-source-review";
 import previewReview from "./preview-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
@@ -58,6 +59,35 @@ describe("content database source actions", () => {
       scope: "selected",
       documentIds: ["document-1"],
     });
+  });
+
+  it("surfaces new Builder drafts before in-place updates in the same review state", () => {
+    const source = {
+      metadata: { writeMode: "publish_updates", pushMode: "publish" },
+      rows: [
+        {
+          documentId: "existing-document",
+          databaseItemId: "existing-item",
+          sourceRowId: "existing-entry",
+          sourceQualifiedId: "builder-cms://safe-model/existing-entry",
+          provenance: "Builder CMS read adapter",
+        },
+      ],
+    } as ContentDatabaseSource;
+    const create = {
+      id: "create",
+      documentId: "new-document",
+      state: "pending_push",
+    } as ContentDatabaseSource["changeSets"][number];
+    const update = {
+      id: "update",
+      documentId: "existing-document",
+      state: "pending_push",
+    } as ContentDatabaseSource["changeSets"][number];
+
+    expect(reviewPreparePriority(create, source)).toBeLessThan(
+      reviewPreparePriority(update, source),
+    );
   });
 
   it("accepts Builder source batch execution args", () => {
@@ -370,6 +400,18 @@ describe("content database source actions", () => {
   it("accepts refresh requests without external provider details", () => {
     expect(refreshSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("accepts a guarded Builder continuation offset", () => {
+    expect(
+      refreshSource.schema.parse({
+        databaseId: "database",
+        expectedBuilderContinuationOffset: 400,
+      }),
+    ).toEqual({
+      databaseId: "database",
+      expectedBuilderContinuationOffset: 400,
     });
   });
 

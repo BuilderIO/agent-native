@@ -24,6 +24,8 @@ import {
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
+  builderReviewBodyCandidateDocumentIds,
+  builderSourcePropertyAssignments,
   builderBodyHydrationVersion,
   builderBodyUnavailableVersion,
   builderBodyHydrationNeedsLiveBaseline,
@@ -33,6 +35,7 @@ import {
   builderAuthoritativeRawBodyHash,
   bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
+  builderCmsSourceContinuationIsCurrent,
   builderExecutionIsProvablyLocallyBlockedUnsent,
   canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
@@ -100,6 +103,90 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("keeps the provider-bound property when duplicate local labels collide", () => {
+    const existingFields = [
+      {
+        propertyId: "local-blurb",
+        sourceFieldKey: "data.blurb",
+        provenance: "source field",
+      },
+      {
+        propertyId: "builder-blurb",
+        sourceFieldKey: "data.blurb",
+        provenance: "Builder model field",
+      },
+    ];
+    const properties = [
+      {
+        definition: { id: "local-blurb", name: "Blurb", type: "text" },
+      },
+      {
+        definition: { id: "builder-blurb", name: "Blurb", type: "text" },
+      },
+      {
+        definition: { id: "summary", name: "Summary", type: "text" },
+      },
+    ];
+
+    for (const fields of [existingFields, [...existingFields].reverse()]) {
+      const assignments = builderSourcePropertyAssignments({
+        properties,
+        existingFields: fields,
+      });
+
+      expect(
+        assignments.map(({ property, sourceFieldKey }) => ({
+          propertyId: property.definition.id,
+          sourceFieldKey,
+        })),
+      ).toEqual([
+        {
+          propertyId: "builder-blurb",
+          sourceFieldKey: "data.blurb",
+        },
+        {
+          propertyId: "summary",
+          sourceFieldKey: "data.summary",
+        },
+      ]);
+    }
+  });
+
+  it("accepts only the persisted Builder continuation offset", () => {
+    const metadataJson = JSON.stringify({
+      sourceFetchState: "fetching",
+      lastReadHasMore: true,
+      lastReadNextOffset: 400,
+      activeReadSourceRowIds: ["entry-1"],
+    });
+
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 400)).toBe(true);
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 100)).toBe(
+      false,
+    );
+    expect(builderCmsSourceContinuationIsCurrent(metadataJson, 0)).toBe(false);
+    expect(
+      builderCmsSourceContinuationIsCurrent(
+        JSON.stringify({
+          sourceFetchState: "fetching",
+          lastReadHasMore: true,
+          lastReadNextOffset: 400,
+        }),
+        400,
+      ),
+    ).toBe(false);
+    expect(
+      builderCmsSourceContinuationIsCurrent(
+        JSON.stringify({
+          sourceFetchState: "idle",
+          lastReadHasMore: false,
+          lastReadNextOffset: 580,
+        }),
+        400,
+      ),
+    ).toBe(false);
+  });
+
   it("selects document bodies only for explicitly heavy Builder snapshots", () => {
     expect(sourceSnapshotDocumentSelection(false)).not.toHaveProperty(
       "content",
@@ -289,6 +376,44 @@ describe("database source helpers", () => {
       sourceFetchState: "error",
       activeReadSourceRowIds: [],
     });
+  });
+
+  it("clears the Builder refresh claim when read metadata is finalized", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "agent-native-blog-article-test",
+        readState: "live",
+        entryCount: 580,
+        matchedRowCount: 580,
+        existingMetadataJson: JSON.stringify({
+          builderContinuationClaimId: "claim-1",
+          builderContinuationClaimOffset: 400,
+        }),
+        completedBuilderContinuationClaimId: "claim-1",
+      }),
+    );
+
+    expect(metadata).not.toHaveProperty("builderContinuationClaimId");
+    expect(metadata).not.toHaveProperty("builderContinuationClaimOffset");
+  });
+
+  it("preserves a Builder refresh claim for unrelated metadata writers", () => {
+    const metadata = JSON.parse(
+      serializeBuilderCmsSourceReadMetadataRecord({
+        sourceTable: "agent-native-blog-article-test",
+        readState: "live",
+        entryCount: 400,
+        matchedRowCount: 400,
+        existingMetadataJson: JSON.stringify({
+          builderContinuationClaimId: "claim-1",
+          builderContinuationClaimOffset: 400,
+          builderContinuationClaimedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      }),
+    );
+
+    expect(metadata.builderContinuationClaimId).toBe("claim-1");
+    expect(metadata.builderContinuationClaimOffset).toBe(400);
   });
 
   it("preserves existing Builder model fields during metadata rewrites", () => {
@@ -869,6 +994,61 @@ describe("database source helpers", () => {
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
     expect(pending).toHaveLength(0);
+  });
+
+  it("indexes only Builder documents that need a heavy body review", () => {
+    const imported = {
+      sourceRowId: "entry-1",
+      sourceQualifiedId: "builder-cms://safe-model/entry-1",
+      provenance: "Builder CMS read adapter",
+      bodyHydrationStatus: "hydrated",
+      currentHash: "hash-1",
+      currentContent: "Same readable body",
+    };
+
+    expect(
+      builderReviewBodyCandidateDocumentIds([
+        {
+          ...imported,
+          documentId: "unchanged",
+          localContent: "Same readable body\n",
+        },
+        {
+          ...imported,
+          documentId: "changed",
+          localContent: "Locally edited body",
+        },
+        {
+          ...imported,
+          documentId: "media-reconversion",
+          currentContent: "![Image](https://example.com/image.png)",
+          localContent: "![Image](https://example.com/image.png)",
+        },
+        {
+          ...imported,
+          documentId: "not-hydrated",
+          bodyHydrationStatus: "pending",
+          localContent: "Locally edited body",
+        },
+        {
+          ...imported,
+          documentId: "empty-no-baseline",
+          currentHash: null,
+          currentContent: null,
+          localContent: "",
+        },
+        {
+          documentId: "fixture",
+          sourceRowId: "builder-fixture",
+          sourceQualifiedId: "builder-cms://safe-model/fixture",
+          provenance: BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
+          bodyHydrationStatus: "pending",
+          currentHash: null,
+          currentContent: null,
+          localContent: "Local draft body",
+        },
+      ]),
+    ).toEqual(["changed", "media-reconversion", "fixture"]);
   });
 
   it("detects local Builder body edits as outbound pending changes", () => {

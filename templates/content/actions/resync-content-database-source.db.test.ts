@@ -63,6 +63,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       }
       if (model === "collection-mapped-fields") {
         return [
+          { name: "blurb", type: "string", required: false },
           { name: "topics", type: "list", required: false },
           { name: "tags", type: "list", required: false },
           { name: "customModelField", type: "string", required: false },
@@ -273,6 +274,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
               updatedAt: "2026-02-01T00:00:00.000Z",
               sourceValues: {
                 "data.title": "Mapped fields",
+                "data.blurb": "Remote Builder blurb",
                 "data.topics": ["AI", "CMS"],
                 "data.tags": ["Agents", "Content"],
                 "data.customModelField": "Arbitrary value",
@@ -551,6 +553,10 @@ let seedSourceRows: typeof import("./_database-source-utils.js").seedMockSourceR
 let materializeSourceFields: typeof import("./_database-source-utils.js").materializeSourceFieldPropertyValues;
 let getSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotById;
 let getWriteSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
+let claimSourceRefresh: typeof import("./_database-source-utils.js").claimBuilderCmsSourceRefresh;
+let releaseSourceRefreshClaim: typeof import("./_database-source-utils.js").releaseBuilderCmsSourceRefreshClaim;
+let renewSourceRefreshClaim: typeof import("./_database-source-utils.js").renewBuilderCmsSourceRefreshClaim;
+let updateSourceReadMetadata: typeof import("./_database-source-utils.js").updateBuilderCmsSourceReadMetadata;
 let hydrateQueuedBodies: typeof import("./_database-source-utils.js").processBuilderBodyHydrationQueue;
 let withBuilderBodyValues: typeof import("./_database-source-utils.js").withBuilderBodySourceValues;
 let seedCollabFromText: typeof import("@agent-native/core/collab").seedFromText;
@@ -607,6 +613,14 @@ beforeAll(async () => {
     .getContentDatabaseSourceSnapshotById;
   getWriteSnapshot = (await import("./_database-source-utils.js"))
     .getContentDatabaseSourceSnapshotForWrite;
+  claimSourceRefresh = (await import("./_database-source-utils.js"))
+    .claimBuilderCmsSourceRefresh;
+  releaseSourceRefreshClaim = (await import("./_database-source-utils.js"))
+    .releaseBuilderCmsSourceRefreshClaim;
+  renewSourceRefreshClaim = (await import("./_database-source-utils.js"))
+    .renewBuilderCmsSourceRefreshClaim;
+  updateSourceReadMetadata = (await import("./_database-source-utils.js"))
+    .updateBuilderCmsSourceReadMetadata;
   hydrateQueuedBodies = (await import("./_database-source-utils.js"))
     .processBuilderBodyHydrationQueue;
   withBuilderBodyValues = (await import("./_database-source-utils.js"))
@@ -626,6 +640,145 @@ afterAll(() => {
   for (const suffix of ["", "-shm", "-wal"]) {
     rmSync(`${TEST_DB_PATH}${suffix}`, { force: true });
   }
+});
+
+it("atomically grants one Builder continuation claim per persisted offset", async () => {
+  const db = getDb();
+  const now = new Date().toISOString();
+  const metadataJson = JSON.stringify({
+    sourceFetchState: "fetching",
+    lastReadHasMore: true,
+    lastReadNextOffset: 400,
+    activeReadSourceRowIds: ["entry-1"],
+  });
+  await db.insert(schema.documents).values({
+    id: "doc-continuation-claim",
+    ownerEmail: OWNER,
+    title: "Continuation claim",
+    content: "",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: "db-continuation-claim",
+    ownerEmail: OWNER,
+    documentId: "doc-continuation-claim",
+    title: "Continuation claim",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabaseSources).values({
+    id: "source-continuation-claim",
+    ownerEmail: OWNER,
+    databaseId: "db-continuation-claim",
+    sourceType: "builder-cms",
+    sourceName: "Continuation claim",
+    sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    syncState: "refreshing",
+    freshness: "stale",
+    metadataJson,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, "source-continuation-claim"));
+
+  const claims = await Promise.all([
+    claimSourceRefresh({ source, expectedOffset: 400, now }),
+    claimSourceRefresh({ source, expectedOffset: 400, now }),
+  ]);
+  const granted = claims.filter((claim) => claim !== null);
+  expect(granted).toHaveLength(1);
+  expect(
+    JSON.parse(granted[0]!.source.metadataJson!).builderContinuationClaimOffset,
+  ).toBe(400);
+
+  const claimedMetadata = JSON.parse(granted[0]!.source.metadataJson!);
+  claimedMetadata.writeMode = "publish_updates";
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(claimedMetadata) })
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  await releaseSourceRefreshClaim({
+    sourceId: source.id,
+    claimId: granted[0]!.claimId,
+  });
+  const [released] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const releasedMetadata = JSON.parse(released.metadataJson!);
+  expect(releasedMetadata.writeMode).toBe("publish_updates");
+  expect(releasedMetadata).not.toHaveProperty("builderContinuationClaimId");
+
+  const orphanedMetadataJson = JSON.stringify({
+    ...releasedMetadata,
+    builderContinuationClaimId: "orphaned-claim",
+    builderContinuationClaimOffset: 400,
+    builderContinuationClaimedAt: "2026-01-01T00:00:00.000Z",
+  });
+  await db
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: orphanedMetadataJson })
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const [orphanedSource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const recovered = await claimSourceRefresh({
+    source: orphanedSource,
+    expectedOffset: 400,
+    now: "2026-01-01T00:31:00.000Z",
+  });
+  expect(recovered?.claimId).toBeTruthy();
+  expect(recovered?.claimId).not.toBe("orphaned-claim");
+  expect(
+    await renewSourceRefreshClaim({
+      sourceId: source.id,
+      claimId: "orphaned-claim",
+      now: "2026-01-01T00:31:30.000Z",
+    }),
+  ).toBe(false);
+  await releaseSourceRefreshClaim({
+    sourceId: source.id,
+    claimId: recovered!.claimId,
+  });
+
+  const [readySource] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  const fenced = await claimSourceRefresh({
+    source: readySource,
+    expectedOffset: 400,
+    now: "2026-01-01T00:12:00.000Z",
+  });
+  await expect(
+    updateSourceReadMetadata({
+      sourceId: source.id,
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+      readState: "live",
+      entryCount: 580,
+      matchedRowCount: 580,
+      fetchedAt: "2026-01-01T00:12:30.000Z",
+      now: "2026-01-01T00:12:30.000Z",
+      message: null,
+      refreshClaimId: "not-the-owner",
+    }),
+  ).rejects.toThrow("refresh claim was lost");
+  const [stillFenced] = await db
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, source.id));
+  expect(JSON.parse(stillFenced.metadataJson!).builderContinuationClaimId).toBe(
+    fenced!.claimId,
+  );
+  await releaseSourceRefreshClaim({
+    sourceId: source.id,
+    claimId: fenced!.claimId,
+  });
 });
 
 it("preserves an established source snapshot when Builder unexpectedly returns zero entries", async () => {
@@ -1019,6 +1172,24 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
   });
   await db.insert(schema.documentPropertyDefinitions).values([
     {
+      id: "prop-local-blurb",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Blurb",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "prop-builder-blurb",
+      ownerEmail: OWNER,
+      databaseId: "db-mapped-fields",
+      name: "Blurb",
+      type: "text",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
       id: "prop-topics",
       ownerEmail: OWNER,
       databaseId: "db-mapped-fields",
@@ -1087,6 +1258,36 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     updatedAt: now,
   });
   await db.insert(schema.contentDatabaseSourceFields).values([
+    {
+      id: "field-local-blurb",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-local-blurb",
+      localFieldKey: "prop-local-blurb",
+      sourceFieldKey: "data.blurb",
+      sourceFieldLabel: "Blurb",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      provenance: "source field",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: "field-builder-blurb",
+      ownerEmail: OWNER,
+      sourceId: "source-mapped-fields",
+      propertyId: "prop-builder-blurb",
+      localFieldKey: "prop-builder-blurb",
+      sourceFieldKey: "data.blurb",
+      sourceFieldLabel: "Blurb",
+      sourceFieldType: "text",
+      mappingType: "property",
+      writeOwner: "source",
+      provenance: "Builder model field",
+      createdAt: now,
+      updatedAt: now,
+    },
     {
       id: "field-topics",
       ownerEmail: OWNER,
@@ -1174,6 +1375,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
   expect(JSON.parse(sourceRow.sourceValuesJson)).toMatchObject({
+    "data.blurb": "Remote Builder blurb",
     "data.topics": ["AI", "CMS"],
     "data.tags": ["Agents", "Content"],
     "data.customModelField": "Arbitrary value",
@@ -1196,6 +1398,7 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       ]),
     ),
   ).toMatchObject({
+    "prop-builder-blurb": "Remote Builder blurb",
     "prop-topics": ["ai", "cms"],
     "prop-tags": ["agents", "content"],
     "prop-custom": "Arbitrary value",
@@ -1262,6 +1465,18 @@ it("materializes topics, tags, and arbitrary Builder model fields", async () => 
       id: "field-status-upper",
       propertyId: "prop-status-upper",
       sourceFieldKey: "data.Status",
+    },
+  ]);
+  expect(
+    statusFieldMappings.filter(
+      (field: { sourceFieldKey: string }) =>
+        field.sourceFieldKey === "data.blurb",
+    ),
+  ).toEqual([
+    {
+      id: "field-builder-blurb",
+      propertyId: "prop-builder-blurb",
+      sourceFieldKey: "data.blurb",
     },
   ]);
   const readCall = builderReadMock.calls.find(

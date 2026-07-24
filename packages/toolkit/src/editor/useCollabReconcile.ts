@@ -300,8 +300,16 @@ export function useCollabReconcile({
     if (seededRef.current) return;
     if (!collabSynced) return;
     if (!isLeadClient) return;
-    if (!value.trim()) return;
     const fragment = ydoc.getXmlFragment("default");
+    // A brand-new document has no SQL markdown to seed. Once its initial Yjs
+    // state has loaded, that empty fragment is nevertheless fully initialized:
+    // local edits must be allowed through the autosave guard. Leaving
+    // `seededRef` false here trapped every first edit in "pre-seed" forever —
+    // the text survived in Yjs, but the canonical SQL body stayed empty.
+    if (!value.trim()) {
+      seededRef.current = true;
+      return;
+    }
     const currentMarkdown = getMarkdown(editor);
     // Seed only when the shared doc is genuinely empty — either the fragment has
     // no nodes yet, or it holds no semantic markdown (an empty paragraph, or an
@@ -558,7 +566,16 @@ export function useCollabReconcile({
     // app's local mirror or autosave path (Content serializes an empty paragraph
     // as `<empty-block/>`, which is non-empty text and bypasses the generic
     // registerEmitted empty-string guard).
-    if (collab && !seededRef.current) return true;
+    if (collab && !seededRef.current) {
+      // Passive effects normally mark a synced empty document initialized
+      // before a person can type. Keep the event boundary correct too: if a
+      // genuine local edit wins that tiny race, it is itself proof that the
+      // synced empty document is ready. Remote Yjs transactions stay ignored.
+      const firstSyncedEmptyLocalEdit =
+        collabSynced && !value.trim() && !isChangeOrigin(transaction);
+      if (!firstSyncedEmptyLocalEdit) return true;
+      seededRef.current = true;
+    }
     if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {
       return true;
     }

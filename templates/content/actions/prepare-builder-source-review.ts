@@ -29,6 +29,7 @@ import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   canRefreshLocallyBlockedBuilderReview,
   findOpenSourceChangeSet,
+  getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
@@ -125,10 +126,20 @@ function maxRisk(
 
 export function reviewPreparePriority(
   changeSet: ContentDatabaseSourceChangeSet,
+  source?: ContentDatabaseSource,
 ) {
-  if (changeSet.state === "pending_push") return 0;
-  if (changeSet.state === "staged_revision") return 1;
-  return 2;
+  const statePriority =
+    changeSet.state === "pending_push"
+      ? 0
+      : changeSet.state === "staged_revision"
+        ? 2
+        : 4;
+  const effectPriority =
+    source &&
+    resolveBuilderCmsWriteEffect({ source, changeSet }) === "create_draft"
+      ? 0
+      : 1;
+  return statePriority + effectPriority;
 }
 
 function parsePayload(value: string) {
@@ -667,7 +678,7 @@ export default defineAction({
           const database = await resolveDatabaseForSourceMutation(args);
           if (!database) throw new Error("Database not found.");
           await assertAccess("document", database.documentId, "editor");
-          const snapshot = await getContentDatabaseSourceSnapshotForWrite(
+          const snapshot = await getContentDatabaseSourceSnapshotForReview(
             database,
             args.sourceId,
             args.documentIds,
@@ -716,7 +727,11 @@ export default defineAction({
         throw new Error("No pending local Builder changes to review.");
       }
       const reviewableChanges = [...allReviewableChanges]
-        .sort((a, b) => reviewPreparePriority(a) - reviewPreparePriority(b))
+        .sort(
+          (a, b) =>
+            reviewPreparePriority(a, snapshot) -
+            reviewPreparePriority(b, snapshot),
+        )
         .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
       const authoritativeSnapshot = await withAuthoritativeBuilderTargetRows({
         source: snapshot,
@@ -773,7 +788,9 @@ export default defineAction({
           reviewedSnapshot: await getContentDatabaseSourceSnapshotForWrite(
             database,
             args.sourceId,
-            args.documentIds,
+            reviewableChanges.every((changeSet) => changeSet.documentId)
+              ? reviewableChanges.map((changeSet) => changeSet.documentId!)
+              : args.documentIds,
           ),
           response: await getContentDatabaseResponse(database.id),
         }),
