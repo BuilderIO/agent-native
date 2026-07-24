@@ -311,19 +311,9 @@
 }
 
 /* A named chat surface already morphs from its old geometry during a
-   full-page-chat handoff. Suppress the generic desktop drawer entry on that
-   same panel so it does not slide in from the right underneath the morph. */
-.agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
-  width: var(--agent-sidebar-width);
-  transition: none;
-}
-
-.agent-native-chat-view-transition.agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
-  > .agent-sidebar-panel-inner {
-  transform: translateX(0);
-  transition: none;
-}
-
+   full-page-chat handoff. Override only the initial style of that panel so it
+   does not slide in from the right underneath the morph. Keeping the normal
+   rules intact preserves ordinary sidebar open/close animation. */
 @starting-style {
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
     width: 0;

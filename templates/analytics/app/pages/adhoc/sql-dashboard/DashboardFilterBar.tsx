@@ -256,7 +256,7 @@ export function DashboardFilterBar({
       <Collapsible
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
-        className="group rounded-lg border border-border bg-card px-3 py-2"
+        className="group rounded-lg bg-card px-3 py-2"
       >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <CollapsibleContent className="min-w-0 flex-1">

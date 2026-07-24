@@ -102,7 +102,7 @@ const APP_SUBMENU_CONTENT_CLASS =
   "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
 
 const SWITCHER_BUTTON_CLASS =
-  "flex w-full items-center gap-2 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
+  "flex w-full items-center gap-2 rounded-md border-0 bg-accent/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/70 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
 const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
 const DEFAULT_PROFILE_PATH = "/settings#account";

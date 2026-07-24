@@ -27,9 +27,7 @@ export function SidebarFooterActions({
     <div
       className={cn(
         "flex items-center gap-1",
-        collapsed
-          ? "flex-col px-1 py-1"
-          : "min-w-0 justify-end px-3 py-2",
+        collapsed ? "flex-col px-1 py-1" : "min-w-0 justify-end px-3 py-2",
         className,
       )}
       data-sidebar-footer-actions
@@ -42,9 +40,7 @@ export function SidebarFooterActions({
           {feedback}
         </div>
       ) : null}
-      {translate ? (
-        <div data-sidebar-footer-translate>{translate}</div>
-      ) : null}
+      {translate ? <div data-sidebar-footer-translate>{translate}</div> : null}
       {search ? <div data-sidebar-footer-search>{search}</div> : null}
       {collapse ? <div data-sidebar-footer-collapse>{collapse}</div> : null}
     </div>

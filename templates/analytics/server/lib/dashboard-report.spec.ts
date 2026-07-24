@@ -3,6 +3,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DASHBOARD_REPORT_READY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts";
+
 const mocks = vi.hoisted(() => ({
   chromiumArgs: ["--no-sandbox"],
   chromiumExecutablePath: vi.fn(),
@@ -136,6 +138,7 @@ function createPage(
     consoleErrors?: string[];
     requestFailures?: string[];
     responseFailures?: Array<{ url: string; status: number }>;
+    pendingRequests?: Array<{ url: string; method?: string }>;
     unresponsive?: boolean;
     blockReadyWait?: boolean;
   } = {},
@@ -167,6 +170,12 @@ function createPage(
       emulateMedia: vi.fn(async () => {}),
       addInitScript: vi.fn(async () => {}),
       goto: vi.fn(async (_url: string, _options: unknown) => {
+        for (const pending of options.pendingRequests ?? []) {
+          listeners.get("request")?.({
+            method: () => pending.method ?? "GET",
+            url: () => pending.url,
+          });
+        }
         for (const text of options.consoleErrors ?? []) {
           listeners.get("console")?.({
             type: () => "error",
@@ -185,7 +194,10 @@ function createPage(
           listeners.get("response")?.({
             status: () => failure.status,
             url: () => failure.url,
-            request: () => ({ method: () => "POST" }),
+            request: () => ({
+              method: () => "POST",
+              url: () => failure.url,
+            }),
           });
         }
         if (options.gotoError) throw options.gotoError;
@@ -209,6 +221,14 @@ function createPage(
         if (script.includes("data-dashboard-report-panel-ids")) {
           return JSON.stringify(options.renderedPanelIds ?? ["panel-0"]);
         }
+        if (script.includes("document.title")) {
+          return {
+            title: "Mock Dashboard",
+            readyState: "loading",
+            capture: { present: false },
+            bodyTextSnapshot: "Loading forever",
+          };
+        }
         if (script.includes("data-dashboard-report-ready")) {
           const panelStates =
             options.panelStates ??
@@ -224,9 +244,6 @@ function createPage(
               options.pageUrl ??
               "https://analytics.example.test/dashboards/example",
           };
-        }
-        if (script.includes("document.title")) {
-          return { title: "Mock Dashboard", bodyText: "Loading forever" };
         }
         return undefined;
       }),
@@ -420,7 +437,7 @@ describe("dashboard report email", () => {
         1,
         expect.any(String),
         undefined,
-        { timeout: 45_000 },
+        { timeout: DASHBOARD_REPORT_READY_TIMEOUT_MS },
       );
       expect(page.page.goto).toHaveBeenCalledWith(
         expect.stringContaining("reportPanelLimit=4"),
@@ -709,6 +726,43 @@ describe("dashboard report email", () => {
     expect(result.screenshotError).toContain("lambdaMemoryMb=1024");
   });
 
+  it("records bounded redacted in-flight requests before the capture surface exists", async () => {
+    const page = createPage({
+      waitForFails: true,
+      pendingRequests: [
+        ...Array.from({ length: 8 }, (_, index) => ({
+          url: `https://analytics.example.test/assets/chunk-${index}.js`,
+        })),
+        {
+          method: "POST",
+          url: "https://analytics.example.test/_agent-native/actions/get-sql-dashboard?__an_embed_token=secret-token&query=select%20secret",
+        },
+      ],
+      responseFailures: [
+        {
+          url: "https://analytics.example.test/_agent-native/actions/query-dashboard-panel",
+          status: 500,
+        },
+      ],
+    });
+    const { browser } = createBrowser([page]);
+    mocks.launch.mockResolvedValue(browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      skipEmailWithoutScreenshot: true,
+    });
+
+    expect(result.screenshotError).toContain("inFlightRequests");
+    expect(result.screenshotError).toContain('"method":"POST"');
+    expect(result.screenshotError).toContain("get-sql-dashboard");
+    expect(result.screenshotError).toContain("__an_embed_token=[REDACTED]");
+    expect(result.screenshotError).toContain("query=[REDACTED]");
+    expect(result.screenshotError).toContain('"present":false');
+    expect(result.screenshotError).toContain('"status":500');
+    expect(result.screenshotError).not.toContain("secret-token");
+    expect(result.screenshotError).not.toContain("select%20secret");
+  });
+
   it("reports a renderer hang when the diagnostics probe cannot respond", async () => {
     vi.useFakeTimers();
     try {
@@ -858,7 +912,7 @@ describe("dashboard report email", () => {
       1,
       expect.any(String),
       undefined,
-      { timeout: 45_000 },
+      { timeout: DASHBOARD_REPORT_READY_TIMEOUT_MS },
     );
     expect(page.page.waitForFunction).toHaveBeenNthCalledWith(
       2,

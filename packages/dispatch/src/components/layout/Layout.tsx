@@ -9,9 +9,11 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   ChatHistoryRail,
   type ChatHistoryItem,
@@ -38,6 +40,7 @@ import {
   IconSettings,
   IconSettingsAutomation,
   IconShieldCheck,
+  IconSearch,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -505,6 +508,57 @@ export function NavContent({
     return t(`dispatch.nav.${key}`, { defaultValue: item.label });
   };
 
+  const collapseButton = collapsible ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
+          aria-label={
+            collapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          {collapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          aria-label={t("sidebar.search")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("sidebar.search")}</TooltipContent>
+    </Tooltip>
+  );
+  const translateButton = (
+    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={collapsed ? "icon" : "sidebar"}
+      side="right"
+      className={collapsed ? "size-8" : "min-w-0"}
+    />
+  );
+
   const renderNavItem = (item: DispatchNavItem) => {
     const Icon = item.icon;
     const itemMatchesLocalPath = navItemMatchesPath(item, localPathname);
@@ -632,33 +686,6 @@ export function NavContent({
               </div>
             </>
           )}
-          {collapsible ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => onCollapsedChange?.(!collapsed)}
-                  aria-label={
-                    collapsed
-                      ? t("sidebar.expandSidebar")
-                      : t("sidebar.collapseSidebar")
-                  }
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                >
-                  {collapsed ? (
-                    <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
-                  ) : (
-                    <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">
-                {collapsed
-                  ? t("sidebar.expandSidebar")
-                  : t("sidebar.collapseSidebar")}
-              </TooltipContent>
-            </Tooltip>
-          ) : null}
         </div>
       </div>
 
@@ -725,12 +752,15 @@ export function NavContent({
             <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
-
-            <div className="px-3 py-2 empty:hidden">
-              <FeedbackButton />
-            </div>
           </div>
         ) : null}
+        <SidebarFooterActions
+          collapsed={collapsed}
+          feedback={feedbackButton}
+          translate={translateButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </div>
     </>
   );

@@ -51,10 +51,13 @@ describe("agent-native shell surface tokens", () => {
     });
 
     expect(css).toMatch(
-      /\.agent-native-chat-view-transition\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][^}]*width: var\(--agent-sidebar-width\);[^}]*transition: none;/s,
+      /@starting-style[\s\S]*?\.agent-native-chat-view-transition\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][^}]*width: var\(--agent-sidebar-width\);/s,
     );
     expect(css).toMatch(
-      /\.agent-native-chat-view-transition\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][\s\S]*?> \.agent-sidebar-panel-inner[^}]*transform: translateX\(0\);[^}]*transition: none;/s,
+      /@starting-style[\s\S]*?\.agent-native-chat-view-transition\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][\s\S]*?> \.agent-sidebar-panel-inner[^}]*transform: translateX\(0\);/s,
+    );
+    expect(css).toMatch(
+      /\.agent-sidebar-panel\[data-agent-sidebar-animation="desktop"\][\s\S]*?transition: width 260ms var\(--ease-drawer\);/s,
     );
   });
 

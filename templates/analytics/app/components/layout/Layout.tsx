@@ -19,6 +19,7 @@ import {
   ANALYTICS_CHAT_STORAGE_KEY,
   markAnalyticsChatActivity,
 } from "@/lib/chat-handoff";
+import { isDashboardReportScreenshot } from "@/lib/dashboard-report-capture";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
@@ -33,12 +34,30 @@ interface LayoutProps {
 const BARE_ROUTES = new Set(["/chart"]);
 
 export function Layout({ children }: LayoutProps) {
+  const location = useLocation();
+
+  if (isDashboardReportScreenshot(location.search)) {
+    return <DashboardReportLayout>{children}</DashboardReportLayout>;
+  }
+
+  return <InteractiveLayout>{children}</InteractiveLayout>;
+}
+
+function DashboardReportLayout({ children }: LayoutProps) {
+  return (
+    <HeaderActionsProvider>
+      <main className="agent-native-app-main min-h-screen bg-background p-6 text-foreground md:p-8">
+        {children}
+      </main>
+    </HeaderActionsProvider>
+  );
+}
+
+function InteractiveLayout({ children }: LayoutProps) {
   useNavigationState();
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const reportScreenshot =
-    new URLSearchParams(location.search).get("reportScreenshot") === "1";
 
   // Analytics stages the active primary resource as composer context —
   // dashboards (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
@@ -102,12 +121,12 @@ export function Layout({ children }: LayoutProps) {
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     activePath: location.pathname,
-    enabled: !isAskRoute && !reportScreenshot,
+    enabled: !isAskRoute,
   });
   useAgentChatHomeHandoffLinks({
     storageKey: ANALYTICS_CHAT_STORAGE_KEY,
     chatPath: "/ask",
-    enabled: !reportScreenshot,
+    enabled: true,
     requireActiveHandoff: true,
   });
   useEffect(() => {
@@ -133,16 +152,6 @@ export function Layout({ children }: LayoutProps) {
 
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
-  }
-
-  if (reportScreenshot) {
-    return (
-      <HeaderActionsProvider>
-        <main className="agent-native-app-main min-h-screen bg-background p-6 text-foreground md:p-8">
-          {children}
-        </main>
-      </HeaderActionsProvider>
-    );
   }
 
   const contentFrame = (

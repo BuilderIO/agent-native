@@ -104,6 +104,12 @@ import {
 } from "@/hooks/use-dashboard-chat-context";
 import { useDashboardViews } from "@/hooks/use-dashboard-views";
 import { useUserPref } from "@/hooks/use-user-pref";
+import {
+  DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS,
+  DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS,
+  dashboardReportCaptureError,
+  type DashboardReportCapturePhase,
+} from "@/lib/dashboard-report-capture";
 import { incrementItemView } from "@/lib/item-popularity";
 import {
   sqlDashboardPrefetchKey,
@@ -423,14 +429,31 @@ function parseDashboardCatalogMetadata(
   };
 }
 
-async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
+async function fetchDashboard(
+  id: string,
+  options?: { reportScreenshot?: boolean },
+): Promise<FetchedDashboard | null> {
   try {
     const data: any = await callAction(
       "get-sql-dashboard",
       { id, includeConfig: true },
-      { method: "GET" },
+      {
+        method: "GET",
+        ...(options?.reportScreenshot
+          ? { timeoutMs: DASHBOARD_REPORT_BOOTSTRAP_TIMEOUT_MS }
+          : {}),
+      },
     );
-    if (!data || data.error) return null;
+    if (!data) return null;
+    if (data.error) {
+      throw new Error(
+        typeof data.message === "string" && data.message
+          ? data.message
+          : typeof data.error === "string"
+            ? data.error
+            : "Dashboard bootstrap failed",
+      );
+    }
     return {
       id,
       config: {
@@ -463,9 +486,42 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
       canManage:
         typeof data.canManage === "boolean" ? data.canManage : undefined,
     };
-  } catch {
+  } catch (error) {
+    if (options?.reportScreenshot) throw error;
     return null;
   }
+}
+
+function DashboardReportCaptureSurface({
+  phase,
+  panelIds,
+  error,
+  className,
+  children,
+}: {
+  phase: DashboardReportCapturePhase;
+  panelIds?: string[];
+  error?: unknown;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const captureError = error ? dashboardReportCaptureError(error) : undefined;
+
+  return (
+    <div
+      className={className}
+      data-dashboard-report-capture
+      data-dashboard-report-ready={phase === "ready" ? "true" : "false"}
+      data-dashboard-report-phase={phase}
+      data-dashboard-report-fetch-state={phase}
+      data-dashboard-report-error={captureError || undefined}
+      data-dashboard-report-panel-ids={
+        panelIds ? JSON.stringify(panelIds) : undefined
+      }
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -573,8 +629,12 @@ export default function SqlDashboardPage() {
     enabled: !!dashboardId,
     queryFn: async () => {
       if (!dashboardId) return null;
-      return fetchDashboard(dashboardId);
+      return fetchDashboard(dashboardId, { reportScreenshot });
     },
+    retry: reportScreenshot ? 1 : false,
+    retryDelay: reportScreenshot
+      ? DASHBOARD_REPORT_BOOTSTRAP_RETRY_DELAY_MS
+      : undefined,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
     initialData: () => {
@@ -1687,6 +1747,15 @@ export default function SqlDashboardPage() {
   );
 
   if (!dashboardId) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="missing">
+          <div className="flex h-64 items-center justify-center text-muted-foreground">
+            {t("sqlDashboard.noDashboardSelected")}
+          </div>
+        </DashboardReportCaptureSurface>
+      );
+    }
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         {t("sqlDashboard.noDashboardSelected")}
@@ -1694,21 +1763,42 @@ export default function SqlDashboardPage() {
     );
   }
 
+  if (reportScreenshot && dashboardQuery.isError) {
+    return (
+      <DashboardReportCaptureSurface phase="error" error={dashboardQuery.error}>
+        <DashboardSkeleton />
+      </DashboardReportCaptureSurface>
+    );
+  }
+
   if (!loaded) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="loading">
+          <DashboardSkeleton />
+        </DashboardReportCaptureSurface>
+      );
+    }
     return <DashboardSkeleton />;
   }
 
-  if (!dashboard) return <BlankDashboard />;
+  if (!dashboard) {
+    if (reportScreenshot) {
+      return (
+        <DashboardReportCaptureSurface phase="missing">
+          <BlankDashboard />
+        </DashboardReportCaptureSurface>
+      );
+    }
+    return <BlankDashboard />;
+  }
 
   return (
-    <div
+    <DashboardReportCaptureSurface
       className="space-y-4"
-      data-dashboard-report-capture
-      data-dashboard-report-ready={loaded && dashboard ? "true" : "false"}
-      data-dashboard-report-panel-ids={
-        reportScreenshot
-          ? JSON.stringify(listReportablePanelIds(visiblePanels))
-          : undefined
+      phase="ready"
+      panelIds={
+        reportScreenshot ? listReportablePanelIds(visiblePanels) : undefined
       }
     >
       {hiddenAt ? (
@@ -2031,6 +2121,6 @@ export default function SqlDashboardPage() {
           existingPanelTitles={dashboard.panels.map((p) => p.title)}
         />
       ) : null}
-    </div>
+    </DashboardReportCaptureSurface>
   );
 }

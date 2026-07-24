@@ -181,14 +181,14 @@ export function WorkspaceTemplateCard({
   return (
     <Card
       className={cn(
-        "flex h-full flex-col border-border/60 bg-card/40 shadow-none transition-[background-color,border-color] hover:border-foreground/20 hover:bg-accent/15",
+        "flex h-full flex-col bg-card/40 shadow-none transition-[background-color] hover:bg-accent/15",
         className,
       )}
     >
       <CardHeader className="gap-2 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
-            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/40 text-muted-foreground">
+            <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/40 text-muted-foreground">
               <IconFileText size={16} />
             </span>
             <div className="min-w-0">
