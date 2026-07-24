@@ -7,6 +7,7 @@ import {
   insertBulletAfterCaret,
   isBulletList,
   isBulletRow,
+  ZERO_WIDTH_SPACE,
 } from "@/components/editor/bullet-editing";
 
 const row = (text: string) =>
@@ -273,5 +274,21 @@ describe("markdown prefix autoformat", () => {
 
     expect(convertMarkdownPrefixToBullet(el)).toBe(false);
     expect(el.children.length).toBe(0);
+  });
+
+  it("converts a leading dash typed in a fresh ZWS-seeded text box", () => {
+    document.body.innerHTML =
+      '<div class="slide-content"><div style="font-size: 28px;"></div></div>';
+    const root = document.querySelector(".slide-content") as HTMLElement;
+    const el = root.firstElementChild as HTMLElement;
+    const textNode = document.createTextNode(ZERO_WIDTH_SPACE + "- ");
+    el.appendChild(textNode);
+    placeCaret(textNode, textNode.length);
+
+    expect(convertMarkdownPrefixToBullet(el)).toBe(true);
+    expect(isBulletList(el)).toBe(true);
+    const row = el.children[0] as HTMLElement;
+    expect(isBulletRow(row)).toBe(true);
+    expect(row.children[0].textContent).toBe("\u25CF");
   });
 });
