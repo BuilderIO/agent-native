@@ -331,9 +331,9 @@ async function sendShareNotificationEmail(params: {
     );
     const subject = `${actorDisplayName} shared "${resourceTitle}" with you on ${appName}`;
     const imageUrl = resource ? reg.getThumbnailUrl?.(resource) : undefined;
-    const logoUrl = reg.logoPath
-      ? new URL(appPath(reg.logoPath), appUrl).toString()
-      : undefined;
+    const logoUrl =
+      reg.getLogoUrl?.(appUrl) ??
+      (reg.logoPath ? new URL(appPath(reg.logoPath), appUrl).toString() : undefined);
     const secondaryCta = resource
       ? await reg.getSecondaryCta?.(resource, {
           recipientEmail: principalId,

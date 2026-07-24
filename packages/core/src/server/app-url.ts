@@ -86,7 +86,7 @@ function firstConfiguredPublicUrl(keys: readonly string[]): string | undefined {
   return undefined;
 }
 
-function isLoopbackUrl(value: string | undefined): boolean {
+export function isLoopbackUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
     const hostname = new URL(value).hostname.toLowerCase();

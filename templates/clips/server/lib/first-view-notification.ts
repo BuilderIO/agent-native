@@ -19,7 +19,7 @@ import { isSyntheticQaEmail } from "@agent-native/core/sharing/actions/share-res
 import {
   CLIPS_EMAIL_FROM,
   CLIPS_LOGO_LABEL,
-  CLIPS_LOGO_PATH,
+  resolveClipsLogoUrl,
 } from "../db/index.js";
 
 const HIGH_COMPLETION_PCT = 95;
@@ -64,14 +64,13 @@ export async function notifyOwnerOfFirstView(params: {
     ? `Someone opened ${emailStrong(recording.title)} and ${watchedVerb}.`
     : `${emailStrong(viewerLabel)} opened ${emailStrong(recording.title)} and ${watchedVerb}.`;
 
-  const appUrl = withConfiguredAppBasePath(
-    getAppProductionUrl().replace(/\/+$/, ""),
-  );
+  const rawAppUrl = getAppProductionUrl().replace(/\/+$/, "");
+  const appUrl = withConfiguredAppBasePath(rawAppUrl);
   const insightsUrl = `${appUrl}/r/${recording.id}?panel=insights`;
 
   const { html, text } = renderEmail({
     preheader: subject,
-    logoUrl: appUrl + CLIPS_LOGO_PATH,
+    logoUrl: resolveClipsLogoUrl(rawAppUrl),
     logoLabel: CLIPS_LOGO_LABEL,
     imageUrl: recording.thumbnailUrl ?? undefined,
     heading: "It landed.",

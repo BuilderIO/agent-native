@@ -41,6 +41,15 @@ export interface ShareableResourceRegistration {
    */
   logoPath?: string;
   /**
+   * Optional override that computes the full logo image URL from the
+   * resolved app origin, taking precedence over `logoPath` when it returns a
+   * value. Use this when the default `logoPath` join (app origin + base
+   * path + path) would resolve to something email clients can't fetch — for
+   * example a `localhost`/loopback dev origin — and a public fallback image
+   * should be used instead.
+   */
+  getLogoUrl?: (appUrl: string) => string | undefined;
+  /**
    * Optional wordmark text rendered next to the logo image in the "shared
    * with you" notification email, e.g. "Clips".
    */

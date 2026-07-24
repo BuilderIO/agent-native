@@ -1,6 +1,7 @@
 import { createGetDb, getDbExec } from "@agent-native/core/db";
 import {
   getAppProductionUrl,
+  isLoopbackUrl,
   signShortLivedToken,
   withConfiguredAppBasePath,
 } from "@agent-native/core/server";
@@ -23,6 +24,18 @@ export const CLIPS_EMAIL_FROM = "Agent-Native Clips <clips@agent-native.com>";
 // render inline SVG at all, which silently dropped this logo before.
 export const CLIPS_LOGO_PATH = "/agent-native-icon-dark.png";
 export const CLIPS_LOGO_LABEL = "Clips";
+// The app-hosted logo isn't reachable from a recipient's inbox when the
+// resolved app origin is a local dev loopback address (email clients proxy
+// image fetches through their own servers, which can't reach `localhost` on
+// the sender's machine). Fall back to the public marketing site's asset.
+const CLIPS_LOGO_LOOPBACK_FALLBACK_URL =
+  "https://www.agent-native.com/logo192.png";
+
+export function resolveClipsLogoUrl(appUrl: string): string {
+  if (isLoopbackUrl(appUrl)) return CLIPS_LOGO_LOOPBACK_FALLBACK_URL;
+  return `${withConfiguredAppBasePath(appUrl.replace(/\/+$/, ""))}${CLIPS_LOGO_PATH}`;
+}
+
 const CLIPS_TAGLINE =
   "Clips is a 100% free, open-source, Agent-Native app for sharing screengrabs with friends and colleagues. No download required.";
 const AI_SUMMARY_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -150,6 +163,7 @@ registerShareableResource({
   ownerAccessIgnoresOrg: true,
   fromAddress: CLIPS_EMAIL_FROM,
   logoPath: CLIPS_LOGO_PATH,
+  getLogoUrl: resolveClipsLogoUrl,
   logoLabel: CLIPS_LOGO_LABEL,
   getThumbnailUrl: getRecordingEmailThumbnailUrl,
   getSecondaryCta: getRecordingSummaryCta,

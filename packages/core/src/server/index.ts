@@ -543,7 +543,11 @@ export {
   type RenderedEmail,
   type EmailCta,
 } from "./email-template.js";
-export { getAppProductionUrl, getFirstPartyProdUrl } from "./app-url.js";
+export {
+  getAppProductionUrl,
+  getFirstPartyProdUrl,
+  isLoopbackUrl,
+} from "./app-url.js";
 export {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
