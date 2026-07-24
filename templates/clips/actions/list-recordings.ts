@@ -230,11 +230,26 @@ export default defineAction({
     }
 
     // Sort
-    const viewCountOrder = sql<number>`(
+    const countedViewerCount = sql<number>`(
       SELECT COUNT(1)
       FROM ${schema.recordingViewers}
       WHERE ${schema.recordingViewers.recordingId} = ${schema.recordings.id}
         AND ${countedViewCondition()}
+    )`;
+    const viewLogCount = sql<number>`(
+      SELECT COUNT(1)
+      FROM ${schema.recordingViews}
+      WHERE ${schema.recordingViews.recordingId} = ${schema.recordings.id}
+    )`;
+    // Same floor as `countRecordingViews`: `recording_views` only exists from
+    // migration v46, so pre-migration clips have no log rows and must fall back
+    // to the counted-viewer count instead of sorting as zero. CASE rather than
+    // MAX()/GREATEST() — the two-argument spelling differs across dialects.
+    const viewCountOrder = sql<number>`(
+      CASE WHEN ${viewLogCount} > ${countedViewerCount}
+        THEN ${viewLogCount}
+        ELSE ${countedViewerCount}
+      END
     )`;
     const orderBy =
       args.sort === "oldest"

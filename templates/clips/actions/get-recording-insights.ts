@@ -95,8 +95,12 @@ export default defineAction({
     }
 
     const ctaClicks = events.filter((e) => e.kind === "cta-click").length;
+    // CTA conversion is per person, so the denominator is counted viewers — not
+    // `views`, which counts repeat sessions from the same viewer.
     const ctaConversionRate =
-      views === 0 ? 0 : Math.min(100, (ctaClicks / views) * 100);
+      countedViewers === 0
+        ? 0
+        : Math.min(100, (ctaClicks / countedViewers) * 100);
 
     // Top viewers by total watch ms
     const topViewers = viewerRows
