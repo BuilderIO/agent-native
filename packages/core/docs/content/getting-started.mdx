@@ -10,13 +10,18 @@ share the same [actions](/docs/actions), SQL data, and application state. Start
 with chat so users can talk to the agent immediately, then add the app surfaces
 your workflow earns.
 
+The quickest way in is the **Chat template**: a minimal app that gives you a
+working AI chat interface, durable threads, auth, and an `actions/` directory
+ready to extend. It's the foundation most Agent-Native apps grow from.
+
 The first useful path is:
 
 1. Create a chat app.
-2. Add one action.
-3. Render the action result inline in chat.
-4. Persist data in SQL.
-5. Add a page the agent can open when visual inspection is better than another
+2. Connect an AI engine so the agent can respond.
+3. Add one action.
+4. Render the action result inline in chat.
+5. Persist data in SQL.
+6. Add a page the agent can open when visual inspection is better than another
    paragraph in the transcript.
 
 Want a complete domain app instead? Clone a rich template such as
@@ -29,7 +34,7 @@ Want a complete domain app instead? Clone a rich template such as
 
 You'll need [Node.js 22+](https://nodejs.org) and [pnpm](https://pnpm.io).
 
-Create the minimal chat-first app:
+Open a terminal, go to the directory where you want your Agent Native app, and run:
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
@@ -42,103 +47,200 @@ This gives you durable chat threads, auth, live sync, an `actions/` directory,
 standard `view-screen` and `navigate` actions, and a small React app you can
 extend.
 
-Run `create` with no flags if you want the CLI picker for domain templates and
-advanced app shapes:
+The dev server starts and opens `http://localhost:8080` in your browser. You may
+notice a few startup log lines like `NitroViteError: Vite environment "nitro" is
+unavailable`. These are a normal race condition during the initial boot and
+resolve on their own. The app is ready once **VITE ready** displays in the
+terminal output.
+
+When the app starts, you might find yourself on the login screen rather than in the app. In this case, just sign up with a made up login to satisfy the login screen. 
+For local development, no email verification is actually required.
+
+### If you want a different type of app
+
+This guide uses the Chat template because it is the shortest path
+to an agentic application: the agent can act on day one, and you have a real app
+surface to grow from. However, if you want to create a different kind of app, run `create` with no flags for the CLI picker for domain templates and advanced app shapes:
 
 ```bash
 npx @agent-native/core@latest create my-app
 ```
 
-The rest of this guide assumes the Chat template because it is the shortest path
-to an agentic application: the agent can act on day one, and you have a real app
-surface to grow from.
+## 2. Connect an AI engine {#connect-ai}
 
-## 2. Add an action {#add-an-action}
+The agent chat can't respond until you connect an AI engine. After you're logged in, click the **Connect AI** button.
 
-An action is one typed operation your agent and UI can both call. Replace the
-starter `hello` action with the first real operation in your domain. This example
-analyzes form responses and returns a validated shape for a custom chat chart:
+You have two options:
 
-```ts filename="actions/analyze-responses.ts"
+**Option A: Connect Builder.** Click **Connect Builder.io**, choose the Builder Space, and click the **Authorize** button. You don't have to manually provide any keys.
+
+**Option B: Add your own keys.** Enter your Anthropic or OpenAI API key. You can get an
+Anthropic key at [console.anthropic.com](https://console.anthropic.com).
+
+Alternatively, create a `.env` file in the `my-app/` directory (the same
+directory that contains `package.json`) before running `pnpm dev`:
+
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+```
+
+Restart the dev server. Once an AI engine is connected, the Setup panel
+hides itself and the agent is ready to chat.
+
+> **Blank screen?** Create a `.env` file in your `my-app/` directory with
+> `ANTHROPIC_API_KEY=sk-ant-...`, then restart `pnpm dev`. The in-app Setup
+> panel only appears once the app has loaded, so a missing key that prevents
+> the app from rendering needs to be fixed via the environment variable rather than
+> the UI.
+
+## 3. Add an action {#add-an-action}
+
+An action is a typed operation that both your agent and your UI can call. It's
+how the agent does things in your app. Actions live in the `actions/` directory
+and can be triggered from chat, from React components, from the CLI, or on a
+schedule. You define them once and call them from anywhere.
+
+### Try the starter action
+
+The Chat template includes a `hello` action at `actions/hello.ts`:
+
+```ts filename="actions/hello.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-const responseChartResultSchema = z.object({
+export default defineAction({
+  description: "Return a friendly greeting.",
+  schema: z.object({
+    name: z.string().default("world").describe("Name to greet"),
+  }),
+  http: { method: "GET" },
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+Run it from the terminal (inside your `my-app/` directory):
+
+```bash
+pnpm action hello --name Alice
+```
+
+Or open your app at `http://localhost:8080` and ask the agent in the chat there:
+
+> Use the hello action with the name Alice.
+
+### Add your own action
+
+Replace the starter action with the first real operation in your domain. This example
+counts words, sentences, and paragraphs in any text you pass it. It computes
+everything locally, so there's nothing to configure and no external service to connect:
+
+```ts filename="actions/analyze-text.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+const textStatsSchema = z.object({
   title: z.string(),
-  points: z.array(z.object({ day: z.string(), responses: z.number() })),
+  points: z.array(z.object({ label: z.string(), value: z.number() })),
 });
 
 export default defineAction({
-  description: "Analyze recent form responses and render a custom chart.",
+  description: "Count words, sentences, and paragraphs in a block of text.",
   schema: z.object({
-    formId: z.string().default("demo"),
+    text: z
+      .string()
+      .default("The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs."),
   }),
-  outputSchema: responseChartResultSchema,
+  outputSchema: textStatsSchema,
   chatUI: {
-    renderer: "responses.response-chart",
-    title: "Response chart",
+    renderer: "text.stats-chart",
+    title: "Text stats",
   },
   readOnly: true,
-  run: async ({ formId }) => ({
-    title: `Responses for ${formId}`,
+  run: async ({ text }) => ({
+    title: "Text statistics",
     points: [
-      { day: "Mon", responses: 12 },
-      { day: "Tue", responses: 18 },
-      { day: "Wed", responses: 24 },
-      { day: "Thu", responses: 21 },
+      { label: "Characters", value: text.length },
+      { label: "Words", value: text.split(/\s+/).filter(Boolean).length },
+      { label: "Sentences", value: text.split(/[.!?]+/).filter(Boolean).length },
+      { label: "Paragraphs", value: text.split(/\n\n+/).filter(Boolean).length },
     ],
   }),
 });
 ```
 
-Try it directly:
+Try it from the terminal:
 
 ```bash
-pnpm action analyze-responses --formId demo
+pnpm action analyze-text --text "Hello world. How are you today?"
 ```
 
-Then ask the agent in the browser:
+Or open your app at `http://localhost:8080` and ask the agent in the chat there:
 
-> Analyze the recent responses for the demo form.
+> Run the analyze-text action on "Hello world. How are you today?"
 
-One action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
-scheduled jobs, and webhooks. Define once, call from anywhere.
+#### Define once, call from anywhere
 
-## 3. Render the result inline {#render-inline}
+This action is now reachable from chat, React hooks, CLI, HTTP, MCP, A2A,
+scheduled jobs, and webhooks. 
 
-The action above declares `outputSchema` and a product-specific
-`chatUI.renderer`, so the transcript does not have to flatten structured data
-into prose. Register a React component for that exact renderer id, for example
-by importing `app/chat-renderers.tsx` once from `app/root.tsx`:
+TIP: Any time you want the agent to call a specific action without ambiguity, phrasing it as "Run the `<action-name>` action" is most reliable. Natural-language prompts work well once the agent has enough context about your app's domain. For a brand-new app with no data or context yet, explicit is safer.
 
-```tsx
+## 4. Render the result inline {#render-inline}
+
+When the agent runs `analyze-text`, it returns structured data: a title and an
+array of counts. By default the agent will describe that data in prose: "The
+text has 9 words, 2 sentences..." and so on. That works, but you can
+also render the result as a real UI component (a bar chart, a table, a card)
+directly inside the chat transcript, right where the agent responded.
+
+This is what `chatUI.renderer` in the action does. It's a label that says "when
+this action's result appears in chat, hand it to this React component instead of
+summarizing it in text." The component receives the validated action output as
+props and renders whatever you want.
+
+In the next step, you'll create `app/chat-renderers.tsx`, but first, add one import line
+to `app/root.tsx` so it runs on startup:
+
+```ts filename="app/root.tsx"
+import "./chat-renderers";
+```
+
+Add it alongside your other imports at the top of the file. That's the only
+change to `root.tsx`. The import just ensures the file runs and registers the
+renderer. Now create the renderer file:
+
+```tsx filename="app/chat-renderers.tsx"
 import {
   registerActionChatRenderer,
   type ToolRendererProps,
 } from "@agent-native/core/client/chat";
 
-type ResponseChartResult = {
+type TextStatsResult = {
   title: string;
-  points: Array<{ day: string; responses: number }>;
+  points: Array<{ label: string; value: number }>;
 };
 
-function ResponseChart({ context }: ToolRendererProps) {
-  const result = context.resultJson as ResponseChartResult;
-  const max = Math.max(...result.points.map((point) => point.responses), 1);
+const MAX_BAR_PX = 80;
+
+function TextStatsChart({ context }: ToolRendererProps) {
+  const result = context.resultJson as TextStatsResult;
+  const max = Math.max(...result.points.map((point) => point.value), 1);
   return (
     <section className="rounded-lg border bg-card p-4">
       <h3 className="text-sm font-medium">{result.title}</h3>
-      <div className="mt-4 flex h-32 items-end gap-2">
+      <div className="mt-4 flex items-end gap-2">
         {result.points.map((point) => (
           <div
-            key={point.day}
+            key={point.label}
             className="flex flex-1 flex-col items-center gap-2"
           >
             <div
-              className="w-full rounded-t bg-primary"
-              style={{ height: `${(point.responses / max) * 100}%` }}
+              className="w-full rounded-t bg-blue-500"
+              style={{ height: `${Math.max(Math.round((point.value / max) * MAX_BAR_PX), 2)}px` }}
             />
-            <span className="text-xs text-muted-foreground">{point.day}</span>
+            <span className="text-xs text-muted-foreground">{point.label}</span>
           </div>
         ))}
       </div>
@@ -147,20 +249,21 @@ function ResponseChart({ context }: ToolRendererProps) {
 }
 
 registerActionChatRenderer({
-  id: "responses.response-chart",
-  renderer: "responses.response-chart",
-  Component: ResponseChart,
+  id: "text.stats-chart",
+  renderer: "text.stats-chart",
+  Component: TextStatsChart,
 });
 ```
 
-Chat now renders your app's own chart component inline, with the validated action
-result as props through the renderer context.
+Once the renderer is registered, the agent's response looks like this. Instead
+of a paragraph of text, your React component renders directly inside the chat
+transcript:
 
 <WireframeBlock id="doc-block-inline-result-wireframe">
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(530px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Analyze demo responses.</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(370px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Rendered with responses.response-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Response chart</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:38px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Mon</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:62px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Tue</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:86px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Wed</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:54px;width:100%;background:color-mix(in srgb, var(--wf-accent) 42%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Thu</span></div></div></section></div></div></div>"
+      "<div style='min-height:340px;box-sizing:border-box;padding:24px;display:flex;justify-content:center;align-items:center;background:var(--wf-bg)'><div style='width:min(640px,100%);display:flex;flex-direction:column;gap:14px'><div class='wf-card' data-rough style='align-self:flex-end;max-width:70%;padding:12px 14px'><strong>User</strong><p style='margin:6px 0 0'>Run the analyze-text action on \"Hello world. How are you today?\"</p></div><div class='wf-card' data-rough style='align-self:flex-start;width:min(480px,100%);padding:14px'><strong>Agent</strong><p class='wf-muted' style='margin:6px 0 12px'>Rendered with text.stats-chart.</p><section class='wf-card' data-rough style='padding:14px'><h3 style='margin:0 0 12px;font-size:14px'>Text statistics</h3><div data-rough='line:bottom' style='height:104px;display:flex;align-items:end;gap:8px;border-bottom:1.4px solid var(--wf-line);padding-bottom:4px'><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:80px;width:100%;background:color-mix(in srgb, var(--wf-accent) 36%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Characters</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:18px;width:100%;background:color-mix(in srgb, var(--wf-accent) 30%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Words</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:2px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Sentences</span></div><div style='flex:1;display:flex;flex-direction:column;align-items:center;gap:6px'><div data-rough style='height:2px;width:100%;background:color-mix(in srgb, var(--wf-accent) 24%, transparent);border:1.4px solid var(--wf-accent);border-radius:8px 8px 3px 3px'></div><span class='wf-muted'>Paragraphs</span></div></div></section></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -179,69 +282,280 @@ summary/chart/table cards. See [Native Chat UI](/docs/native-chat-ui). For
 temporary controls the agent creates at runtime, see
 [Generative UI](/docs/generative-ui).
 
-## 4. Persist data in SQL {#persist-data}
+## 5. Persist data in SQL {#persist-data}
 
-Inline chat is great for the first result. A real app needs durable data the
-agent can add, update, and revisit. Add a response-insights table in your schema
-and keep reads/writes behind actions:
+Right now, every time the agent runs `analyze-text` the result appears in chat
+and then disappears. There's nothing to look back at, nothing the agent can
+reference later, and no way to build a page around the data. Persisting to SQL
+fixes that: the agent writes results to a table, and both the agent and your UI
+can read them back at any time.
+
+Agent-Native apps have a SQL database available by default: SQLite locally,
+and your configured provider (Postgres, Turso/libSQL, Cloudflare D1) in
+production.
+
+### Wire up the database plugin
+
+The Chat template doesn't include a database plugin by default. Create
+`server/plugins/db.ts` to initialize it. This is what runs migrations and
+makes the database available to your actions:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS text_analyses (
+        id TEXT PRIMARY KEY,
+        input TEXT NOT NULL,
+        char_count INTEGER NOT NULL,
+        word_count INTEGER NOT NULL,
+        sentence_count INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "text_analyses_migrations" },
+);
+```
+
+Each entry in the array is an additive migration. When you add new columns or
+tables later, append a new version object. Never edit existing ones.
+
+### Define the schema
+
+Create `server/db/schema.ts`. The `server/db/` directory may not exist yet,
+so create it if needed. This file describes your tables using typed helpers so
+your actions get full TypeScript autocomplete:
 
 ```ts filename="server/db/schema.ts"
 import { integer, now, table, text } from "@agent-native/core/db/schema";
 
-export const responseInsights = table("response_insights", {
+export const textAnalyses = table("text_analyses", {
   id: text("id").primaryKey(),
-  formId: text("form_id").notNull(),
-  title: text("title").notNull(),
-  summary: text("summary").notNull(),
-  responseCount: integer("response_count").notNull(),
+  input: text("input").notNull(),
+  charCount: integer("char_count").notNull(),
+  wordCount: integer("word_count").notNull(),
+  sentenceCount: integer("sentence_count").notNull(),
   createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
 });
 ```
 
-Use the framework schema helpers rather than `sqliteTable`, `pgTable`, or
-dialect-specific column imports. They choose the configured SQL backend, so the
-same schema can run locally on SQLite and in production on Postgres,
-Turso/libSQL, D1, or another supported SQL provider.
+Use the framework schema helpers (`table`, `text`, `integer`, `now`) rather than
+`sqliteTable`, `pgTable`, or dialect-specific imports. They pick the configured
+SQL backend automatically, so the same schema runs locally on SQLite and in
+production on any supported provider.
 
-Then split the work into focused actions:
+After adding both files, restart the dev server so the migration runs:
 
-- `create-response-insight` writes a new insight row.
-- `list-response-insights` reads the rows for the page.
-- `update-response-insight` edits an existing row after the agent learns more.
-- `analyze-responses` can call the same internal helper and return the native
-  chat widget for the latest insight.
+```bash
+pnpm dev
+```
 
-The important rule is that the agent and UI share these actions. Do not add a
-separate REST route just for the browser if an action is the operation.
+Look for these two lines in the terminal output. They confirm the table was created:
 
-## 5. Add a page the agent can open {#add-a-page}
+```
+[db] Applying 1 migration(s) on SQLite/libsql…
+[db] Applied migration v1 (1 statement)
+```
 
-Now add a durable page for the data behind the chat result:
+The `NitroViteError` lines, `BETTER_AUTH_SECRET` warning, and
+`SECRETS_ENCRYPTION_KEY` warning that also appear are normal for local dev and
+can be ignored.
 
-```tsx filename="app/routes/response-insights.tsx"
+### Add actions for the table
+
+Now create the action files that read and write the table. These go in your
+`actions/` directory, the same place as `hello.ts` and `analyze-text.ts`. You
+create them yourself, one file per operation. The agent and your UI will call
+them the same way they call any other action.
+
+**`actions/save-text-analysis.ts`** writes a result row to the database.
+Call this after running `analyze-text` to make the result durable:
+
+```ts filename="actions/save-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Save a text analysis result to the database.",
+  schema: z.object({
+    input: z.string(),
+    charCount: z.number(),
+    wordCount: z.number(),
+    sentenceCount: z.number(),
+  }),
+  run: async ({ input, charCount, wordCount, sentenceCount }) => {
+    const id = crypto.randomUUID();
+    await getDbExec().execute({
+      sql: `INSERT INTO text_analyses (id, input, char_count, word_count, sentence_count)
+            VALUES (?, ?, ?, ?, ?)`,
+      args: [id, input, charCount, wordCount, sentenceCount],
+    });
+    return { id };
+  },
+});
+```
+
+**`actions/list-text-analyses.ts`** reads all saved results. The agent can
+call this to summarize past analyses, and your UI can use it to populate a page:
+
+```ts filename="actions/list-text-analyses.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "List all saved text analyses, newest first.",
+  schema: z.object({}),
+  readOnly: true,
+  run: async () => {
+    const result = await getDbExec().execute(
+      `SELECT id, input, char_count, word_count, sentence_count, created_at
+       FROM text_analyses
+       ORDER BY created_at DESC`,
+    );
+    return result.rows;
+  },
+});
+```
+
+**`actions/delete-text-analysis.ts`** removes a row by id:
+
+```ts filename="actions/delete-text-analysis.ts"
+import { defineAction } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Delete a saved text analysis by id.",
+  schema: z.object({ id: z.string() }),
+  run: async ({ id }) => {
+    await getDbExec().execute({
+      sql: `DELETE FROM text_analyses WHERE id = ?`,
+      args: [id],
+    });
+    return { deleted: id };
+  },
+});
+```
+
+Once these files are saved the dev server picks them up automatically. No
+restart needed. Try listing analyses from the terminal:
+
+```bash
+pnpm action list-text-analyses
+```
+
+You should see an empty array. The table exists and the action works; there's
+just nothing saved yet:
+
+```
+[]
+```
+
+Data is saved to `data/app.db`, a SQLite file in your project directory that
+gets created automatically on first run. In production you'd point
+`DATABASE_URL` at a hosted database instead, but locally this file is all you
+need.
+
+To save something, first run `analyze-text` to get the counts:
+
+```bash
+pnpm action analyze-text --text "Hello world"
+```
+
+You'll see output like:
+
+```
+{
+  title: 'Text statistics',
+  points: [
+    { label: 'Characters', value: 11 },
+    { label: 'Words', value: 2 },
+    { label: 'Sentences', value: 1 },
+    { label: 'Paragraphs', value: 1 }
+  ]
+}
+```
+
+Then pass those values to `save-text-analysis`:
+
+```bash
+pnpm action save-text-analysis \
+  --input "Hello world" \
+  --charCount 11 \
+  --wordCount 2 \
+  --sentenceCount 1
+```
+
+Now run `list-text-analyses` again and you'll see the saved row:
+
+```bash
+pnpm action list-text-analyses
+```
+
+Or ask the agent in the chat at `http://localhost:8080` to do both steps at once:
+
+> Run analyze-text on "Hello world", then save the result.
+
+## 6. Add a page the agent can open {#add-a-page}
+
+Chat is great for conversational interaction, but some data is better inspected
+in a dedicated UI: a table you can scan, sort, or delete rows from. This step
+adds a React route that displays everything saved in `text_analyses`, using the
+same `list-text-analyses` and `delete-text-analysis` actions you already wrote.
+There's no second data layer. The page is just a view over the same SQL state
+the agent reads and writes.
+
+Create the route file at `app/routes/text-analyses.tsx`. Route files in
+`app/routes/` are automatically picked up by the framework. The filename
+becomes the URL path, so this page will be available at
+`http://localhost:8080/text-analyses`.
+
+```tsx filename="app/routes/text-analyses.tsx"
 import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
-export default function ResponseInsightsRoute() {
-  const insights = useActionQuery("list-response-insights", {});
-  const createInsight = useActionMutation("create-response-insight");
+
+export default function TextAnalysesRoute() {
+  const analyses = useActionQuery("list-text-analyses", {});
+  const deleteAnalysis = useActionMutation("delete-text-analysis");
 
   return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
       <header>
-        <h1>Response insights</h1>
-        <p>Insights the agent created from form responses.</p>
+        <h1 className="text-2xl font-semibold">Text analyses</h1>
+        <p className="text-muted-foreground">
+          Results saved by the agent or triggered manually.
+        </p>
       </header>
-      <button onClick={() => createInsight.mutate({ formId: "demo" })}>
-        Analyze demo form
-      </button>
-      <section>
-        {insights.data?.map((insight) => (
-          <article key={insight.id}>
-            <h2>{insight.title}</h2>
-            <p>{insight.summary}</p>
+      <section className="flex flex-col gap-3">
+        {analyses.data?.length === 0 && (
+          <p className="text-muted-foreground">No analyses saved yet.</p>
+        )}
+        {analyses.data?.map((row: any) => (
+          <article
+            key={row.id}
+            className="flex items-start justify-between rounded-lg border p-4"
+          >
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium">{row.input}</p>
+              <p className="text-xs text-muted-foreground">
+                {row.word_count} words · {row.char_count} characters ·{" "}
+                {row.sentence_count} sentences
+              </p>
+            </div>
+            <button
+              className="text-xs text-destructive hover:underline"
+              onClick={() => deleteAnalysis.mutate({ id: row.id })}
+            >
+              Delete
+            </button>
           </article>
         ))}
       </section>
@@ -250,29 +564,54 @@ export default function ResponseInsightsRoute() {
 }
 ```
 
-The page is not a second implementation. It is a projection of SQL state written
-through the same actions the agent uses.
+`useActionQuery` calls `list-text-analyses` and keeps the result live. If the
+agent saves a new row while the page is open, it appears automatically.
+`useActionMutation` calls `delete-text-analysis` when the user clicks Delete,
+then invalidates the query so the list refreshes.
+
+Open `http://localhost:8080/text-analyses` in your browser. If you saved an
+analysis in the previous step you'll see it listed. Then ask the agent in chat:
+
+> Open the text analyses page.
+
+If you get a 404, try restarting your dev server.
+
+The agent calls the `navigate` action (already included in the Chat
+template) to send the browser to `/text-analyses`. This is what it looks like
+with a few saved rows:
 
 <WireframeBlock id="doc-block-response-insights-page-wireframe">
   <Screen
     surface="desktop"
     html={
-      "<main style='min-height:440px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><section style='max-width:960px;margin:0 auto;display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:stretch'><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:16px'><header><h2 style='margin:0 0 4px;font-size:28px'>Response insights</h2><p class='wf-muted' style='margin:0'>Insights the agent created from form responses.</p></header><button class='primary' data-rough style='align-self:flex-start'>Analyze demo form</button><section style='display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px'><article class='wf-box' data-rough style='padding:12px'><strong>Pricing theme</strong><p class='wf-muted' style='margin:8px 0 0'>Users ask for a team plan.</p></article><article class='wf-box' data-rough style='padding:12px'><strong>Onboarding drop-off</strong><p class='wf-muted' style='margin:8px 0 0'>Three steps need clearer copy.</p></article></section><section class='wf-card' data-rough style='display:flex;flex-direction:column;gap:10px'><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>Demo form</strong><span class='wf-muted'>42 responses analyzed</span></div><div class='wf-row wf-box' data-rough style='padding:10px 12px;gap:12px;justify-content:space-between'><strong>Next step</strong><span class='wf-muted'>Review two draft insights</span></div></section></section><aside class='wf-card' data-rough style='height:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:12px'><strong>Chat</strong><div class='wf-box' data-rough style='align-self:flex-end;max-width:210px;padding:10px 12px'><span class='wf-muted'>You</span><p style='margin:4px 0 0'>Open response insights.</p></div><div class='wf-box' data-rough style='align-self:flex-start;max-width:210px;padding:10px 12px'><span class='wf-muted'>Agent</span><p style='margin:4px 0 0'>Opened response insights.</p></div></aside></section></main>"
+      "<main style='min-height:400px;box-sizing:border-box;padding:28px;background:var(--wf-bg)'><div style='max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:20px'><header><h2 style='margin:0 0 4px;font-size:24px;font-weight:600'>Text analyses</h2><p class='wf-muted' style='margin:0;font-size:14px'>Results saved by the agent or triggered manually.</p></header><section style='display:flex;flex-direction:column;gap:10px'><article class='wf-card' data-rough style='display:flex;align-items:center;justify-content:space-between;padding:14px 16px'><div><p style='margin:0 0 4px;font-size:14px;font-weight:500'>Hello world</p><p class='wf-muted' style='margin:0;font-size:12px'>2 words · 11 characters · 1 sentence</p></div><span class='wf-muted' style='font-size:12px'>Delete</span></article><article class='wf-card' data-rough style='display:flex;align-items:center;justify-content:space-between;padding:14px 16px'><div><p style='margin:0 0 4px;font-size:14px;font-weight:500'>The quick brown fox jumps over the lazy dog.</p><p class='wf-muted' style='margin:0;font-size:12px'>9 words · 44 characters · 1 sentence</p></div><span class='wf-muted' style='font-size:12px'>Delete</span></article><article class='wf-card' data-rough style='display:flex;align-items:center;justify-content:space-between;padding:14px 16px'><div><p style='margin:0 0 4px;font-size:14px;font-weight:500'>Pack my box with five dozen liquor jugs.</p><p class='wf-muted' style='margin:0;font-size:12px'>8 words · 40 characters · 1 sentence</p></div><span class='wf-muted' style='font-size:12px'>Delete</span></article></section></div></main>"
     }
   />
 </WireframeBlock>
 
-## 6. Let the agent navigate {#agent-navigation}
+## 7. Extend the navigation {#extend-navigation}
 
-The Chat template includes `view-screen` and `navigate` actions. Extend them as
-your app grows:
+When the agent opened `/text-analyses` in the previous step, it used two
+built-in actions that ship with the Chat template:
 
-- `view-screen` should read application state and return the current route,
-  selected insight, active filters, and any compact page context the agent needs.
-- `navigate` should write a same-origin path such as `/response-insights` when
-  the agent decides the user should inspect the result visually.
-- Action results can include links such as `href: "/response-insights"` so chat
-  can offer an explicit "Open response insights" button.
+- **`view-screen`** reads the current route and returns a compact summary of
+  what the user is looking at. The agent calls this when it needs UI context
+  before deciding what to do next.
+- **`navigate`** writes a same-origin path to the browser's history. The
+  agent calls this when a visual page is the right response to what the user
+  asked.
+
+You didn't write either of these; they're included in the template. As you add
+more pages, keep them updated so the agent stays aware of what's in the app:
+
+- `view-screen` should return the current route, any selected item or active
+  filters, and enough page context for the agent to answer follow-up questions
+  without the user describing the screen.
+- `navigate` should handle every route in your app. Document available paths in
+  `AGENTS.md` so the agent knows what destinations exist.
+- Action results can include `href: "/text-analyses"` so a chat reply renders
+  an explicit button rather than relying on the agent to call `navigate`
+  automatically.
 
 When the app has both a full-page chat route and an app page, use the shared chat
 handoff helpers described in [Agent Surfaces](/docs/agent-surfaces#rich-chat):
@@ -295,7 +634,7 @@ my-app/
 
 ## Want a full analytics starting point? {#analytics-starting-point}
 
-The response-insights example above is intentionally small so you can see the
+The text-analyses example above is intentionally small so you can see the
 framework pieces. If you are building a real analytics product, start from
 [Analytics](/docs/template-analytics) instead. It is the robust starting point:
 connect your providers, use the existing dashboards and agent actions, then
@@ -303,15 +642,15 @@ customize the app from there.
 
 ## What's next {#next}
 
-- **[Actions](/docs/actions)** — schemas, auth, approvals, hooks, and transport.
-- **[Native Chat UI](/docs/native-chat-ui)** — render action results as tables,
+- **[Actions](/docs/actions)**: schemas, auth, approvals, hooks, and transport.
+- **[Native Chat UI](/docs/native-chat-ui)**: render action results as tables,
   charts, and typed cards.
-- **[Chat Template](/docs/template-chat)** — the minimal chat-first app you just
+- **[Chat Template](/docs/template-chat)**: the minimal chat-first app you just
   created.
-- **[Analytics Template](/docs/template-analytics)** — a robust analytics app
+- **[Analytics Template](/docs/template-analytics)**: a robust analytics app
   starting point; connect providers and customize from there.
-- **[Context Awareness](/docs/context-awareness)** — `view-screen`, `navigate`,
+- **[Context Awareness](/docs/context-awareness)**: `view-screen`, `navigate`,
   route state, and selected objects.
-- **[Agent Surfaces](/docs/agent-surfaces)** — chat, inline UI, app pages,
+- **[Agent Surfaces](/docs/agent-surfaces)**: chat, inline UI, app pages,
   embedded sidecars, automation, and external agents.
-- **[Deployment](/docs/deployment)** — put your app on your own domain.
+- **[Deployment](/docs/deployment)**: put your app on your own domain.
