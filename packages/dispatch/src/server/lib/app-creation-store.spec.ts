@@ -621,7 +621,9 @@ describe("setAppCreationSettings", () => {
   });
 
   it("does not save the setting when the credential write fails", async () => {
-    mocks.writeAppSecret.mockRejectedValueOnce(new Error("credential store down"));
+    mocks.writeAppSecret.mockRejectedValueOnce(
+      new Error("credential store down"),
+    );
 
     await expect(save(projectId)).rejects.toThrow("credential store down");
     expect(mocks.putSetting).not.toHaveBeenCalled();
