@@ -643,6 +643,18 @@ describe("Builder callback CSRF state", () => {
       ).toBe(targetOrigin);
     });
 
+    it("rejects an unsigned Netlify opener for a different site", () => {
+      const targetOrigin =
+        "https://6a62ed72f518f00008436fa3--agent-native-content.netlify.app";
+      expect(
+        resolveBuilderPreviewRelayParentOrigin({
+          openerOrigin:
+            "https://deploy-preview-2382--attacker-site.netlify.app",
+          targetOrigin,
+        }),
+      ).toBe(targetOrigin);
+    });
+
     it("returns users to the preview opener after a gateway callback", () => {
       process.env.NODE_ENV = "production";
       process.env.AGENT_NATIVE_WORKSPACE = "1";

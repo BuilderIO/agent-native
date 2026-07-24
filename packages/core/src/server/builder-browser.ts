@@ -1283,13 +1283,33 @@ export function resolveBuilderPreviewRelayParentOrigin(options: {
   openerOrigin?: string | null;
   targetOrigin: string;
 }): string {
-  if (
-    options.openerOrigin &&
-    isSafeBuilderRelayTargetOrigin(options.openerOrigin)
-  ) {
-    return new URL(options.openerOrigin).origin;
+  if (!options.openerOrigin) return options.targetOrigin;
+  let openerUrl: URL;
+  let targetUrl: URL;
+  try {
+    openerUrl = new URL(options.openerOrigin);
+    targetUrl = new URL(options.targetOrigin);
+  } catch {
+    return options.targetOrigin;
   }
-  return options.targetOrigin;
+  if (
+    openerUrl.origin !== options.openerOrigin ||
+    !isSafeBuilderRelayTargetOrigin(openerUrl.origin)
+  ) {
+    return options.targetOrigin;
+  }
+  if (openerUrl.origin === targetUrl.origin) return openerUrl.origin;
+
+  const openerMatch = NETLIFY_DEPLOY_PREVIEW_HOST.exec(
+    openerUrl.hostname.toLowerCase(),
+  );
+  const targetMatch = IMMUTABLE_NETLIFY_RELAY_HOST.exec(
+    targetUrl.hostname.toLowerCase(),
+  );
+  return openerMatch?.groups?.site &&
+    openerMatch.groups.site === targetMatch?.groups?.site
+    ? openerUrl.origin
+    : options.targetOrigin;
 }
 
 export function resolveBuilderCallbackReturnUrl(options: {
