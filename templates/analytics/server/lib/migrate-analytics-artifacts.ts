@@ -8,7 +8,7 @@ import {
 } from "@agent-native/core/db/schema";
 import { recordChange } from "@agent-native/core/server";
 import { listOrgSettings } from "@agent-native/core/settings";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -206,7 +206,6 @@ function timestamp(data: Record<string, unknown>, fallback: string): string {
 
 function legacyDashboardRows(
   settings: Record<string, Record<string, unknown>>,
-  ctx: AnalyticsArtifactMigrationContext,
 ): { rows: LegacyDashboard[]; keys: string[] } {
   const rows: LegacyDashboard[] = [];
   const keys: string[] = [];
@@ -227,7 +226,6 @@ function legacyDashboardRows(
       keys.push(key);
     }
   }
-  void ctx;
   return { rows, keys };
 }
 
@@ -249,7 +247,7 @@ async function readMigrationState(
 ): Promise<MigrationState> {
   const db = getDb() as any;
   const orgSettings = await listOrgSettings(ctx.orgId);
-  const legacyDashboards = legacyDashboardRows(orgSettings, ctx);
+  const legacyDashboards = legacyDashboardRows(orgSettings);
   const legacyAnalyses = legacyAnalysisRows(orgSettings);
 
   const [dashboardRows, analysisRows, extensionRows] = await Promise.all([
@@ -572,33 +570,47 @@ function remapExtensionIds(
   return { value: next, changed };
 }
 
-async function copyShares(
+async function copySharesBatch(
   tx: any,
   sourceTable: any,
   targetTable: any,
-  sourceId: string,
-  targetId: string,
+  pairs: Array<{ sourceId: string; targetId: string }>,
   runId: string,
 ): Promise<void> {
+  if (pairs.length === 0) return;
+  const sourceIds = [...new Set(pairs.map((pair) => pair.sourceId))];
+  const targetIds = [...new Set(pairs.map((pair) => pair.targetId))];
+  const targetBySource = new Map(
+    pairs.map((pair) => [pair.sourceId, pair.targetId]),
+  );
   const [sourceRows, targetRows] = await Promise.all([
-    tx.select().from(sourceTable).where(eq(sourceTable.resourceId, sourceId)),
-    tx.select().from(targetTable).where(eq(targetTable.resourceId, targetId)),
+    tx
+      .select()
+      .from(sourceTable)
+      .where(inArray(sourceTable.resourceId, sourceIds)),
+    tx
+      .select()
+      .from(targetTable)
+      .where(inArray(targetTable.resourceId, targetIds)),
   ]);
   const existing = new Set(
     targetRows.map(
-      (row: any) => `${row.principalType}:${row.principalId}:${row.role}`,
+      (row: any) =>
+        `${row.resourceId}:${row.principalType}:${row.principalId}:${row.role}`,
     ),
   );
   const values = sourceRows
     .filter((row: any) => {
-      const key = `${row.principalType}:${row.principalId}:${row.role}`;
+      const targetId = targetBySource.get(row.resourceId);
+      if (!targetId) return false;
+      const key = `${targetId}:${row.principalType}:${row.principalId}:${row.role}`;
       if (existing.has(key)) return false;
       existing.add(key);
       return true;
     })
     .map((row: any) => ({
+      resourceId: targetBySource.get(row.resourceId),
       id: `${runId}-${randomUUID()}`,
-      resourceId: targetId,
       principalType: row.principalType,
       principalId: row.principalId,
       role: row.role,
