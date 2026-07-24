@@ -213,6 +213,7 @@ const messages = {
     elementAnimations: "حركات العناصر",
     tweaks: "تعديلات",
     drawOnSlide: "الرسم على الشريحة",
+    addTextBox: "إضافة مربع نص",
     pinComments: "تثبيت التعليقات",
     pinCommentsDescription:
       "انقر على مواضع في الشريحة لإضافة عدة تعديلات إلى الطابور، ثم أرسلها دفعة واحدة.",

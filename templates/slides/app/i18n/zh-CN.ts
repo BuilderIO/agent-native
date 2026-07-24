@@ -206,6 +206,7 @@ const messages = {
     elementAnimations: "元素动画",
     tweaks: "微调",
     drawOnSlide: "在幻灯片上绘制",
+    addTextBox: "添加文本框",
     pinComments: "固定评论",
     pinCommentsDescription:
       "点击幻灯片上的位置来排队多个编辑，然后一次性发送。",

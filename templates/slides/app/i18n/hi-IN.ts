@@ -209,6 +209,7 @@ const messages = {
     elementAnimations: "एलिमेंट एनिमेशन",
     tweaks: "ट्वीक्स",
     drawOnSlide: "स्लाइड पर ड्रॉ करें",
+    addTextBox: "टेक्स्ट बॉक्स जोड़ें",
     pinComments: "टिप्पणियां पिन करें",
     pinCommentsDescription:
       "कई एडिट कतार में डालने के लिए स्लाइड पर जगहों पर क्लिक करें, फिर उन्हें एक साथ भेजें।",

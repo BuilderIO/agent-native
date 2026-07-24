@@ -160,8 +160,10 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
   const textSpan = document.createElement("span");
   while (el.firstChild) textSpan.appendChild(el.firstChild);
   const restFirstChild = textSpan.firstChild;
+  let placeholderZws: Text | null = null;
   if (!restFirstChild) {
-    textSpan.appendChild(document.createTextNode(ZERO_WIDTH_SPACE));
+    placeholderZws = document.createTextNode(ZERO_WIDTH_SPACE);
+    textSpan.appendChild(placeholderZws);
   }
 
   const row = document.createElement("div");
@@ -182,8 +184,7 @@ export function convertMarkdownPrefixToBullet(el: HTMLElement): boolean {
     // See primeNewRow: anchor the caret inside the placeholder text node
     // (not an element-based position) so it keeps the text span's font
     // instead of falling back to the marker's.
-    const zws = textSpan.firstChild as Text;
-    range.setStart(zws, ZERO_WIDTH_SPACE.length);
+    range.setStart(placeholderZws as Text, ZERO_WIDTH_SPACE.length);
   }
   range.collapse(true);
   sel.removeAllRanges();

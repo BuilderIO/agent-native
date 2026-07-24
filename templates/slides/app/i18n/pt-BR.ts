@@ -211,6 +211,7 @@ const messages = {
     elementAnimations: "Animações de elementos",
     tweaks: "Ajustes",
     drawOnSlide: "Desenhar no slide",
+    addTextBox: "Adicionar caixa de texto",
     pinComments: "Fixar comentários",
     pinCommentsDescription:
       "Clique em pontos no slide para enfileirar várias edições e enviá-las de uma vez.",

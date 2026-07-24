@@ -210,6 +210,7 @@ const messages = {
     elementAnimations: "요소 애니메이션",
     tweaks: "조정",
     drawOnSlide: "슬라이드에 그리기",
+    addTextBox: "텍스트 상자 추가",
     pinComments: "댓글 고정",
     pinCommentsDescription:
       "슬라이드의 지점을 클릭해 여러 편집을 대기열에 넣고 한 번에 보냅니다.",

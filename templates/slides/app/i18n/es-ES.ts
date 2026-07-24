@@ -216,6 +216,7 @@ const messages = {
     elementAnimations: "Animaciones de elementos",
     tweaks: "Ajustes finos",
     drawOnSlide: "Dibujar en la diapositiva",
+    addTextBox: "Añadir cuadro de texto",
     pinComments: "Fijar comentarios",
     pinCommentsDescription:
       "Haz clic en puntos de la diapositiva para encolar varias ediciones y enviarlas todas a la vez.",

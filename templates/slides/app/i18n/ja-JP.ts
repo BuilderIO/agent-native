@@ -210,6 +210,7 @@ const messages = {
     elementAnimations: "要素アニメーション",
     tweaks: "調整",
     drawOnSlide: "スライドに描画",
+    addTextBox: "テキストボックスを追加",
     pinComments: "コメントをピン留め",
     pinCommentsDescription:
       "スライド上の位置をクリックして複数の編集をキューに入れ、まとめて送信します。",

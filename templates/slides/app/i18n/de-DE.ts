@@ -214,6 +214,7 @@ const messages = {
     elementAnimations: "Elementanimationen",
     tweaks: "Feinabstimmung",
     drawOnSlide: "Auf Folie zeichnen",
+    addTextBox: "Textfeld hinzufügen",
     pinComments: "Kommentare anheften",
     pinCommentsDescription:
       "Klicke auf Stellen auf der Folie, um mehrere Änderungen vorzubereiten und sie dann gesammelt zu senden.",

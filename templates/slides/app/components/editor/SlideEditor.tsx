@@ -436,6 +436,11 @@ interface SlideEditorProps {
   pinMode?: boolean;
   /** Called when pin mode should exit */
   onExitPinMode?: () => void;
+  /** Whether the "add text box" tool is active — the next click on the slide
+   *  places a new text box there instead of selecting/marquee-selecting */
+  textBoxMode?: boolean;
+  /** Called after a text box is placed (or the tool should otherwise exit) */
+  onExitTextBoxMode?: () => void;
   /** Slide id for pin mode contextId — falls back to slide.id if omitted */
   slideId?: string;
   /** Slide title for pin mode contextLabel */
@@ -779,6 +784,8 @@ export default function SlideEditor({
   onExitDrawMode,
   pinMode,
   onExitPinMode,
+  textBoxMode,
+  onExitTextBoxMode,
   slideId,
   slideTitle,
   deckId,
@@ -1627,15 +1634,55 @@ export default function SlideEditor({
     [],
   );
 
+  const placeTextBoxAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const fmdSlide = containerRef.current?.querySelector(
+        ".fmd-slide",
+      ) as HTMLElement | null;
+      if (!fmdSlide) return;
+      const rect = fmdSlide.getBoundingClientRect();
+      const x = Math.max(0, Math.round(clientX - rect.left));
+      const y = Math.max(0, Math.round(clientY - rect.top));
+
+      if (getComputedStyle(fmdSlide).position === "static") {
+        fmdSlide.style.position = "relative";
+      }
+
+      const box = document.createElement("div");
+      box.style.position = "absolute";
+      box.style.left = String(x) + "px";
+      box.style.top = String(y) + "px";
+      box.style.width = "320px";
+      box.style.fontSize = "24px";
+      box.style.color = "#fff";
+      box.style.fontFamily = "'Poppins', sans-serif";
+      box.style.lineHeight = "1.3";
+      box.textContent = ZERO_WIDTH_SPACE;
+      fmdSlide.appendChild(box);
+
+      enterInlineEdit(box);
+    },
+    [enterInlineEdit],
+  );
+
   // --- Marquee drag handlers (attached to slide-content via React props) ---
 
   const handleSlidePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (editingEl) return; // don't interfere with inline edit
       if (e.button !== 0) return; // left click only
       const slideContent = getSlideContent();
       if (!slideContent) return;
       const target = e.target as HTMLElement;
+
+      if (textBoxMode && isHtmlSlide) {
+        if (!isSlideWhitespaceTarget(target, slideContent)) return;
+        e.preventDefault();
+        if (editingEl) exitInlineEdit();
+        placeTextBoxAt(e.clientX, e.clientY);
+        onExitTextBoxMode?.();
+        return;
+      }
+      if (editingEl) return; // avoid interfering with an active inline edit
 
       // Only start a marquee from "whitespace" inside the slide. Clicks on
       // an actual element fall through to handleSlideClick (which handles
@@ -1665,6 +1712,11 @@ export default function SlideEditor({
       multiSelection,
       applyMultiSelection,
       clearSelectedElement,
+      textBoxMode,
+      isHtmlSlide,
+      exitInlineEdit,
+      placeTextBoxAt,
+      onExitTextBoxMode,
     ],
   );
 
