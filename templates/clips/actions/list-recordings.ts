@@ -337,24 +337,43 @@ export default defineAction({
       }
     }
 
-    // Count views per recording
+    // Count views per recording. Two set-wide grouped reads (never one per
+    // recording), combined with the same floor as `countRecordingViews`:
+    // `recording_views` only exists from migration v46, so pre-migration clips
+    // have no log rows and fall back to their counted-viewer count.
     let viewsByRec: Record<string, number> = {};
     if (ids.length) {
-      const viewRows = await db
-        .select({
-          recordingId: schema.recordingViewers.recordingId,
-          count: sql<number>`COUNT(1)`,
-        })
-        .from(schema.recordingViewers)
-        .where(
-          and(
-            inArray(schema.recordingViewers.recordingId, ids),
-            countedViewCondition(),
-          ),
-        )
-        .groupBy(schema.recordingViewers.recordingId);
-      for (const v of viewRows) {
+      const [viewerRows, viewLogRows] = await Promise.all([
+        db
+          .select({
+            recordingId: schema.recordingViewers.recordingId,
+            count: sql<number>`COUNT(1)`,
+          })
+          .from(schema.recordingViewers)
+          .where(
+            and(
+              inArray(schema.recordingViewers.recordingId, ids),
+              countedViewCondition(),
+            ),
+          )
+          .groupBy(schema.recordingViewers.recordingId),
+        db
+          .select({
+            recordingId: schema.recordingViews.recordingId,
+            count: sql<number>`COUNT(1)`,
+          })
+          .from(schema.recordingViews)
+          .where(inArray(schema.recordingViews.recordingId, ids))
+          .groupBy(schema.recordingViews.recordingId),
+      ]);
+      for (const v of viewerRows) {
         viewsByRec[v.recordingId] = Number(v.count ?? 0);
+      }
+      for (const v of viewLogRows) {
+        viewsByRec[v.recordingId] = Math.max(
+          viewsByRec[v.recordingId] ?? 0,
+          Number(v.count ?? 0),
+        );
       }
     }
 

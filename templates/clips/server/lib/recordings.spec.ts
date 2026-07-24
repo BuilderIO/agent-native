@@ -7,6 +7,9 @@ const tables = vi.hoisted(() => ({
     recordingId: "recording_viewers.recording_id",
     countedView: "recording_viewers.counted_view",
   },
+  recordingViews: {
+    recordingId: "recording_views.recording_id",
+  },
 }));
 
 vi.mock("drizzle-orm", () => ({
