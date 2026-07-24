@@ -9,11 +9,30 @@ import {
   signA2AToken,
 } from "./client.js";
 
-// Captured before fake timers install (which fake setImmediate): the request
-// path does real async work outside the mocked fetch (ssrf host checks), so
-// fake-time advancing loops must yield REAL event-loop turns or fake time
-// races ahead of it on loaded CI runners — aborting requests before the mock
-// is ever reached.
+// ssrfSafeFetch does a REAL node:dns lookup before calling fetch. Under fake
+// timers that wall-clock work can take seconds on CI resolvers (agent.test is
+// not a real host), so fake time races past request timeouts and deadlines
+// before the stubbed fetch is ever reached. Keep the synchronous private-host
+// check (the blocking test relies on it; IP literals need no DNS) and skip
+// only the DNS phase — full SSRF behavior is covered by url-safety's own spec.
+vi.mock("../extensions/url-safety.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../extensions/url-safety.js")>();
+  return {
+    ...original,
+    ssrfSafeFetch: async (url: string, init?: RequestInit) => {
+      if (original.isBlockedExtensionUrl(url)) {
+        throw new Error(
+          `SSRF blocked: refusing to fetch private/internal address (${url})`,
+        );
+      }
+      return fetch(url, init);
+    },
+  };
+});
+
+// Captured before fake timers install (which fake setImmediate), so waiting
+// loops still yield real event-loop turns for any residual real async.
 const realSetImmediate = setImmediate;
 const yieldReal = () => new Promise<void>((r) => realSetImmediate(r));
 async function advanceSettled(vitest: typeof vi, totalMs: number) {
