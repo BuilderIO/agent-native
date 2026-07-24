@@ -5,6 +5,7 @@ import {
   IconExternalLink,
   IconFolder,
   IconHistory,
+  IconHelpCircle,
   IconHierarchy2,
   IconNotes,
   IconPlugConnected,
@@ -421,7 +422,19 @@ interface AccessUrls {
   agentCardUrl: string;
 }
 
-function CopyField({ label, value }: { label: string; value: string }) {
+export const AGENT_ACCESS_DOCS_HREF = {
+  mcp: "https://agent-native.com/docs/mcp-protocol",
+  a2a: "https://agent-native.com/docs/a2a-protocol",
+} as const;
+
+interface CopyFieldProps {
+  label: string;
+  value: string;
+  docsHref?: string;
+  docsLabel?: string;
+}
+
+function CopyField({ label, value, docsHref, docsLabel }: CopyFieldProps) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -435,8 +448,20 @@ function CopyField({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-border bg-muted/20 p-2">
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+        <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
           {label}
+          {docsHref && (
+            <a
+              href={docsHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={docsLabel ?? `Open ${label} documentation`}
+              title={docsLabel ?? `Open ${label} documentation`}
+              className="inline-flex size-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <IconHelpCircle className="size-3" />
+            </a>
+          )}
         </div>
         <code className="mt-1 block truncate text-xs text-foreground">
           {value}
@@ -530,9 +555,19 @@ function AccessTab({
       <div className="space-y-6">
         {urls ? (
           <>
-            <CopyField label="MCP URL" value={urls.mcpUrl} />
+            <CopyField
+              label="MCP URL"
+              value={urls.mcpUrl}
+              docsHref={AGENT_ACCESS_DOCS_HREF.mcp}
+              docsLabel="Open MCP documentation"
+            />
             {agentCardAvailable && (
-              <CopyField label="A2A agent card" value={urls.agentCardUrl} />
+              <CopyField
+                label="A2A agent card"
+                value={urls.agentCardUrl}
+                docsHref={AGENT_ACCESS_DOCS_HREF.a2a}
+                docsLabel="Open A2A documentation"
+              />
             )}
             <section className="space-y-3 border-t border-border/70 pt-6">
               <div>

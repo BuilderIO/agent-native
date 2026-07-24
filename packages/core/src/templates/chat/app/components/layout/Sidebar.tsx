@@ -126,7 +126,7 @@ function chatThreadPath(threadId: string) {
   return `/chat/${encodeURIComponent(threadId)}`;
 }
 
-function ChatThreadsSection() {
+function ChatThreadsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
@@ -230,36 +230,42 @@ function ChatThreadsSection() {
   }
 
   return (
-    <div className="mt-2 ms-4">
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("chat.newChat"),
-          showMore: t("chat.chats"),
-          showLess: t("chat.chats"),
-        }}
-        renameMaxLength={160}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        labels={{
-          options: (item) =>
-            t("chat.optionsFor", { title: item.titleText ?? "" }),
-          renameInput: (item) =>
-            t("chat.renameThread", { title: item.titleText ?? "" }),
-          rename: t("chat.renameChat"),
-          pin: t("chat.pinChat"),
-          unpin: t("chat.unpinChat"),
-          delete: t("chat.archiveChat"),
-        }}
-        className="min-w-0"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="mt-2 ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
     </div>
   );
 }
@@ -281,14 +287,14 @@ export function Sidebar({
     cn(
       "flex items-center text-sm transition-colors",
       collapsed
-        ? "relative h-10 w-full justify-center rounded-none border-s-2 px-0"
+        ? "relative h-10 w-full justify-center rounded-none px-0"
         : "h-9 rounded-md gap-3 px-3",
       isActive
         ? collapsed
-          ? "border-s-sidebar-accent-foreground/80 bg-sidebar-accent text-sidebar-accent-foreground"
+          ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "bg-sidebar-accent text-sidebar-accent-foreground"
         : collapsed
-          ? "border-s-transparent text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
+          ? "text-sidebar-foreground/70 hover:bg-sidebar-accent/55 hover:text-sidebar-accent-foreground"
           : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
   const collapseButton = collapsible ? (
@@ -411,8 +417,8 @@ export function Sidebar({
                 ) : (
                   link
                 )}
-                {!collapsed && item.view === "chat" && isChatRoute ? (
-                  <ChatThreadsSection />
+                {!collapsed && item.view === "chat" ? (
+                  <ChatThreadsSection open={isChatRoute} />
                 ) : null}
               </div>
             );

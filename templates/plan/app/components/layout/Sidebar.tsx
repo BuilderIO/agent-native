@@ -146,7 +146,13 @@ function persistedActiveThreadId() {
   }
 }
 
-function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
+function PlanChatsSection({
+  collapsed,
+  open,
+}: {
+  collapsed: boolean;
+  open: boolean;
+}) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -244,35 +250,41 @@ function PlanChatsSection({ collapsed }: { collapsed: boolean }) {
   }
 
   return (
-    <div className="mt-2 ms-4">
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={activeThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("sidebar.newChat"),
-          showMore: t("sidebar.chats"),
-          showLess: t("sidebar.chats"),
-        }}
-        renameMaxLength={160}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        labels={{
-          options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
-          renameInput: (item) =>
-            `${t("sidebar.renameChat")}: ${item.titleText ?? ""}`,
-          rename: t("sidebar.renameChat"),
-          pin: t("sidebar.pinChat"),
-          unpin: t("sidebar.unpinChat"),
-          delete: t("sidebar.archiveChat"),
-        }}
-        className="min-w-0"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="mt-2 ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={activeThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("sidebar.newChat"),
+            showMore: t("sidebar.chats"),
+            showLess: t("sidebar.chats"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) => `${t("sidebar.chats")}: ${item.titleText ?? ""}`,
+            renameInput: (item) =>
+              `${t("sidebar.renameChat")}: ${item.titleText ?? ""}`,
+            rename: t("sidebar.renameChat"),
+            pin: t("sidebar.pinChat"),
+            unpin: t("sidebar.unpinChat"),
+            delete: t("sidebar.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
     </div>
   );
 }
@@ -629,8 +641,8 @@ export function Sidebar({
           return (
             <div key={item.href}>
               {link}
-              {item.href === "/" && isActive ? (
-                <PlanChatsSection collapsed={collapsed} />
+              {item.href === "/" ? (
+                <PlanChatsSection collapsed={collapsed} open={isActive} />
               ) : null}
               {item.href === "/plans" && isActive ? (
                 <PlansSidebarSection collapsed={collapsed} />

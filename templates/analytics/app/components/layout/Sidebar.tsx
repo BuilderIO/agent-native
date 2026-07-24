@@ -1263,7 +1263,13 @@ function persistedAnalyticsThreadId() {
   }
 }
 
-function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
+function AnalyticsChatsSection({
+  isAskRoute,
+  open,
+}: {
+  isAskRoute: boolean;
+  open: boolean;
+}) {
   const navigate = useNavigate();
   const t = useT();
   const {
@@ -1365,57 +1371,63 @@ function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
   }
 
   return (
-    <div className="ms-4 min-w-0 space-y-0.5">
-      {chatsLoading &&
-        visibleThreads.length === 0 &&
-        Array.from({ length: 3 }).map((_, i) => (
-          <div
-            key={`chat-skeleton-${i}`}
-            className="flex items-center gap-2 px-3 py-1"
-          >
-            <Skeleton
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 rounded-sm",
-                SIDEBAR_SKELETON_CLASS,
-              )}
-            />
-            <Skeleton
-              className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
-              style={{ width: `${60 + ((i * 17) % 30)}%` }}
-            />
-          </div>
-        ))}
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={(threadId) => openThread(threadId)}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("chat.newChat"),
-          showMore: t("sidebar.showMore", {
-            count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
-          }),
-          showLess: t("sidebar.showLess"),
-        }}
-        renameMaxLength={160}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        labels={{
-          options: (item) =>
-            t("chat.optionsFor", { title: item.titleText ?? "" }),
-          renameInput: (item) =>
-            t("chat.renameThread", { title: item.titleText ?? "" }),
-          rename: t("chat.renameChat"),
-          pin: t("chat.pinChat"),
-          unpin: t("chat.unpinChat"),
-          delete: t("chat.archiveChat"),
-        }}
-        className="min-w-0"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="ms-4 min-w-0 space-y-0.5">
+        {chatsLoading &&
+          visibleThreads.length === 0 &&
+          Array.from({ length: 3 }).map((_, i) => (
+            <div
+              key={`chat-skeleton-${i}`}
+              className="flex items-center gap-2 px-3 py-1"
+            >
+              <Skeleton
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 rounded-sm",
+                  SIDEBAR_SKELETON_CLASS,
+                )}
+              />
+              <Skeleton
+                className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
+                style={{ width: `${60 + ((i * 17) % 30)}%` }}
+              />
+            </div>
+          ))}
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={(threadId) => openThread(threadId)}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("sidebar.showMore", {
+              count: Math.max(0, visibleThreads.length - SIDEBAR_PREVIEW_COUNT),
+            }),
+            showLess: t("sidebar.showLess"),
+          }}
+          renameMaxLength={160}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) =>
+              t("chat.renameThread", { title: item.titleText ?? "" }),
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0"
+        />
+      </div>
     </div>
   );
 }
@@ -2248,7 +2260,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
+                <AnalyticsChatsSection
+                  isAskRoute={isAskRoute}
+                  open={askOpen && isAskRoute}
+                />
               </div>
 
               {/* Sessions link */}

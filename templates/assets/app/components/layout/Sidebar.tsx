@@ -118,7 +118,7 @@ function chatThreadPath(threadId: string) {
   return `/chat/${encodeURIComponent(threadId)}`;
 }
 
-function AssetsChatsSection() {
+function AssetsChatsSection({ open }: { open: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const t = useT();
@@ -242,51 +242,57 @@ function AssetsChatsSection() {
   }
 
   return (
-    <div className="mt-2 ms-4">
-      <ChatHistoryRail
-        items={chatItems}
-        activeId={displayedActiveThreadId}
-        onSelect={openThread}
-        onNewChat={() => void handleNewChat()}
-        railLabels={{
-          newChat: t("chat.newChat"),
-          showMore: t("chat.chats"),
-          showLess: t("chat.chats"),
-        }}
-        previewCount={5}
-        expandedCount={15}
-        onTogglePin={(threadId) => {
-          const thread = visibleThreads.find((item) => item.id === threadId);
-          if (thread) void pinThread(threadId, !thread.pinnedAt);
-        }}
-        onRename={handleRenameThread}
-        renameMaxLength={160}
-        onDelete={(threadId) => void handleArchiveThread(threadId)}
-        renderAdditionalRowActions={(item, closeMenu) => (
-          <button
-            type="button"
-            role="menuitem"
-            className="an-chat-history-row__menu-item"
-            onClick={() => {
-              closeMenu();
-              void handleCopyShareLink(item.id);
-            }}
-          >
-            <IconShare3 size={13} strokeWidth={1.8} />
-            <span>{t("chat.copyShareLink")}</span>
-          </button>
-        )}
-        labels={{
-          options: (item) =>
-            t("chat.optionsFor", { title: item.titleText ?? "" }),
-          renameInput: (item) => `Rename ${item.titleText ?? ""}`,
-          rename: t("chat.renameChat"),
-          pin: t("chat.pinChat"),
-          unpin: t("chat.unpinChat"),
-          delete: t("chat.archiveChat"),
-        }}
-        className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
-      />
+    <div
+      className="an-chat-history-rail__collapse"
+      data-state={open ? "open" : "closed"}
+      aria-hidden={!open}
+    >
+      <div className="mt-2 ms-4">
+        <ChatHistoryRail
+          items={chatItems}
+          activeId={displayedActiveThreadId}
+          onSelect={openThread}
+          onNewChat={() => void handleNewChat()}
+          railLabels={{
+            newChat: t("chat.newChat"),
+            showMore: t("chat.chats"),
+            showLess: t("chat.chats"),
+          }}
+          previewCount={5}
+          expandedCount={15}
+          onTogglePin={(threadId) => {
+            const thread = visibleThreads.find((item) => item.id === threadId);
+            if (thread) void pinThread(threadId, !thread.pinnedAt);
+          }}
+          onRename={handleRenameThread}
+          renameMaxLength={160}
+          onDelete={(threadId) => void handleArchiveThread(threadId)}
+          renderAdditionalRowActions={(item, closeMenu) => (
+            <button
+              type="button"
+              role="menuitem"
+              className="an-chat-history-row__menu-item"
+              onClick={() => {
+                closeMenu();
+                void handleCopyShareLink(item.id);
+              }}
+            >
+              <IconShare3 size={13} strokeWidth={1.8} />
+              <span>{t("chat.copyShareLink")}</span>
+            </button>
+          )}
+          labels={{
+            options: (item) =>
+              t("chat.optionsFor", { title: item.titleText ?? "" }),
+            renameInput: (item) => `Rename ${item.titleText ?? ""}`,
+            rename: t("chat.renameChat"),
+            pin: t("chat.pinChat"),
+            unpin: t("chat.unpinChat"),
+            delete: t("chat.archiveChat"),
+          }}
+          className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
+        />
+      </div>
     </div>
   );
 }
@@ -442,8 +448,8 @@ export function Sidebar() {
             return (
               <div key={item.href}>
                 {link}
-                {item.href === "/" && isCreateRoute ? (
-                  <AssetsChatsSection />
+                {item.href === "/" ? (
+                  <AssetsChatsSection open={isCreateRoute} />
                 ) : null}
               </div>
             );
