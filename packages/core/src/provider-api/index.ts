@@ -1999,8 +1999,10 @@ export async function executeProviderApiRequest(
     response,
     guidance: [
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
-      ...(providerAccessErrorGuidance(config, response.status) ?? []),
-    ].join(" "),
+      providerAccessErrorGuidance(config, response.status),
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
 }
 
@@ -2009,10 +2011,9 @@ const PROVIDER_ACCESS_ERROR_STATUSES = new Set([401, 403, 404]);
 function providerAccessErrorGuidance(
   config: ProviderApiConfig,
   status: number,
-): [string] | null {
-  if (!config.accessErrorGuidance) return null;
+): string | null {
   if (!PROVIDER_ACCESS_ERROR_STATUSES.has(status)) return null;
-  return [config.accessErrorGuidance];
+  return config.accessErrorGuidance ?? null;
 }
 
 /**
