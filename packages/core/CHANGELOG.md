@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.120.2
+
+### Patch Changes
+
+- b00c38d: Emit the continuation handoff event after completion callbacks install server-driven continuations.
+- b00c38d: Keep generated chat template Settings and Manage agent links in the sidebar footer.
+- b00c38d: Move extension management into the shared Settings tabs and support embedded extension lists.
+- b00c38d: Preserve the full continuation reason when durable agent runs hand off to the next chunk.
+
 ## 0.120.1
 
 ### Patch Changes

@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { useT } from "@agent-native/core/client/i18n";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -28,6 +27,13 @@ import {
 } from "@/components/ui/tooltip";
 import { navItems } from "@/lib/brain";
 import { cn } from "@/lib/utils";
+
+const primaryNavItems = navItems.filter(
+  (item) => item.view !== "agent" && item.view !== "settings",
+);
+const bottomNavItems = navItems.filter(
+  (item) => item.view === "agent" || item.view === "settings",
+);
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
@@ -311,7 +317,7 @@ export function Sidebar({
             collapsed ? "justify-items-center gap-1" : "gap-1",
           )}
         >
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const label =
               item.view === "agent"
@@ -362,13 +368,37 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div className="mt-auto shrink-0">
-        {!collapsed ? (
-          <div className="px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
-        ) : null}
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label =
+            item.view === "agent"
+              ? t("settings.agentTitle")
+              : t(`navigation.${item.view}`);
+          const link = (
+            <NavLink
+              to={item.href}
+              className={navClass}
+              aria-label={collapsed ? label : undefined}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className={collapsed ? "sr-only" : "truncate"}>
+                {label}
+              </span>
+            </NavLink>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
+      </nav>
 
+      <div className="mt-auto shrink-0">
         {!collapsed ? (
           <div className="px-3 py-2">
             <OrgSwitcher reserveSpace />

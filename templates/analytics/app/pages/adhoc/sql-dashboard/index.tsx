@@ -33,7 +33,6 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArchive,
-  IconClock,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
@@ -45,7 +44,6 @@ import {
   IconPencil,
   IconPlus,
   IconTrash,
-  IconUser,
   IconUsersGroup,
   IconWorld,
   IconX,
@@ -64,6 +62,7 @@ import { useSearchParams, useParams, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { DashboardHistoryPanel } from "@/components/dashboard/DashboardHistoryPanel";
+import { DashboardMetadata } from "@/components/dashboard/DashboardMetadata";
 import {
   DashboardTitleSkeleton,
   useSetPageTitle,
@@ -386,7 +385,9 @@ type FetchedDashboard = {
   hiddenBy: string | null;
   visibility: "private" | "org" | "public";
   ownerEmail: string | null;
+  createdAt: string | null;
   updatedAt: string | null;
+  updatedBy: string | null;
 } & ResourceAccess;
 
 function parseDashboardDemoMetadata(
@@ -454,7 +455,9 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
           ? data.visibility
           : "private",
       ownerEmail: typeof data.ownerEmail === "string" ? data.ownerEmail : null,
+      createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
       updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : null,
+      updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
       role: typeof data.role === "string" ? data.role : undefined,
       canEdit: typeof data.canEdit === "boolean" ? data.canEdit : undefined,
       canManage:
@@ -503,7 +506,13 @@ export default function SqlDashboardPage() {
     "private" | "org" | "public" | null
   >(null);
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [dashboardCreatedAt, setDashboardCreatedAt] = useState<string | null>(
+    null,
+  );
   const [dashboardUpdatedAt, setDashboardUpdatedAt] = useState<string | null>(
+    null,
+  );
+  const [dashboardUpdatedBy, setDashboardUpdatedBy] = useState<string | null>(
     null,
   );
   const [resourceAccess, setResourceAccess] = useState<ResourceAccess | null>(
@@ -723,7 +732,9 @@ export default function SqlDashboardPage() {
     setHiddenAt(null);
     setDashboardVisibility(null);
     setDashboardOwner(null);
+    setDashboardCreatedAt(null);
     setDashboardUpdatedAt(null);
+    setDashboardUpdatedBy(null);
     setResourceAccess(null);
     if (!dashboardId) setLoaded(true);
   }, [dashboardId]);
@@ -756,7 +767,9 @@ export default function SqlDashboardPage() {
     setHiddenAt(fetched?.hiddenAt ?? null);
     setDashboardVisibility(fetchedVisibility);
     setDashboardOwner(fetched?.ownerEmail ?? null);
+    setDashboardCreatedAt(fetched?.createdAt ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
+    setDashboardUpdatedBy(fetched?.updatedBy ?? null);
     setResourceAccess(
       fetched
         ? {
@@ -1502,30 +1515,15 @@ export default function SqlDashboardPage() {
             </TooltipTrigger>
             <TooltipContent>{t("sqlDashboard.details")}</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-72">
             <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-                {dashboardUpdatedAt && (
-                  <span className="flex items-center gap-1.5">
-                    <IconClock className="h-3 w-3" />
-                    {t("sqlDashboard.updated", {
-                      date: new Date(dashboardUpdatedAt).toLocaleDateString(
-                        "en-US",
-                        {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        },
-                      ),
-                    })}
-                  </span>
-                )}
-                {dashboardOwner && (
-                  <span className="flex items-center gap-1.5">
-                    <IconUser className="h-3 w-3" />
-                    {dashboardOwner.split("@")[0]}
-                  </span>
-                )}
+              <DashboardMetadata
+                createdAt={dashboardCreatedAt}
+                createdBy={dashboardOwner}
+                updatedAt={dashboardUpdatedAt}
+                updatedBy={dashboardUpdatedBy}
+              />
+              <div className="mt-2 flex flex-col gap-1.5 text-xs text-muted-foreground">
                 {dashboardVisibility ? (
                   <span className="flex items-center gap-1.5">
                     {dashboardVisibility === "public" ? (
