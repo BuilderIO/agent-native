@@ -800,16 +800,15 @@ export default function RecordingPage() {
 
   usePlayerShortcuts({ playerRef, chapters });
 
+  const [trackedVideoEl, setTrackedVideoEl] = useState<HTMLVideoElement | null>(
+    null,
+  );
+
   const tracking = useViewTracking({
     recordingId: recordingId ?? "",
-    videoRef: {
-      get current() {
-        return playerRef.current?.video ?? null;
-      },
-    } as any,
+    videoEl: trackedVideoEl,
     durationMs: recording?.durationMs ?? 0,
-    // Skip tracking for the owner — they shouldn't inflate their own views.
-    disabled: role === "owner",
+    disabled: role === "owner", // Skip tracking for the owner: they shouldn't inflate their own views.
   });
 
   if (!recordingId) return null;
@@ -1545,6 +1544,7 @@ export default function RecordingPage() {
               <div className="relative aspect-video w-full xl:min-h-0 xl:flex-1 xl:aspect-auto">
                 <VideoPlayer
                   ref={playerRef}
+                  onVideoElementChange={setTrackedVideoEl}
                   recordingId={recording.id}
                   videoUrl={recording.videoUrl}
                   videoFormat={recording.videoFormat}
