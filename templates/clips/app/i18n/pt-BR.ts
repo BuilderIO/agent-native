@@ -1267,6 +1267,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",
     import: "Import (Localizado)",
+    recordNew: "Nova gravação",
   },
   playerSettings: {
     title: "Settings (Localizado)",
@@ -1349,6 +1350,12 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     title: "Importar Loom",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
+    helperText:
+      "Funciona muito bem com o Loom. Você também pode colar um link de outra gravação de tela ou arquivo de vídeo.",
+    stageFetching: "Buscando seu vídeo…",
+    stageUploading: "Enviando para o Clips…",
+    stageTranscript: "Importando a transcrição…",
+    stageFinalizing: "Repassando ao seu agente…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localizado)",

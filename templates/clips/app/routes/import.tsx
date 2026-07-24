@@ -4,9 +4,21 @@ import {
 } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowLeft, IconLink, IconUpload } from "@tabler/icons-react";
+import {
+  IconArrowLeft,
+  IconLink,
+  IconUpload,
+  IconVideo,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -14,6 +26,7 @@ import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   VIDEO_STORAGE_STATUS_KEY,
   useVideoStorageStatus,
@@ -90,9 +103,35 @@ export default function ImportRoute() {
     return qs ? `/record?${qs}` : "/record";
   }, [spaceIdFromUrl, folderIdFromUrl]);
 
+  const uploadHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
+    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
+    params.set("autoUpload", "1");
+    return `/record?${params.toString()}`;
+  }, [spaceIdFromUrl, folderIdFromUrl]);
+
   const [loomUrl, setLoomUrl] = useState("");
   const [loomImporting, setLoomImporting] = useState(false);
   const [loomError, setLoomError] = useState<string | null>(null);
+  const [stageIndex, setStageIndex] = useState(0);
+  const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const importStages = useMemo(
+    () => [
+      t("importRoute.stageFetching"),
+      t("importRoute.stageUploading"),
+      t("importRoute.stageTranscript"),
+      t("importRoute.stageFinalizing"),
+    ],
+    [t],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+    };
+  }, []);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -102,6 +141,10 @@ export default function ImportRoute() {
 
       setLoomError(null);
       setLoomImporting(true);
+      setStageIndex(0);
+      stageTimerRef.current = setInterval(() => {
+        setStageIndex((prev) => Math.min(prev + 1, importStages.length - 1));
+      }, 1400);
       try {
         const result = (await callAction("import-loom-recording" as any, {
           url,
@@ -116,6 +159,9 @@ export default function ImportRoute() {
         if (!recordingId) {
           throw new Error("Loom import did not return a recording id.");
         }
+
+        if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+        setStageIndex(importStages.length - 1);
 
         if (
           result?.storageSetupRequired ||
@@ -132,16 +178,24 @@ export default function ImportRoute() {
         await writeNavigateAppState(recordingId);
         navigate(`/r/${recordingId}`);
       } catch (err) {
+        if (stageTimerRef.current) clearInterval(stageTimerRef.current);
         setLoomError(
           err instanceof Error
             ? userFacingActionErrorMessage(err.message)
             : t("recordRoute.couldNotImportLoom"),
         );
-      } finally {
         setLoomImporting(false);
       }
     },
-    [folderIdFromUrl, loomImporting, loomUrl, navigate, spaceIdFromUrl, t],
+    [
+      folderIdFromUrl,
+      importStages.length,
+      loomImporting,
+      loomUrl,
+      navigate,
+      spaceIdFromUrl,
+      t,
+    ],
   );
 
   const markStorageConfigured = useCallback(() => {
@@ -167,62 +221,88 @@ export default function ImportRoute() {
       </button>
 
       <div className="flex min-h-screen flex-col items-center justify-center px-4 py-10">
-        <div className="mb-6 flex items-center gap-2 text-primary">
+        <div className="mb-3 flex items-center gap-2 text-primary">
           <IconLink className="h-6 w-6" />
           <span className="text-sm font-medium uppercase tracking-wide">
             {t("importRoute.title")}
           </span>
         </div>
+        <p className="mb-6 max-w-md text-center text-sm text-muted-foreground">
+          {t("importRoute.helperText")}
+        </p>
 
         <div className="mx-auto w-full max-w-lg">
           {storageConfigured === null ? (
             <ImportPanelSkeleton />
           ) : storageConfigured ? (
             <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
-              <div className="p-6">
-                <form
-                  onSubmit={handleSubmit}
-                  className="flex flex-col gap-3"
-                >
-                  <Input
-                    autoFocus
-                    value={loomUrl}
-                    onChange={(event) => {
-                      setLoomUrl(event.target.value);
-                      setLoomError(null);
-                    }}
-                    disabled={loomImporting}
-                    placeholder={t("importRoute.urlPlaceholder")}
-                    className="h-12 text-base"
-                    inputMode="url"
+              {loomImporting ? (
+                <div className="h-1 w-full overflow-hidden bg-muted">
+                  <div
+                    style={{ animation: "clips-import-progress 1.2s ease-in-out infinite" }}
+                    className="h-full w-1/3 bg-primary"
                   />
-                  <Button
-                    type="submit"
-                    className="h-12 w-full gap-2"
-                    disabled={loomImporting || !loomUrl.trim()}
-                  >
-                    <IconLink className="h-4 w-4" />
-                    {loomImporting
-                      ? t("preRecord.importing")
-                      : t("importRoute.cta")}
-                  </Button>
-                  {loomError ? (
-                    <p className="text-xs leading-relaxed text-destructive">
-                      {loomError}
+                </div>
+              ) : null}
+              <div className="p-6">
+                {loomImporting ? (
+                  <div className="flex flex-col items-center gap-2 py-6 text-center">
+                    <Spinner className="h-6 w-6 text-primary" />
+                    <p className="text-sm font-medium text-foreground">
+                      {importStages[stageIndex]}
                     </p>
-                  ) : null}
-                </form>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={handleSubmit}
+                    className="flex flex-col gap-3"
+                  >
+                    <Input
+                      autoFocus
+                      value={loomUrl}
+                      onChange={(event) => {
+                        setLoomUrl(event.target.value);
+                        setLoomError(null);
+                      }}
+                      placeholder={t("importRoute.urlPlaceholder")}
+                      className="h-12 text-base"
+                      inputMode="url"
+                    />
+                    <Button
+                      type="submit"
+                      className="h-12 w-full gap-2"
+                      disabled={!loomUrl.trim()}
+                    >
+                      <IconLink className="h-4 w-4" />
+                      {t("importRoute.cta")}
+                    </Button>
+                    {loomError ? (
+                      <p className="text-xs leading-relaxed text-destructive">
+                        {loomError}
+                      </p>
+                    ) : null}
+                  </form>
+                )}
               </div>
 
-              <div className="flex items-center justify-center border-t border-border px-6 py-4">
-                <Link
-                  to={recordHref}
-                  className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <IconUpload className="h-3.5 w-3.5" />
-                  {t("preRecord.uploadVideo")}
-                </Link>
-              </div>
+              {!loomImporting ? (
+                <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
+                  <Link
+                    to={uploadHref}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <IconUpload className="h-3.5 w-3.5" />
+                    {t("preRecord.uploadVideo")}
+                  </Link>
+                  <Link
+                    to={recordHref}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+                  >
+                    <IconVideo className="h-3.5 w-3.5" />
+                    {t("preRecord.recordNew")}
+                  </Link>
+                </div>
+              ) : null}
             </div>
           ) : (
             <StorageSetupCard

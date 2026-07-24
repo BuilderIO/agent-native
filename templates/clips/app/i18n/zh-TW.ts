@@ -1192,6 +1192,7 @@ const messages = {
     importLoom: "匯入 Loom",
     importing: "正在匯入...",
     import: "匯入",
+    recordNew: "新增錄製",
   },
   playerSettings: {
     title: "設定",
@@ -1266,6 +1267,12 @@ const messages = {
     title: "匯入 Loom",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "匯入",
+    helperText:
+      "與 Loom 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
+    stageFetching: "正在擷取你的影片…",
+    stageUploading: "正在上傳到 Clips…",
+    stageTranscript: "正在匯入逐字稿…",
+    stageFinalizing: "正在交給你的代理程式…",
   },
   dictateRoute: {
     pageTitle: "聽寫 · Clips",

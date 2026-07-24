@@ -1271,6 +1271,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     importLoom: "Import Loom (Localizado)",
     importing: "Importing... (Localizado)",
     import: "Import (Localizado)",
+    recordNew: "Nueva grabación",
   },
   playerSettings: {
     title: "Settings (Localizado)",
@@ -1353,6 +1354,12 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     title: "Importar Loom",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Importar",
+    helperText:
+      "Funciona muy bien con Loom. También puedes pegar un enlace a cualquier otra grabación de pantalla o archivo de vídeo.",
+    stageFetching: "Obteniendo tu vídeo…",
+    stageUploading: "Subiendo a Clips…",
+    stageTranscript: "Importando la transcripción…",
+    stageFinalizing: "Entregando a tu agente…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localizado)",

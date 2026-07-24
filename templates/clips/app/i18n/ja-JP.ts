@@ -1261,6 +1261,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     importLoom: "Import Loom (ローカライズ済み)",
     importing: "Importing... (ローカライズ済み)",
     import: "Import (ローカライズ済み)",
+    recordNew: "新規録画",
   },
   playerSettings: {
     title: "Settings (ローカライズ済み)",
@@ -1344,6 +1345,12 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     title: "Loom をインポート",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "インポート",
+    helperText:
+      "Loom で特に快適に使えます。他の画面録画や動画ファイルのリンクを貼り付けることもできます。",
+    stageFetching: "動画を取得しています…",
+    stageUploading: "Clips にアップロードしています…",
+    stageTranscript: "文字起こしをインポートしています…",
+    stageFinalizing: "エージェントに引き継いでいます…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (ローカライズ済み)",

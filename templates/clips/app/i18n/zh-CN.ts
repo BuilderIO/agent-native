@@ -1206,6 +1206,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     importLoom: "Import Loom (已本地化)",
     importing: "Importing... (已本地化)",
     import: "Import (已本地化)",
+    recordNew: "新建录制",
   },
   playerSettings: {
     title: "Settings (已本地化)",
@@ -1287,6 +1288,12 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     title: "导入 Loom",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "导入",
+    helperText:
+      "与 Loom 配合得很好。你也可以粘贴其他屏幕录制或视频文件的链接。",
+    stageFetching: "正在获取视频…",
+    stageUploading: "正在上传到 Clips…",
+    stageTranscript: "正在导入转录文本…",
+    stageFinalizing: "正在交给你的智能体…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (已本地化)",

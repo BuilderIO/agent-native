@@ -1245,6 +1245,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     importLoom: "Import Loom",
     importing: "Importing...",
     import: "Import",
+    recordNew: "Record new",
   },
   playerSettings: {
     title: "Settings",
@@ -1322,6 +1323,12 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     title: "Import Loom",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "Import",
+    helperText:
+      "Works great with Loom. You can also paste a link to any other screen recording or video file.",
+    stageFetching: "Fetching your video…",
+    stageUploading: "Uploading to Clips…",
+    stageTranscript: "Importing the transcript…",
+    stageFinalizing: "Handing off to your agent…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips",

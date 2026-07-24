@@ -1251,6 +1251,7 @@ const messages = {
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",
     import: "Import (مترجم)",
+    recordNew: "تسجيل جديد",
   },
   playerSettings: {
     title: "Settings (مترجم)",
@@ -1332,6 +1333,12 @@ const messages = {
     title: "استيراد Loom",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "استيراد",
+    helperText:
+      "يعمل بشكل رائع مع Loom. يمكنك أيضًا لصق رابط لأي تسجيل شاشة أو ملف فيديو آخر.",
+    stageFetching: "جارٍ جلب الفيديو…",
+    stageUploading: "جارٍ الرفع إلى Clips…",
+    stageTranscript: "جارٍ استيراد النص…",
+    stageFinalizing: "جارٍ التسليم إلى وكيلك…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (مترجم)",

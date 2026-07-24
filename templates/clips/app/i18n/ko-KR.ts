@@ -1248,6 +1248,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",
     import: "Import (현지화됨)",
+    recordNew: "새로 녹화",
   },
   playerSettings: {
     title: "Settings (현지화됨)",
@@ -1329,6 +1330,12 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     title: "Loom 가져오기",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "가져오기",
+    helperText:
+      "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
+    stageFetching: "동영상을 가져오는 중…",
+    stageUploading: "Clips에 업로드하는 중…",
+    stageTranscript: "스크립트를 가져오는 중…",
+    stageFinalizing: "에이전트에 전달하는 중…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",

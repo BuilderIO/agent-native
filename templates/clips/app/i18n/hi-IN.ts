@@ -1237,6 +1237,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
     import: "Import (स्थानीयकृत)",
+    recordNew: "नई रिकॉर्डिंग",
   },
   playerSettings: {
     title: "Settings (स्थानीयकृत)",
@@ -1318,6 +1319,12 @@ Clips में उपयोगकर्ताओं को दिखने व�
     title: "Loom आयात करें",
     urlPlaceholder: "https://www.loom.com/share/...",
     cta: "आयात करें",
+    helperText:
+      "यह Loom के साथ बहुत अच्छे से काम करता है। आप किसी भी अन्य स्क्रीन रिकॉर्डिंग या वीडियो फ़ाइल का लिंक भी पेस्ट कर सकते हैं।",
+    stageFetching: "आपका वीडियो प्राप्त किया जा रहा है…",
+    stageUploading: "Clips पर अपलोड किया जा रहा है…",
+    stageTranscript: "ट्रांसक्रिप्ट इंपोर्ट किया जा रहा है…",
+    stageFinalizing: "आपके एजेंट को सौंपा जा रहा है…",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (स्थानीयकृत)",
