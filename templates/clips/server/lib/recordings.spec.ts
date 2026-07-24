@@ -48,30 +48,57 @@ vi.mock("../db/index.js", () => ({
 
 import { countedViewCondition, countRecordingViews } from "./recordings.js";
 
-function createDb(rows: unknown[]) {
-  const calls: { table?: unknown; where?: unknown } = {};
-  const builder = {
-    from(table: unknown) {
-      calls.table = table;
+/**
+ * Two counts come back per call — one per table — so the fake resolves each
+ * `.where()` against the table the builder was pointed at.
+ */
+function createDb(rowsByTable: {
+  viewers?: unknown[];
+  views?: unknown[];
+}) {
+  const calls: {
+    tables: unknown[];
+    wheres: unknown[];
+  } = { tables: [], wheres: [] };
+  const db = {
+    select() {
+      let table: unknown;
+      const builder = {
+        from(next: unknown) {
+          table = next;
+          calls.tables.push(next);
+          return builder;
+        },
+        where(condition: unknown) {
+          calls.wheres.push(condition);
+          return Promise.resolve(
+            table === tables.recordingViews
+              ? (rowsByTable.views ?? [])
+              : (rowsByTable.viewers ?? []),
+          );
+        },
+      };
       return builder;
     },
-    where(condition: unknown) {
-      calls.where = condition;
-      return Promise.resolve(rows);
-    },
   };
-  return { db: { select: () => builder }, calls };
+  return { db, calls };
 }
 
 describe("countRecordingViews", () => {
-  it("counts only counted-view viewer rows for the recording", async () => {
-    const { db, calls } = createDb([{ value: 7 }]);
+  it("counts one view per logged view session, not per viewer", async () => {
+    const { db, calls } = createDb({
+      viewers: [{ value: 7 }],
+      views: [{ value: 19 }],
+    });
     mocks.getDb.mockReturnValue(db);
 
-    await expect(countRecordingViews("rec-1")).resolves.toBe(7);
+    await expect(countRecordingViews("rec-1")).resolves.toBe(19);
 
-    expect(calls.table).toBe(tables.recordingViewers);
-    expect(calls.where).toEqual({
+    expect(calls.tables).toEqual([
+      tables.recordingViewers,
+      tables.recordingViews,
+    ]);
+    expect(calls.wheres[0]).toEqual({
       type: "and",
       conditions: [
         {
@@ -82,17 +109,39 @@ describe("countRecordingViews", () => {
         countedViewCondition(),
       ],
     });
+    expect(calls.wheres[1]).toEqual({
+      type: "eq",
+      left: tables.recordingViews.recordingId,
+      right: "rec-1",
+    });
   });
 
-  it("returns 0 when no viewer rows exist", async () => {
-    const { db } = createDb([]);
+  it("falls back to the counted-viewer count for pre-migration clips", async () => {
+    const { db } = createDb({ viewers: [{ value: 7 }], views: [{ value: 0 }] });
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(countRecordingViews("rec-1")).resolves.toBe(7);
+  });
+
+  it("never reports fewer views than counted viewers", async () => {
+    const { db } = createDb({ viewers: [{ value: 11 }], views: [{ value: 4 }] });
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(countRecordingViews("rec-1")).resolves.toBe(11);
+  });
+
+  it("returns 0 when no viewer or view rows exist", async () => {
+    const { db } = createDb({});
     mocks.getDb.mockReturnValue(db);
 
     await expect(countRecordingViews("rec-1")).resolves.toBe(0);
   });
 
   it("normalizes driver-provided string counts", async () => {
-    const { db } = createDb([{ value: "12" }]);
+    const { db } = createDb({
+      viewers: [{ value: "12" }],
+      views: [{ value: "3" }],
+    });
     mocks.getDb.mockReturnValue(db);
 
     await expect(countRecordingViews("rec-1")).resolves.toBe(12);

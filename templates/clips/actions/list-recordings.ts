@@ -64,6 +64,31 @@ export function resolveListRecordingMedia(
   };
 }
 
+type ViewCountRow = { recordingId: string; count: number | string | null };
+
+/**
+ * `recording_views` only exists from migration v46, so pre-migration clips have
+ * no log rows and must fall back to their counted-viewer count instead of
+ * dropping to 0. Same floor as `countRecordingViews`, so a library card and the
+ * clip page always agree.
+ */
+export function mergeViewCounts(
+  countedViewerRows: ViewCountRow[],
+  viewLogRows: ViewCountRow[],
+): Record<string, number> {
+  const merged: Record<string, number> = {};
+  for (const row of countedViewerRows) {
+    merged[row.recordingId] = Number(row.count ?? 0);
+  }
+  for (const row of viewLogRows) {
+    merged[row.recordingId] = Math.max(
+      merged[row.recordingId] ?? 0,
+      Number(row.count ?? 0),
+    );
+  }
+  return merged;
+}
+
 export default defineAction({
   description:
     "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. Public/unlisted recordings are discoverable only when owned by or previously viewed by the current user; the shared view returns accessible recordings owned by someone else.",
@@ -337,13 +362,11 @@ export default defineAction({
       }
     }
 
-    // Count views per recording. Two set-wide grouped reads (never one per
-    // recording), combined with the same floor as `countRecordingViews`:
-    // `recording_views` only exists from migration v46, so pre-migration clips
-    // have no log rows and fall back to their counted-viewer count.
+    // Count views per recording — two set-wide grouped reads, never one per
+    // recording.
     let viewsByRec: Record<string, number> = {};
     if (ids.length) {
-      const [viewerRows, viewLogRows] = await Promise.all([
+      const [countedViewerRows, viewLogRows] = await Promise.all([
         db
           .select({
             recordingId: schema.recordingViewers.recordingId,
@@ -366,15 +389,7 @@ export default defineAction({
           .where(inArray(schema.recordingViews.recordingId, ids))
           .groupBy(schema.recordingViews.recordingId),
       ]);
-      for (const v of viewerRows) {
-        viewsByRec[v.recordingId] = Number(v.count ?? 0);
-      }
-      for (const v of viewLogRows) {
-        viewsByRec[v.recordingId] = Math.max(
-          viewsByRec[v.recordingId] ?? 0,
-          Number(v.count ?? 0),
-        );
-      }
+      viewsByRec = mergeViewCounts(countedViewerRows, viewLogRows);
     }
 
     const recordings = rows.map((row) => {
