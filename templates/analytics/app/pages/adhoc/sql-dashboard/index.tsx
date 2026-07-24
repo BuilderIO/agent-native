@@ -11,6 +11,7 @@ import {
   callAction,
   useChangeVersions,
   useActionMutation,
+  type AuthSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
@@ -540,13 +541,34 @@ async function saveDashboard(
 }
 
 export default function SqlDashboardPage() {
+  const [searchParams] = useSearchParams();
+
+  if (searchParams.get("reportScreenshot") === "1") {
+    return <SqlDashboardPageContent reportScreenshot session={null} />;
+  }
+
+  return <InteractiveSqlDashboardPage />;
+}
+
+function InteractiveSqlDashboardPage() {
+  const { session } = useSession();
+
+  return <SqlDashboardPageContent reportScreenshot={false} session={session} />;
+}
+
+function SqlDashboardPageContent({
+  reportScreenshot,
+  session,
+}: {
+  reportScreenshot: boolean;
+  session: AuthSession | null;
+}) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const { id: routeId } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
-  const reportScreenshot = searchParams.get("reportScreenshot") === "1";
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
   const reportPanelWindow = reportScreenshot
     ? parseReportPanelWindow(
@@ -662,7 +684,6 @@ export default function SqlDashboardPage() {
   const [editingPanel, setEditingPanel] = useState<SqlPanel | null>(null);
 
   // ── Collaborative editing ──────────────────────────────────────────
-  const { session } = useSession();
   const currentUser: CollabUser | undefined =
     !reportScreenshot && session?.email
       ? {

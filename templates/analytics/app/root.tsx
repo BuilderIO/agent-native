@@ -1,10 +1,10 @@
+import { getEmbedAuthToken } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
   callAction,
   createAgentNativeQueryClient,
-  getEmbedAuthToken,
   useDbSync,
 } from "@agent-native/core/client/hooks";
 import { getLocaleInitScript } from "@agent-native/core/client/i18n";
