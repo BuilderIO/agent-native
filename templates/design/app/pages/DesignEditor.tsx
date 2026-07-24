@@ -4265,7 +4265,12 @@ function DesignEditor() {
             );
             if (failureKind === "offline") {
               warnChangesWillRetry();
-            } else if (failureKind !== "intentional-abort") {
+            } else if (
+              failureKind !== "intentional-abort" &&
+              failureKind !== "conflict"
+            ) {
+              // Conflicts already rebased above (acked-hash reset + get-design
+              // invalidation); a red toast for a routine rebase is just noise.
               toast.error(
                 designSaveErrorMessage(error) ?? t("common.genericError"),
                 { id: `design-save-error:${pending.id}` },

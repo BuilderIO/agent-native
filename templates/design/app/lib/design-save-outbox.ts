@@ -58,6 +58,24 @@ export function isTerminalSaveError(error: unknown): boolean {
   );
 }
 
+/**
+ * The server's update-file version conflict ("File changed since it was read…").
+ * Its frozen expectedVersionHash can never match on retry, so drop-and-rebase
+ * rather than loop forever. Matched by MESSAGE, not bare status 409, on purpose:
+ * the client-side "no known base version" / "changed elsewhere" 409 synthetics
+ * are intentionally retained by drainEntries, and the client-build-mismatch 409
+ * is a reload-then-retry.
+ */
+export function isConflictSaveError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  if (candidate.code === "client_build_mismatch") return false;
+  return (
+    typeof candidate.message === "string" &&
+    /changed since it was read|re-read the file/i.test(candidate.message)
+  );
+}
+
 const DATABASE_NAME = "agent-native-design-save-outbox";
 const DATABASE_VERSION = 2;
 const ENTRY_STORE = "entries";
@@ -372,6 +390,17 @@ async function drainEntries(
         if (typeof console !== "undefined") {
           console.warn(
             `[design-save-outbox] dropped unrecoverable save for ${entry.actionName} ${entry.resourceId} (file no longer exists)`,
+          );
+        }
+      } else if (isConflictSaveError(error)) {
+        // Base version superseded — retry is futile and replaying the stale
+        // snapshot would clobber newer content. Drop and rebase (the conflict
+        // analogue of the 404 orphan drop).
+        await storage.deleteIfRevision(entry);
+        result.dropped.push({ entry, error });
+        if (typeof console !== "undefined") {
+          console.warn(
+            `[design-save-outbox] dropped superseded save for ${entry.actionName} ${entry.resourceId} (server content moved on)`,
           );
         }
       } else {

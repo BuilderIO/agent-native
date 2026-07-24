@@ -268,14 +268,21 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
     await applyText(FILE_ID, buildDoc(" live-edit-"), "content", "agent");
     const staleHash = sourceContentHash(buildDoc()); // pre-live-edit hash
 
-    await expect(
-      updateFileAction.run({
+    let rejection: unknown = null;
+    try {
+      await updateFileAction.run({
         id: FILE_ID,
         content: buildDoc(" caller-stale-"),
         syncCollab: true,
         expectedVersionHash: staleHash,
-      } as never),
-    ).rejects.toThrow(/changed since it was read/);
+      } as never);
+    } catch (error) {
+      rejection = error;
+    }
+    expect((rejection as Error)?.message).toMatch(/changed since it was read/);
+    // Typed 409, not a bare 500: the framework returns it verbatim (no Sentry
+    // capture, no error log) and the client rebases instead of a retry storm.
+    expect((rejection as { statusCode?: number })?.statusCode).toBe(409);
 
     // Not skipped: no skippedStaleMirror flag could have been produced since
     // the call threw. The SQL row must remain untouched by the rejected call.
