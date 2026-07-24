@@ -2984,6 +2984,7 @@ function DatabaseTable({
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
+        executionPending={executeBuilderExecution.isPending}
         error={
           builderReviewError ??
           (builderReviewPreviewQuery.error instanceof Error
