@@ -6,7 +6,9 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   IconArrowLeft,
+  IconCheck,
   IconLink,
+  IconSparkles,
   IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
@@ -26,13 +28,15 @@ import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Spinner } from "@/components/ui/spinner";
 import {
   VIDEO_STORAGE_STATUS_KEY,
   useVideoStorageStatus,
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import enMessages from "@/i18n/en-US";
+import { cn } from "@/lib/utils";
+
+type ImportPhase = "form" | "importing" | "done" | "leaving";
 
 export function meta() {
   return [{ title: enMessages.importRoute.pageTitle }];
@@ -112,10 +116,15 @@ export default function ImportRoute() {
   }, [spaceIdFromUrl, folderIdFromUrl]);
 
   const [loomUrl, setLoomUrl] = useState("");
-  const [loomImporting, setLoomImporting] = useState(false);
+  const [phase, setPhase] = useState<ImportPhase>("form");
   const [loomError, setLoomError] = useState<string | null>(null);
   const [stageIndex, setStageIndex] = useState(0);
+  const [progress, setProgress] = useState(0);
   const stageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const busy = phase !== "form";
 
   const importStages = useMemo(
     () => [
@@ -127,24 +136,49 @@ export default function ImportRoute() {
     [t],
   );
 
+  const benefits = useMemo(
+    () => [
+      t("importRoute.benefitTranscript"),
+      t("importRoute.benefitQueryable"),
+      t("importRoute.benefitSummaries"),
+      t("importRoute.benefitPrimitive"),
+    ],
+    [t],
+  );
+
+  const clearTimers = useCallback(() => {
+    if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    stageTimerRef.current = null;
+    progressTimerRef.current = null;
+  }, []);
+
   useEffect(() => {
     return () => {
-      if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+      clearTimers();
+      timeoutsRef.current.forEach((id) => clearTimeout(id));
     };
-  }, []);
+  }, [clearTimers]);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
       const url = loomUrl.trim();
-      if (!url || loomImporting) return;
+      if (!url || busy) return;
 
       setLoomError(null);
-      setLoomImporting(true);
+      setPhase("importing");
       setStageIndex(0);
+      setProgress(6);
       stageTimerRef.current = setInterval(() => {
         setStageIndex((prev) => Math.min(prev + 1, importStages.length - 1));
-      }, 1400);
+      }, 1300);
+      // Ease the accent bar toward ~92% while the request is in flight; the
+      // real completion snaps it to 100%.
+      progressTimerRef.current = setInterval(() => {
+        setProgress((p) => (p >= 92 ? p : p + Math.max(0.6, (92 - p) * 0.07)));
+      }, 120);
+
       try {
         const result = (await callAction("import-loom-recording" as any, {
           url,
@@ -160,8 +194,9 @@ export default function ImportRoute() {
           throw new Error("Loom import did not return a recording id.");
         }
 
-        if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+        clearTimers();
         setStageIndex(importStages.length - 1);
+        setProgress(100);
 
         if (
           result?.storageSetupRequired ||
@@ -171,26 +206,36 @@ export default function ImportRoute() {
             description: t("recordRoute.connectStorageToRetryLoom"),
             duration: 12_000,
           });
-        } else {
-          await copyRecordingLink(recordingId);
-          toast.success(t("recordRoute.loomImported"));
+          await writeNavigateAppState(recordingId);
+          navigate(`/r/${recordingId}`);
+          return;
         }
+
+        await copyRecordingLink(recordingId);
         await writeNavigateAppState(recordingId);
-        navigate(`/r/${recordingId}`);
+
+        // Linger on the "done" reveal, then fade out into the clip.
+        setPhase("done");
+        timeoutsRef.current.push(
+          setTimeout(() => setPhase("leaving"), 1900),
+          setTimeout(() => navigate(`/r/${recordingId}`), 2300),
+        );
       } catch (err) {
-        if (stageTimerRef.current) clearInterval(stageTimerRef.current);
+        clearTimers();
+        setProgress(0);
+        setPhase("form");
         setLoomError(
           err instanceof Error
             ? userFacingActionErrorMessage(err.message)
             : t("recordRoute.couldNotImportLoom"),
         );
-        setLoomImporting(false);
       }
     },
     [
+      busy,
+      clearTimers,
       folderIdFromUrl,
       importStages.length,
-      loomImporting,
       loomUrl,
       navigate,
       spaceIdFromUrl,
@@ -235,22 +280,58 @@ export default function ImportRoute() {
           {storageConfigured === null ? (
             <ImportPanelSkeleton />
           ) : storageConfigured ? (
-            <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
-              {loomImporting ? (
+            <div
+              className={cn(
+                "overflow-hidden rounded-2xl border border-border bg-card shadow-lg transition-opacity duration-300",
+                phase === "leaving" && "opacity-0",
+              )}
+            >
+              {busy ? (
                 <div className="h-1 w-full overflow-hidden bg-muted">
                   <div
-                    style={{ animation: "clips-import-progress 1.2s ease-in-out infinite" }}
-                    className="h-full w-1/3 bg-primary"
+                    className="h-full bg-primary transition-[width] duration-200 ease-out"
+                    style={{ width: `${Math.min(100, progress)}%` }}
                   />
                 </div>
               ) : null}
               <div className="p-6">
-                {loomImporting ? (
-                  <div className="flex flex-col items-center gap-2 py-6 text-center">
-                    <Spinner className="h-6 w-6 text-primary" />
-                    <p className="text-sm font-medium text-foreground">
+                {phase === "importing" ? (
+                  <div className="flex flex-col items-center gap-2 py-8 text-center">
+                    <IconSparkles className="h-6 w-6 animate-pulse text-primary" />
+                    <p
+                      key={stageIndex}
+                      className="text-base font-semibold text-foreground"
+                      style={{ animation: "clips-benefit-in 260ms ease-out" }}
+                    >
                       {importStages[stageIndex]}
                     </p>
+                    <p className="max-w-xs text-xs text-muted-foreground">
+                      {t("importRoute.importingSubtitle")}
+                    </p>
+                  </div>
+                ) : phase === "done" || phase === "leaving" ? (
+                  <div className="flex flex-col items-center gap-4 py-6 text-center">
+                    <div className="flex items-center gap-2 text-primary">
+                      <IconSparkles className="h-6 w-6" />
+                      <p className="text-base font-semibold text-foreground">
+                        {t("importRoute.doneHeading")}
+                      </p>
+                    </div>
+                    <ul className="flex flex-col items-start gap-2 text-start">
+                      {benefits.map((benefit, index) => (
+                        <li
+                          key={benefit}
+                          className="flex items-center gap-2 text-sm font-medium text-foreground"
+                          style={{
+                            animation: "clips-benefit-in 220ms ease-out both",
+                            animationDelay: `${index * 110}ms`,
+                          }}
+                        >
+                          <IconCheck className="h-4 w-4 shrink-0 text-primary" />
+                          {benefit}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ) : (
                   <form
@@ -285,7 +366,7 @@ export default function ImportRoute() {
                 )}
               </div>
 
-              {!loomImporting ? (
+              {!busy ? (
                 <div className="flex items-center justify-center gap-4 border-t border-border px-6 py-4">
                   <Link
                     to={uploadHref}

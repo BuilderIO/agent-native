@@ -1333,9 +1333,15 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     helperText:
       "Loom과 특히 잘 작동합니다. 다른 화면 녹화나 동영상 파일 링크도 붙여넣을 수 있습니다.",
     stageFetching: "동영상을 가져오는 중…",
-    stageUploading: "Clips에 업로드하는 중…",
-    stageTranscript: "스크립트를 가져오는 중…",
-    stageFinalizing: "에이전트에 전달하는 중…",
+    stageUploading: "원본 영상을 업로드하는 중…",
+    stageTranscript: "음성을 검색 가능한 텍스트로 변환하는 중…",
+    stageFinalizing: "Agent-Native로 만드는 중…",
+    importingSubtitle: "밋밋한 녹화를 Agent-Native 프리미티브로 바꾸는 중.",
+    doneHeading: "완료됐어요! 이제 동영상은:",
+    benefitTranscript: "완전히 전사되어 검색 가능",
+    benefitQueryable: "에이전트가 이해하고 질의 가능",
+    benefitSummaries: "필요할 때 즉시 요약과 클립 생성",
+    benefitPrimitive: "일급 Agent-Native 프리미티브",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",

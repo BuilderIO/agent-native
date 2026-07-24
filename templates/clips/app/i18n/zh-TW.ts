@@ -1270,9 +1270,15 @@ const messages = {
     helperText:
       "與 Loom 搭配使用效果極佳。你也可以貼上其他螢幕錄製或影片檔案的連結。",
     stageFetching: "正在擷取你的影片…",
-    stageUploading: "正在上傳到 Clips…",
-    stageTranscript: "正在匯入逐字稿…",
-    stageFinalizing: "正在交給你的代理程式…",
+    stageUploading: "正在上傳原始素材…",
+    stageTranscript: "正在把語音轉成可搜尋的文字…",
+    stageFinalizing: "正在使其成為 Agent-Native…",
+    importingSubtitle: "正在把普通錄製變成 Agent-Native 原語。",
+    doneHeading: "完成！你的影片現在：",
+    benefitTranscript: "完整轉錄且可搜尋",
+    benefitQueryable: "可被你的代理程式理解與查詢",
+    benefitSummaries: "隨需即時產生摘要與片段",
+    benefitPrimitive: "一流的 Agent-Native 原語",
   },
   dictateRoute: {
     pageTitle: "聽寫 · Clips",

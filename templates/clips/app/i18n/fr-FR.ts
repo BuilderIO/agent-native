@@ -1358,9 +1358,15 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     helperText:
       "Fonctionne très bien avec Loom. Vous pouvez aussi coller le lien de tout autre enregistrement d'écran ou fichier vidéo.",
     stageFetching: "Récupération de votre vidéo…",
-    stageUploading: "Envoi vers Clips…",
-    stageTranscript: "Importation de la transcription…",
-    stageFinalizing: "Transmission à votre agent…",
+    stageUploading: "Envoi des rushes…",
+    stageTranscript: "Conversion de la parole en texte cherchable…",
+    stageFinalizing: "Transformation en Agent-Native…",
+    importingSubtitle: "Transformer un simple enregistrement en primitive Agent-Native.",
+    doneHeading: "Et voilà ! Votre vidéo est désormais :",
+    benefitTranscript: "Entièrement transcrite et cherchable",
+    benefitQueryable: "Comprise et interrogeable par votre agent",
+    benefitSummaries: "Résumés et extraits instantanés à la demande",
+    benefitPrimitive: "Une primitive Agent-Native de premier ordre",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localisé)",
