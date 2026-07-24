@@ -22,6 +22,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
 import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
+import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
@@ -36,6 +37,7 @@ import {
   shouldPersistLocalFileEditorUpdate,
   shouldSkipMediaDraftPersistence,
   shouldSeedCollaborativeContent,
+  serializeEditorDraftForPersistence,
   VisualEditor,
 } from "./VisualEditor";
 
@@ -89,6 +91,59 @@ describe("placeholder ancestry", () => {
 });
 
 describe("media draft persistence", () => {
+  it.each([
+    ["image", "https://cdn.example.com/birds.png"],
+    ["video", "https://cdn.example.com/flower.mp4"],
+  ] as const)(
+    "suppresses the slash %s placeholder commit until its source is set",
+    (type, src) => {
+      const editor = createFullEditor();
+      const persisted: string[] = [];
+      const querySelectorAll = Element.prototype.querySelectorAll;
+      const querySelectorAllSpy = vi
+        .spyOn(Element.prototype, "querySelectorAll")
+        .mockImplementation(function (this: Element, selector: string) {
+          try {
+            return querySelectorAll.call(this, selector);
+          } catch {
+            const matches = selector.split(",").flatMap((part) => {
+              try {
+                return Array.from(querySelectorAll.call(this, part));
+              } catch {
+                return [];
+              }
+            });
+            return matches as unknown as NodeListOf<Element>;
+          }
+        });
+      const persistDraft = () => {
+        const draft = serializeEditorDraftForPersistence(editor);
+        if (draft !== null) persisted.push(draft);
+      };
+
+      try {
+        document.body.appendChild(editor.view.dom);
+        editor.commands.insertContent("/");
+        editor.commands.setTextSelection(2);
+        editor.commands.deleteRange({ from: 1, to: 2 });
+        insertMediaPlaceholder(editor, type);
+
+        persistDraft();
+        expect(persisted).toEqual([]);
+
+        editor.commands.updateAttributes(type, { src });
+        persistDraft();
+
+        expect(persisted).toHaveLength(1);
+        expect(persisted[0]).toContain(src);
+      } finally {
+        querySelectorAllSpy.mockRestore();
+        editor.view.dom.remove();
+        editor.destroy();
+      }
+    },
+  );
+
   it("holds a selected empty media placeholder until it has a source", () => {
     const editor = createFullEditor();
 
@@ -100,11 +155,15 @@ describe("media draft persistence", () => {
       editor.commands.setNodeSelection(0);
 
       expect(shouldSkipMediaDraftPersistence(editor)).toBe(true);
+      expect(serializeEditorDraftForPersistence(editor)).toBeNull();
 
       editor.commands.updateAttributes("image", {
         src: "https://cdn.example.com/diagram.png",
       });
       expect(shouldSkipMediaDraftPersistence(editor)).toBe(false);
+      expect(serializeEditorDraftForPersistence(editor)).toBe(
+        "![](https://cdn.example.com/diagram.png)",
+      );
     } finally {
       editor.destroy();
     }

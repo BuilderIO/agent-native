@@ -1039,6 +1039,18 @@ export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
   );
 }
 
+/**
+ * Serialize only complete editor drafts. Structural slash commands explicitly
+ * ask to persist after their transaction, so this guard must live in the shared
+ * persistence path rather than only in `onUpdate`.
+ */
+export function serializeEditorDraftForPersistence(
+  editor: CoreEditor,
+): string | null {
+  if (shouldSkipMediaDraftPersistence(editor)) return null;
+  return docToNfm(editor.getJSON() as any);
+}
+
 function mediaNodeLabel(typeName: MediaNodeType) {
   if (typeName === "image") return "Image";
   if (typeName === "video") return "Video";
@@ -1821,8 +1833,9 @@ export function VisualEditor({
       const guards = guardsRef.current;
       if (!guards) return false;
       try {
-        const normalized =
-          options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
+        const serialized = serializeEditorDraftForPersistence(editorToPersist);
+        if (serialized === null) return true;
+        const normalized = options?.markdown ?? serialized;
         if (localFileMode && normalized === content) return true;
         // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
         // an editor is mounting or reconciling. Content serializes that filler
@@ -2332,9 +2345,9 @@ export function VisualEditor({
           editor={editor}
           documentId={documentId}
           notionPageId={notionPageId}
-          onDraftCommitted={() => {
-            void persistEditorContent(editor, { userInitiated: true });
-          }}
+          onDraftCommitted={() =>
+            persistEditorContent(editor, { userInitiated: true })
+          }
           onDraftPersisted={(markdown) =>
             persistEditorContent(editor, {
               markdown,

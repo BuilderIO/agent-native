@@ -56,7 +56,7 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
-  onDraftCommitted?: () => void | Promise<void>;
+  onDraftCommitted?: () => boolean | void | Promise<boolean | void>;
   onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
    * The open document's linked Notion page id, when it has one. When set, the
@@ -128,6 +128,16 @@ export interface CommandItem {
     editor: Editor,
     context: { slashRange: { from: number; to: number } | null },
   ) => void | boolean | Promise<void>;
+}
+
+export type MediaPlaceholderType = "image" | "video" | "audio";
+
+export function insertMediaPlaceholder(
+  editor: Editor,
+  type: MediaPlaceholderType,
+) {
+  const attrs = type === "image" ? { src: null, alt: "" } : { src: null };
+  return editor.chain().focus().insertContent({ type, attrs }).run();
 }
 
 function getActiveSlashCommandRange(editor: Editor) {
@@ -648,11 +658,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.imageDescription"),
     icon: IconPhoto,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "image", attrs: { src: null, alt: "" } })
-        .run();
+      insertMediaPlaceholder(editor, "image");
     },
   };
 
@@ -661,11 +667,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.videoDescription"),
     icon: IconVideo,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "video", attrs: { src: null } })
-        .run();
+      insertMediaPlaceholder(editor, "video");
     },
   };
 
@@ -674,11 +676,7 @@ export function SlashCommandMenu({
     description: t("editor.slash.audioDescription"),
     icon: IconMusic,
     action: (editor) => {
-      editor
-        .chain()
-        .focus()
-        .insertContent({ type: "audio", attrs: { src: null } })
-        .run();
+      insertMediaPlaceholder(editor, "audio");
     },
   };
 
