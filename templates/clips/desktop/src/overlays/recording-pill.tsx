@@ -248,6 +248,19 @@ export function RecordingPill() {
     }
   };
 
+  const handleAskSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const question = ask.trim();
+    const mid = activeMeetingIdRef.current;
+    if (!question || !mid) return;
+    setAsk("");
+    emit("clips:open-meeting", {
+      meetingId: mid,
+      openChat: true,
+      prompt: question,
+    }).catch(() => {});
+  };
+
   const handlePillMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -401,43 +414,43 @@ export function RecordingPill() {
             />
           </div>
           {ctx.mode === "meeting" ? (
-            <div className="pill-saved-bar">
+            <form className="pill-ask-bar" onSubmit={handleAskSubmit}>
+              <input
+                data-no-drag
+                className="pill-ask-input"
+                value={ask}
+                onChange={(e) => setAsk(e.target.value)}
+                placeholder="Ask anything"
+                aria-label="Ask anything about this meeting"
+                disabled={!ctx.meetingId}
+              />
+              <button
+                type="submit"
+                data-no-drag
+                className="pill-ask-send"
+                disabled={!ask.trim() || !ctx.meetingId}
+                aria-label="Ask"
+                title="Ask"
+              >
+                <IconArrowUp size={13} />
+              </button>
               <button
                 type="button"
                 data-no-drag
-                className="pill-open-web-btn"
+                className="pill-ask-open"
                 onClick={() => {
                   const mid = activeMeetingIdRef.current;
                   if (mid)
-                    emit("clips:open-meeting", {
-                      meetingId: mid,
-                      openChat: true,
-                    }).catch(() => {});
+                    emit("clips:open-meeting", { meetingId: mid }).catch(
+                      () => {},
+                    );
                 }}
-                title="Chat with transcript"
+                aria-label="Open in browser"
+                title="Open this meeting in the browser"
               >
-                <IconMessageCircle size={12} />
-                Chat with transcript
+                <IconExternalLink size={13} />
               </button>
-              <span className="pill-saved-status">
-                <button
-                  type="button"
-                  data-no-drag
-                  className="pill-open-web-btn"
-                  onClick={() => {
-                    const mid = activeMeetingIdRef.current;
-                    if (mid)
-                      emit("clips:open-meeting", { meetingId: mid }).catch(
-                        () => {},
-                      );
-                  }}
-                  title="Open this meeting in the browser"
-                >
-                  <IconExternalLink size={12} />
-                  Open in browser
-                </button>
-              </span>
-            </div>
+            </form>
           ) : null}
         </div>
       </div>

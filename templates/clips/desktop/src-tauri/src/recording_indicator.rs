@@ -71,7 +71,10 @@ const PILL_W_EXPANDED_LOGICAL: u32 = 480;
 /// Meeting mode uses the same focused transcript width as other recordings;
 /// live notes are intentionally kept out of this compact overlay.
 const PILL_W_EXPANDED_MEETING_LOGICAL: u32 = 480;
-const PILL_H_LOGICAL: u32 = 92;
+/// Keep this close to the rendered capsule's height. The window frame is what
+/// hover is polled against, so slack here makes the pill light up while the
+/// cursor is still nowhere near it.
+const PILL_H_LOGICAL: u32 = 60;
 const PILL_H_EXPANDED_LOGICAL: u32 = 340;
 /// Bottom margin from the screen edge, logical px. Granola uses ~24.
 const PILL_BOTTOM_MARGIN_LOGICAL: u32 = 24;
@@ -458,7 +461,9 @@ pub async fn recording_pill_show(
 
 /// True when the global cursor sits inside the pill window's frame. Cursor and
 /// frame both come from Tauri (physical px, desktop top-left origin), so the
-/// test is a plain point-in-rect with no AppKit hop.
+/// test is a plain point-in-rect with no AppKit hop. The frame is inset by the
+/// transparent shadow gutter the renderer pads out, so the polled hover state
+/// matches the capsule the user actually sees.
 fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     let (Ok(c), Ok(p), Ok(s)) = (
         window.cursor_position(),
@@ -467,10 +472,12 @@ fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
     ) else {
         return false;
     };
-    c.x >= p.x as f64
-        && c.x <= (p.x + s.width as i32) as f64
-        && c.y >= p.y as f64
-        && c.y <= (p.y + s.height as i32) as f64
+    let gutter = overlay_shadow_gutter_physical(window.app_handle()) as i32;
+    let left = p.x + gutter;
+    let top = p.y + gutter;
+    let right = p.x + s.width as i32 - gutter;
+    let bottom = p.y + s.height as i32 - gutter;
+    c.x >= left as f64 && c.x <= right as f64 && c.y >= top as f64 && c.y <= bottom as f64
 }
 
 /// Start polling the cursor against the pill frame and emitting

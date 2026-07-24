@@ -739,6 +739,11 @@ export default createAgentChatPlugin({
       "Analytics has one user-facing artifact type: dashboards. Dashboards are JSON configs rendered by the built-in dashboard components, and an extension is a dashboard block—not a separate Analytics result. " +
       'If the user\'s requested dashboard, saved analysis/report, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within the native dashboard components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension`, then immediately call `update-dashboard` to embed it as one or more `chartType: "extension"` panels with `config.extensionId`. ' +
       "After creating the dashboard, briefly tell the user that a dashboard block uses an embedded extension because the request needed bespoke UI/code. Never leave a newly created extension standalone, never create a separate saved analysis for the same request, and never direct the user to an Extensions page from Analytics. Legacy analyses may be read or updated only for compatibility with an existing deep link.\n" +
+      // The extension-first default above is deliberate, but it must not swallow
+      // an explicit ask for a code change: without this carve-out the agent
+      // silently substitutes an extension for "open a PR adding a dual-axis
+      // chart type" and the user never learns the handoff exists.
+      "That extension-first default governs what you build on your own initiative. It does not override an explicit request for a source-code change: when the user asks for the capability natively in the product, asks to change app chrome or a shared component, or asks for a PR, branch, or code change in so many words, call `connect-builder` with their request verbatim instead of substituting an extension. When you have just built an extension for something that plainly belongs in the product — a chart type or interaction other dashboards would reuse — add one sentence offering the `connect-builder` handoff, and only call it if they take you up on it.\n" +
       "</analytics-artifact-guidance>";
 
     return `${sourceGuidance}\n\n${artifactGuidance}\n\n${analyticsDataDictionaryRoutingContext()}`;
