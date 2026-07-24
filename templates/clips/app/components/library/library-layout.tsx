@@ -240,6 +240,14 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       icon: IconTrash,
       match: (p) => p.startsWith("/trash"),
     },
+  ];
+
+  const bottomNavItems: {
+    to: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    match: (path: string) => boolean;
+  }[] = [
     {
       to: "/agent",
       label: t("settings.agentTitle"),
@@ -515,6 +523,49 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                 </div>
               </div>
             </>
+          )}
+        </div>
+
+        <div className="shrink-0">
+          {showCollapsedSidebar ? (
+            <nav className="flex flex-col items-center gap-1 px-2 py-1">
+              {bottomNavItems.map(({ to, label, icon: Icon, match }) => (
+                <Tooltip key={to}>
+                  <TooltipTrigger asChild>
+                    <NavLink
+                      to={to}
+                      aria-label={label}
+                      className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                        match(location.pathname) &&
+                          "bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary",
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </NavLink>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{label}</TooltipContent>
+                </Tooltip>
+              ))}
+            </nav>
+          ) : (
+            <nav className="space-y-0.5 border-t border-border px-2 py-1">
+              {bottomNavItems.map(({ to, label, icon: Icon, match }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={cn(
+                    "flex items-center gap-2 rounded px-2 py-1.5 text-xs",
+                    match(location.pathname)
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-foreground hover:bg-accent/60",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="flex-1 truncate">{label}</span>
+                </NavLink>
+              ))}
+            </nav>
           )}
         </div>
 

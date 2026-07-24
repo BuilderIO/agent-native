@@ -28,6 +28,13 @@ import {
 import { navItems } from "@/lib/brain";
 import { cn } from "@/lib/utils";
 
+const primaryNavItems = navItems.filter(
+  (item) => item.view !== "agent" && item.view !== "settings",
+);
+const bottomNavItems = navItems.filter(
+  (item) => item.view === "agent" || item.view === "settings",
+);
+
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
 
@@ -310,7 +317,7 @@ export function Sidebar({
             collapsed ? "justify-items-center gap-1" : "gap-1",
           )}
         >
-          {navItems.map((item) => {
+          {primaryNavItems.map((item) => {
             const Icon = item.icon;
             const label =
               item.view === "agent"
@@ -359,6 +366,36 @@ export function Sidebar({
             );
           })}
         </div>
+      </nav>
+
+      <nav className="grid shrink-0 gap-1 px-2 py-1">
+        {bottomNavItems.map((item) => {
+          const Icon = item.icon;
+          const label =
+            item.view === "agent"
+              ? t("settings.agentTitle")
+              : t(`navigation.${item.view}`);
+          const link = (
+            <NavLink
+              to={item.href}
+              className={navClass}
+              aria-label={collapsed ? label : undefined}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className={collapsed ? "sr-only" : "truncate"}>
+                {label}
+              </span>
+            </NavLink>
+          );
+          return collapsed ? (
+            <Tooltip key={item.href}>
+              <TooltipTrigger asChild>{link}</TooltipTrigger>
+              <TooltipContent side="right">{label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <div key={item.href}>{link}</div>
+          );
+        })}
       </nav>
 
       <div className="mt-auto shrink-0">
