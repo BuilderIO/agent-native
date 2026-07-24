@@ -20,6 +20,7 @@ import {
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
+  setCodeBlockFromSlashCommand,
   setPlainTextBlock,
 } from "./SlashCommandMenu";
 
@@ -190,6 +191,31 @@ describe("slash command pointer activation", () => {
       expect(onExecute).toHaveBeenCalledTimes(1);
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe("code block slash command", () => {
+  it("deletes the slash query and converts the block in one command chain", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p>/code</p>",
+    });
+
+    try {
+      editor.commands.setTextSelection(6);
+      expect(setCodeBlockFromSlashCommand(editor, { from: 1, to: 6 })).toBe(
+        true,
+      );
+      expect(editor.getJSON()).toEqual({
+        type: "doc",
+        content: [
+          { type: "codeBlock", attrs: { language: null } },
+          { type: "paragraph" },
+        ],
+      });
+    } finally {
+      editor.destroy();
     }
   });
 });

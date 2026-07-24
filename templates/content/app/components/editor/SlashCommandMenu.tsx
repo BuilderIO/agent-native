@@ -302,6 +302,15 @@ export function getEquationInsertionRange(
     : slashRange;
 }
 
+export function setCodeBlockFromSlashCommand(
+  editor: Editor,
+  slashRange: { from: number; to: number } | null,
+) {
+  const chain = editor.chain().focus();
+  if (slashRange) chain.deleteRange(slashRange);
+  return chain.setCodeBlock().run();
+}
+
 const commands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
@@ -354,7 +363,9 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(editor, slashRange),
   },
   {
     titleKey: "editor.slash.quote",
@@ -459,7 +470,9 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
     icon: IconCode,
-    action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(editor, slashRange),
   },
   {
     titleKey: "editor.slash.quote",
