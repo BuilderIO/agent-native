@@ -26,7 +26,6 @@ de-DE|generative-ui
 de-DE|http-api
 de-DE|integrations
 de-DE|organizations-teams-permissions
-de-DE|syncing-template-changes
 de-DE|toolkit-agent-ux
 de-DE|toolkit-collaboration
 de-DE|toolkit-command-navigation
@@ -120,7 +119,6 @@ ko-KR|generative-ui
 ko-KR|http-api
 ko-KR|integrations
 ko-KR|organizations-teams-permissions
-ko-KR|syncing-template-changes
 ko-KR|toolkit-agent-ux
 ko-KR|toolkit-collaboration
 ko-KR|toolkit-command-navigation
@@ -158,7 +156,6 @@ zh-CN|generative-ui
 zh-CN|http-api
 zh-CN|integrations
 zh-CN|organizations-teams-permissions
-zh-CN|syncing-template-changes
 zh-CN|toolkit-agent-ux
 zh-CN|toolkit-collaboration
 zh-CN|toolkit-command-navigation
@@ -176,7 +173,6 @@ zh-TW|generative-ui
 zh-TW|http-api
 zh-TW|integrations
 zh-TW|organizations-teams-permissions
-zh-TW|syncing-template-changes
 zh-TW|toolkit-agent-ux
 zh-TW|toolkit-collaboration
 zh-TW|toolkit-command-navigation
